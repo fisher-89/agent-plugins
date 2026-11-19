@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use store::{
-    AgentEngineKind, AgentModelTiers, AgentProviderProtocol, AgentProviderRecord,
+    AgentEffortTiers, AgentEngineKind, AgentModelTiers, AgentProviderProtocol, AgentProviderRecord,
     SessionConfigSnapshot, SessionRecord, Store,
 };
 
@@ -79,6 +79,7 @@ impl Env {
                     context_length: Some(128_000),
                     max_tokens: None,
                     web_search: false,
+                    efforts: AgentEffortTiers::default(),
                 })
                 .unwrap_or_else(|error| panic!("落 provider 失败: {error}"));
         }

@@ -1942,12 +1942,16 @@ async fn with_workspace_root每run装配_两次open事件面一致() {
 /// 锚定方式：`RunStarted.session_id` 与泵启动日志的 `session=` 同源同值，故可在
 /// 同进程并行用例写入的众多「泵启动」行中精确取回本用例那一行。
 async fn pump_start_line(runner: &SdkRunner) -> String {
+    pump_line_with(runner, open_new()).await
+}
+
+/// 起一轮泵（open 入参可指定档位）并取回该轮的泵启动日志行：档位分发用例
+/// （`effort=` 按 `High` / `Low` 取档）经 `open_new_at_level` 驱动。
+async fn pump_line_with(runner: &SdkRunner, open: SessionOpen) -> String {
     // 先取共享日志目录（取值即 init）：泵的启动行写在 RunStarted 之先，未 init
     // 时写入静默丢弃——故 init 必须前置于 open_session
     crate::sdk::log_test::engine_log_dir();
-    let mut session = runner
-        .open_session(open_new())
-        .expect("New 会话 open 应成功");
+    let mut session = runner.open_session(open).expect("New 会话 open 应成功");
     session
         .questions
         .send(agent::TurnQuestion {
@@ -3764,4 +3768,251 @@ async fn with_db_stores缺省与重复调用均不报错() {
         .with_db_stores(StoreArc::clone(&global_b), StoreArc::clone(&workspace_b))
         .open_session(open_new())
         .expect("重复调用后者覆盖前者（不 panic）");
+}
+
+// ---------------------------------------------------------------------------
+// efforts 旁路载荷（AC-6）：builder 缝、档位分发（`High` 取 `efforts.high` /
+// `Low` 取 `efforts.low`）与泵启动日志 `effort=` 列（shaping 只在
+// `open_session` 一处，故引擎侧可考点收敛为日志原值与配置校验面）。
+// ---------------------------------------------------------------------------
+
+/// 两档 effort 载荷 fixture。
+fn effort_tiers(high: &str, low: &str) -> store::AgentEffortTiers {
+    store::AgentEffortTiers {
+        high: high.to_owned(),
+        low: low.to_owned(),
+    }
+}
+
+#[tokio::test]
+#[allow(clippy::type_complexity)]
+async fn with_efforts高档经泵启动日志报原值且与既有诊断列同行并列() {
+    let runner = SdkRunner::new(complete_config(), None, None, None)
+        .with_efforts(effort_tiers("max", "low"));
+
+    let line = pump_start_line(&runner).await;
+
+    assert!(
+        line.contains("effort=max"),
+        "该轮生效 effort 原值进日志，实际: {line}"
+    );
+    for column in [
+        "protocol=",
+        "model=",
+        "window=",
+        "max_tokens=",
+        "web_search=",
+        "effort=",
+        "raw=",
+    ] {
+        assert!(line.contains(column), "应与 {column} 同列，实际: {line}");
+    }
+    assert!(
+        line.contains("model=rig-test-model-high"),
+        "高档裸名同行（模型与 effort 同源于档位 match），实际: {line}"
+    );
+
+    // 四参 new 调用形态编译可达（既有调用点零改的编译面锚）
+    let _four_args: fn(
+        EngineConfig,
+        Option<ResumeTranscript>,
+        Option<u64>,
+        Option<Arc<Store>>,
+    ) -> SdkRunner = SdkRunner::new;
+}
+
+#[tokio::test]
+async fn 档位分发_高档取efforts_high低档取efforts_low() {
+    let runner = SdkRunner::new(complete_config(), None, None, None)
+        .with_efforts(effort_tiers("max", "low"));
+
+    let high_line = pump_line_with(&runner, open_new_at_level(ModelLevel::High)).await;
+    assert!(
+        high_line.contains("effort=max"),
+        "High 档取 efforts.high，实际: {high_line}"
+    );
+    assert!(
+        high_line.contains("model=rig-test-model-high"),
+        "同档裸名成对（模型与 effort 同一个 match），实际: {high_line}"
+    );
+
+    let low_line = pump_line_with(&runner, open_new_at_level(ModelLevel::Low)).await;
+    assert!(
+        low_line.contains("effort=low"),
+        "Low 档取 efforts.low，实际: {low_line}"
+    );
+    assert!(
+        low_line.contains("model=rig-test-model-low"),
+        "低档裸名成对，实际: {low_line}"
+    );
+}
+
+#[tokio::test]
+async fn 档位分发_单档留空该档记短横且两档互不冒用() {
+    let runner =
+        SdkRunner::new(complete_config(), None, None, None).with_efforts(effort_tiers("", "low"));
+
+    let high_line = pump_line_with(&runner, open_new_at_level(ModelLevel::High)).await;
+    assert!(
+        high_line.contains("effort=-"),
+        "high 档留空 ⇒ 日志记 `-`（不冒用 low 档值），实际: {high_line}"
+    );
+    assert!(
+        !high_line.contains("effort=low"),
+        "高档不得跨界取低档 effort，实际: {high_line}"
+    );
+
+    let low_line = pump_line_with(&runner, open_new_at_level(ModelLevel::Low)).await;
+    assert!(
+        low_line.contains("effort=low"),
+        "低档仍报自身原值，实际: {low_line}"
+    );
+}
+
+#[tokio::test]
+async fn 档位分发_两档纯空白日志均记短横() {
+    let runner =
+        SdkRunner::new(complete_config(), None, None, None).with_efforts(effort_tiers("   ", "\t"));
+
+    for level in [ModelLevel::High, ModelLevel::Low] {
+        let line = pump_line_with(&runner, open_new_at_level(level)).await;
+        assert!(
+            line.contains("effort=-"),
+            "{level:?}：纯空白裁剪后为空 ⇒ 记 `-`（裁剪判据在 shaping 单点），实际: {line}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn 未装配efforts与显式两档空串日志除会话外逐列同形() {
+    let unset = pump_start_line(&SdkRunner::new(complete_config(), None, None, None)).await;
+    let explicit_default = pump_start_line(
+        &SdkRunner::new(complete_config(), None, None, None)
+            .with_efforts(store::AgentEffortTiers::default()),
+    )
+    .await;
+
+    // `session=` 每轮铸造，故列面对比从 `protocol=` 起
+    let columns = |line: &str| -> Vec<String> {
+        line.split_whitespace()
+            .filter(|token| !token.starts_with("session=") && *token != "泵启动")
+            .map(str::to_owned)
+            .collect()
+    };
+    assert_eq!(
+        columns(&unset),
+        columns(&explicit_default),
+        "未装配 = 显式两档空串（无第三条「undefined」态）"
+    );
+    assert!(unset.contains("effort=-"), "未装配档记 `-`，实际: {unset}");
+}
+
+#[tokio::test]
+async fn 泵启动日志effort列原值透传不转义不截断() {
+    let long = "e".repeat(1_200);
+    for effort in ["ultra-thinking", long.as_str(), "thinking 🎉 a b"] {
+        let runner = SdkRunner::new(complete_config(), None, None, None)
+            .with_efforts(effort_tiers(effort, ""));
+        let line = pump_start_line(&runner).await;
+
+        assert!(
+            line.contains(&format!("effort={effort}")),
+            "effort={effort:?} 原值进日志（不 JSON 转义、不截断），实际: {line}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn efforts非空不改变启动校验面_缺api_key仍config_missing且成因不含effort() {
+    let mut config = complete_config();
+    config.api_key = String::new();
+    let runner = SdkRunner::new(config, None, None, None).with_efforts(effort_tiers("max", "low"));
+
+    let error = runner
+        .open_session(open_new())
+        .expect_err("缺 api_key 必须显式失败");
+
+    let AgentStartError::ConfigMissing(message) = &error else {
+        panic!("应为 ConfigMissing，实际: {error:?}");
+    };
+    // 首缺成因逐字为 api_key（成因集仍取既有三档的同一判定次序）
+    assert!(
+        message.contains("api_key"),
+        "成因串报首个缺失项 api_key，实际: {message}"
+    );
+    for other in ["base_url", "model"] {
+        assert!(
+            !message.contains(other),
+            "首缺之外的字段不进因果串（{other}），实际: {message}"
+        );
+    }
+    assert!(
+        !message.contains("effort"),
+        "effort 空是合法态，不进配置齐备校验，实际: {message}"
+    );
+}
+
+#[tokio::test]
+async fn efforts非空时_new会话open照常成功且与裸四参错误面一致() {
+    // 完整配置 New 会话 open 成功（载荷不改变开面）
+    let with_efforts = SdkRunner::new(complete_config(), None, None, None)
+        .with_efforts(effort_tiers("max", "low"));
+    drop(
+        with_efforts
+            .open_session(open_new())
+            .expect("完整配置 New 会话 open 应成功"),
+    );
+
+    // 启动校验面：无装载缝续会话两态逐字一致（effort 不参与校验）
+    let plain = SdkRunner::new(complete_config(), None, None, None);
+    assert_eq!(
+        SdkRunner::new(complete_config(), None, None, None)
+            .with_efforts(effort_tiers("max", "low"))
+            .open_session(open_continue("ses-effort-validation"))
+            .expect_err("无装载缝续会话必须显式失败")
+            .to_string(),
+        plain
+            .open_session(open_continue("ses-effort-validation"))
+            .expect_err("裸四参同口径失败")
+            .to_string(),
+        "efforts 载荷不改变续会话启动校验面"
+    );
+}
+
+/// 边界：四参 `SdkRunner::new` 的签名零改锚（既有调用点零改的编译面证据）——
+/// `efforts` 走 `.with_efforts(..)` 旁路注入，构造器参数面逐字不动。
+#[tokio::test]
+#[allow(clippy::type_complexity)]
+async fn 四参构造器签名零改锚定函数指针可达() {
+    type Ctor = fn(
+        EngineConfig,
+        Option<ResumeTranscript>,
+        Option<u64>,
+        Option<StoreArc<store::Store>>,
+    ) -> SdkRunner;
+
+    let constructor: Ctor = SdkRunner::new;
+
+    // 函数指针构造的 runner 与直构同形：New 会话 open 成功（四参面可构造可用）
+    let runner = constructor(complete_config(), None, Some(200_000), None);
+    drop(
+        runner
+            .open_session(open_new())
+            .expect("四参构造的 runner 应能开 New 会话"),
+    );
+
+    // 续会话错误面逐字一致：四参面不因函数指针路径改变启动校验
+    let via_pointer = constructor(complete_config(), None, None, None);
+    let direct = SdkRunner::new(complete_config(), None, None, None);
+    assert_eq!(
+        via_pointer
+            .open_session(open_continue("ses-ctor-anchor"))
+            .expect_err("无装载缝续会话必须显式失败")
+            .to_string(),
+        direct
+            .open_session(open_continue("ses-ctor-anchor"))
+            .expect_err("裸四参同口径失败")
+            .to_string(),
+        "函数指针构造与直构错误面逐字一致"
+    );
 }

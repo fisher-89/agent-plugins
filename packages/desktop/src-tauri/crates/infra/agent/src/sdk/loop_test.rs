@@ -427,6 +427,7 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
             ask: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
+            effort_params: turn.effort_params.clone(),
         };
         let handle = handle.clone();
         async move {
@@ -474,6 +475,7 @@ async fn drive_loop_collecting_history(
             ask: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
+            effort_params: turn.effort_params.clone(),
         };
         let handle = handle.clone();
         async move {
@@ -569,6 +571,7 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
         ask: None,
         protect: crate::sdk::protect::ProtectRules::load(None),
         web_search: false,
+        effort_params: None,
     }
 }
 
@@ -1751,6 +1754,7 @@ fn loop_turn字段面完整构造锚定() {
         ask: None,
         protect: crate::sdk::protect::ProtectRules::load(None),
         web_search: false,
+        effort_params: None,
     };
     assert_eq!(turn.question, "q");
     assert_eq!(turn.session_id, "sdk-0-1");
@@ -7000,6 +7004,7 @@ async fn drive_loop_with_steers_and_history(
             ask: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
+            effort_params: turn.effort_params.clone(),
         };
         let handle = handle.clone();
         async move { r#loop::run(&dyn_model, &turn, history, steers, sender, handle).await }
@@ -7039,6 +7044,7 @@ async fn drive_loop_with_steers_and_handle(
             ask: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
+            effort_params: turn.effort_params.clone(),
         };
         async move { r#loop::run(&dyn_model, &turn, Vec::new(), steers, sender, handle).await }
     });
@@ -8145,5 +8151,237 @@ async fn db执行体err串以is_error回灌且长度不超硬墙() {
         );
         assert!(results[0].1.len() <= crate::sdk::tools::MAX_RESULT_BYTES);
         assert_eq!(sealed_messages(&events).len(), 2, "Err 回灌后续轮不中断");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// effort 旁路载荷：请求侧形状（AC-4 / AC-5 loop 半边）
+//
+// 载荷已由 `sdk/effort.rs` shaping 完毕，loop 只落位（`additional_params =
+// turn.effort_params.clone()`）；与 `web_search` 的 `provider_tool(..)` 按
+// rig 的按键合并共存，两键互不覆盖。
+// ---------------------------------------------------------------------------
+
+/// 携 effort 旁路载荷（与可选 `web_search` 开关）的轮参数（其余面同基线）。
+fn effort_turn(cwd: &Path, effort_params: Option<serde_json::Value>, web_search: bool) -> LoopTurn {
+    LoopTurn {
+        effort_params,
+        web_search,
+        ..loop_turn(cwd, AgentPermissionMode::BypassPermissions)
+    }
+}
+
+/// 单轮请求捕获（一轮假流 → 恰一条请求）。
+async fn single_request(
+    tag: &str,
+    effort_params: Option<serde_json::Value>,
+    web_search: bool,
+) -> CompletionRequest {
+    let dir = tempdir(tag);
+    let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
+    let turn = effort_turn(dir.path(), effort_params, web_search);
+    let handle = RunHandle::default();
+
+    let _events = drive_loop(&model, &turn, &handle).await;
+
+    let requests = model.captured_requests();
+    assert_eq!(requests.len(), 1, "一轮假流恰一次请求");
+    requests.into_iter().next().expect("请求在场")
+}
+
+#[tokio::test]
+async fn openai形载荷原样落additional_params且顶层恰一键() {
+    let payload = serde_json::json!({ "reasoning_effort": "max" });
+    let request = single_request("effort-openai", Some(payload.clone()), false).await;
+
+    let params = request
+        .additional_params
+        .as_ref()
+        .expect("载荷在场 ⇒ additional_params 在场");
+    assert_eq!(params, &payload, "additional_params 深等于该对象");
+    assert_eq!(
+        params.as_object().expect("顶层为对象").len(),
+        1,
+        "顶层键数恰 1（loop 零加工、零多余键）"
+    );
+}
+
+#[tokio::test]
+async fn anthropic形载荷原样落additional_params且嵌套各一键() {
+    let payload = serde_json::json!({ "output_config": { "effort": "max" } });
+    let request = single_request("effort-anthropic", Some(payload.clone()), false).await;
+
+    let params = request
+        .additional_params
+        .as_ref()
+        .expect("载荷在场 ⇒ additional_params 在场");
+    assert_eq!(params, &payload, "嵌套载荷原样透传");
+    let outer = params.as_object().expect("顶层为对象");
+    assert_eq!(outer.len(), 1, "外层键数恰 1");
+    assert_eq!(
+        outer["output_config"]
+            .as_object()
+            .expect("内层为对象")
+            .len(),
+        1,
+        "内层键数恰 1"
+    );
+}
+
+#[tokio::test]
+async fn 载荷缺席时additional_params恒none且其余请求字段与基线一致() {
+    let request = single_request("effort-absent", None, false).await;
+
+    assert!(
+        request.additional_params.is_none(),
+        "留空零痕迹：additional_params 恒 None，实际: {:?}",
+        request.additional_params
+    );
+    assert!(request.model.is_none(), "model 不覆写");
+    assert!(request.temperature.is_none());
+    assert!(request.max_tokens.is_none());
+    assert!(request.tool_choice.is_none());
+    assert!(request.output_schema.is_none());
+    assert!(request.documents.is_empty());
+}
+
+#[tokio::test]
+async fn 空对象载荷不被归一为none且原样落位() {
+    let request = single_request("effort-empty-object", Some(serde_json::json!({})), false).await;
+
+    assert_eq!(
+        request.additional_params,
+        Some(serde_json::json!({})),
+        "loop 零判定：不做「空对象归一为 None」（归一职责在 shaping 单点）"
+    );
+}
+
+#[tokio::test]
+async fn effort与web_search同开两键共存互不覆盖() {
+    let payload = serde_json::json!({ "output_config": { "effort": "max" } });
+    let request = single_request("effort-with-search", Some(payload), true).await;
+
+    let params = request
+        .additional_params
+        .as_ref()
+        .expect("两载荷同开 ⇒ additional_params 在场");
+    assert_eq!(
+        params["output_config"],
+        serde_json::json!({ "effort": "max" }),
+        "effort 载荷键不被 provider_tool 覆盖"
+    );
+    assert_eq!(
+        params["tools"],
+        serde_json::json!([
+            { "type": "web_search_20250305", "name": "web_search", "max_uses": 5 }
+        ]),
+        "tools 键深等于既有「一项三键」形态（服务端工具面零变化）"
+    );
+    assert_eq!(
+        params.as_object().expect("顶层为对象").len(),
+        2,
+        "顶层恰两键（effort 键 + tools 键）"
+    );
+}
+
+#[tokio::test]
+async fn effort在场web_search关时仅effort键在场() {
+    let payload = serde_json::json!({ "reasoning_effort": "low" });
+    let request = single_request("effort-no-search", Some(payload), false).await;
+
+    let params = request
+        .additional_params
+        .as_ref()
+        .expect("载荷在场 ⇒ additional_params 在场");
+    assert_eq!(
+        params,
+        &serde_json::json!({ "reasoning_effort": "low" }),
+        "工具关：仅 effort 键，无 tools 键"
+    );
+    assert!(
+        params.get("tools").is_none(),
+        "web_search=false ⇒ 不挂 provider tool，实际: {params}"
+    );
+}
+
+#[tokio::test]
+async fn effort缺席web_search开时仅tools键在场() {
+    let request = single_request("search-no-effort", None, true).await;
+
+    let params = request
+        .additional_params
+        .as_ref()
+        .expect("工具开 ⇒ additional_params 在场");
+    assert_eq!(
+        params.as_object().expect("顶层为对象").len(),
+        1,
+        "顶层恰一键（无 effort 空壳）"
+    );
+    assert!(
+        params.get("output_config").is_none() && params.get("reasoning_effort").is_none(),
+        "effort 缺席不落空键，实际: {params}"
+    );
+    assert_eq!(
+        params["tools"],
+        serde_json::json!([
+            { "type": "web_search_20250305", "name": "web_search", "max_uses": 5 }
+        ]),
+        "既有 web_search 用例口径不回归"
+    );
+}
+
+#[tokio::test]
+async fn 两键合并次序无关_顶层键序不作判据() {
+    let payload = serde_json::json!({ "output_config": { "effort": "max" } });
+    let request = single_request("effort-merge-order", Some(payload.clone()), true).await;
+    let params = request
+        .additional_params
+        .as_ref()
+        .expect("两载荷同开 ⇒ additional_params 在场");
+
+    // 两种书写次序合成的期望对象（serde_json 对象比较与键序无关）
+    let effort_first = serde_json::json!({
+        "output_config": { "effort": "max" },
+        "tools": [{ "type": "web_search_20250305", "name": "web_search", "max_uses": 5 }],
+    });
+    let tools_first = serde_json::json!({
+        "tools": [{ "type": "web_search_20250305", "name": "web_search", "max_uses": 5 }],
+        "output_config": { "effort": "max" },
+    });
+    assert_eq!(effort_first, tools_first, "期望对象两序等价（键序非判据）");
+    assert_eq!(params, &effort_first, "合并结果深等于两键共存形态");
+}
+
+#[tokio::test]
+async fn 两轮会话每轮请求均携同一载荷不累积不改写() {
+    let dir = tempdir("effort-two-rounds");
+    write_file(&dir.path().join("README.md"), "你好工作区");
+    let payload = serde_json::json!({ "reasoning_effort": "max" });
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_text("先读文件"),
+            raw_tool_call("tu_1", "read", serde_json::json!({ "path": "README.md" })),
+            raw_final(usage(5, 6)),
+        ],
+        vec![raw_text("文件内容已确认"), raw_final(usage(7, 8))],
+    ]);
+    let handle = RunHandle::default();
+
+    let _events = drive_loop(
+        &model,
+        &effort_turn(dir.path(), Some(payload.clone()), false),
+        &handle,
+    )
+    .await;
+
+    let requests = model.captured_requests();
+    assert_eq!(requests.len(), 2, "工具轮回灌后续跑 ⇒ 两次请求");
+    for (index, request) in requests.iter().enumerate() {
+        assert_eq!(
+            request.additional_params.as_ref(),
+            Some(&payload),
+            "第 {} 轮请求均携同一载荷（turn 级 clone，跨轮不累积、不改写）",
+            index + 1
+        );
     }
 }

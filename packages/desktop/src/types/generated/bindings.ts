@@ -81,7 +81,9 @@ export const commands = {
 	 *  保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）。
 	 * 
 	 *  参数序：`protocol` 紧跟 `name`——协议决定 `base_url` 语义与 wire，属连接
-	 *  配置核心项，签名上显式；`web_search` 居末位（provider 属性，缺省关）。
+	 *  配置核心项，签名上显式；`tuning` 居末位收四项旁路载荷（`context_length` /
+	 *  `max_tokens` / `web_search` / `efforts`——同属「可空调参」，MUST NOT 进
+	 *  `EngineConfig`；参数位上限见 [`AgentProviderTuning`]）。
 	 * 
 	 *  保存期校验单点（避免「保存成功但跑不起来」）：三档模型名经引擎侧**同一**
 	 *  `parse_model_spec`（`high → medium → low`，首个非法即 `Err`，不造第二套
@@ -92,8 +94,13 @@ export const commands = {
 	 *  `web_search` **不因协议拒收或清零**（openai 下同收原值）——生效门在运行
 	 *  发起解析期（`provider.web_search && protocol == Anthropic`），保存期纠偏
 	 *  会让「先开开关后改协议」与「先改协议后开开关」收敛到不同记录形态。
+	 * 
+	 *  `efforts` **只 `trim`**：两档各自裁剪两侧空白（空串 = 留空 = 不发），值域
+	 *  零校验——自定义值必须能存（两 vendor 值域不是同一集合，目录成员与否不参与
+	 *  判定）；也 MUST NOT 因协议拒收或清零（两协议都有 effort 语义，wire 形状由
+	 *  引擎侧 shaping 吸收）。
 	 */
-	saveAgentProvider: (id: number | null, name: string, protocol: AgentProviderProtocol, baseUrl: string, apiKey: string, models: AgentModelTiers, contextLength: number | null, maxTokens: number | null, webSearch: boolean) => __TAURI_INVOKE<AgentProviderRecord>("save_agent_provider", { id, name, protocol, baseUrl, apiKey, models, contextLength, maxTokens, webSearch }),
+	saveAgentProvider: (id: number | null, name: string, protocol: AgentProviderProtocol, baseUrl: string, apiKey: string, models: AgentModelTiers, tuning: AgentProviderTuning) => __TAURI_INVOKE<AgentProviderRecord>("save_agent_provider", { id, name, protocol, baseUrl, apiKey, models, tuning }),
 	/**  删除 provider：被 agent 引用 reject（含引用方提示，不级联） */
 	deleteAgentProvider: (id: number) => __TAURI_INVOKE<boolean>("delete_agent_provider", { id }),
 	/**  agent 实例清单（主键 id 升序）。 */
@@ -116,6 +123,13 @@ export const commands = {
 	 *  命令体零校验逻辑。
 	 */
 	setDefaultAgentInstance: (id: number) => __TAURI_INVOKE<AgentInstanceRecord>("set_default_agent_instance", { id }),
+	/**
+	 *  模型目录（静态建议表）：零参数、零 IO、零状态薄包装（`Result` 仅为与同轨
+	 *  模板一致，恒 `Ok`）。目录**不参与保存期校验、不参与运行期解析**——它只为
+	 *  「这家协议有哪些常用模型 / 可填哪些 effort 建议值」提供参考面，漂移代价
+	 *  上限是「建议不准」。
+	 */
+	listModelCatalog: () => __TAURI_INVOKE<ModelCatalog>("list_model_catalog"),
 	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, sessionId: string | null, source: string | null, sourceRef: string | null, agent: number | null, cwd: string | null) => __TAURI_INVOKE<TurnSummary>("agent_start", { onEvent, root, prompt, permissionMode, sessionId, source, sourceRef, agent, cwd }),
 	agentStop: (root: string, sessionId: string) => __TAURI_INVOKE<null>("agent_stop", { root, sessionId }),
 	/**
@@ -413,6 +427,21 @@ export type AgentDelta =
 { kind: "thinking"; thinking: string };
 
 /**
+ *  provider 两档思考强度（effort）档位（agent 管理域，纯嵌套 struct 不落独立
+ *  模型）：与 [`AgentModelTiers`] 成 **sibling 列**——MUST NOT 并入三档模型
+ *  struct（该 struct 未版本化，往里加字段即改 bincode 布局却无 `from` 链可依）。
+ *  语义为「同一模型在不同档位想多深」：`high` 供 `ModelLevel::High`、`low` 供
+ *  `ModelLevel::Low`；**空串 = 留空 = 不发**（与三档模型名用空串表未配置同型）。
+ *  值域不封闭：保存期只 `trim()`，自定义值原样透传。
+ */
+export type AgentEffortTiers = {
+	/**  深相位档（proposal / 设计 / 检视 / 验收）的思考强度 */
+	high: string,
+	/**  快相位档（实现 / 测试生成）的思考强度 */
+	low: string,
+};
+
+/**
  *  agent 实例引擎二值（agent 管理域，store 本地枚举）：serde camelCase 线值
  *  `"cli" | "sdk"` 与门面 `EngineKind` 同线值域。持久化的是配置值域而非引擎
  *  实现——store 禁拖引擎门面 crate（零新增依赖），`AgentEngineKind` →
@@ -510,8 +539,9 @@ export type AgentMessageRole =
 /**
  *  provider 三档模型档位（agent 管理域，纯嵌套 struct 不落独立模型——嵌装
  *  先例同转录单表的 `AgentEvent`）：high / medium / low 三档
- *  模型标识，运行发起解析消费固定取 high 档（effort 进 run 参数与档位选择
- *  器为后续迭代，本期只存不选）。
+ *  模型标识，运行发起解析消费固定取 high 档（深度轴由 sibling 列
+ *  [`AgentEffortTiers`] 承担，见 provider-effort-knob；per-run effort 参数与
+ *  前端档位选择器仍为后续迭代，medium 档仍只存不选）。
  */
 export type AgentModelTiers = {
 	high: string,
@@ -546,7 +576,7 @@ export type AgentProviderProtocol =
 /**  Anthropic Messages 端点及其兼容网关 */
 "anthropic";
 
-/**  agent provider 记录 */
+/**  agent provider 记录（当前形态） */
 export type AgentProviderRecord = {
 	/**  记录 id（主键，写事务内 max+1 分配） */
 	id: number,
@@ -589,6 +619,33 @@ export type AgentProviderRecord = {
 	 *  拒收、不清零），纠偏只在运行发起解析单点
 	 */
 	webSearch?: boolean,
+	/**
+	 *  两档思考强度（**sibling 列**，MUST NOT 并入 [`AgentModelTiers`]）：与
+	 *  `models` 同一记录不同轴——`high` 供 `ModelLevel::High`、`low` 供
+	 *  `ModelLevel::Low`。**空串 = 留空 = 不发**（请求体零新增键）；值域不
+	 *  封闭（两协议值域不是同一集合，保存期只 `trim`）；**无协议门控**（两
+	 *  协议都有 effort 语义，wire 形状差异由引擎侧 shaping 单点吸收）
+	 */
+	efforts?: AgentEffortTiers,
+};
+
+/**
+ *  provider 可空调参组（**IPC 入参形态**，不是记录形态）：`context_length` /
+ *  `max_tokens` / `web_search` / `efforts` 四项同属「门面旁路载荷」——连接
+ *  配置字段面之外的引擎可空参与开关，MUST NOT 进 `EngineConfig`。收一个参数
+ *  是因为 IPC 命令面的参数位有硬上限（specta `SpectaFn` 实现到 10 参、`State`
+ *  计入其一），四项拆开平铺会越界；把同一族的四项收成一组也顺带把「哪四项是
+ *  旁路载荷」写在签名上。
+ */
+export type AgentProviderTuning = {
+	/**  provider 上下文窗长（token 数；留空 = 未配置，不得 0 / 缺省字面） */
+	contextLength: number | null,
+	/**  provider 输出上限（token 数；留空 = 按上下文窗长分档，非空须 >= 4096） */
+	maxTokens: number | null,
+	/**  云端 `web_search` 开关（恒携；openai 协议下原样入库、生效门在解析期） */
+	webSearch: boolean,
+	/**  两档思考强度（恒携；空串 = 留空 = 不发） */
+	efforts: AgentEffortTiers,
 };
 
 /**
@@ -1305,6 +1362,39 @@ export type AttemptRecord = {
 	decisionSessionId: string | null,
 };
 
+/**  单模型条目：完整模型原文 + 能力元数据（预填用）+ 模型级 effort 覆盖。 */
+export type CatalogModel = {
+	/**  完整模型原文（可含 `[1m]` 后缀，MUST NOT 另造「后缀位」或第二份裸名） */
+	value: string,
+	/**
+	 *  标称上下文窗长（token，建议预填值；缺席 = `null` = 该输入框不预填）。
+	 *  `value` 含 `[1m]` 后缀的条目 MUST 为 `1_000_000`（目录内不自相矛盾）
+	 */
+	contextLength: number | null,
+	/**
+	 *  标称最大输出（token，建议预填值；缺席 = `null` = 不预填）。`openai`
+	 *  协议的请求恒不写上限，前端也不预填该值（取值链不受影响）
+	 */
+	maxTokens: number | null,
+	/**  是否支持思考强度（只影响建议面：`false` ⇒ 该条目 effort 建议为空） */
+	supportsThinking: boolean,
+	/**
+	 *  模型级 effort 覆盖：`Some(list)`（含 `Some([])` = 显式「无建议」）优先于
+	 *  协议级，`None` = 继承协议级
+	 */
+	efforts: string[] | null,
+};
+
+/**  单协议段：协议级 effort **建议**值域 + 该协议的常用模型条目。 */
+export type CatalogProtocol = {
+	/**  协议（复用 store 线值枚举——「协议」不造第二份真源） */
+	protocol: AgentProviderProtocol,
+	/**  协议级 effort **建议**值域（非校验值域：保存期不查成员，自定义值必须能存） */
+	efforts: string[],
+	/**  该协议的常用模型条目（非空） */
+	models: CatalogModel[],
+};
+
 /**
  *  change 详情聚合。`id` 为身份锚（寻址入参同值）；`name` 自记录直读（恒裸名
  *  ——归档 change 的日期前缀仅存在于磁盘目录名，MUST NOT 进入出线值）；db 无
@@ -1905,6 +1995,12 @@ export type LanguageStats = {
 	blanks: number,
 	/**  代码行份额（百分点 0–100，与排序键同轴） */
 	share: number | null,
+};
+
+/**  两级目录根（`protocols` 非空、每条协议 `models` 非空）。 */
+export type ModelCatalog = {
+	/**  按协议分组的条目段（每段含协议级 effort 建议 + 模型条目） */
+	protocols: CatalogProtocol[],
 };
 
 /**  模型清单一行：模型名 + 记录计数（计数 0 也列出）。 */

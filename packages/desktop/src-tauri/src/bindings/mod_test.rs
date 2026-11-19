@@ -143,6 +143,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "saveAgentInstance",
     "deleteAgentInstance",
     "setDefaultAgentInstance",
+    "listModelCatalog",
     "agentStart",
     "agentStop",
     "agentAnswer",
@@ -200,6 +201,7 @@ const COMMAND_NAMES: &[&str] = &[
     "save_agent_instance",
     "delete_agent_instance",
     "set_default_agent_instance",
+    "list_model_catalog",
     "agent_start",
     "agent_stop",
     "agent_answer",
@@ -242,6 +244,7 @@ const DTO_TYPES: &[&str] = &[
     "ActivePhase",
     "ExecOutputChunk",
     "AgentBlock",
+    "AgentEffortTiers",
     "AgentEngineKind",
     "AgentEvent",
     "AgentEventKind",
@@ -249,6 +252,7 @@ const DTO_TYPES: &[&str] = &[
     "AgentModelTiers",
     "AgentPermissionMode",
     "AgentProviderRecord",
+    "AgentProviderTuning",
     "AgentRunMessage",
     "AgentRunStatus",
     "SessionPage",
@@ -263,6 +267,8 @@ const DTO_TYPES: &[&str] = &[
     "ArtifactDescriptor",
     "ArtifactEnvelope",
     "AttemptRecord",
+    "CatalogModel",
+    "CatalogProtocol",
     "ChangeDetail",
     "ChangeList",
     "ChangeSource",
@@ -283,6 +289,7 @@ const DTO_TYPES: &[&str] = &[
     "FileStat",
     "FileWatchEvent",
     "LanguageStats",
+    "ModelCatalog",
     "ModelInfo",
     "MutationConfig",
     "PhaseEntry",
@@ -1059,13 +1066,13 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     // 其后补 agent_steer（50 → 51）；本变更再补两条契约面命令（51 → 53）
     assert_eq!(
         COMMAND_NAMES.len(),
-        53,
-        "命令清单本变更补录两条（archi_api_check / archi_api_generate，51 → 53）"
+        54,
+        "命令清单本变更补录一条（list_model_catalog，53 → 54）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        53,
-        "包装清单本变更补录两条（archiApiCheck / archiApiGenerate，51 → 53）"
+        54,
+        "包装清单本变更补录一条（listModelCatalog，53 → 54）"
     );
     assert!(
         COMMAND_NAMES.contains(&"agent_steer"),
@@ -1143,8 +1150,8 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
 fn dto类型清单零补录_条目数与首尾锚持衡() {
     assert_eq!(
         DTO_TYPES.len(),
-        99,
-        "退役五类型出清单（ArchiWarning / DocKind / DocRef / DocSource / WarningKind）：104 − 5"
+        104,
+        "清单 99 → 104：本变更补录五类型（AgentEffortTiers / AgentProviderTuning / ModelCatalog / CatalogProtocol / CatalogModel）"
     );
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(
@@ -2027,18 +2034,18 @@ fn 登记面_架构页会话清单命令在册() {
     );
 }
 
-/// 边界：命令总数 51 → 53（本变更新增两条契约面命令），两份清单条目数持衡
-/// （漏登记或重复登记即红）。
+/// 边界：命令总数 51 → 54（本变更新增 `list_model_catalog` 一条），两份清单
+/// 条目数持衡（漏登记或重复登记即红）。
 #[test]
-fn 登记面_命令总数加二且两清单持衡() {
+fn 登记面_命令总数加三且两清单持衡() {
     assert_eq!(
         COMMAND_NAMES.len(),
-        53,
-        "本变更补录两条后的命令总数（51 → 53）"
+        54,
+        "累计补录三条后的命令总数（51 → 54）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        53,
+        54,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
 }
@@ -2504,14 +2511,14 @@ fn 登记面_三新命令在两清单与生成物各在册() {
     }
 }
 
-/// 正向：总数锚 51 → 53（本变更新增两条契约面命令，两份清单持衡、一一对应）；
-/// 尾锚仍为 `read_file`（新条目插在 archi 组内，尾锚零位移）。
+/// 正向：总数锚 51 → 54（逐变更叠加，两份清单持衡、一一对应）；
+/// 尾锚仍为 `read_file`（`list_model_catalog` 插在 agents 组内，尾锚零位移）。
 #[test]
 fn 登记面_总数五十且尾锚零位移() {
-    assert_eq!(COMMAND_NAMES.len(), 53, "命令清单总数 51 → 53");
+    assert_eq!(COMMAND_NAMES.len(), 54, "命令清单总数 51 → 54");
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        53,
+        54,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
     assert_eq!(
@@ -3638,4 +3645,111 @@ fn 两新命令的zod三表形态() {
         );
         assert!(bindings.contains(&signature), "包装签名为 `{signature}`");
     }
+}
+
+// ---------------------------------------------------------------------------
+// 目录命令的登记面与出线形参面（AC-7 注册面 / AC-13 出线契约）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 目录命令在登记面恰一次且包装同在册() {
+    let _lock = lock();
+
+    // 单一登记面（`all_commands!` 一行）：清单内不重不漏——invoke 名走
+    // snake_case、生成包装名走 camelCase，两份清单各查各自形态
+    let invoke_hits = COMMAND_NAMES
+        .iter()
+        .filter(|name| **name == "list_model_catalog")
+        .count();
+    assert_eq!(
+        invoke_hits, 1,
+        "命令名清单：list_model_catalog 恰一次，实际 {invoke_hits}"
+    );
+    let wrapper_hits = COMMAND_WRAPPERS
+        .iter()
+        .filter(|name| **name == "listModelCatalog")
+        .count();
+    assert_eq!(
+        wrapper_hits, 1,
+        "包装名清单：listModelCatalog 恰一次，实际 {wrapper_hits}"
+    );
+
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    assert_eq!(
+        content.matches("\"list_model_catalog\"").count(),
+        1,
+        "产物内 invoke 目标恰一处（单一登记面，不重不漏）"
+    );
+}
+
+#[test]
+fn 目录与effort四类型在出线_dto清单() {
+    for name in [
+        "AgentEffortTiers",
+        "ModelCatalog",
+        "CatalogProtocol",
+        "CatalogModel",
+    ] {
+        assert!(
+            DTO_TYPES.contains(&name),
+            "出线 DTO 类型清单含 {name}（specta 按结构体名生成）"
+        );
+    }
+
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    for signature in [
+        "export type AgentEffortTiers = {",
+        "export type ModelCatalog = {",
+        "export type CatalogProtocol = {",
+        "export type CatalogModel = {",
+    ] {
+        assert!(content.contains(signature), "产物含类型声明 `{signature}`");
+    }
+}
+
+#[test]
+fn save_agent_provider形参面末位为tuning组而目录命令零形参() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    let squashed = content.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    // 八参签名：四项可空调参收成末位一个 `tuning` 组（参数位上限 DD15）
+    let save_signature = "saveAgentProvider: (id: number | null, name: string, protocol: \
+                          AgentProviderProtocol, baseUrl: string, apiKey: string, models: \
+                          AgentModelTiers, tuning: AgentProviderTuning) => \
+                          __TAURI_INVOKE<AgentProviderRecord>(\"save_agent_provider\", \
+                          { id, name, protocol, baseUrl, apiKey, models, tuning })";
+    let expected = save_signature
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        squashed.contains(&expected),
+        "saveAgentProvider 形参面与 invoke 目标逐字（末位 tuning 组）"
+    );
+    assert!(
+        squashed.contains("efforts: AgentEffortTiers"),
+        "AgentProviderTuning 出线含 efforts 字段"
+    );
+    assert!(
+        squashed.contains("tuning: AgentProviderTuning"),
+        "tuning 组为首层唯一末位形参（不平铺四参）"
+    );
+
+    // 目录命令零形参：invoke 载荷恒空对象
+    let list_signature = "listModelCatalog: () => __TAURI_INVOKE<ModelCatalog>(\
+                          \"list_model_catalog\")";
+    let expected_list = list_signature
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        squashed.contains(&expected_list),
+        "listModelCatalog 零形参（载荷 {}），实际产物: {}",
+        "…",
+        squashed
+            .find("listModelCatalog")
+            .map(|index| &squashed[index..index.min(squashed.len())])
+            .unwrap_or("")
+    );
 }

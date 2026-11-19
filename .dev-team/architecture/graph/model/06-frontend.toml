@@ -141,7 +141,7 @@ summary = "工具调用卡片的专门呈现"
 [element."App.Frontend.Components.Standard"]
 kind = "domain"
 gate = "off"
-summary = "通用交互组件集合（对话框、抽屉、分页、选择）"
+summary = "通用交互组件集合（对话框、抽屉、分页、选择、组合框）"
 
 [element."App.Frontend.Components.Standard.Dailog"]
 kind = "component"
@@ -166,6 +166,12 @@ kind = "component"
 gate = "off"
 path = ["./packages/desktop/src/components/standard/select.tsx"]
 summary = "下拉选择控件"
+
+[element."App.Frontend.Components.Standard.Combobox"]
+kind = "component"
+gate = "off"
+path = ["./packages/desktop/src/components/standard/combobox.tsx"]
+summary = "可选可填组合框（自由输入 + 建议清单）"
 
 [element."App.Frontend.Components.Standard.Tooltip"]
 kind = "component"
@@ -325,6 +331,11 @@ to = "App.Frontend.Components.Ui"
 desc = "以下拉原语组装统一选择控件"
 
 [[relation]]
+from = "App.Frontend.Components.Standard.Combobox"
+to = "App.Frontend.Components.Ui"
+desc = "以组合框原语组装可选可填输入控件"
+
+[[relation]]
 from = "App.Frontend.Components.Standard.Tooltip"
 to = "App.Frontend.Components.Ui"
 desc = "以原语层气泡组合文本提示"
@@ -368,6 +379,11 @@ desc = "经生成的命令面类型取数与调用"
 from = "App.Frontend.Views.Agents"
 to = "App.Frontend.Components.Standard.Select"
 desc = "实例与供应商下拉选择"
+
+[[relation]]
+from = "App.Frontend.Views.Agents"
+to = "App.Frontend.Components.Standard.Combobox"
+desc = "供应商表单的模型与思考强度可选可填输入"
 
 [[relation]]
 from = "App.Frontend.Views.Agents"

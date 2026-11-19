@@ -12,13 +12,13 @@
 use tauri::{App, Manager};
 
 use store::{
-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+    AgentEffortTiers, AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
     AgentProviderRecord, WorkspaceStores, CLI_TENANT_RETIRED,
 };
 
 use super::{
     delete_agent_instance, delete_agent_provider, list_agent_instances, list_agent_providers,
-    save_agent_instance, save_agent_provider, set_default_agent_instance,
+    save_agent_instance, save_agent_provider, set_default_agent_instance, AgentProviderTuning,
 };
 
 // ---------------------------------------------------------------------------
@@ -81,9 +81,12 @@ fn save_new_provider(
         "https://api.example.com/v1".to_owned(),
         api_key.to_owned(),
         fixture_tiers(),
-        None,
-        None,
-        false,
+        AgentProviderTuning {
+            context_length: None,
+            max_tokens: None,
+            web_search: false,
+            efforts: AgentEffortTiers::default(),
+        },
     )
 }
 
@@ -102,9 +105,12 @@ fn save_provider_with_key(
         "https://api.example.com/v1".to_owned(),
         api_key.to_owned(),
         fixture_tiers(),
-        None,
-        None,
-        false,
+        AgentProviderTuning {
+            context_length: None,
+            max_tokens: None,
+            web_search: false,
+            efforts: AgentEffortTiers::default(),
+        },
     )
 }
 
@@ -250,9 +256,12 @@ fn provider命令_重名保存err清单不变_更新miss_id_err_name空白err() 
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         fixture_tiers(),
-        None,
-        None,
-        false,
+        AgentProviderTuning {
+            context_length: None,
+            max_tokens: None,
+            web_search: false,
+            efforts: AgentEffortTiers::default(),
+        },
     );
     assert!(blank.is_err(), "name 空白应 Err");
 }
@@ -693,9 +702,12 @@ fn save携context_length落库且重开一致() {
             "https://api.example.com/v1".to_owned(),
             "sk-live-1234567890".to_owned(),
             fixture_tiers(),
-            Some(200_000),
-            None,
-            false,
+            AgentProviderTuning {
+                context_length: Some(200_000),
+                max_tokens: None,
+                web_search: false,
+                efforts: AgentEffortTiers::default(),
+            },
         )
         .expect("新建应成功");
         assert_eq!(created.context_length, Some(200_000), "命令面平参落记录");
@@ -750,9 +762,12 @@ fn save编辑态context_length双向翻转按入参落库() {
         "https://api.example.com/v1".to_owned(),
         "".to_owned(),
         fixture_tiers(),
-        Some(131_072),
-        None,
-        false,
+        AgentProviderTuning {
+            context_length: Some(131_072),
+            max_tokens: None,
+            web_search: false,
+            efforts: AgentEffortTiers::default(),
+        },
     )
     .expect("补窗长编辑应成功");
     assert_eq!(
@@ -770,9 +785,12 @@ fn save编辑态context_length双向翻转按入参落库() {
         "https://api.example.com/v1".to_owned(),
         "".to_owned(),
         fixture_tiers(),
-        None,
-        None,
-        false,
+        AgentProviderTuning {
+            context_length: None,
+            max_tokens: None,
+            web_search: false,
+            efforts: AgentEffortTiers::default(),
+        },
     )
     .expect("清窗长编辑应成功");
     assert_eq!(
@@ -797,9 +815,12 @@ fn save_api_key回填与新context_length参正交() {
         "https://api.example.com/v1".to_owned(),
         "".to_owned(),
         fixture_tiers(),
-        Some(200_000),
-        None,
-        false,
+        AgentProviderTuning {
+            context_length: Some(200_000),
+            max_tokens: None,
+            web_search: false,
+            efforts: AgentEffortTiers::default(),
+        },
     )
     .expect("编辑应成功");
 
@@ -875,9 +896,12 @@ fn save_full(
             medium: medium.to_owned(),
             low: low.to_owned(),
         },
-        context_length,
-        max_tokens,
-        false,
+        AgentProviderTuning {
+            context_length,
+            max_tokens,
+            web_search: false,
+            efforts: AgentEffortTiers::default(),
+        },
     )
 }
 
@@ -1473,9 +1497,12 @@ fn save_with_switch(
         "https://api.example.com/v1".to_owned(),
         api_key.to_owned(),
         fixture_tiers(),
-        None,
-        None,
-        web_search,
+        AgentProviderTuning {
+            context_length: None,
+            max_tokens: None,
+            web_search,
+            efforts: AgentEffortTiers::default(),
+        },
     )
 }
 
@@ -1665,9 +1692,12 @@ fn 第九参与既有失败面正交_四种err形态文案与开关取值无关(
                 medium: "m-medium".to_owned(),
                 low: "m-low".to_owned(),
             },
-            None,
-            None,
-            web_search,
+            AgentProviderTuning {
+                context_length: None,
+                max_tokens: None,
+                web_search,
+                efforts: AgentEffortTiers::default(),
+            },
         ));
         // 3) max_tokens 低于下限
         let low_tokens = err_of(save_agent_provider(
@@ -1678,9 +1708,12 @@ fn 第九参与既有失败面正交_四种err形态文案与开关取值无关(
             "https://api.example.com/v1".to_owned(),
             "sk-ant-1234567890".to_owned(),
             fixture_tiers(),
-            None,
-            Some(4_095),
-            web_search,
+            AgentProviderTuning {
+                context_length: None,
+                max_tokens: Some(4_095),
+                web_search,
+                efforts: AgentEffortTiers::default(),
+            },
         ));
         // 4) 重名 provider（先落一行，再以同名新建）
         save_with_switch(
@@ -1719,6 +1752,510 @@ fn 第九参与既有失败面正交_四种err形态文案与开关取值无关(
                 .len(),
             1,
             "开关 {web_search}：失败面不落库"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `save_agent_provider` 的 efforts 半面（AC-3）：两档各自 `trim()`、空串 =
+// 留空、零值域校验、零协议门控；既有校验与错误面逐字保留。
+// ---------------------------------------------------------------------------
+
+/// 两档 effort fixture。
+fn efforts_of(high: &str, low: &str) -> AgentEffortTiers {
+    AgentEffortTiers {
+        high: high.to_owned(),
+        low: low.to_owned(),
+    }
+}
+
+/// 携两档 effort 的保存直调（其余面同 `save_with_switch` 底座：固定
+/// base_url / api_key / 三档模型 / 两空可空列）。
+fn save_with_efforts(
+    state: &tauri::State<'_, WorkspaceStores>,
+    id: Option<i64>,
+    name: &str,
+    protocol: AgentProviderProtocol,
+    efforts: AgentEffortTiers,
+    web_search: bool,
+) -> Result<AgentProviderRecord, String> {
+    save_agent_provider(
+        state.clone(),
+        id,
+        name.to_owned(),
+        protocol,
+        "https://api.example.com/v1".to_owned(),
+        "sk-ant-1234567890".to_owned(),
+        fixture_tiers(),
+        AgentProviderTuning {
+            context_length: None,
+            max_tokens: None,
+            web_search,
+            efforts,
+        },
+    )
+}
+
+#[test]
+fn save_efforts两档各自trim且目录外取值零拒收() {
+    let env = Env::new("efforts-trim");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    let saved = save_with_efforts(
+        &state,
+        None,
+        "裁剪端点",
+        AgentProviderProtocol::Openai,
+        efforts_of("  low  ", "ultra-thinking"),
+        false,
+    )
+    .expect("目录外取值必须可存（零值域校验）");
+
+    assert_eq!(saved.efforts.high, "low", "两侧空白裁剪后入库");
+    assert_eq!(
+        saved.efforts.low, "ultra-thinking",
+        "目录外自定义值原样入库（不拒收、不清零）"
+    );
+
+    let listed = list_agent_providers(state.clone()).expect("list 应成功");
+    assert_eq!(
+        listed[0].efforts,
+        efforts_of("low", "ultra-thinking"),
+        "回读逐字段一致"
+    );
+}
+
+#[test]
+fn save_efforts两档纯空白回读空串即留空() {
+    for (high, low) in [("   ", "\t"), ("\n", "  ")] {
+        let env = Env::new("efforts-blank");
+        let app = app_with_stores(&env);
+        let state = app.state::<WorkspaceStores>();
+
+        let saved = save_with_efforts(
+            &state,
+            None,
+            "空白端点",
+            AgentProviderProtocol::Anthropic,
+            efforts_of(high, low),
+            false,
+        )
+        .expect("纯空白保存应成功（= 留空）");
+
+        assert_eq!(
+            saved.efforts,
+            AgentEffortTiers::default(),
+            "纯空白 → 两档空串"
+        );
+        assert_eq!(saved.efforts.high, "", "不落 \"high\" 之类缺省字面");
+        assert_eq!(saved.efforts.low, "");
+    }
+}
+
+#[test]
+fn save_efforts缺省两档与显式留空逐字段等价() {
+    let env = Env::new("efforts-default");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    let default_tiers =
+        save_new_provider(&state, "缺省端点", "sk-live-1234567890").expect("保存应成功");
+    assert_eq!(
+        default_tiers.efforts,
+        AgentEffortTiers::default(),
+        "既有调用点（default）落两档空串"
+    );
+
+    let explicit = save_with_efforts(
+        &state,
+        None,
+        "显式留空端点",
+        AgentProviderProtocol::Openai,
+        AgentEffortTiers::default(),
+        false,
+    )
+    .expect("保存应成功");
+    assert_eq!(
+        explicit.efforts, default_tiers.efforts,
+        "「显式留空」与「既有缺省」形态等价"
+    );
+}
+
+#[test]
+fn save_efforts两协议非空均原样入库零门控() {
+    for protocol in [
+        AgentProviderProtocol::Openai,
+        AgentProviderProtocol::Anthropic,
+    ] {
+        let env = Env::new("efforts-protocol");
+        let app = app_with_stores(&env);
+        let state = app.state::<WorkspaceStores>();
+
+        let saved = save_with_efforts(
+            &state,
+            None,
+            "协议端点",
+            protocol,
+            efforts_of("max", "low"),
+            false,
+        )
+        .expect("保存应成功");
+
+        assert_eq!(
+            saved.efforts,
+            efforts_of("max", "low"),
+            "{protocol:?}：零协议门控、零静默清零"
+        );
+    }
+}
+
+#[test]
+fn save_efforts目录外自定义值可存可回读且重开库一致() {
+    let env = Env::new("efforts-custom");
+    let snapshot;
+    {
+        let app = app_with_stores(&env);
+        let state = app.state::<WorkspaceStores>();
+
+        for (index, value) in ["ultra-thinking", "none", "MAX"].iter().enumerate() {
+            save_with_efforts(
+                &state,
+                None,
+                &format!("自定义端点-{index}"),
+                AgentProviderProtocol::Openai,
+                efforts_of(value, ""),
+                false,
+            )
+            .expect("不在任何建议清单里的值必须可存");
+        }
+        snapshot = list_agent_providers(state.clone()).expect("list 应成功");
+        #[allow(deprecated)]
+        let _stores = app.unmanage::<WorkspaceStores>().expect("应处于托管中");
+    }
+
+    let values: Vec<String> = snapshot
+        .iter()
+        .map(|row| row.efforts.high.clone())
+        .collect();
+    assert_eq!(
+        values,
+        vec![
+            "ultra-thinking".to_owned(),
+            "none".to_owned(),
+            "MAX".to_owned()
+        ],
+        "三项目录外取值原样回读（零值域校验）"
+    );
+
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    assert_eq!(
+        list_agent_providers(state.clone()).expect("重开 list 应成功"),
+        snapshot,
+        "重开库后 efforts 持久化一致"
+    );
+}
+
+#[test]
+fn save_efforts超长emoji与内部换行原样入库只裁两侧() {
+    let env = Env::new("efforts-special");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let long = "e".repeat(1_200);
+
+    for (index, value) in [long.as_str(), "thinking 🎉", "a\nb"].iter().enumerate() {
+        let saved = save_with_efforts(
+            &state,
+            None,
+            &format!("特殊端点-{index}"),
+            AgentProviderProtocol::Openai,
+            efforts_of(value, "  low  "),
+            false,
+        )
+        .expect("保存应成功");
+
+        assert_eq!(
+            saved.efforts.high, *value,
+            "超长 / emoji / 内部换行原样入库"
+        );
+        assert_eq!(saved.efforts.low, "low", "另一档各自裁剪");
+    }
+}
+
+#[test]
+fn save_efforts_id存在时按入参替换不粘滞() {
+    let env = Env::new("efforts-update");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    let created = save_with_efforts(
+        &state,
+        None,
+        "更新端点",
+        AgentProviderProtocol::Openai,
+        efforts_of("max", "low"),
+        false,
+    )
+    .expect("新建应成功");
+
+    let replaced = save_with_efforts(
+        &state,
+        Some(created.id),
+        "更新端点",
+        AgentProviderProtocol::Openai,
+        efforts_of("high", ""),
+        false,
+    )
+    .expect("编辑应成功");
+    assert_eq!(
+        replaced.efforts,
+        efforts_of("high", ""),
+        "按入参整行替换（不累积、不粘滞）"
+    );
+
+    let cleared = save_with_efforts(
+        &state,
+        Some(created.id),
+        "更新端点",
+        AgentProviderProtocol::Openai,
+        AgentEffortTiers::default(),
+        false,
+    )
+    .expect("清空应成功");
+    assert_eq!(
+        cleared.efforts,
+        AgentEffortTiers::default(),
+        "清空即留空（可回未配置）"
+    );
+    assert_eq!(
+        list_agent_providers(state.clone())
+            .expect("list 应成功")
+            .len(),
+        1,
+        "upsert 语义：行数不增"
+    );
+}
+
+#[test]
+fn save_efforts非空不改变既有校验面且错误串不含api_key明文() {
+    let env = Env::new("efforts-error");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let secret = "sk-ant-secret-1234567890";
+
+    // 1) 非法模型名后缀
+    let bad_suffix = err_of(save_agent_provider(
+        state.clone(),
+        None,
+        "后缀端点".to_owned(),
+        AgentProviderProtocol::Anthropic,
+        "https://api.example.com/v1".to_owned(),
+        secret.to_owned(),
+        AgentModelTiers {
+            high: "m-high[2m]".to_owned(),
+            medium: "m-medium".to_owned(),
+            low: "m-low".to_owned(),
+        },
+        AgentProviderTuning {
+            context_length: None,
+            max_tokens: None,
+            web_search: false,
+            efforts: efforts_of("max", "low"),
+        },
+    ));
+    // 2) 上限低于下限
+    let low_tokens = err_of(save_agent_provider(
+        state.clone(),
+        None,
+        "下限端点".to_owned(),
+        AgentProviderProtocol::Anthropic,
+        "https://api.example.com/v1".to_owned(),
+        secret.to_owned(),
+        fixture_tiers(),
+        AgentProviderTuning {
+            context_length: None,
+            max_tokens: Some(4_095),
+            web_search: false,
+            efforts: efforts_of("max", "low"),
+        },
+    ));
+
+    assert!(
+        bad_suffix.contains("m-high[2m]"),
+        "非法后缀按档报错逐字保留，实际: {bad_suffix}"
+    );
+    assert!(
+        low_tokens.contains("4095") && low_tokens.contains("4096"),
+        "上限下限错误串逐字保留，实际: {low_tokens}"
+    );
+    for message in [&bad_suffix, &low_tokens] {
+        assert!(
+            !message.contains(secret),
+            "错误串结构上不含 api_key 明文，实际: {message}"
+        );
+        assert!(
+            !message.contains("effort"),
+            "efforts 不参与任何校验，不进错误串，实际: {message}"
+        );
+    }
+    assert!(
+        list_agent_providers(state.clone())
+            .expect("list 应成功")
+            .is_empty(),
+        "两次拒收均零落库"
+    );
+}
+
+#[test]
+fn save_留空api_key回填与efforts正交() {
+    let env = Env::new("efforts-key-orthogonal");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    let created = save_with_efforts(
+        &state,
+        None,
+        "正交端点",
+        AgentProviderProtocol::Anthropic,
+        efforts_of("max", "low"),
+        false,
+    )
+    .expect("新建应成功");
+
+    let refilled = save_agent_provider(
+        state.clone(),
+        Some(created.id),
+        "正交端点".to_owned(),
+        AgentProviderProtocol::Anthropic,
+        "https://api.example.com/v1".to_owned(),
+        String::new(),
+        fixture_tiers(),
+        AgentProviderTuning {
+            context_length: None,
+            max_tokens: None,
+            web_search: false,
+            efforts: efforts_of("high", ""),
+        },
+    )
+    .expect("编辑应成功");
+
+    assert_eq!(
+        refilled.api_key, "sk-ant-1234567890",
+        "留空 key 回填原值（既有语义不变）"
+    );
+    assert_eq!(
+        refilled.efforts,
+        efforts_of("high", ""),
+        "回填与 efforts 两列正交"
+    );
+}
+
+#[test]
+fn save_web_search与efforts双向取值不串位() {
+    for (web_search, efforts) in [
+        (true, AgentEffortTiers::default()),
+        (false, efforts_of("max", "low")),
+    ] {
+        let env = Env::new("efforts-position");
+        let app = app_with_stores(&env);
+        let state = app.state::<WorkspaceStores>();
+
+        // 八形参逐位对齐：协议 / 可空列 / 开关 / efforts 各自落位（不串位）
+        let saved = save_with_efforts(
+            &state,
+            None,
+            "位置端点",
+            AgentProviderProtocol::Anthropic,
+            efforts.clone(),
+            web_search,
+        )
+        .expect("保存应成功");
+
+        assert_eq!(saved.web_search, web_search, "开关位落位");
+        assert_eq!(saved.efforts, efforts, "efforts 位落位");
+        assert_eq!(
+            saved.protocol,
+            AgentProviderProtocol::Anthropic,
+            "协议位落位"
+        );
+        assert_eq!(
+            saved.base_url, "https://api.example.com/v1",
+            "base_url 位落位"
+        );
+        assert_eq!(saved.models, fixture_tiers(), "三档模型位落位");
+    }
+}
+
+#[test]
+fn list_model_catalog零参数直调返回两协议非空目录() {
+    let catalog = super::list_model_catalog().expect("薄包装恒 Ok");
+
+    assert!(!catalog.protocols.is_empty(), "目录 protocols 非空");
+    let protocols: Vec<AgentProviderProtocol> = catalog
+        .protocols
+        .iter()
+        .map(|entry| entry.protocol)
+        .collect();
+    for expected in [
+        AgentProviderProtocol::Openai,
+        AgentProviderProtocol::Anthropic,
+    ] {
+        assert!(
+            protocols.contains(&expected),
+            "协议段 {expected:?} 应在场，实际: {protocols:?}"
+        );
+    }
+    for entry in &catalog.protocols {
+        assert!(!entry.models.is_empty(), "{:?} 段模型非空", entry.protocol);
+        assert!(
+            !entry.efforts.is_empty(),
+            "{:?} 段 effort 建议非空",
+            entry.protocol
+        );
+    }
+}
+
+#[test]
+fn list_model_catalog与运行时catalog逐字段相等且无加工() {
+    let from_command = super::list_model_catalog().expect("薄包装恒 Ok");
+    let from_runtime = agent_runtime::catalog();
+
+    assert_eq!(
+        from_command, from_runtime,
+        "命令体零加工（直接返回 catalog()，无过滤 / 无排序 / 无缓存）"
+    );
+
+    let again = super::list_model_catalog().expect("第二次调用应成功");
+    assert_eq!(
+        again, from_command,
+        "连续两次调用结果相等（零 IO、无缓存态）"
+    );
+}
+
+#[test]
+fn list_agent_providers带出efforts两态_清单语义零改动() {
+    for efforts in [AgentEffortTiers::default(), efforts_of("max", "low")] {
+        let env = Env::new("efforts-list");
+        let app = app_with_stores(&env);
+        let state = app.state::<WorkspaceStores>();
+
+        let saved = save_with_efforts(
+            &state,
+            None,
+            "清单端点",
+            AgentProviderProtocol::Openai,
+            efforts.clone(),
+            false,
+        )
+        .expect("保存应成功");
+
+        let listed = list_agent_providers(state.clone()).expect("list 应成功");
+        assert_eq!(listed.len(), 1, "清单行数不变（删除 / 查询语义零改动）");
+        assert_eq!(listed[0], saved, "清单记录与新列逐字段一致");
+        assert_eq!(
+            listed[0].efforts, efforts,
+            "efforts={efforts:?} 随记录出线（空 / 非空两态均可辨）"
         );
     }
 }

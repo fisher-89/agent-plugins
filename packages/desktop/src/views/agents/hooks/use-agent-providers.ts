@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 
 import { ipc } from '../../../lib/ipc';
 import {
+  type AgentEffortTiers,
   type AgentModelTiers,
   type AgentProviderProtocol,
   type AgentProviderRecord,
@@ -17,8 +18,9 @@ const ACTION_ERROR_PREFIX = {
 /** save 动作入参（id null 新建 / number 更新；protocol 决定 base_url 语义与 wire；
  * apiKey 留空 = 保持原值，由后端回填；contextLength 留空 = 未配置存 null，
  * MUST NOT 落 0 / 128000 缺省字面；maxTokens 留空 = 按协议缺省存 null，
- * 非空须 >= 4096；webSearch 恒携（openai 下为 false，不省略）——边界校验单点
- * 在后端，入参序与命令签名逐位对齐） */
+ * 非空须 >= 4096；webSearch 恒携（openai 下为 false，不省略）；efforts 恒携
+ * 两档（空串 = 留空 = 不发，值域零校验在表单侧不做、后端只 trim）——边界校验
+ * 单点在后端，入参序与命令签名逐位对齐） */
 interface AgentProviderSaveInput {
   id: number | null;
   name: string;
@@ -29,6 +31,7 @@ interface AgentProviderSaveInput {
   contextLength: number | null;
   maxTokens: number | null;
   webSearch: boolean;
+  efforts: AgentEffortTiers;
 }
 
 export interface AgentProvidersState {
@@ -96,9 +99,12 @@ function useAgentProvidersActions(refresh: () => void) {
           input.baseUrl,
           input.apiKey,
           input.models,
-          input.contextLength,
-          input.maxTokens,
-          input.webSearch,
+          {
+            contextLength: input.contextLength,
+            maxTokens: input.maxTokens,
+            webSearch: input.webSearch,
+            efforts: input.efforts,
+          },
         );
         refresh();
         return record;

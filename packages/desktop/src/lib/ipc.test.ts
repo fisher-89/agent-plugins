@@ -329,7 +329,7 @@ describe('ipc 参数面：合法输入放行', () => {
     });
   });
 
-  it('saveAgentProvider 的 9 形参齐全、数值可空位给 null 放行', async () => {
+  it('saveAgentProvider 的 7 形参齐全（末位 tuning 组）、数值可空位给 null 放行', async () => {
     mockValidResults();
 
     await ipc.saveAgentProvider(
@@ -339,9 +339,12 @@ describe('ipc 参数面：合法输入放行', () => {
       'https://api.example.com',
       'sk-1',
       { high: 'high-model', medium: 'medium-model', low: 'low-model' },
-      null,
-      null,
-      true,
+      {
+        contextLength: null,
+        maxTokens: null,
+        webSearch: true,
+        efforts: { high: '', low: '' },
+      },
     );
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
@@ -352,9 +355,7 @@ describe('ipc 参数面：合法输入放行', () => {
       'baseUrl',
       'apiKey',
       'models',
-      'contextLength',
-      'maxTokens',
-      'webSearch',
+      'tuning',
     ]);
   });
 
@@ -447,9 +448,12 @@ describe('ipc 参数面：契约外输入本地拒绝', () => {
         'https://api.example.com',
         'sk-1',
         models as unknown as Parameters<typeof ipc.saveAgentProvider>[5],
-        null,
-        null,
-        false,
+        {
+          contextLength: null,
+          maxTokens: null,
+          webSearch: false,
+          efforts: { high: '', low: '' },
+        },
       ),
     );
 

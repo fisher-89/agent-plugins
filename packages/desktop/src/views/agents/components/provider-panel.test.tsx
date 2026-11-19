@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AgentProviderRecord } from '../../../types/generated/bindings';
+import type { AgentProviderRecord, ModelCatalog } from '../../../types/generated/bindings';
 import type { AgentProvidersState } from '../hooks/use-agent-providers';
 import { ProviderPanel } from './provider-panel';
 
@@ -38,7 +38,7 @@ function fakeState(overrides: Partial<AgentProvidersState> = {}): AgentProviders
 }
 
 function mount(state: AgentProvidersState) {
-  render(<ProviderPanel state={state} />);
+  render(<ProviderPanel catalog={null} state={state} />);
   return state;
 }
 
@@ -94,6 +94,7 @@ describe('ProviderPanel：表单与提交（AC-2 前端半）', () => {
       contextLength: null,
       maxTokens: null,
       webSearch: false,
+      efforts: { high: '', low: '' },
     });
   });
 
@@ -135,6 +136,7 @@ describe('ProviderPanel：表单与提交（AC-2 前端半）', () => {
       contextLength: null,
       maxTokens: null,
       webSearch: false,
+      efforts: { high: '', low: '' },
     });
   });
 
@@ -263,6 +265,7 @@ describe('ProviderPanel：表单校验（边界）', () => {
       contextLength: null,
       maxTokens: null,
       webSearch: false,
+      efforts: { high: '', low: '' },
     });
   });
 
@@ -286,6 +289,7 @@ describe('ProviderPanel：表单校验（边界）', () => {
       contextLength: null,
       maxTokens: null,
       webSearch: false,
+      efforts: { high: '', low: '' },
     });
   });
 
@@ -493,7 +497,7 @@ describe('ProviderPanel：模型名后缀提示（DD19）', () => {
 
     const hint = screen.getByTestId('provider-suffix-hint').textContent ?? '';
     expect(hint).toContain('high 档窗长已被模型名覆盖');
-    expect(hint).toContain('后缀优先于 context_length');
+    expect(hint).toContain('后缀优先于上下文窗长');
   });
 
   it('多档带后缀 → 逐档列出；无后缀 → 不呈现覆盖提示（[1m] 基础说明仅 anthropic 档）', async () => {
@@ -592,6 +596,7 @@ describe('ProviderPanel：max_tokens 字段（AC-11）', () => {
       contextLength: 200000,
       maxTokens: 8192,
       webSearch: false,
+      efforts: { high: '', low: '' },
     });
   });
 
@@ -682,12 +687,12 @@ describe('ProviderPanel：max_tokens 字段（AC-11）', () => {
     fireEvent.click(screen.getByTestId('provider-new'));
 
     const hint = screen.getByTestId('provider-max-tokens-hint').textContent ?? '';
-    expect(hint).toContain('留空 = 按 context_length 分档推导');
+    expect(hint).toContain('留空 = 按上下文窗长分档推导');
     expect(hint).toContain('未配置时 32000');
     expect(hint).toContain('仅 anthropic 协议生效');
     expect(hint).toContain('4096');
     expect(screen.getByTestId<HTMLInputElement>('provider-max-tokens').placeholder).toBe(
-      '留空 = 按 context_length 分档',
+      '留空 = 按上下文窗长分档',
     );
   });
 });
@@ -712,7 +717,7 @@ function providerWith(
 
 /** 打开编辑表单（唯一 provider 行）。 */
 function openEdit(state: AgentProvidersState): void {
-  render(<ProviderPanel state={state} />);
+  render(<ProviderPanel catalog={null} state={state} />);
   fireEvent.click(screen.getByTestId('provider-edit'));
 }
 
@@ -750,6 +755,7 @@ describe('ProviderPanel：web_search 仅 anthropic 可见（AC-11）', () => {
   it('编辑态回显：anthropic + true → 勾选态；webSearch 键缺席 / null（旧记录）→ 未勾', () => {
     const on = render(
       <ProviderPanel
+        catalog={null}
         state={fakeState({ providers: [providerWith(43, '开关端点', 'anthropic', true)] })}
       />,
     );
@@ -759,6 +765,7 @@ describe('ProviderPanel：web_search 仅 anthropic 可见（AC-11）', () => {
 
     const absent = render(
       <ProviderPanel
+        catalog={null}
         state={fakeState({ providers: [providerWith(44, '旧记录端点', 'anthropic', undefined)] })}
       />,
     );
@@ -772,7 +779,7 @@ describe('ProviderPanel：web_search 仅 anthropic 可见（AC-11）', () => {
       protocol: 'anthropic' as const,
       webSearch: null,
     } as unknown as AgentProviderRecord;
-    render(<ProviderPanel state={fakeState({ providers: [legacyNull] })} />);
+    render(<ProviderPanel catalog={null} state={fakeState({ providers: [legacyNull] })} />);
     fireEvent.click(screen.getByTestId('provider-edit'));
     expect(screen.getByTestId('provider-web-search').getAttribute('aria-checked')).toBe('false');
   });
@@ -838,5 +845,489 @@ describe('ProviderPanel：web_search 切协议清零与载荷恒携（AC-11）',
     expect(screen.getByTestId('provider-web-search').getAttribute('aria-checked')).toBe('true');
     toggleWebSearch();
     expect(screen.getByTestId('provider-web-search').getAttribute('aria-checked')).toBe('false');
+  });
+});
+// ---------------------------------------------------------------------------
+// 模型目录建议面（AC-9 / AC-10 / AC-12 前端半）：目录以 props 注入真实形状
+// fixture（含 null 降级态），面板只消费 props（取数在 agents-view，本文件为纯
+// 表单契约，零 mock 组件与底座）。三档模型与两档 effort 走 StandardCombobox：
+// 建议项随协议与选中模型联动，自由输入不受约束。
+// ---------------------------------------------------------------------------
+
+/** 两级目录 fixture：条目覆盖「元数据全给 / 缺席 / [1m] / 显式空 efforts /
+ * 模型级覆盖」五种形态。 */
+const CATALOG: ModelCatalog = {
+  protocols: [
+    {
+      protocol: 'openai',
+      efforts: ['low', 'high', 'max'],
+      models: [
+        {
+          value: 'deepseek-reasoner',
+          contextLength: 131072,
+          maxTokens: 65536,
+          supportsThinking: true,
+          efforts: null,
+        },
+        {
+          value: 'deepseek-bare',
+          contextLength: null,
+          maxTokens: null,
+          supportsThinking: true,
+          efforts: null,
+        },
+      ],
+    },
+    {
+      protocol: 'anthropic',
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      models: [
+        {
+          value: 'claude-sonnet-4-6',
+          contextLength: 200000,
+          maxTokens: 64000,
+          supportsThinking: true,
+          efforts: null,
+        },
+        {
+          value: 'claude-sonnet-4-6[1m]',
+          contextLength: 1000000,
+          maxTokens: 64000,
+          supportsThinking: true,
+          efforts: null,
+        },
+        {
+          value: 'claude-haiku',
+          contextLength: 200000,
+          maxTokens: 8192,
+          supportsThinking: false,
+          efforts: [],
+        },
+        {
+          value: 'claude-model-scoped',
+          contextLength: 200000,
+          maxTokens: 64000,
+          supportsThinking: true,
+          efforts: ['high', 'max'],
+        },
+      ],
+    },
+  ],
+};
+
+const MODEL_COMBO_IDS = [
+  'provider-model-high',
+  'provider-model-medium',
+  'provider-model-low',
+] as const;
+
+const EFFORT_COMBO_IDS = ['provider-effort-high', 'provider-effort-low'] as const;
+
+/** 挂载面板并注入目录（缺省非空目录；降级态显式传 null）。 */
+function mountWithCatalog(
+  state: AgentProvidersState,
+  catalog: ModelCatalog | null = CATALOG,
+): AgentProvidersState {
+  render(<ProviderPanel catalog={catalog} state={state} />);
+  return state;
+}
+
+/** 打开组合框建议弹层并取回建议项原文清单（role 查询，禁类名）。 */
+async function openComboList(testId: string): Promise<string[]> {
+  fireEvent.mouseDown(screen.getByTestId(testId));
+  const listbox = await screen.findByRole('listbox');
+  return within(listbox)
+    .getAllByRole('option')
+    .map((option) => option.textContent ?? '');
+}
+
+/** 断言该组合框按下后不产生弹层（空建议 = 退化纯输入框）。 */
+async function expectNoList(testId: string): Promise<void> {
+  fireEvent.mouseDown(screen.getByTestId(testId));
+  await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+}
+
+/** 打开新建表单并切换到 anthropic 协议。 */
+async function openNewAnthropic(): Promise<void> {
+  fireEvent.click(screen.getByTestId('provider-new'));
+  await pickProtocol('anthropic');
+}
+
+describe('ProviderPanel：组合框控件形态与自由输入（AC-9）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('新建态五个组合框（三档模型 + 两档 effort）均为输入框形态且可自由键入（目录外取值零拦截）', () => {
+    mountWithCatalog(fakeState());
+    fireEvent.click(screen.getByTestId('provider-new'));
+
+    for (const id of [...MODEL_COMBO_IDS, ...EFFORT_COMBO_IDS]) {
+      const input = screen.getByTestId<HTMLInputElement>(id);
+      expect(input.tagName, `${id} 应为输入框`).toBe('INPUT');
+      expect(input.getAttribute('data-value'), `${id} 携 data-value`).toBe('');
+    }
+
+    // 目录外自定义值原样承载（建议不构成约束）
+    typeInto('provider-model-high', 'my-own-model');
+    typeInto('provider-effort-low', 'ultra-thinking');
+    expect(screen.getByTestId<HTMLInputElement>('provider-model-high').value).toBe('my-own-model');
+    expect(screen.getByTestId<HTMLInputElement>('provider-effort-low').value).toBe(
+      'ultra-thinking',
+    );
+  });
+
+  it('文本字段表只剩五个 Input，模型与 effort 不走文本行（无第二套控件残留）', () => {
+    mountWithCatalog(fakeState());
+    fireEvent.click(screen.getByTestId('provider-new'));
+
+    for (const id of [
+      'provider-name',
+      'provider-base-url',
+      'provider-api-key',
+      'provider-context-length',
+      'provider-max-tokens',
+    ]) {
+      const input = screen.getByTestId<HTMLInputElement>(id);
+      expect(input.tagName).toBe('INPUT');
+      // 文本行不携组合框标记（两套控件不并存）
+      expect(input.hasAttribute('data-value'), `${id} 不应是组合框`).toBe(false);
+    }
+
+    // 新建 openai 态：五文本 + 五组合框 = 10 个具名控件（模型与 effort 不再
+    // 另有一套文本输入；底座自身的无 id 表单代理 input 不计）
+    const form = screen.getByTestId('provider-form');
+    expect(form.querySelectorAll('input[id^="provider-"]')).toHaveLength(10);
+  });
+});
+
+describe('ProviderPanel：建议联动（协议 → 模型，模型 → effort）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('anthropic 协议 ⇒ 模型组合框建议项等于该协议目录条目 value 清单', async () => {
+    mountWithCatalog(fakeState());
+    await openNewAnthropic();
+
+    const options = await openComboList('provider-model-high');
+
+    expect(options).toEqual((CATALOG.protocols[1]?.models ?? []).map((entry) => entry.value));
+  });
+
+  it('协议切换 openai ↔ anthropic ⇒ 模型建议项随协议切换（两协议条目不同）', async () => {
+    mountWithCatalog(fakeState());
+    fireEvent.click(screen.getByTestId('provider-new'));
+
+    const openaiOptions = await openComboList('provider-model-high');
+    expect(openaiOptions).toEqual((CATALOG.protocols[0]?.models ?? []).map((e) => e.value));
+
+    await pickProtocol('anthropic');
+    const anthropicOptions = await openComboList('provider-model-high');
+    expect(anthropicOptions).toEqual((CATALOG.protocols[1]?.models ?? []).map((e) => e.value));
+
+    await pickProtocol('openai');
+    expect(await openComboList('provider-model-high')).toEqual(openaiOptions);
+  });
+
+  it('选中带模型级 efforts 的条目 ⇒ effort 建议项切换为模型级清单（覆盖协议级）', async () => {
+    mountWithCatalog(fakeState());
+    await openNewAnthropic();
+
+    typeInto('provider-model-high', 'claude-model-scoped');
+
+    expect(await openComboList('provider-effort-high')).toEqual(['high', 'max']);
+  });
+
+  it('条目 efforts 为空数组（supportsThinking = false）⇒ effort 建议为空清单，不回落协议级', async () => {
+    mountWithCatalog(fakeState());
+    await openNewAnthropic();
+
+    typeInto('provider-model-low', 'claude-haiku');
+
+    await expectNoList('provider-effort-low');
+  });
+
+  it('模型取值为目录外自定义 ⇒ effort 建议回落协议级清单', async () => {
+    mountWithCatalog(fakeState());
+    await openNewAnthropic();
+
+    typeInto('provider-model-high', 'my-own-model');
+
+    expect(await openComboList('provider-effort-high')).toEqual(
+      CATALOG.protocols[1]?.efforts ?? [],
+    );
+  });
+
+  it('两档 effort 各自随同档模型联动（high 随模型 high、low 随模型 low，互不冒用）', async () => {
+    mountWithCatalog(fakeState());
+    await openNewAnthropic();
+
+    typeInto('provider-model-high', 'claude-model-scoped');
+    typeInto('provider-model-low', 'claude-haiku');
+
+    expect(await openComboList('provider-effort-high')).toEqual(['high', 'max']);
+    await expectNoList('provider-effort-low');
+  });
+
+  it('目录降级（catalog = null）⇒ 五控件退化纯输入框（无 listbox），表单照常可提交', async () => {
+    const state = mountWithCatalog(fakeState(), null);
+    fireEvent.click(screen.getByTestId('provider-new'));
+
+    for (const id of [...MODEL_COMBO_IDS, ...EFFORT_COMBO_IDS]) {
+      await expectNoList(id);
+    }
+
+    typeInto('provider-name', '降级端点');
+    typeInto('provider-base-url', 'https://new.example.com/v1');
+    typeInto('provider-api-key', 'sk-new-key-999');
+    typeInto('provider-model-high', '手填模型');
+    fireEvent.click(screen.getByTestId('provider-save'));
+
+    await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
+    expect(state.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        models: { high: '手填模型', medium: '', low: '' },
+        efforts: { high: '', low: '' },
+      }),
+    );
+  });
+});
+
+describe('ProviderPanel：目录条目预填（AC-10 四纪律）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('选中带窗长元数据的条目 ⇒ 窗长预填 + 「来自目录」弱标记在场，保存载荷为目录值', async () => {
+    const state = mountWithCatalog(fakeState());
+    await openNewAnthropic();
+
+    typeInto('provider-model-high', 'claude-sonnet-4-6');
+
+    expect(screen.getByTestId<HTMLInputElement>('provider-context-length').value).toBe('200000');
+    expect(screen.getByTestId<HTMLInputElement>('provider-max-tokens').value).toBe('64000');
+    expect(screen.getByTestId('provider-context-length-catalog-mark').textContent).toBe('来自目录');
+
+    typeInto('provider-name', '条目端点');
+    typeInto('provider-base-url', 'https://api.anthropic.com');
+    typeInto('provider-api-key', 'sk-ant-x');
+    fireEvent.click(screen.getByTestId('provider-save'));
+
+    await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
+    expect(state.save).toHaveBeenCalledWith(
+      expect.objectContaining({ contextLength: 200000, maxTokens: 64000 }),
+    );
+  });
+
+  it('预填后清空该框再保存 ⇒ contextLength: null（回未配置，非 0）且弱标记撤除', async () => {
+    const state = mountWithCatalog(fakeState());
+    await openNewAnthropic();
+    typeInto('provider-model-high', 'claude-sonnet-4-6');
+    expect(screen.getByTestId('provider-context-length-catalog-mark')).toBeTruthy();
+
+    typeInto('provider-context-length', '');
+
+    expect(screen.queryByTestId('provider-context-length-catalog-mark')).toBeNull();
+    typeInto('provider-name', '清空端点');
+    typeInto('provider-base-url', 'https://api.anthropic.com');
+    typeInto('provider-api-key', 'sk-ant-x');
+    fireEvent.click(screen.getByTestId('provider-save'));
+
+    await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
+    expect(state.save).toHaveBeenCalledWith(expect.objectContaining({ contextLength: null }));
+  });
+
+  it('手动编辑预填字段 ⇒ 弱标记撤除（仅「预填后未动」态呈现）', async () => {
+    mountWithCatalog(fakeState());
+    await openNewAnthropic();
+    typeInto('provider-model-high', 'claude-sonnet-4-6');
+
+    typeInto('provider-context-length', '300000');
+
+    expect(screen.queryByTestId('provider-context-length-catalog-mark')).toBeNull();
+    expect(screen.getByTestId<HTMLInputElement>('provider-context-length').value).toBe('300000');
+  });
+
+  it('条目元数据缺席（contextLength / maxTokens 皆 null）⇒ 两框不预填、无弱标记', () => {
+    mountWithCatalog(fakeState());
+    fireEvent.click(screen.getByTestId('provider-new'));
+
+    typeInto('provider-model-high', 'deepseek-bare');
+
+    expect(screen.getByTestId<HTMLInputElement>('provider-context-length').value).toBe('');
+    expect(screen.getByTestId<HTMLInputElement>('provider-max-tokens').value).toBe('');
+    expect(screen.queryByTestId('provider-context-length-catalog-mark')).toBeNull();
+    expect(screen.queryByTestId('provider-max-tokens-catalog-mark')).toBeNull();
+  });
+
+  it('openai 协议 + 条目带 maxTokens ⇒ 只预填窗长，输出上限保持空（该协议恒不写上限）', () => {
+    mountWithCatalog(fakeState());
+    fireEvent.click(screen.getByTestId('provider-new'));
+
+    typeInto('provider-model-high', 'deepseek-reasoner');
+
+    expect(screen.getByTestId<HTMLInputElement>('provider-context-length').value).toBe('131072');
+    expect(screen.getByTestId<HTMLInputElement>('provider-max-tokens').value).toBe('');
+    expect(screen.getByTestId('provider-context-length-catalog-mark')).toBeTruthy();
+    expect(screen.queryByTestId('provider-max-tokens-catalog-mark')).toBeNull();
+  });
+
+  it('选中 [1m] 条目 ⇒ 窗长预填 1000000 且「后缀优先于上下文窗长」提示在场（两处语义一致）', async () => {
+    mountWithCatalog(fakeState());
+    await openNewAnthropic();
+
+    typeInto('provider-model-high', 'claude-sonnet-4-6[1m]');
+
+    expect(screen.getByTestId<HTMLInputElement>('provider-context-length').value).toBe('1000000');
+    const hint = screen.getByTestId('provider-suffix-hint').textContent ?? '';
+    expect(hint).toContain('high 档窗长已被模型名覆盖');
+    expect(hint).toContain('后缀优先于上下文窗长');
+  });
+
+  it('打开存量编辑态 ⇒ 两框按记录回填但不自动预填（无「来自目录」标记）', async () => {
+    const state = mountWithCatalog(fakeState({ providers: [provider(9, '缺列存量')] }));
+
+    fireEvent.click(screen.getByTestId('provider-edit'));
+
+    expect(screen.getByTestId<HTMLInputElement>('provider-context-length').value).toBe('');
+    expect(screen.getByTestId<HTMLInputElement>('provider-max-tokens').value).toBe('');
+    expect(screen.queryByTestId('provider-context-length-catalog-mark')).toBeNull();
+    expect(screen.queryByTestId('provider-max-tokens-catalog-mark')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('provider-save'));
+    await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
+    expect(state.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 9, contextLength: null, maxTokens: null }),
+    );
+  });
+
+  it('编辑态下选目录条目同样触发预填（预填由用户主动选择触发，与新建态同源）', () => {
+    const anthropic = {
+      ...provider(10, '条目存量'),
+      protocol: 'anthropic' as const,
+      baseUrl: 'https://api.anthropic.com',
+    };
+    mountWithCatalog(fakeState({ providers: [anthropic] }));
+
+    fireEvent.click(screen.getByTestId('provider-edit'));
+    typeInto('provider-model-low', 'claude-sonnet-4-6');
+
+    expect(screen.getByTestId<HTMLInputElement>('provider-context-length').value).toBe('200000');
+    expect(screen.getByTestId('provider-context-length-catalog-mark')).toBeTruthy();
+  });
+});
+
+describe('ProviderPanel：中文标签与提示（AC-11）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('两可空列标签中文化，提示不再裸写英文键名', () => {
+    mountWithCatalog(fakeState());
+    fireEvent.click(screen.getByTestId('provider-new'));
+
+    expect(screen.getByText('上下文窗长（token）')).toBeTruthy();
+    expect(screen.getByText('输出上限（token）')).toBeTruthy();
+
+    const hint = screen.getByTestId('provider-max-tokens-hint').textContent ?? '';
+    expect(hint).not.toContain('context_length');
+    expect(hint).not.toContain('max_tokens');
+  });
+
+  it('输出上限提示改述后语义不减：分档推导 / 32000 / ≥ 4096 / 仅 anthropic 生效', () => {
+    mountWithCatalog(fakeState());
+    fireEvent.click(screen.getByTestId('provider-new'));
+
+    const hint = screen.getByTestId('provider-max-tokens-hint').textContent ?? '';
+    expect(hint).toContain('留空 = 按上下文窗长分档推导');
+    expect(hint).toContain('32000');
+    expect(hint).toContain('仅 anthropic 协议生效');
+    expect(hint).toContain('≥ 4096');
+    expect(screen.getByTestId<HTMLInputElement>('provider-max-tokens').placeholder).toBe(
+      '留空 = 按上下文窗长分档',
+    );
+  });
+});
+
+describe('ProviderPanel：efforts 提交载荷与清单行（AC-3 前端半）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('提交载荷恒携两档 efforts：空值以空串表达（键在场，不省略、不落 undefined）', async () => {
+    const state = mountWithCatalog(fakeState());
+    fireEvent.click(screen.getByTestId('provider-new'));
+    typeInto('provider-name', '空档端点');
+    typeInto('provider-base-url', 'https://new.example.com/v1');
+    typeInto('provider-api-key', 'sk-new-key-999');
+
+    fireEvent.click(screen.getByTestId('provider-save'));
+
+    await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(state.save).mock.calls[0][0];
+    expect(Object.keys(payload)).toContain('efforts');
+    expect(payload.efforts).toEqual({ high: '', low: '' });
+  });
+
+  it('两档填值提交 ⇒ efforts 逐字段透传（前端零归一化，trim 归后端单点）', async () => {
+    const state = mountWithCatalog(fakeState());
+    fireEvent.click(screen.getByTestId('provider-new'));
+    typeInto('provider-name', '带档端点');
+    typeInto('provider-base-url', 'https://new.example.com/v1');
+    typeInto('provider-api-key', 'sk-new-key-999');
+    typeInto('provider-effort-high', ' max ');
+    typeInto('provider-effort-low', 'low');
+
+    fireEvent.click(screen.getByTestId('provider-save'));
+
+    await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
+    expect(state.save).toHaveBeenCalledWith(
+      expect.objectContaining({ efforts: { high: ' max ', low: 'low' } }),
+    );
+  });
+
+  it('编辑态回填两档 effort（efforts 键缺席的存量记录 → 两档空串）', () => {
+    const withEfforts = {
+      ...provider(11, '带档存量'),
+      efforts: { high: 'max', low: 'low' },
+    };
+    mountWithCatalog(fakeState({ providers: [withEfforts, provider(12, '旧记录存量')] }));
+
+    fireEvent.click(screen.getAllByTestId('provider-edit')[0]);
+    expect(screen.getByTestId<HTMLInputElement>('provider-effort-high').value).toBe('max');
+    expect(screen.getByTestId<HTMLInputElement>('provider-effort-low').value).toBe('low');
+    fireEvent.click(screen.getByTestId('provider-cancel'));
+
+    fireEvent.click(screen.getAllByTestId('provider-edit')[1]);
+    expect(screen.getByTestId<HTMLInputElement>('provider-effort-high').value).toBe('');
+    expect(screen.getByTestId<HTMLInputElement>('provider-effort-low').value).toBe('');
+  });
+
+  it('清单行：记录 efforts 非空 ⇒ 行内呈 high / low 两档（不串位）；两档皆空 ⇒ 零 effort 标签', () => {
+    const withEfforts = {
+      ...provider(13, '带档行'),
+      efforts: { high: 'max', low: 'low' },
+    };
+    mountWithCatalog(fakeState({ providers: [withEfforts, provider(14, '空档行')] }));
+
+    const tags = screen.getAllByTestId('provider-effort');
+    expect(tags).toHaveLength(1);
+    expect(tags[0].textContent).toBe('high max / low low');
+
+    const items = screen.getAllByTestId('provider-item');
+    expect(items[0].textContent).toContain('high max');
+    // 空档行不呈空值占位（整段不渲染）
+    expect(items[1].querySelector('[data-testid="provider-effort"]')).toBeNull();
+  });
+
+  it('清单行：单档非空 ⇒ 只呈该档（空白档不落占位字符）', () => {
+    const onlyHigh = {
+      ...provider(15, '单档行'),
+      efforts: { high: 'max', low: '  ' },
+    };
+    mountWithCatalog(fakeState({ providers: [onlyHigh] }));
+
+    expect(screen.getByTestId('provider-effort').textContent).toBe('high max');
   });
 });

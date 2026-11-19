@@ -73,6 +73,9 @@ pub struct SdkRunner {
     /// 云端 `web_search` 服务端工具开关（组合根已按协议门控的最终值；
     /// `new` 缺省 false——与「显式关」同义，故全链收 `bool` 而非 `Option`）
     web_search: bool,
+    /// 两档思考强度（组合根原样带出的 provider 原值对，**未 shaping**、**零
+    /// 门控**——两协议皆在）；协议 shaping 只在 `open_session` 做一次
+    efforts: store::AgentEffortTiers,
     /// workspace 库句柄（组合根注入缝）：名字清单含 `create_explore_note` 的
     /// 会话 per-turn 铸造该工具执行上下文的原料（None = 未注入）
     explore_store: Option<Arc<Store>>,
@@ -106,6 +109,7 @@ impl SdkRunner {
             context_window,
             max_tokens: None,
             web_search: false,
+            efforts: store::AgentEffortTiers::default(),
             explore_store,
             workspace_root: None,
             db_global: None,
@@ -156,6 +160,13 @@ impl SdkRunner {
         Self { web_search, ..self }
     }
 
+    /// 两档思考强度旁路注入（builder 缝，与 `with_web_search` 同型）：值已由
+    /// 组合根原样带出（两协议皆在），runner 只在 `open_session` 做一次协议
+    /// shaping；`new` 签名不动（既有调用点零改）。
+    pub fn with_efforts(self, efforts: store::AgentEffortTiers) -> Self {
+        Self { efforts, ..self }
+    }
+
     /// 双库句柄旁路注入（builder 缝，与 `with_workspace_root` 同型）：全局库经
     /// `WorkspaceStores::global_shared()`、workspace 库取会话 workspace root 的
     /// 实例——MUST NOT 二次 open（redb 单进程单句柄）。
@@ -204,10 +215,22 @@ impl SdkRunner {
 
 impl AgentRunner for SdkRunner {
     fn open_session(&self, open: SessionOpen) -> Result<AgentSession, AgentStartError> {
-        let (model_field, model_name) = match open.ctx.model_level {
-            ModelLevel::High => ("model_high", self.config.model_high.clone()),
-            ModelLevel::Low => ("model_low", self.config.model_low.clone()),
+        // 档位唯一分发点：模型名与 effort 同源于这一个 match（「模型 + effort」
+        // 二元组）；effort 的协议 shaping 紧随其后做一次，`loop` / 门面 / 组合根
+        // 只持已 shaping 的载荷
+        let (model_field, model_name, effort) = match open.ctx.model_level {
+            ModelLevel::High => (
+                "model_high",
+                self.config.model_high.clone(),
+                self.efforts.high.clone(),
+            ),
+            ModelLevel::Low => (
+                "model_low",
+                self.config.model_low.clone(),
+                self.efforts.low.clone(),
+            ),
         };
+        let effort_params = crate::sdk::effort::params(self.config.protocol, &effort);
         // 连接配置字段面齐备校验（消息区分成因；单一中性变体承载全部启动
         // 失败；协议恒有值不参与校验）
         let missing: Vec<&str> = [
@@ -266,6 +289,8 @@ impl AgentRunner for SdkRunner {
                 resume_notices,
                 protocol: self.config.protocol,
                 web_search: self.web_search,
+                effort,
+                effort_params,
                 raw_model: model_name,
                 explore_store: self.explore_store.clone(),
                 workspace_root: self.workspace_root.clone(),
@@ -401,6 +426,13 @@ struct PumpPayload {
     protocol: Protocol,
     /// 云端 `web_search` 开关（泵启动日志诊断面 `web_search=…`；已门控值）
     web_search: bool,
+    /// 该轮生效 effort 原值（泵启动日志诊断面 `effort=…`，留空记 `-`）：与
+    /// `effort_params` 同源于 `open_session` 的三元绑定，日志 MUST NOT 另走
+    /// 一遍取值链（与 `output_tokens` 同纪律）
+    effort: String,
+    /// 该轮生效 effort 的 **wire 载荷**（已按协议 shaping；留空即 `None`——
+    /// 请求体零新增键）
+    effort_params: Option<serde_json::Value>,
     /// 该档模型原文（日志 `raw=…`；上报与请求用裸名——见 `ModelSpec.name`）
     raw_model: String,
     /// workspace 库句柄（组合根注入缝）——名字清单含 `create_explore_note` 的
@@ -527,8 +559,13 @@ async fn session_pump(
     let output = payload
         .output_tokens
         .map_or_else(|| "-".to_owned(), |tokens| tokens.to_string());
+    let effort = if payload.effort.trim().is_empty() {
+        "-".to_owned()
+    } else {
+        payload.effort.clone()
+    };
     crate::sdk::log::append_engine_log(&format!(
-        "泵启动 session={session_id} protocol={} model={} window={window} max_tokens={output} web_search={} raw={}",
+        "泵启动 session={session_id} protocol={} model={} window={window} max_tokens={output} web_search={} effort={effort} raw={}",
         payload.protocol.as_str(),
         spec.name,
         payload.web_search,
@@ -555,6 +592,7 @@ async fn session_pump(
         db,
         protect,
         web_search: payload.web_search,
+        effort_params: payload.effort_params.clone(),
     };
     let pump_handle = handle.clone();
     let pump_session = turn.session_id.clone();

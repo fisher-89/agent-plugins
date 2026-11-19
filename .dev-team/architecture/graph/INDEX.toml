@@ -231,6 +231,15 @@ schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.C
 generated = "packages/desktop/src/components/agent/message-cards/tool-cards.i.ts"
 
 [[entry]]
+fqn = "App.Frontend.Components.Standard.Combobox"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
 fqn = "App.Frontend.Components.Standard.Dailog"
 status = "absent"
 types = 0

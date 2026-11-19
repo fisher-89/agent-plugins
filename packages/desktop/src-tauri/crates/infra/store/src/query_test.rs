@@ -229,6 +229,7 @@ fn seed_providers(db: &Database<'static>, count: i64) {
             context_length: None,
             max_tokens: None,
             web_search: false,
+            efforts: crate::AgentEffortTiers::default(),
         })
         .expect("落 provider 行");
     }

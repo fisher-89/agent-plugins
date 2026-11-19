@@ -1,5 +1,6 @@
 mod archi_knowledge;
 mod compose;
+mod model_catalog;
 mod sdk;
 mod store_port;
 mod worker;
@@ -10,6 +11,7 @@ use std::sync::Arc;
 use agent::AgentRunner;
 
 pub use compose::{compose_turn, ComposedTurn};
+pub use model_catalog::{catalog, CatalogModel, CatalogProtocol, ModelCatalog};
 pub use sdk::config::EngineConfig;
 pub use sdk::log::{append_engine_log, init_engine_log, install_engine_panic_hook};
 pub use sdk::model_spec::{parse_model_spec, ModelSpec, ModelSpecError};
@@ -37,8 +39,8 @@ pub type ResumeTranscript =
     std::sync::Arc<dyn Fn(&str) -> Result<Option<Vec<agent::AgentEvent>>, String> + Send + Sync>;
 
 /// 引擎门面：`runner_for` 为引擎构造唯一 match 点（编排层零引擎分支）。
-/// `resume` 装载缝、sdk 引擎可空调参载荷（窗长 / 输出上限）与 explore 专用
-/// 工具 store 句柄随门面持有，按引擎分发。
+/// `resume` 装载缝、sdk 引擎四项旁路载荷（窗长 / 输出上限 / `web_search` /
+/// `efforts`）与 explore 专用工具 store 句柄随门面持有，按引擎分发。
 pub struct EngineFacade {
     resume: Option<ResumeTranscript>,
     /// sdk 引擎上下文窗长（组合根旁路载荷，不经 `EngineConfig` 连接配置字段
@@ -53,6 +55,10 @@ pub struct EngineFacade {
     /// workspace 库句柄（组合根注入缝）：per-turn 铸造 `create_explore_note`
     /// 专用工具执行上下文的原料（`None` = 未注入——专用工具上下文缺席）
     explore_note_store: Option<Arc<store::Store>>,
+    /// sdk 引擎两档思考强度（组合根旁路载荷；语义为「**未 shaping 的 provider
+    /// 原值对**」——两协议原样带出，协议 shaping 收在 runner 的
+    /// `sdk/effort.rs` 单点，门面 MUST NOT 做协议分支）
+    efforts: store::AgentEffortTiers,
     /// sdk 引擎主仓 root（组合根注入缝）：写入保护规则装配的根（`None` =
     /// 未注入 → 只装载内置规则，非「保护关闭」）
     workspace_root: Option<PathBuf>,
@@ -77,6 +83,7 @@ impl EngineFacade {
             context_window: None,
             max_tokens: None,
             web_search: false,
+            efforts: store::AgentEffortTiers::default(),
             explore_note_store: None,
             workspace_root: None,
             db_global: None,
@@ -93,6 +100,7 @@ impl EngineFacade {
             context_window: None,
             max_tokens: None,
             web_search: false,
+            efforts: store::AgentEffortTiers::default(),
             explore_note_store: None,
             workspace_root: None,
             db_global: None,
@@ -112,6 +120,7 @@ impl EngineFacade {
             context_window,
             max_tokens: self.max_tokens,
             web_search: self.web_search,
+            efforts: self.efforts,
             explore_note_store: self.explore_note_store,
             workspace_root: self.workspace_root,
             db_global: self.db_global,
@@ -130,6 +139,7 @@ impl EngineFacade {
             context_window: self.context_window,
             max_tokens,
             web_search: self.web_search,
+            efforts: self.efforts,
             explore_note_store: self.explore_note_store,
             workspace_root: self.workspace_root,
             db_global: self.db_global,
@@ -149,6 +159,7 @@ impl EngineFacade {
             context_window: self.context_window,
             max_tokens: self.max_tokens,
             web_search,
+            efforts: self.efforts,
             explore_note_store: self.explore_note_store,
             workspace_root: self.workspace_root,
             db_global: self.db_global,
@@ -168,6 +179,7 @@ impl EngineFacade {
             context_window: self.context_window,
             max_tokens: self.max_tokens,
             web_search: self.web_search,
+            efforts: self.efforts,
             explore_note_store: Some(store),
             workspace_root: self.workspace_root,
             db_global: self.db_global,
@@ -175,6 +187,14 @@ impl EngineFacade {
             ask_registry: self.ask_registry,
             ask_port: self.ask_port,
         }
+    }
+
+    /// 携 sdk 引擎两档思考强度的门面（builder 缝，与 `with_web_search` 同型
+    /// 并列）：provider 记录 `efforts` 经组合根**原样**下行（零门控——两协议
+    /// 都有 effort 语义），门面存的是 provider 原值对，wire 形状在
+    /// `sdk/effort.rs` 才成形。
+    pub fn with_efforts(self, efforts: store::AgentEffortTiers) -> Self {
+        Self { efforts, ..self }
     }
 
     /// 携 ask 应答注册表的门面（builder 缝，与 `with_explore_note_store` 同型）：
@@ -237,6 +257,7 @@ impl EngineFacade {
                 )
                 .with_max_tokens(self.max_tokens)
                 .with_web_search(self.web_search)
+                .with_efforts(self.efforts.clone())
                 .with_ask_registry(Arc::clone(&self.ask_registry))
                 .with_ask_port(self.ask_port.clone());
                 if let Some(root) = &self.workspace_root {
@@ -259,6 +280,9 @@ impl Default for EngineFacade {
 
 #[cfg(test)]
 mod lib_test;
+
+#[cfg(test)]
+mod model_catalog_test;
 
 #[cfg(test)]
 mod archi_knowledge_test;

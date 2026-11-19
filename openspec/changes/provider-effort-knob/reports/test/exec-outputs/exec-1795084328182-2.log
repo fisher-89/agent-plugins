@@ -1,0 +1,20 @@
+
+=== packages_desktop_vite-plus (vite-plus) · files=5 ===
+[32m18:32:19 (28444) INFO ProjectReader[39m Found 5 of 47634 file(s) to be mutated.
+[32m18:32:19 (28444) INFO Instrumenter[39m Instrumented 5 source file(s) with 514 mutant(s)
+[32m18:32:21 (28444) INFO ConcurrencyTokenProvider[39m Creating 8 test runner process(es).
+[32m18:32:51 (28444) INFO DryRunExecutor[39m Starting initial test run (vitest test runner with "perTest" coverage analysis). This may take a while.
+[32m18:33:13 (28444) INFO DryRunExecutor[39m Initial test run succeeded. Ran 197 tests in 22 seconds (net 8575.165399999983 ms, overhead 13666.834600000017 ms).
+[32m18:38:16 (28444) INFO JsonReporter[39m Your report can be found at: file:///D:/Projects/.worktrees/wps-claude-plugin/provider-effort-knob/openspec/changes/provider-effort-knob/reports/test/packages_desktop_vite-plus/mutation/mutation-seg-0.json
+[32m18:38:16 (28444) INFO MutationTestExecutor[39m Done in 6 minutes and 4 seconds.
+npm warn EBADDEVENGINES The developer of this package has specified the following through devEngines
+npm warn EBADDEVENGINES Invalid devEngines.packageManager
+npm warn EBADDEVENGINES Invalid name "pnpm" does not match "npm" for "packageManager"
+npm warn EBADDEVENGINES {
+npm warn EBADDEVENGINES   current: { name: 'npm', version: '11.20.0' },
+npm warn EBADDEVENGINES   required: { name: 'pnpm', onFail: 'warn' }
+npm warn EBADDEVENGINES }
+
+=== packages_desktop_src-tauri_rust (rust) · files=23 ===
+Found 30 mutants to test
+30 mutants tested in 9m: 17 caught, 13 unviable

@@ -1127,14 +1127,30 @@ impl RunEdgeRecord {
 
 /// provider 三档模型档位（agent 管理域，纯嵌套 struct 不落独立模型——嵌装
 /// 先例同转录单表的 `AgentEvent`）：high / medium / low 三档
-/// 模型标识，运行发起解析消费固定取 high 档（effort 进 run 参数与档位选择
-/// 器为后续迭代，本期只存不选）。
+/// 模型标识，运行发起解析消费固定取 high 档（深度轴由 sibling 列
+/// [`AgentEffortTiers`] 承担，见 provider-effort-knob；per-run effort 参数与
+/// 前端档位选择器仍为后续迭代，medium 档仍只存不选）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentModelTiers {
     pub high: String,
     /// medium 档模型标识（本期只存不选）
     pub medium: String,
+    pub low: String,
+}
+
+/// provider 两档思考强度（effort）档位（agent 管理域，纯嵌套 struct 不落独立
+/// 模型）：与 [`AgentModelTiers`] 成 **sibling 列**——MUST NOT 并入三档模型
+/// struct（该 struct 未版本化，往里加字段即改 bincode 布局却无 `from` 链可依）。
+/// 语义为「同一模型在不同档位想多深」：`high` 供 `ModelLevel::High`、`low` 供
+/// `ModelLevel::Low`；**空串 = 留空 = 不发**（与三档模型名用空串表未配置同型）。
+/// 值域不封闭：保存期只 `trim()`，自定义值原样透传。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEffortTiers {
+    /// 深相位档（proposal / 设计 / 检视 / 验收）的思考强度
+    pub high: String,
+    /// 快相位档（实现 / 测试生成）的思考强度
     pub low: String,
 }
 
@@ -1326,14 +1342,15 @@ impl From<AgentProviderRecordV3> for AgentProviderRecordV2 {
     }
 }
 
-/// agent provider 记录
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+/// `AgentProviderRecord` 的 version 4 历史形态（仅作 native_model 升级链的
+/// 解码目标，不注册进库模型组、不出公共查询面）：无 `efforts` 列。存量 v4
+/// 行经版本机制自动升级为 v5（两档 effort 读出空串，零迁移代码路径、行为
+/// 零变化）。`Debug` 为 derive（与 V1–V3 同型，只作降级 / 解码中转，无日志位）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 5, version = 4, from = AgentProviderRecordV3)]
-#[native_db]
-pub struct AgentProviderRecord {
+pub(crate) struct AgentProviderRecordV4 {
     /// 记录 id（主键，写事务内 max+1 分配）
-    #[primary_key]
     pub id: i64,
     /// 展示名（唯一 = 写事务内查重）
     pub name: String,
@@ -1372,7 +1389,7 @@ pub struct AgentProviderRecord {
 
 /// v3 → v4 升级半边（缺列读兼容：旧记录无 `web_search` 列——默认关，行为
 /// 零变化、无迁移脚本）。
-impl From<AgentProviderRecordV3> for AgentProviderRecord {
+impl From<AgentProviderRecordV3> for AgentProviderRecordV4 {
     fn from(previous: AgentProviderRecordV3) -> Self {
         Self {
             id: previous.id,
@@ -1390,8 +1407,8 @@ impl From<AgentProviderRecordV3> for AgentProviderRecord {
 
 /// v4 → v3 降级半边（`web_search` 丢弃——只保升级语义真实性，降级形态不作
 /// 数据承诺）。
-impl From<AgentProviderRecord> for AgentProviderRecordV3 {
-    fn from(record: AgentProviderRecord) -> Self {
+impl From<AgentProviderRecordV4> for AgentProviderRecordV3 {
+    fn from(record: AgentProviderRecordV4) -> Self {
         Self {
             id: record.id,
             name: record.name,
@@ -1405,12 +1422,101 @@ impl From<AgentProviderRecord> for AgentProviderRecordV3 {
     }
 }
 
+/// agent provider 记录（当前形态）
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 5, version = 5, from = AgentProviderRecordV4)]
+#[native_db]
+pub struct AgentProviderRecord {
+    /// 记录 id（主键，写事务内 max+1 分配）
+    #[primary_key]
+    pub id: i64,
+    /// 展示名（唯一 = 写事务内查重）
+    pub name: String,
+    /// 模型协议（wire 语义与 `base_url` 拼法由此决定；缺省 `openai`——
+    /// 存量行升级即本档）
+    #[serde(default)]
+    pub protocol: AgentProviderProtocol,
+    /// 协议对应端点 base_url（openai 含版本段如 `https://…/v1`；anthropic
+    /// 的 `/v1` / `/messages` 后缀由引擎侧归一化后拼 `/v1/messages`）
+    pub base_url: String,
+    /// 认证凭据（bearer token，明文）
+    // 机密面有意放宽:明文存储与传输（读写单 DTO 即记录本体，无遮蔽信封臂），
+    // 遮蔽只在前端展示层，边界表见 specs/desktop-agent-management
+    pub api_key: String,
+    /// 三档模型标识（运行发起解析消费固定取 high 档；原文可带 `[1m]` 后缀，
+    /// 后缀解析归引擎侧单点）
+    pub models: AgentModelTiers,
+    /// provider 上下文窗长（token 数；sdk 引擎上下文防线消费）：可空列，
+    /// `None` = 未配置（缺省走 128K 启发式；编辑语义留空 = 未配置，MUST NOT
+    /// 落 0 或缺省字面）
+    #[serde(default)]
+    pub context_length: Option<u64>,
+    /// provider 输出上限（token 数；等价 Claude Code 的
+    /// `CLAUDE_CODE_MAX_OUTPUT_TOKENS`）：可空列，`None` = 按上下文窗长分档
+    /// 推导（未配置窗长时 32000）；仅 anthropic 协议消费（openai 协议请求保持
+    /// 省略上限），保存期下限 4096
+    #[serde(default)]
+    pub max_tokens: Option<u64>,
+    /// 是否启用 Anthropic 云端 `web_search` 服务端工具（缺省 `false`——存量
+    /// 行升级即关，行为零变化）。**生效门在解析期**（`provider.web_search &&
+    /// protocol == Anthropic`）：保存期无条件接受（openai 下也原样入库，不
+    /// 拒收、不清零），纠偏只在运行发起解析单点
+    #[serde(default)]
+    pub web_search: bool,
+    /// 两档思考强度（**sibling 列**，MUST NOT 并入 [`AgentModelTiers`]）：与
+    /// `models` 同一记录不同轴——`high` 供 `ModelLevel::High`、`low` 供
+    /// `ModelLevel::Low`。**空串 = 留空 = 不发**（请求体零新增键）；值域不
+    /// 封闭（两协议值域不是同一集合，保存期只 `trim`）；**无协议门控**（两
+    /// 协议都有 effort 语义，wire 形状差异由引擎侧 shaping 单点吸收）
+    #[serde(default)]
+    pub efforts: AgentEffortTiers,
+}
+
+/// v4 → v5 升级半边（缺列读兼容：旧记录无 `efforts` 列——两档读出空串 =
+/// 留空 = 不发，行为零变化、无迁移脚本）。
+impl From<AgentProviderRecordV4> for AgentProviderRecord {
+    fn from(previous: AgentProviderRecordV4) -> Self {
+        Self {
+            id: previous.id,
+            name: previous.name,
+            protocol: previous.protocol,
+            base_url: previous.base_url,
+            api_key: previous.api_key,
+            models: previous.models,
+            context_length: previous.context_length,
+            max_tokens: previous.max_tokens,
+            web_search: previous.web_search,
+            efforts: AgentEffortTiers::default(),
+        }
+    }
+}
+
+/// v5 → v4 降级半边（`efforts` 丢弃——只保升级语义真实性，降级形态不作数据
+/// 承诺）。
+impl From<AgentProviderRecord> for AgentProviderRecordV4 {
+    fn from(record: AgentProviderRecord) -> Self {
+        Self {
+            id: record.id,
+            name: record.name,
+            protocol: record.protocol,
+            base_url: record.base_url,
+            api_key: record.api_key,
+            models: record.models,
+            context_length: record.context_length,
+            max_tokens: record.max_tokens,
+            web_search: record.web_search,
+        }
+    }
+}
+
 impl AgentProviderRecord {
     /// 由连接档案构造新记录：`id` 置 0（写事务内 max+1 分配覆盖）；api_key
     /// 传空即空（新建语义无原值可保）；`context_length` / `max_tokens` 传
     /// `None` 即未配置；`web_search` 缺省关（开走 [`Self::with_web_search`]——
-    /// 现有参数面不动的唯一实现路径）。`protocol` 紧跟 `name`——协议决定
-    /// `base_url` 语义。
+    /// 现有参数面不动的唯一实现路径）；`efforts` 缺省两档空串（开走
+    /// [`Self::with_efforts`]——现有参数面不动的唯一实现路径）。`protocol`
+    /// 紧跟 `name`——协议决定 `base_url` 语义。
     pub fn new(
         name: String,
         protocol: AgentProviderProtocol,
@@ -1430,6 +1536,7 @@ impl AgentProviderRecord {
             context_length,
             max_tokens,
             web_search: false,
+            efforts: AgentEffortTiers::default(),
         }
     }
 
@@ -1437,6 +1544,13 @@ impl AgentProviderRecord {
     /// 无条件接受该值，生效门在运行发起解析期。
     pub fn with_web_search(self, web_search: bool) -> Self {
         Self { web_search, ..self }
+    }
+
+    /// 两档思考强度（构造器链式缝，与 `with_web_search` 同型）：保存期无条件
+    /// 接受两档原值（零值域校验、零协议门控），wire 形状由引擎侧 shaping 单点
+    /// 吸收。
+    pub fn with_efforts(self, efforts: AgentEffortTiers) -> Self {
+        Self { efforts, ..self }
     }
 }
 
@@ -1454,6 +1568,7 @@ impl std::fmt::Debug for AgentProviderRecord {
             .field("context_length", &self.context_length)
             .field("max_tokens", &self.max_tokens)
             .field("web_search", &self.web_search)
+            .field("efforts", &self.efforts)
             .finish()
     }
 }

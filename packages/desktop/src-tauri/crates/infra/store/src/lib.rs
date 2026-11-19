@@ -9,7 +9,7 @@ mod store;
 pub use describe::{FieldDoc, ModelDoc, TableDoc};
 pub use envelope::{dimension_of, ModelInfo, RecordEnvelope, RecordsPage};
 pub use model::{
-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+    AgentEffortTiers, AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
     AgentProviderRecord, AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord,
     ExploreRecord, PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionConfigSnapshot,
     SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord, CLI_TENANT_RETIRED,

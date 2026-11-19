@@ -100,6 +100,7 @@ fn provider_record(id: i64, name: &str) -> AgentProviderRecord {
         context_length: Some(128_000),
         max_tokens: None,
         web_search: false,
+        efforts: crate::AgentEffortTiers::default(),
     }
 }
 

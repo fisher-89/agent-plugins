@@ -157,6 +157,7 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
         contextLength: null,
         maxTokens: null,
         webSearch: false,
+        efforts: { high: '', low: '' },
       });
       expect(saved?.name).toBe('新端点');
     });
@@ -168,9 +169,12 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
       apiKey: 'sk-live-1234567890',
       models: TIERS,
       protocol: 'openai',
-      contextLength: null,
-      maxTokens: null,
-      webSearch: false,
+      tuning: {
+        contextLength: null,
+        maxTokens: null,
+        webSearch: false,
+        efforts: { high: '', low: '' },
+      },
     });
     await waitFor(() => expect(countOf('list_agent_providers')).toBe(2));
     await waitFor(() =>
@@ -197,6 +201,7 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
         contextLength: 200000,
         maxTokens: null,
         webSearch: false,
+        efforts: { high: '', low: '' },
       });
       expect(saved?.contextLength).toBe(200000);
     });
@@ -208,9 +213,12 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
       apiKey: 'sk-live-1234567890',
       models: TIERS,
       protocol: 'openai',
-      contextLength: 200000,
-      maxTokens: null,
-      webSearch: false,
+      tuning: {
+        contextLength: 200000,
+        maxTokens: null,
+        webSearch: false,
+        efforts: { high: '', low: '' },
+      },
     });
   });
 
@@ -233,13 +241,14 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
         contextLength: null,
         maxTokens: null,
         webSearch: false,
+        efforts: { high: '', low: '' },
       });
       expect(saved?.contextLength).toBeNull();
     });
 
     const saveCall = invokeMock.mock.calls.find(([name]) => name === 'save_agent_provider');
     expect(saveCall).toBeDefined();
-    expect(saveCall?.[1]?.contextLength).toBeNull();
+    expect(saveCall?.[1]?.tuning?.contextLength).toBeNull();
   });
 
   it('库存往返保真：list 回读 contextLength 字段原样（provider fixture 库存形态）', async () => {
@@ -317,6 +326,7 @@ describe('useAgentProviders：错误双轨', () => {
         contextLength: null,
         maxTokens: null,
         webSearch: false,
+        efforts: { high: '', low: '' },
       });
       expect(saved).toBeNull();
     });
@@ -381,6 +391,7 @@ describe('useAgentProviders：错误双轨', () => {
         contextLength: null,
         maxTokens: null,
         webSearch: false,
+        efforts: { high: '', low: '' },
       });
     });
     await act(async () => {
@@ -404,7 +415,7 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
     stored = [];
   });
 
-  it('save 九参逐键与 save_agent_provider 签名对齐（protocol 紧跟 name、webSearch 居末位）', async () => {
+  it('save 七形参逐键与 save_agent_provider 签名对齐（protocol 紧跟 name、tuning 居末位）', async () => {
     const response: AgentProviderRecord = {
       id: 3,
       name: '协议端点',
@@ -434,6 +445,7 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
         contextLength: 200000,
         maxTokens: 8192,
         webSearch: false,
+        efforts: { high: '', low: '' },
       });
     });
 
@@ -445,9 +457,12 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
       baseUrl: 'https://api.anthropic.com',
       apiKey: 'sk-ant-x',
       models: { high: 'claude-x[1m]', medium: 'claude-m', low: 'claude-y' },
-      contextLength: 200000,
-      maxTokens: 8192,
-      webSearch: false,
+      tuning: {
+        contextLength: 200000,
+        maxTokens: 8192,
+        webSearch: false,
+        efforts: { high: '', low: '' },
+      },
     });
     expect(Object.keys(invokeMock.mock.calls[1]?.[1] ?? {})).toEqual([
       'id',
@@ -456,9 +471,7 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
       'baseUrl',
       'apiKey',
       'models',
-      'contextLength',
-      'maxTokens',
-      'webSearch',
+      'tuning',
     ]);
     // 返回值透传记录（hook 零裁剪）
     expect(returned).toEqual(response);
@@ -483,17 +496,20 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
         contextLength: null,
         maxTokens: null,
         webSearch: false,
+        efforts: { high: '', low: '' },
       });
     });
 
     const params = invokeMock.mock.calls.find(([name]) => name === 'save_agent_provider')?.[1] as
       | Record<string, unknown>
       | undefined;
-    expect(params?.['maxTokens']).toBeNull();
-    expect(params?.['contextLength']).toBeNull();
+    // 两可空列居末位 tuning 组（位置参数逐位对齐命令签名）
+    const tuning = params?.['tuning'] as Record<string, unknown> | undefined;
+    expect(tuning?.['maxTokens']).toBeNull();
+    expect(tuning?.['contextLength']).toBeNull();
     // 留空 = 按协议缺省存 null（MUST NOT 落 0 / 32000 字面）
-    expect(params?.['maxTokens']).not.toBe(0);
-    expect(params?.['maxTokens']).not.toBe(32000);
+    expect(tuning?.['maxTokens']).not.toBe(0);
+    expect(tuning?.['maxTokens']).not.toBe(32000);
   });
 
   it('maxTokens 数值边界原样透传（0 / 4096 / MAX_SAFE_INTEGER，hook 不做边界校验）', async () => {
@@ -517,14 +533,16 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
           contextLength: null,
           maxTokens: tokens,
           webSearch: false,
+          efforts: { high: '', low: '' },
         });
       });
 
       const params = invokeMock.mock.calls.find(([name]) => name === 'save_agent_provider')?.[1] as
         | Record<string, unknown>
         | undefined;
-      expect(params?.['maxTokens']).toBe(tokens);
-      expect(params?.['contextLength']).toBeNull();
+      const tuning = params?.['tuning'] as Record<string, unknown> | undefined;
+      expect(tuning?.['maxTokens']).toBe(tokens);
+      expect(tuning?.['contextLength']).toBeNull();
     }
   });
 
@@ -582,6 +600,7 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
         contextLength: 200000,
         maxTokens: 8192,
         webSearch: false,
+        efforts: { high: '', low: '' },
       });
     });
 
@@ -592,25 +611,28 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
       baseUrl: 'https://api.anthropic.com',
       apiKey: '',
       models: { high: 'claude-sonnet-4-5[1m]', medium: 'claude-m', low: 'claude-haiku-4-5' },
-      contextLength: 200000,
-      maxTokens: 8192,
-      webSearch: false,
+      tuning: {
+        contextLength: 200000,
+        maxTokens: 8192,
+        webSearch: false,
+        efforts: { high: '', low: '' },
+      },
     });
   });
 });
 
 // ---------------------------------------------------------------------------
-// webSearch 第九位置参（AC-11 invoke 位置参数）：true / false 均逐位透传
+// tuning 组位置参（AC-11 invoke 位置参数）：四项旁路载荷收末位一组，值逐位透传
 // ---------------------------------------------------------------------------
 
-describe('useAgentProviders：webSearch 位置参数（true / false 与可空列组合）', () => {
+describe('useAgentProviders：tuning 组位置参数（webSearch / 可空列组合）', () => {
   beforeEach(() => {
     invokeMock.mockReset();
     toastErrorMock.mockReset();
     stored = [];
   });
 
-  it('webSearch: true → 载荷末位为 true 且键序九位逐位对齐', async () => {
+  it('webSearch: true → 载荷末位 tuning 组内为 true 且键序七位逐位对齐', async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === 'list_agent_providers') return Promise.resolve([]);
       return Promise.resolve(provider(1, '搜索端点'));
@@ -629,6 +651,7 @@ describe('useAgentProviders：webSearch 位置参数（true / false 与可空列
         contextLength: null,
         maxTokens: null,
         webSearch: true,
+        efforts: { high: '', low: '' },
       });
     });
 
@@ -640,11 +663,14 @@ describe('useAgentProviders：webSearch 位置参数（true / false 与可空列
       baseUrl: 'https://api.anthropic.com',
       apiKey: 'sk-ant-x',
       models: TIERS,
-      contextLength: null,
-      maxTokens: null,
-      webSearch: true,
+      tuning: {
+        contextLength: null,
+        maxTokens: null,
+        webSearch: true,
+        efforts: { high: '', low: '' },
+      },
     });
-    // 位置序与命令签名逐位对齐（webSearch 居末位）
+    // 位置序与命令签名逐位对齐（tuning 组居末位）
     expect(Object.keys(saveCall?.[1] ?? {})).toEqual([
       'id',
       'name',
@@ -652,9 +678,7 @@ describe('useAgentProviders：webSearch 位置参数（true / false 与可空列
       'baseUrl',
       'apiKey',
       'models',
-      'contextLength',
-      'maxTokens',
-      'webSearch',
+      'tuning',
     ]);
   });
 
@@ -677,16 +701,17 @@ describe('useAgentProviders：webSearch 位置参数（true / false 与可空列
         contextLength: null,
         maxTokens: null,
         webSearch: false,
+        efforts: { high: '', low: '' },
       });
     });
 
     const saveCall = invokeMock.mock.calls.find(([name]) => name === 'save_agent_provider');
-    expect(Object.keys(saveCall?.[1] ?? {})).toContain('webSearch');
-    expect(saveCall?.[1]?.webSearch).toBe(false);
-    expect(saveCall?.[1]?.webSearch).not.toBeUndefined();
+    expect(Object.keys(saveCall?.[1]?.tuning ?? {})).toContain('webSearch');
+    expect(saveCall?.[1]?.tuning?.webSearch).toBe(false);
+    expect(saveCall?.[1]?.tuning?.webSearch).not.toBeUndefined();
   });
 
-  it('可空列四组合与数值三档原样透传，webSearch 仍居末位', async () => {
+  it('可空列四组合与数值三档原样透传，tuning 组仍居末位', async () => {
     const combos: {
       contextLength: number | null;
       maxTokens: number | null;
@@ -722,16 +747,17 @@ describe('useAgentProviders：webSearch 位置参数（true / false 与可空列
           contextLength: combo.contextLength,
           maxTokens: combo.maxTokens,
           webSearch: combo.webSearch,
+          efforts: { high: '', low: '' },
         });
       });
 
       const calls = invokeMock.mock.calls.filter(([name]) => name === 'save_agent_provider');
       const payload = calls.at(-1)?.[1] ?? {};
       // 数值原样透传（不夹取、不转字符串）
-      expect(payload.contextLength).toBe(combo.contextLength);
-      expect(payload.maxTokens).toBe(combo.maxTokens);
-      expect(payload.webSearch).toBe(combo.webSearch);
-      expect(Object.keys(payload).at(-1)).toBe('webSearch');
+      expect(payload.tuning.contextLength).toBe(combo.contextLength);
+      expect(payload.tuning.maxTokens).toBe(combo.maxTokens);
+      expect(payload.tuning.webSearch).toBe(combo.webSearch);
+      expect(Object.keys(payload).at(-1)).toBe('tuning');
     }
   });
 
@@ -754,6 +780,7 @@ describe('useAgentProviders：webSearch 位置参数（true / false 与可空列
         contextLength: null,
         maxTokens: null,
         webSearch: true,
+        efforts: { high: '', low: '' },
       });
       expect(saved).toBeNull();
     });
@@ -766,7 +793,8 @@ describe('useAgentProviders：webSearch 位置参数（true / false 与可空列
 
 // ---------------------------------------------------------------------------
 // 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：`saveAgentProvider`
-// 的 9 形参与嵌套 `models` strict 面、三条既有 reject 文案、结果面 soft-report。
+// 的七形参（末位 `tuning` 组）与嵌套 `models` strict 面、三条既有 reject 文案、
+// 结果面 soft-report。
 // ---------------------------------------------------------------------------
 
 /** 合法 save 入参（id / contextLength / maxTokens 三个可空位取 null）。 */
@@ -781,6 +809,7 @@ function saveInput(overrides: Record<string, unknown> = {}): Record<string, unkn
     contextLength: null,
     maxTokens: null,
     webSearch: false,
+    efforts: { high: '', low: '' },
     ...overrides,
   };
 }
@@ -798,7 +827,7 @@ describe('useAgentProviders：经 ipc 的参数面 / 结果面', () => {
     vi.restoreAllMocks();
   });
 
-  it('9 形参齐全、三可空位为 null → 放行；payload 键名逐字命中、invoke 恰 1 次', async () => {
+  it('七形参齐全（末位 tuning 组）、三可空位为 null → 放行；payload 键名逐字命中、invoke 恰 1 次', async () => {
     mockDispatch();
     const { result } = renderHook(() => useAgentProviders());
     await settleLoaded();
@@ -815,9 +844,12 @@ describe('useAgentProviders：经 ipc 的参数面 / 结果面', () => {
       baseUrl: 'https://api.example.com/v1',
       apiKey: 'sk-live-1234567890',
       models: TIERS,
-      contextLength: null,
-      maxTokens: null,
-      webSearch: false,
+      tuning: {
+        contextLength: null,
+        maxTokens: null,
+        webSearch: false,
+        efforts: { high: '', low: '' },
+      },
     });
     expect(driftCount()).toBe(0);
   });
@@ -904,5 +936,122 @@ describe('useAgentProviders：经 ipc 的参数面 / 结果面', () => {
 
     expect(result.current.providers).toEqual([]);
     expect(driftCount()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 两档 effort 入参（AC-3 / AC-12 前端半）：`AgentProviderSaveInput.efforts` 与
+// 命令末位 `tuning` 组内的 `efforts` 逐位对齐，空串照携（省略会与「保持原值」
+// 混淆）；回读含 efforts 的记录原样承载（hook 零归一化，trim 归后端单点）。
+// ---------------------------------------------------------------------------
+
+/** 合法 save 入参（efforts 可覆写；其余取最小合法形态）。 */
+function saveInputWithEfforts(
+  efforts: { high: string; low: string },
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    id: null,
+    name: '档位端点',
+    protocol: 'openai',
+    baseUrl: 'https://api.example.com/v1',
+    apiKey: 'sk-live-1234567890',
+    models: TIERS,
+    contextLength: null,
+    maxTokens: null,
+    webSearch: false,
+    efforts,
+    ...overrides,
+  };
+}
+
+describe('useAgentProviders：两档 effort 入参', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    stored = [];
+  });
+
+  it('save 携非空两档 ⇒ invoke 载荷 efforts 逐键相等且居 webSearch 之后（tuning 组逐位对齐）', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_providers') return Promise.resolve([]);
+      return Promise.resolve(provider(1, '档位端点'));
+    });
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.save(saveInputWithEfforts({ high: 'max', low: 'low' }) as never);
+    });
+
+    const payload = invokeMock.mock.calls.find(([name]) => name === 'save_agent_provider')?.[1];
+    expect(payload?.tuning?.efforts).toEqual({ high: 'max', low: 'low' });
+    expect(Object.keys(payload?.tuning ?? {})).toEqual([
+      'contextLength',
+      'maxTokens',
+      'webSearch',
+      'efforts',
+    ]);
+  });
+
+  it.each([
+    ['双空', { high: '', low: '' }],
+    ['单空', { high: 'max', low: '' }],
+  ])('%s ⇒ 载荷恒含 efforts 键（不省略、不落 undefined / null）', async (_label, efforts) => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_providers') return Promise.resolve([]);
+      return Promise.resolve(provider(1, '档位端点'));
+    });
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.save(saveInputWithEfforts(efforts) as never);
+    });
+
+    const payload = invokeMock.mock.calls.find(([name]) => name === 'save_agent_provider')?.[1];
+    expect(Object.keys(payload?.tuning ?? {})).toContain('efforts');
+    expect(payload?.tuning?.efforts).toEqual(efforts);
+    expect(payload?.tuning?.efforts).not.toBeUndefined();
+  });
+
+  it.each([
+    ['目录外自定义值', { high: 'ultra-thinking', low: 'none' }],
+    ['带两侧空白值', { high: ' max ', low: '\tlow\n' }],
+    ['超长与特殊字符', { high: 'h'.repeat(1200), low: '思考 🎉 v2' }],
+  ])('%s ⇒ 原样透传（hook 零归一化、零 trim）', async (_label, efforts) => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_providers') return Promise.resolve([]);
+      return Promise.resolve(provider(1, '档位端点'));
+    });
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.save(saveInputWithEfforts(efforts) as never);
+    });
+
+    const payload = invokeMock.mock.calls.find(([name]) => name === 'save_agent_provider')?.[1];
+    expect(payload?.tuning?.efforts).toEqual(efforts);
+  });
+
+  it.each([
+    ['openai', { high: '', low: '' }],
+    ['openai', { high: 'max', low: 'low' }],
+    ['anthropic', { high: '', low: '' }],
+    ['anthropic', { high: 'xhigh', low: 'low' }],
+  ])('回读 %s 协议 + efforts=%o ⇒ 两档原样承载（四组合全覆盖）', async (protocol, efforts) => {
+    const row: AgentProviderRecord = {
+      ...provider(1, '回读端点'),
+      protocol: protocol as AgentProviderRecord['protocol'],
+      efforts,
+    };
+    invokeMock.mockResolvedValue([row]);
+    const { result } = renderHook(() => useAgentProviders());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.providers[0]?.efforts).toEqual(efforts);
+    expect(toastErrorMock).not.toHaveBeenCalled();
   });
 });

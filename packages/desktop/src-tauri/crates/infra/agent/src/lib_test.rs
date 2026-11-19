@@ -1334,3 +1334,198 @@ fn with_db_stores重复调用后者覆盖() {
         .runner_for(EngineKind::Sdk, complete_cfg())
         .expect("覆盖后 Sdk 臂构造成功");
 }
+
+// ---------------------------------------------------------------------------
+// efforts 门面载荷（AC-6 门面半边）：builder 缝、缺省两档空、与三项既有旁路
+// 载荷并存互不覆盖、分发等价、Cli 臂退役面零变。
+// ---------------------------------------------------------------------------
+
+/// 两档 effort 载荷 fixture。
+fn effort_tiers(high: &str, low: &str) -> store::AgentEffortTiers {
+    store::AgentEffortTiers {
+        high: high.to_owned(),
+        low: low.to_owned(),
+    }
+}
+
+/// New 会话 open 底座（成功面断言用）。
+fn open_new() -> agent::SessionOpen {
+    agent::SessionOpen {
+        injections: agent::SessionInjections::default(),
+        ctx: agent::SessionCtx {
+            workspace_root: Path::new("C:/ws").to_path_buf(),
+            permission_mode: agent::AgentPermissionMode::BypassPermissions,
+            model_level: agent::ModelLevel::High,
+        },
+        session: agent::SessionRef::New,
+        session_id: "core-session-1".to_owned(),
+        prior_handle: None,
+    }
+}
+
+#[test]
+fn with_efforts载荷两档逐字段透传且分发可构造() {
+    let facade = EngineFacade::new().with_efforts(effort_tiers("max", "low"));
+
+    assert_eq!(
+        facade.efforts,
+        effort_tiers("max", "low"),
+        "门面存 provider 原值对（未 shaping）"
+    );
+    assert!(
+        facade.runner_for(EngineKind::Sdk, complete_cfg()).is_ok(),
+        "载荷下 Sdk 臂构造成功"
+    );
+}
+
+#[test]
+fn 未装配efforts各构造路径缺省两档空串() {
+    assert_eq!(
+        EngineFacade::new().efforts,
+        store::AgentEffortTiers::default(),
+        "new() 缺省两档空串"
+    );
+
+    let (loader, _calls) = counting_loader(Ok(None));
+    assert_eq!(
+        EngineFacade::with_resume_transcript(loader).efforts,
+        store::AgentEffortTiers::default(),
+        "with_resume_transcript 缺省两档空串"
+    );
+    assert_eq!(
+        EngineFacade::new()
+            .with_context_window(Some(200_000))
+            .efforts,
+        store::AgentEffortTiers::default(),
+        "with_context_window 不清写 efforts"
+    );
+    assert_eq!(
+        EngineFacade::new().with_max_tokens(Some(8192)).efforts,
+        store::AgentEffortTiers::default(),
+        "with_max_tokens 不清写 efforts"
+    );
+    let (_dir, store) = temp_store("efforts-default");
+    assert_eq!(
+        EngineFacade::new()
+            .with_explore_note_store(Arc::clone(&store))
+            .efforts,
+        store::AgentEffortTiers::default(),
+        "with_explore_note_store 缺省两档空串"
+    );
+}
+
+#[test]
+fn 四载荷两种次序链式互不覆盖() {
+    let orders = [
+        EngineFacade::new()
+            .with_context_window(Some(200_000))
+            .with_max_tokens(Some(8192))
+            .with_web_search(true)
+            .with_efforts(effort_tiers("max", "low")),
+        EngineFacade::new()
+            .with_efforts(effort_tiers("max", "low"))
+            .with_web_search(true)
+            .with_max_tokens(Some(8192))
+            .with_context_window(Some(200_000)),
+    ];
+
+    for facade in &orders {
+        assert_eq!(facade.context_window, Some(200_000), "窗长载荷保真");
+        assert_eq!(facade.max_tokens, Some(8192), "上限载荷保真");
+        assert!(facade.web_search, "开关载荷保真");
+        assert_eq!(
+            facade.efforts,
+            effort_tiers("max", "low"),
+            "efforts 载荷不被其他三项覆盖"
+        );
+    }
+
+    // 同字段重复调用：后者覆盖，无累积
+    let overridden = EngineFacade::new()
+        .with_efforts(effort_tiers("max", "low"))
+        .with_efforts(effort_tiers("", ""));
+    assert_eq!(
+        overridden.efforts,
+        store::AgentEffortTiers::default(),
+        "重复调用后者覆盖前者"
+    );
+}
+
+#[tokio::test]
+async fn with_efforts分发等价_与直构runner加同载荷行为一致() {
+    let payload = effort_tiers("max", "low");
+
+    // 门面链：new() → with_efforts → runner_for(Sdk)
+    let via_facade = EngineFacade::new()
+        .with_efforts(payload.clone())
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("Sdk 臂构造成功");
+    // 直构链：SdkRunner::new(四参签名不动) + with_efforts
+    let via_direct = SdkRunner::new(complete_cfg(), None, None, None).with_efforts(payload);
+
+    assert_eq!(
+        via_facade
+            .open_session(open_continue("ses-effort"))
+            .expect_err("无装载缝续会话必须显式失败")
+            .to_string(),
+        via_direct
+            .open_session(open_continue("ses-effort"))
+            .expect_err("直构同口径失败")
+            .to_string(),
+        "门面分发与直构一致（门面零协议分支、零改写）"
+    );
+
+    // 载荷不改变开面：New 会话 open 照常成功
+    drop(
+        via_facade
+            .open_session(open_new())
+            .expect("完整配置 New 会话 open 应成功"),
+    );
+}
+
+#[tokio::test]
+async fn 两协议乘非空efforts门面分发均成功且零门控() {
+    for protocol in [Protocol::Openai, Protocol::Anthropic] {
+        let facade = EngineFacade::new().with_efforts(effort_tiers("max", "low"));
+        let config = EngineConfig {
+            protocol,
+            ..complete_cfg()
+        };
+
+        let runner = facade
+            .runner_for(EngineKind::Sdk, config)
+            .unwrap_or_else(|error| panic!("{protocol:?} 臂构造应成功: {error}"));
+        drop(
+            runner
+                .open_session(open_new())
+                .expect("完整配置 New 会话 open 应成功"),
+        );
+    }
+}
+
+#[tokio::test]
+async fn 两档皆空为合法态_new会话open不触发config_missing() {
+    let runner = EngineFacade::new()
+        .with_efforts(store::AgentEffortTiers::default())
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("Sdk 臂构造成功");
+
+    assert!(
+        runner.open_session(open_new()).is_ok(),
+        "effort 空是合法态：不参与配置齐备校验、不触发 ConfigMissing"
+    );
+}
+
+#[test]
+fn 退役cli臂不被efforts载荷改写_逐字退役文案且不静默回退sdk臂() {
+    let error = EngineFacade::new()
+        .with_efforts(effort_tiers("max", "low"))
+        .runner_for(EngineKind::Cli, complete_cfg())
+        .err()
+        .expect("Cli 臂必须显式拒绝");
+
+    assert_eq!(
+        error, CLI_TENANT_RETIRED,
+        "新载荷不改变退役面（逐字文案），实际: {error}"
+    );
+}

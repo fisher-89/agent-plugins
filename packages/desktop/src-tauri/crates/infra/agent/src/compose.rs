@@ -183,6 +183,10 @@ struct ResolvedEngine {
     /// `provider.web_search && protocol == Anthropic`——门控判定单点在本组合
     /// 根，门面与 runner 零二次判定）
     web_search: bool,
+    /// 两档思考强度（provider 原值对**原样**带出，**零门控**——两协议都有
+    /// effort 语义；wire 形状差异归引擎侧 shaping 单点，MUST NOT 并入上面的
+    /// `web_search` 门控判定）
+    efforts: store::AgentEffortTiers,
     /// 解析目标实例 id（快照 `agent_instance_id` 载荷；缺省与显式路径同经
     /// 解析单点，恒在）
     agent_instance_id: i64,
@@ -274,6 +278,7 @@ pub fn compose_turn(
             .with_context_window(resolved.context_window)
             .with_max_tokens(resolved.max_tokens)
             .with_web_search(resolved.web_search)
+            .with_efforts(resolved.efforts)
             .with_ask_registry(ask_registry)
             .with_ask_port(ask_port)
             .with_explore_note_store(explore_note_store)
@@ -426,6 +431,9 @@ fn resolve_agent_engine(
                 // 侧解析，不落缺省字面）
                 context_window: provider.context_length,
                 max_tokens: provider.max_tokens,
+                // 原样带出、零门控：两协议都有 effort 语义（wire 形状差异由
+                // 引擎侧 shaping 吸收），MUST NOT 与下面的协议判定合并
+                efforts: provider.efforts,
                 // 门控单点：web_search 是 anthropic 专有 server tool，openai
                 // 协议恒不生效（不静默透传、不报错）；按值移动前先算
                 web_search: provider.web_search && matches!(protocol, Protocol::Anthropic),

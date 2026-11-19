@@ -65,9 +65,7 @@ export const argsSchemas = {
 			"baseUrl": z.string(),
 			"apiKey": z.string(),
 			"models": z.lazy(() => AgentModelTiersSchema),
-			"contextLength": z.number().nullable(),
-			"maxTokens": z.number().nullable(),
-			"webSearch": z.boolean(),
+			"tuning": z.lazy(() => AgentProviderTuningSchema),
 		}); },
 	get "deleteAgentProvider"() { return z.strictObject({
 			"id": z.number(),
@@ -85,6 +83,8 @@ export const argsSchemas = {
 		}); },
 	get "setDefaultAgentInstance"() { return z.strictObject({
 			"id": z.number(),
+		}); },
+	get "listModelCatalog"() { return z.strictObject({
 		}); },
 	get "agentStart"() { return z.strictObject({
 			"onEvent": degraded("channel: 非 JSON 可表达，跳过值校验"),
@@ -300,6 +300,7 @@ export const resultSchemas = {
 	get "saveAgentInstance"() { return z.lazy(() => AgentInstanceRecordSchema); },
 	get "deleteAgentInstance"() { return z.boolean(); },
 	get "setDefaultAgentInstance"() { return z.lazy(() => AgentInstanceRecordSchema); },
+	get "listModelCatalog"() { return z.lazy(() => ModelCatalogSchema); },
 	get "agentStart"() { return z.lazy(() => TurnSummarySchema); },
 	get "agentStop"() { return z.null(); },
 	get "agentAnswer"() { return z.null(); },
@@ -381,6 +382,8 @@ export const channelArgs = {
 	get "deleteAgentInstance"() { return {
 		}; },
 	get "setDefaultAgentInstance"() { return {
+		}; },
+	get "listModelCatalog"() { return {
 		}; },
 	get "agentStart"() { return {
 			get "onEvent"() { return z.lazy(() => AgentRunMessageSchema); },
@@ -534,6 +537,11 @@ export const AgentDeltaSchema = z.union([z.strictObject({
 	get thinking() { return z.string(); },
 })]);
 
+export const AgentEffortTiersSchema = z.strictObject({
+	get high() { return z.string(); },
+	get low() { return z.string(); },
+});
+
 export const AgentEngineKindSchema = z.union([z.literal("cli"), z.literal("sdk")]);
 
 export const AgentEventSchema = z.strictObject({
@@ -656,6 +664,14 @@ export const AgentProviderRecordSchema = z.strictObject({
 	get contextLength() { return z.number().nullable().optional(); },
 	get maxTokens() { return z.number().nullable().optional(); },
 	get webSearch() { return z.boolean().optional(); },
+	get efforts() { return AgentEffortTiersSchema.optional(); },
+});
+
+export const AgentProviderTuningSchema = z.strictObject({
+	get contextLength() { return z.number().nullable(); },
+	get maxTokens() { return z.number().nullable(); },
+	get webSearch() { return z.boolean(); },
+	get efforts() { return AgentEffortTiersSchema; },
 });
 
 export const AgentRunMessageSchema = z.union([z.strictObject({
@@ -958,6 +974,20 @@ export const AttemptRecordSchema = z.strictObject({
 	get decisionSessionId() { return z.string().nullable(); },
 });
 
+export const CatalogModelSchema = z.strictObject({
+	get value() { return z.string(); },
+	get contextLength() { return z.number().nullable(); },
+	get maxTokens() { return z.number().nullable(); },
+	get supportsThinking() { return z.boolean(); },
+	get efforts() { return z.array(z.string()).nullable(); },
+});
+
+export const CatalogProtocolSchema = z.strictObject({
+	get protocol() { return AgentProviderProtocolSchema; },
+	get efforts() { return z.array(z.string()); },
+	get models() { return z.array(CatalogModelSchema); },
+});
+
 export const ChangeDetailSchema = z.strictObject({
 	get id() { return z.string(); },
 	get name() { return z.string(); },
@@ -1184,6 +1214,10 @@ export const LanguageStatsSchema = z.strictObject({
 	get comments() { return z.number(); },
 	get blanks() { return z.number(); },
 	get share() { return z.number().nullable(); },
+});
+
+export const ModelCatalogSchema = z.strictObject({
+	get protocols() { return z.array(CatalogProtocolSchema); },
 });
 
 export const ModelInfoSchema = z.strictObject({

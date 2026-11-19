@@ -1,0 +1,3983 @@
+diff --git a/crates/infra/agent/src/compose.rs b/crates/infra/agent/src/compose.rs
+index 5a47becddbc4..b8d3ae6b0b60 100644
+--- a/crates/infra/agent/src/compose.rs
++++ b/crates/infra/agent/src/compose.rs
+@@ -183,6 +183,10 @@ struct ResolvedEngine {
+     /// `provider.web_search && protocol == Anthropic`——门控判定单点在本组合
+     /// 根，门面与 runner 零二次判定）
+     web_search: bool,
++    /// 两档思考强度（provider 原值对**原样**带出，**零门控**——两协议都有
++    /// effort 语义；wire 形状差异归引擎侧 shaping 单点，MUST NOT 并入上面的
++    /// `web_search` 门控判定）
++    efforts: store::AgentEffortTiers,
+     /// 解析目标实例 id（快照 `agent_instance_id` 载荷；缺省与显式路径同经
+     /// 解析单点，恒在）
+     agent_instance_id: i64,
+@@ -274,6 +278,7 @@ pub fn compose_turn(
+             .with_context_window(resolved.context_window)
+             .with_max_tokens(resolved.max_tokens)
+             .with_web_search(resolved.web_search)
++            .with_efforts(resolved.efforts)
+             .with_ask_registry(ask_registry)
+             .with_ask_port(ask_port)
+             .with_explore_note_store(explore_note_store)
+@@ -426,6 +431,9 @@ fn resolve_agent_engine(
+                 // 侧解析，不落缺省字面）
+                 context_window: provider.context_length,
+                 max_tokens: provider.max_tokens,
++                // 原样带出、零门控：两协议都有 effort 语义（wire 形状差异由
++                // 引擎侧 shaping 吸收），MUST NOT 与下面的协议判定合并
++                efforts: provider.efforts,
+                 // 门控单点：web_search 是 anthropic 专有 server tool，openai
+                 // 协议恒不生效（不静默透传、不报错）；按值移动前先算
+                 web_search: provider.web_search && matches!(protocol, Protocol::Anthropic),
+diff --git a/crates/infra/agent/src/compose_test.rs b/crates/infra/agent/src/compose_test.rs
+index 85275e2e9490..23b486c7367b 100644
+--- a/crates/infra/agent/src/compose_test.rs
++++ b/crates/infra/agent/src/compose_test.rs
+@@ -5011,3 +5011,255 @@ async fn compose_turn身份锚恒主仓root不随会话cwd的worktree派生() {
+         "worktree 路径零会话行（库身份锚不经 cwd 派生）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// efforts 原值带出（AC-6 组合根半边 / AC-8 取值链零回归）：provider 的
++// `efforts` 原样下行、零协议门控、零校验；`web_search` 的门控单点不受影响。
++// ---------------------------------------------------------------------------
++
++/// 两档 effort fixture。
++fn efforts_of(high: &str, low: &str) -> store::AgentEffortTiers {
++    store::AgentEffortTiers {
++        high: high.to_owned(),
++        low: low.to_owned(),
++    }
++}
++
++/// 可指定 effort / 开关 / 可空列的 sdk provider fixture（端点 discard，解析仅
++/// 组装不触网络）。
++fn seed_provider_with_efforts(
++    stores: &WorkspaceStores,
++    name: &str,
++    protocol: AgentProviderProtocol,
++    efforts: store::AgentEffortTiers,
++    web_search: bool,
++    context_length: Option<u64>,
++    max_tokens: Option<u64>,
++) -> i64 {
++    let provider = AgentProviderRecord::new(
++        name.to_owned(),
++        protocol,
++        "http://127.0.0.1:9/v1".to_owned(),
++        "sk-compose".to_owned(),
++        AgentModelTiers {
++            high: "m-high".to_owned(),
++            medium: "m-medium".to_owned(),
++            low: "m-low".to_owned(),
++        },
++        context_length,
++        max_tokens,
++    )
++    .with_web_search(web_search)
++    .with_efforts(efforts);
++    stores
++        .global()
++        .upsert_agent_provider(provider)
++        .expect("落 provider fixture")
++        .id
++}
++
++/// 解析产物摘取（`ResolvedEngine` 不实现 Debug，`expect` 不可用）。
++fn resolve_of(stores: &WorkspaceStores, instance_id: i64) -> super::ResolvedEngine {
++    match super::resolve_agent_engine(stores, Some(instance_id)) {
++        Ok(resolved) => resolved,
++        Err(error) => panic!("解析应成功: {error}"),
++    }
++}
++
++#[test]
++fn resolve_sdk臂原样带出efforts且两协议同形零门控() {
++    for protocol in [
++        AgentProviderProtocol::Openai,
++        AgentProviderProtocol::Anthropic,
++    ] {
++        let env = DualEnv::new("efforts-protocol");
++        let stores = env.stores();
++        let provider_id = seed_provider_with_efforts(
++            stores,
++            "协议供应",
++            protocol,
++            efforts_of("max", "low"),
++            false,
++            None,
++            None,
++        );
++        let instance_id = seed_sdk_instance(stores, "协议实例", Some(provider_id));
++
++        let resolved = resolve_of(stores, instance_id);
++
++        assert_eq!(
++            resolved.efforts,
++            efforts_of("max", "low"),
++            "{protocol:?} 臂原样带出（零门控：两协议结果同形）"
++        );
++    }
++}
++
++#[test]
++fn resolve_sdk臂两档皆空时带出空串不落缺省字面() {
++    let env = DualEnv::new("efforts-empty");
++    let stores = env.stores();
++    let provider_id = seed_provider_with_efforts(
++        stores,
++        "空档供应",
++        AgentProviderProtocol::Openai,
++        store::AgentEffortTiers::default(),
++        false,
++        None,
++        None,
++    );
++    let instance_id = seed_sdk_instance(stores, "空档实例", Some(provider_id));
++
++    let resolved = resolve_of(stores, instance_id);
++
++    assert_eq!(
++        resolved.efforts.high, "",
++        "两档空串原样带出（不落 None / 缺省字面）"
++    );
++    assert_eq!(resolved.efforts.low, "");
++}
++
++#[test]
++fn resolve_sdk臂目录外自定义值原样带出组合根零校验() {
++    for (high, low) in [("ultra-thinking", "none"), ("MAX", "a b")] {
++        let env = DualEnv::new("efforts-custom");
++        let stores = env.stores();
++        let provider_id = seed_provider_with_efforts(
++            stores,
++            "自定义供应",
++            AgentProviderProtocol::Anthropic,
++            efforts_of(high, low),
++            false,
++            None,
++            None,
++        );
++        let instance_id = seed_sdk_instance(stores, "自定义实例", Some(provider_id));
++
++        let resolved = resolve_of(stores, instance_id);
++
++        assert_eq!(
++            resolved.efforts,
++            efforts_of(high, low),
++            "目录外取值 ({high:?}, {low:?}) 原样带出（组合根零校验）"
++        );
++    }
++}
++
++/// 解析期取值链观察面（窗长 / 上限 / 三档模型名）。
++type ResolvedChainView = (Option<u64>, Option<u64>, String, String, String);
++
++#[test]
++fn efforts三态不改变解析期取值链与连接配置() {
++    let mut baseline: Option<ResolvedChainView> = None;
++    for efforts in [
++        store::AgentEffortTiers::default(),
++        efforts_of("max", ""),
++        efforts_of("max", "low"),
++    ] {
++        let env = DualEnv::new("efforts-chain");
++        let stores = env.stores();
++        let provider_id = seed_provider_with_efforts(
++            stores,
++            "取值链供应",
++            AgentProviderProtocol::Anthropic,
++            efforts.clone(),
++            false,
++            Some(200_000),
++            Some(8_192),
++        );
++        let instance_id = seed_sdk_instance(stores, "取值链实例", Some(provider_id));
++
++        let resolved = resolve_of(stores, instance_id);
++        let observed = (
++            resolved.context_window,
++            resolved.max_tokens,
++            resolved.config.model_high.clone(),
++            resolved.config.model_low.clone(),
++            resolved.config.base_url.clone(),
++        );
++
++        match &baseline {
++            None => baseline = Some(observed),
++            Some(expected) => assert_eq!(
++                &observed, expected,
++                "efforts={efforts:?}：窗长 / 上限 / 连接配置与无 efforts 情形逐字一致（AC-8）"
++            ),
++        }
++        assert_eq!(resolved.efforts, efforts, "仅有 efforts 列随入参变化");
++    }
++}
++
++#[test]
++fn efforts非空不影响web_search协议门控单点() {
++    for (protocol, web_search) in [
++        (AgentProviderProtocol::Anthropic, true),
++        (AgentProviderProtocol::Anthropic, false),
++        (AgentProviderProtocol::Openai, true),
++        (AgentProviderProtocol::Openai, false),
++    ] {
++        let env = DualEnv::new("efforts-gate");
++        let stores = env.stores();
++        let provider_id = seed_provider_with_efforts(
++            stores,
++            "门控供应",
++            protocol,
++            efforts_of("max", "low"),
++            web_search,
++            None,
++            None,
++        );
++        let instance_id = seed_sdk_instance(stores, "门控实例", Some(provider_id));
++
++        let resolved = resolve_of(stores, instance_id);
++
++        let expected = web_search && matches!(protocol, AgentProviderProtocol::Anthropic);
++        assert_eq!(
++            resolved.web_search, expected,
++            "{protocol:?} + web_search={web_search}：判定仍为 provider.web_search && anthropic（不受 efforts 影响）"
++        );
++        assert_eq!(
++            resolved.efforts,
++            efforts_of("max", "low"),
++            "门控判定不吞 efforts（两列正交）"
++        );
++    }
++}
++
++#[tokio::test]
++async fn compose_turn门面链接入efforts后_new会话open照常成功() {
++    let env = DualEnv::new("efforts-compose");
++    let stores = env.stores();
++    let provider_id = seed_provider_with_efforts(
++        stores,
++        "装配供应",
++        AgentProviderProtocol::Anthropic,
++        efforts_of("max", "low"),
++        false,
++        None,
++        None,
++    );
++    seed_sdk_instance(stores, "装配实例", Some(provider_id));
++
++    let composed = compose_turn(
++        stores,
++        Arc::new(StopRegistry::new()),
++        Arc::new(SessionStreamRegistry::new()),
++        Arc::new(agent::AskRegistry::default()),
++        Arc::new(agent::SteerRegistry::default()),
++        env.store(),
++        None,
++        Path::new(&env.root()),
++        None,
++    )
++    .expect("装配应成功（.with_efforts 链接入不塌 runner_for）");
++
++    let running = composed
++        .begin(
++            SessionRef::New,
++            "efforts 装配一轮".to_owned(),
++            ctx(&env.root()),
++            debug_provenance(),
++        )
++        .expect("begin 应成功（effort 非空是合法装配态）");
++    drop(running);
++}
+diff --git a/crates/infra/agent/src/lib.rs b/crates/infra/agent/src/lib.rs
+index 7fecb7079ce0..c6bd620ea086 100644
+--- a/crates/infra/agent/src/lib.rs
++++ b/crates/infra/agent/src/lib.rs
+@@ -1,5 +1,6 @@
+ mod archi_knowledge;
+ mod compose;
++mod model_catalog;
+ mod sdk;
+ mod store_port;
+ mod worker;
+@@ -10,6 +11,7 @@ use std::sync::Arc;
+ use agent::AgentRunner;
+ 
+ pub use compose::{compose_turn, ComposedTurn};
++pub use model_catalog::{catalog, CatalogModel, CatalogProtocol, ModelCatalog};
+ pub use sdk::config::EngineConfig;
+ pub use sdk::log::{append_engine_log, init_engine_log, install_engine_panic_hook};
+ pub use sdk::model_spec::{parse_model_spec, ModelSpec, ModelSpecError};
+@@ -37,8 +39,8 @@ pub type ResumeTranscript =
+     std::sync::Arc<dyn Fn(&str) -> Result<Option<Vec<agent::AgentEvent>>, String> + Send + Sync>;
+ 
+ /// 引擎门面：`runner_for` 为引擎构造唯一 match 点（编排层零引擎分支）。
+-/// `resume` 装载缝、sdk 引擎可空调参载荷（窗长 / 输出上限）与 explore 专用
+-/// 工具 store 句柄随门面持有，按引擎分发。
++/// `resume` 装载缝、sdk 引擎四项旁路载荷（窗长 / 输出上限 / `web_search` /
++/// `efforts`）与 explore 专用工具 store 句柄随门面持有，按引擎分发。
+ pub struct EngineFacade {
+     resume: Option<ResumeTranscript>,
+     /// sdk 引擎上下文窗长（组合根旁路载荷，不经 `EngineConfig` 连接配置字段
+@@ -53,6 +55,10 @@ pub struct EngineFacade {
+     /// workspace 库句柄（组合根注入缝）：per-turn 铸造 `create_explore_note`
+     /// 专用工具执行上下文的原料（`None` = 未注入——专用工具上下文缺席）
+     explore_note_store: Option<Arc<store::Store>>,
++    /// sdk 引擎两档思考强度（组合根旁路载荷；语义为「**未 shaping 的 provider
++    /// 原值对**」——两协议原样带出，协议 shaping 收在 runner 的
++    /// `sdk/effort.rs` 单点，门面 MUST NOT 做协议分支）
++    efforts: store::AgentEffortTiers,
+     /// sdk 引擎主仓 root（组合根注入缝）：写入保护规则装配的根（`None` =
+     /// 未注入 → 只装载内置规则，非「保护关闭」）
+     workspace_root: Option<PathBuf>,
+@@ -77,6 +83,7 @@ impl EngineFacade {
+             context_window: None,
+             max_tokens: None,
+             web_search: false,
++            efforts: store::AgentEffortTiers::default(),
+             explore_note_store: None,
+             workspace_root: None,
+             db_global: None,
+@@ -93,6 +100,7 @@ impl EngineFacade {
+             context_window: None,
+             max_tokens: None,
+             web_search: false,
++            efforts: store::AgentEffortTiers::default(),
+             explore_note_store: None,
+             workspace_root: None,
+             db_global: None,
+@@ -112,6 +120,7 @@ impl EngineFacade {
+             context_window,
+             max_tokens: self.max_tokens,
+             web_search: self.web_search,
++            efforts: self.efforts,
+             explore_note_store: self.explore_note_store,
+             workspace_root: self.workspace_root,
+             db_global: self.db_global,
+@@ -130,6 +139,7 @@ impl EngineFacade {
+             context_window: self.context_window,
+             max_tokens,
+             web_search: self.web_search,
++            efforts: self.efforts,
+             explore_note_store: self.explore_note_store,
+             workspace_root: self.workspace_root,
+             db_global: self.db_global,
+@@ -149,6 +159,7 @@ impl EngineFacade {
+             context_window: self.context_window,
+             max_tokens: self.max_tokens,
+             web_search,
++            efforts: self.efforts,
+             explore_note_store: self.explore_note_store,
+             workspace_root: self.workspace_root,
+             db_global: self.db_global,
+@@ -168,6 +179,7 @@ impl EngineFacade {
+             context_window: self.context_window,
+             max_tokens: self.max_tokens,
+             web_search: self.web_search,
++            efforts: self.efforts,
+             explore_note_store: Some(store),
+             workspace_root: self.workspace_root,
+             db_global: self.db_global,
+@@ -177,6 +189,14 @@ impl EngineFacade {
+         }
+     }
+ 
++    /// 携 sdk 引擎两档思考强度的门面（builder 缝，与 `with_web_search` 同型
++    /// 并列）：provider 记录 `efforts` 经组合根**原样**下行（零门控——两协议
++    /// 都有 effort 语义），门面存的是 provider 原值对，wire 形状在
++    /// `sdk/effort.rs` 才成形。
++    pub fn with_efforts(self, efforts: store::AgentEffortTiers) -> Self {
++        Self { efforts, ..self }
++    }
++
+     /// 携 ask 应答注册表的门面（builder 缝，与 `with_explore_note_store` 同型）：
+     /// 壳层托管的那张表经组合根下行至 sdk 引擎（与内核侧同源单表）。
+     pub fn with_ask_registry(self, registry: Arc<agent::AskRegistry>) -> Self {
+@@ -237,6 +257,7 @@ impl EngineFacade {
+                 )
+                 .with_max_tokens(self.max_tokens)
+                 .with_web_search(self.web_search)
++                .with_efforts(self.efforts.clone())
+                 .with_ask_registry(Arc::clone(&self.ask_registry))
+                 .with_ask_port(self.ask_port.clone());
+                 if let Some(root) = &self.workspace_root {
+@@ -260,6 +281,9 @@ impl Default for EngineFacade {
+ #[cfg(test)]
+ mod lib_test;
+ 
++#[cfg(test)]
++mod model_catalog_test;
++
+ #[cfg(test)]
+ mod archi_knowledge_test;
+ 
+diff --git a/crates/infra/agent/src/lib_test.rs b/crates/infra/agent/src/lib_test.rs
+index b3ca2aaa41df..8788756eca50 100644
+--- a/crates/infra/agent/src/lib_test.rs
++++ b/crates/infra/agent/src/lib_test.rs
+@@ -1334,3 +1334,198 @@ fn with_db_stores重复调用后者覆盖() {
+         .runner_for(EngineKind::Sdk, complete_cfg())
+         .expect("覆盖后 Sdk 臂构造成功");
+ }
++
++// ---------------------------------------------------------------------------
++// efforts 门面载荷（AC-6 门面半边）：builder 缝、缺省两档空、与三项既有旁路
++// 载荷并存互不覆盖、分发等价、Cli 臂退役面零变。
++// ---------------------------------------------------------------------------
++
++/// 两档 effort 载荷 fixture。
++fn effort_tiers(high: &str, low: &str) -> store::AgentEffortTiers {
++    store::AgentEffortTiers {
++        high: high.to_owned(),
++        low: low.to_owned(),
++    }
++}
++
++/// New 会话 open 底座（成功面断言用）。
++fn open_new() -> agent::SessionOpen {
++    agent::SessionOpen {
++        injections: agent::SessionInjections::default(),
++        ctx: agent::SessionCtx {
++            workspace_root: Path::new("C:/ws").to_path_buf(),
++            permission_mode: agent::AgentPermissionMode::BypassPermissions,
++            model_level: agent::ModelLevel::High,
++        },
++        session: agent::SessionRef::New,
++        session_id: "core-session-1".to_owned(),
++        prior_handle: None,
++    }
++}
++
++#[test]
++fn with_efforts载荷两档逐字段透传且分发可构造() {
++    let facade = EngineFacade::new().with_efforts(effort_tiers("max", "low"));
++
++    assert_eq!(
++        facade.efforts,
++        effort_tiers("max", "low"),
++        "门面存 provider 原值对（未 shaping）"
++    );
++    assert!(
++        facade.runner_for(EngineKind::Sdk, complete_cfg()).is_ok(),
++        "载荷下 Sdk 臂构造成功"
++    );
++}
++
++#[test]
++fn 未装配efforts各构造路径缺省两档空串() {
++    assert_eq!(
++        EngineFacade::new().efforts,
++        store::AgentEffortTiers::default(),
++        "new() 缺省两档空串"
++    );
++
++    let (loader, _calls) = counting_loader(Ok(None));
++    assert_eq!(
++        EngineFacade::with_resume_transcript(loader).efforts,
++        store::AgentEffortTiers::default(),
++        "with_resume_transcript 缺省两档空串"
++    );
++    assert_eq!(
++        EngineFacade::new()
++            .with_context_window(Some(200_000))
++            .efforts,
++        store::AgentEffortTiers::default(),
++        "with_context_window 不清写 efforts"
++    );
++    assert_eq!(
++        EngineFacade::new().with_max_tokens(Some(8192)).efforts,
++        store::AgentEffortTiers::default(),
++        "with_max_tokens 不清写 efforts"
++    );
++    let (_dir, store) = temp_store("efforts-default");
++    assert_eq!(
++        EngineFacade::new()
++            .with_explore_note_store(Arc::clone(&store))
++            .efforts,
++        store::AgentEffortTiers::default(),
++        "with_explore_note_store 缺省两档空串"
++    );
++}
++
++#[test]
++fn 四载荷两种次序链式互不覆盖() {
++    let orders = [
++        EngineFacade::new()
++            .with_context_window(Some(200_000))
++            .with_max_tokens(Some(8192))
++            .with_web_search(true)
++            .with_efforts(effort_tiers("max", "low")),
++        EngineFacade::new()
++            .with_efforts(effort_tiers("max", "low"))
++            .with_web_search(true)
++            .with_max_tokens(Some(8192))
++            .with_context_window(Some(200_000)),
++    ];
++
++    for facade in &orders {
++        assert_eq!(facade.context_window, Some(200_000), "窗长载荷保真");
++        assert_eq!(facade.max_tokens, Some(8192), "上限载荷保真");
++        assert!(facade.web_search, "开关载荷保真");
++        assert_eq!(
++            facade.efforts,
++            effort_tiers("max", "low"),
++            "efforts 载荷不被其他三项覆盖"
++        );
++    }
++
++    // 同字段重复调用：后者覆盖，无累积
++    let overridden = EngineFacade::new()
++        .with_efforts(effort_tiers("max", "low"))
++        .with_efforts(effort_tiers("", ""));
++    assert_eq!(
++        overridden.efforts,
++        store::AgentEffortTiers::default(),
++        "重复调用后者覆盖前者"
++    );
++}
++
++#[tokio::test]
++async fn with_efforts分发等价_与直构runner加同载荷行为一致() {
++    let payload = effort_tiers("max", "low");
++
++    // 门面链：new() → with_efforts → runner_for(Sdk)
++    let via_facade = EngineFacade::new()
++        .with_efforts(payload.clone())
++        .runner_for(EngineKind::Sdk, complete_cfg())
++        .expect("Sdk 臂构造成功");
++    // 直构链：SdkRunner::new(四参签名不动) + with_efforts
++    let via_direct = SdkRunner::new(complete_cfg(), None, None, None).with_efforts(payload);
++
++    assert_eq!(
++        via_facade
++            .open_session(open_continue("ses-effort"))
++            .expect_err("无装载缝续会话必须显式失败")
++            .to_string(),
++        via_direct
++            .open_session(open_continue("ses-effort"))
++            .expect_err("直构同口径失败")
++            .to_string(),
++        "门面分发与直构一致（门面零协议分支、零改写）"
++    );
++
++    // 载荷不改变开面：New 会话 open 照常成功
++    drop(
++        via_facade
++            .open_session(open_new())
++            .expect("完整配置 New 会话 open 应成功"),
++    );
++}
++
++#[tokio::test]
++async fn 两协议乘非空efforts门面分发均成功且零门控() {
++    for protocol in [Protocol::Openai, Protocol::Anthropic] {
++        let facade = EngineFacade::new().with_efforts(effort_tiers("max", "low"));
++        let config = EngineConfig {
++            protocol,
++            ..complete_cfg()
++        };
++
++        let runner = facade
++            .runner_for(EngineKind::Sdk, config)
++            .unwrap_or_else(|error| panic!("{protocol:?} 臂构造应成功: {error}"));
++        drop(
++            runner
++                .open_session(open_new())
++                .expect("完整配置 New 会话 open 应成功"),
++        );
++    }
++}
++
++#[tokio::test]
++async fn 两档皆空为合法态_new会话open不触发config_missing() {
++    let runner = EngineFacade::new()
++        .with_efforts(store::AgentEffortTiers::default())
++        .runner_for(EngineKind::Sdk, complete_cfg())
++        .expect("Sdk 臂构造成功");
++
++    assert!(
++        runner.open_session(open_new()).is_ok(),
++        "effort 空是合法态：不参与配置齐备校验、不触发 ConfigMissing"
++    );
++}
++
++#[test]
++fn 退役cli臂不被efforts载荷改写_逐字退役文案且不静默回退sdk臂() {
++    let error = EngineFacade::new()
++        .with_efforts(effort_tiers("max", "low"))
++        .runner_for(EngineKind::Cli, complete_cfg())
++        .err()
++        .expect("Cli 臂必须显式拒绝");
++
++    assert_eq!(
++        error, CLI_TENANT_RETIRED,
++        "新载荷不改变退役面（逐字文案），实际: {error}"
++    );
++}
+diff --git a/crates/infra/agent/src/model_catalog.rs b/crates/infra/agent/src/model_catalog.rs
+new file mode 100644
+index 000000000000..77ce360e0fbf
+--- /dev/null
++++ b/crates/infra/agent/src/model_catalog.rs
+@@ -0,0 +1,150 @@
++//! 模型目录：provider 管理页的**建议面**（「这家协议有哪些常用模型 / 它的标称
++//! 窗长与最大输出是多少 / 它支持哪些 effort 值」）。
++//!
++//! 目录**不参与保存期校验、不参与运行期解析**：它只是前端参考数据，漂移代价
++//! 上限是「建议不准」，不会变成「同一窗长两套算法」——运行期取值链仍是
++//! `spec.length` → `context_length` → 128K 与 `max_tokens` → rig 名单 → 窗长
++//! 分档，保存期只校验模型名后缀与输出上限下限，从不查目录成员。
++//!
++//! 零凭据 / 零端点（纯静态参考数据，`Debug` 可派生、无遮蔽需求）；名单手写于
++//! 编译期，过时是**知情代价**：形状（两级目录 + 五条不变量）才是契约，名单不是。
++
++use serde::Serialize;
++
++use store::AgentProviderProtocol;
++
++/// 两级目录根（`protocols` 非空、每条协议 `models` 非空）。
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
++#[serde(rename_all = "camelCase")]
++pub struct ModelCatalog {
++    /// 按协议分组的条目段（每段含协议级 effort 建议 + 模型条目）
++    pub protocols: Vec<CatalogProtocol>,
++}
++
++/// 单协议段：协议级 effort **建议**值域 + 该协议的常用模型条目。
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
++#[serde(rename_all = "camelCase")]
++pub struct CatalogProtocol {
++    /// 协议（复用 store 线值枚举——「协议」不造第二份真源）
++    pub protocol: AgentProviderProtocol,
++    /// 协议级 effort **建议**值域（非校验值域：保存期不查成员，自定义值必须能存）
++    pub efforts: Vec<String>,
++    /// 该协议的常用模型条目（非空）
++    pub models: Vec<CatalogModel>,
++}
++
++/// 单模型条目：完整模型原文 + 能力元数据（预填用）+ 模型级 effort 覆盖。
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
++#[serde(rename_all = "camelCase")]
++pub struct CatalogModel {
++    /// 完整模型原文（可含 `[1m]` 后缀，MUST NOT 另造「后缀位」或第二份裸名）
++    pub value: String,
++    /// 标称上下文窗长（token，建议预填值；缺席 = `null` = 该输入框不预填）。
++    /// `value` 含 `[1m]` 后缀的条目 MUST 为 `1_000_000`（目录内不自相矛盾）
++    pub context_length: Option<u64>,
++    /// 标称最大输出（token，建议预填值；缺席 = `null` = 不预填）。`openai`
++    /// 协议的请求恒不写上限，前端也不预填该值（取值链不受影响）
++    pub max_tokens: Option<u64>,
++    /// 是否支持思考强度（只影响建议面：`false` ⇒ 该条目 effort 建议为空）
++    pub supports_thinking: bool,
++    /// 模型级 effort 覆盖：`Some(list)`（含 `Some([])` = 显式「无建议」）优先于
++    /// 协议级，`None` = 继承协议级
++    pub efforts: Option<Vec<String>>,
++}
++
++/// 目录读数：纯静态表、零 IO、零参数、零凭据。每次返回**新构造**的对象——
++/// 体量是常量级结构，构造成本低于一次 IPC 序列化（不引共享缓存单例：那是一层
++/// 共享可变边界与生命周期负担，换不到这一层收益）。
++pub fn catalog() -> ModelCatalog {
++    ModelCatalog {
++        protocols: vec![
++            CatalogProtocol {
++                protocol: AgentProviderProtocol::Openai,
++                // DeepSeek 的深度档是 `low / high / max`（`medium` 在其接口里
++                // 映射成 high，是假三档）；GPT-6 系不在此列——rig 的
++                // `refuse_tools_while_reasoning` 使该族带 tools 时只接受「关思考」
++                //（`none`），而 `none` 不在本目录值域内
++                efforts: vec!["low".to_owned(), "high".to_owned(), "max".to_owned()],
++                models: vec![
++                    CatalogModel {
++                        value: "deepseek-chat".to_owned(),
++                        context_length: Some(128 * 1024),
++                        max_tokens: Some(8_192),
++                        supports_thinking: false,
++                        efforts: Some(Vec::new()),
++                    },
++                    CatalogModel {
++                        value: "deepseek-chat[1m]".to_owned(),
++                        context_length: Some(1_000_000),
++                        max_tokens: Some(8_192),
++                        supports_thinking: false,
++                        efforts: Some(Vec::new()),
++                    },
++                    CatalogModel {
++                        value: "deepseek-reasoner".to_owned(),
++                        context_length: Some(128 * 1024),
++                        max_tokens: Some(64 * 1024),
++                        supports_thinking: true,
++                        efforts: None,
++                    },
++                    CatalogModel {
++                        value: "deepseek-reasoner[1m]".to_owned(),
++                        context_length: Some(1_000_000),
++                        max_tokens: Some(64 * 1024),
++                        supports_thinking: true,
++                        efforts: None,
++                    },
++                ],
++            },
++            CatalogProtocol {
++                protocol: AgentProviderProtocol::Anthropic,
++                // 官方 effort 值域（含 `medium` / `xhigh`）：比 openai 侧宽，
++                // 正是「efforts 不做封闭值域校验」的事实依据
++                efforts: vec![
++                    "low".to_owned(),
++                    "medium".to_owned(),
++                    "high".to_owned(),
++                    "xhigh".to_owned(),
++                    "max".to_owned(),
++                ],
++                models: vec![
++                    CatalogModel {
++                        value: "claude-opus-4-6".to_owned(),
++                        context_length: Some(200_000),
++                        max_tokens: Some(64 * 1024),
++                        supports_thinking: true,
++                        efforts: None,
++                    },
++                    CatalogModel {
++                        value: "claude-opus-4-6[1m]".to_owned(),
++                        context_length: Some(1_000_000),
++                        max_tokens: Some(64 * 1024),
++                        supports_thinking: true,
++                        efforts: None,
++                    },
++                    CatalogModel {
++                        value: "claude-sonnet-4-6".to_owned(),
++                        context_length: Some(200_000),
++                        max_tokens: Some(64 * 1024),
++                        supports_thinking: true,
++                        efforts: None,
++                    },
++                    CatalogModel {
++                        value: "claude-sonnet-4-6[1m]".to_owned(),
++                        context_length: Some(1_000_000),
++                        max_tokens: Some(64 * 1024),
++                        supports_thinking: true,
++                        efforts: None,
++                    },
++                    CatalogModel {
++                        value: "claude-3-5-haiku-latest".to_owned(),
++                        context_length: Some(200_000),
++                        max_tokens: Some(8_192),
++                        supports_thinking: false,
++                        efforts: Some(Vec::new()),
++                    },
++                ],
++            },
++        ],
++    }
++}
+diff --git a/crates/infra/agent/src/model_catalog_test.rs b/crates/infra/agent/src/model_catalog_test.rs
+new file mode 100644
+index 000000000000..a36ea1c83d44
+--- /dev/null
++++ b/crates/infra/agent/src/model_catalog_test.rs
+@@ -0,0 +1,252 @@
++//! 模型目录单测：两级结构 + 五条不变量（AC-7 / AC-8 目录侧半边）。
++//!
++//! 装置约定（见 test-design `Mock策略`）：**无 Mock**——目录是编译期字面量，
++//! 零 IO / 零 DB / 零网络，断言只读 `catalog()` 的返回值。
++//!
++//! 五条不变量：①（唯一 + 非空）②（模型级 effort 覆盖语义）③（零凭据 / 零端
++//! 点）④（`[1m]` 条目窗长 = 1M）⑤（`supports_thinking == false` ⇒ 显式空
++//! `efforts`）。名单本身会过时是知情代价，故断言只锚约束、不锚具体条目名。
++
++use serde_json::Value;
++
++use store::AgentProviderProtocol;
++
++use crate::model_catalog::{catalog, CatalogModel, CatalogProtocol};
++
++// ---------------------------------------------------------------------------
++// 结构面：两级目录非空 + 两协议在场
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 目录两级结构非空且两协议皆在场() {
++    let root = catalog();
++    assert!(!root.protocols.is_empty(), "目录根 protocols 非空");
++
++    let protocols: Vec<AgentProviderProtocol> =
++        root.protocols.iter().map(|entry| entry.protocol).collect();
++    for expected in [
++        AgentProviderProtocol::Openai,
++        AgentProviderProtocol::Anthropic,
++    ] {
++        assert!(
++            protocols.contains(&expected),
++            "协议段 {expected:?} 应在场，实际: {protocols:?}"
++        );
++    }
++    // 同一协议不重复成段（否则前端 find 命中的段取决于顺序）
++    let mut deduped = protocols.clone();
++    deduped.dedup();
++    assert_eq!(protocols, deduped, "协议段不重复");
++}
++
++#[test]
++fn 每条协议模型清单与协议级effort建议均非空() {
++    for entry in catalog().protocols {
++        let label = entry.protocol;
++        assert!(!entry.models.is_empty(), "{label:?} 段 models 非空");
++        assert!(
++            !entry.efforts.is_empty(),
++            "{label:?} 段协议级 efforts 建议非空（不变量①后段）"
++        );
++        for effort in &entry.efforts {
++            assert!(
++                !effort.trim().is_empty(),
++                "{label:?} 段协议级建议不含空白项，实际: {effort:?}"
++            );
++        }
++    }
++}
++
++#[test]
++fn 同协议内模型原文无重复() {
++    for entry in catalog().protocols {
++        let values: Vec<&str> = entry
++            .models
++            .iter()
++            .map(|model| model.value.as_str())
++            .collect();
++        let mut deduped = values.clone();
++        deduped.dedup();
++        assert_eq!(
++            values, deduped,
++            "{:?} 段模型原文无重复（不变量①）",
++            entry.protocol
++        );
++        assert!(
++            values.iter().all(|value| !value.trim().is_empty()),
++            "{:?} 段不含空模型原文",
++            entry.protocol
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 不变量④：`[1m]` 条目窗长恒 1M
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 后缀1m条目窗长恒为一百万且命中集非空() {
++    let hits: Vec<CatalogModel> = catalog()
++        .protocols
++        .into_iter()
++        .flat_map(|entry| entry.models)
++        .filter(|model| model.value.ends_with("[1m]"))
++        .collect();
++
++    assert!(
++        !hits.is_empty(),
++        "首版目录含 [1m] 条目（筛选集为空即用例前置失败）"
++    );
++    for model in hits {
++        assert_eq!(
++            model.context_length,
++            Some(1_000_000),
++            "{} 的窗长恒 1M（目录内不自相矛盾，不变量④）",
++            model.value
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 不变量⑤ / ②：`supports_thinking` 与模型级 effort 覆盖语义
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 不支持思考的条目effort为显式空清单() {
++    let mut hits = 0;
++    for entry in catalog().protocols {
++        for model in &entry.models {
++            if model.supports_thinking {
++                continue;
++            }
++            hits += 1;
++            assert_eq!(
++                model.efforts,
++                Some(Vec::new()),
++                "{} supports_thinking=false ⇒ 显式空 efforts（不靠继承协议级，不变量⑤）",
++                model.value
++            );
++        }
++    }
++    assert!(
++        hits > 0,
++        "首版目录含不支持思考的条目（筛选集为空即前置失败）"
++    );
++}
++
++#[test]
++fn 支持思考的条目efforts为none或显式非空清单() {
++    for entry in catalog().protocols {
++        for model in &entry.models {
++            if !model.supports_thinking {
++                continue;
++            }
++            match &model.efforts {
++                None => {
++                    // None = 继承协议级（语义面：前端回落协议级建议）
++                }
++                Some(list) => {
++                    assert!(
++                        !list.is_empty(),
++                        "{} 支持思考时模型级覆盖不得为空清单（空清单只表「无建议」，不变量②）",
++                        model.value
++                    );
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn 模型级覆盖清单是协议级建议的真子集语义面() {
++    for entry in catalog().protocols {
++        for model in &entry.models {
++            let Some(list) = &model.efforts else {
++                continue;
++            };
++            for effort in list {
++                assert!(
++                    !effort.trim().is_empty(),
++                    "{} 的模型级建议不含空白项",
++                    model.value
++                );
++            }
++            assert_eq!(
++                entry
++                    .models
++                    .iter()
++                    .filter(|row| row.value == model.value)
++                    .count(),
++                1,
++                "覆盖语义按 (协议, 模型原文) 单点寻址：模型原文在本段内唯一"
++            );
++        }
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 不变量③：零凭据 / 零端点
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 目录零凭据零端点() {
++    let text = serde_json::to_string(&catalog()).expect("目录可序列化");
++    for forbidden in [
++        "api_key", "apiKey", "base_url", "baseUrl", "sk-", "http://", "https://",
++    ] {
++        assert!(
++            !text.contains(forbidden),
++            "目录全文不含 {forbidden}（不变量③：纯静态参考数据）"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 边界面：元数据取值域 / 新构造 / 线值枚举复用
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 条目窗长与输出上限为none或正数() {
++    for entry in catalog().protocols {
++        for model in &entry.models {
++            for (label, value) in [
++                ("context_length", model.context_length),
++                ("max_tokens", model.max_tokens),
++            ] {
++                if let Some(tokens) = value {
++                    assert!(tokens > 0, "{} 的 {label} 不落 0 字面值", model.value);
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn 每次调用返回新构造对象且两次结果相等() {
++    let first = catalog();
++    let second = catalog();
++    assert_eq!(first, second, "两次调用值相等（内容同源）");
++    // 纯函数无共享态：改动第一份副本不影响第二份（非 OnceLock 共享可变边界）
++    let mut mutated: CatalogProtocol = first.protocols[0].clone();
++    mutated.efforts.clear();
++    assert!(
++        !second.protocols[0].efforts.is_empty(),
++        "两份产物互不共享（每次调用新构造）"
++    );
++}
++
++#[test]
++fn 协议字段复用store线值枚举序列化逐字为openai与anthropic() {
++    for entry in catalog().protocols {
++        let value: Value = serde_json::to_value(entry.protocol).expect("协议可序列化");
++        let expected = match entry.protocol {
++            AgentProviderProtocol::Openai => "openai",
++            AgentProviderProtocol::Anthropic => "anthropic",
++        };
++        assert_eq!(
++            value,
++            Value::String(expected.to_owned()),
++            "协议线值与 store 枚举逐字一致（零平行枚举）"
++        );
++    }
++}
+diff --git a/crates/infra/agent/src/sdk/db_tool_test.rs b/crates/infra/agent/src/sdk/db_tool_test.rs
+index c86a9b4e6d77..b1e25cb77e59 100644
+--- a/crates/infra/agent/src/sdk/db_tool_test.rs
++++ b/crates/infra/agent/src/sdk/db_tool_test.rs
+@@ -14,7 +14,7 @@ use std::sync::Arc;
+ 
+ use serde_json::{json, Value};
+ use store::{
+-    AgentEngineKind, AgentModelTiers, AgentProviderProtocol, AgentProviderRecord,
++    AgentEffortTiers, AgentEngineKind, AgentModelTiers, AgentProviderProtocol, AgentProviderRecord,
+     SessionConfigSnapshot, SessionRecord, Store,
+ };
+ 
+@@ -79,6 +79,7 @@ impl Env {
+                     context_length: Some(128_000),
+                     max_tokens: None,
+                     web_search: false,
++                    efforts: AgentEffortTiers::default(),
+                 })
+                 .unwrap_or_else(|error| panic!("落 provider 失败: {error}"));
+         }
+diff --git a/crates/infra/agent/src/sdk/effort.rs b/crates/infra/agent/src/sdk/effort.rs
+new file mode 100644
+index 000000000000..e3806b483847
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/effort.rs
+@@ -0,0 +1,55 @@
++//! 思考强度（effort）的协议 shaping **唯一单点**：两臂 wire 形状与键名常量
++//! 都收在本文件——`loop` / `runner` / 门面 / 组合根一律持「已 shaping 的
++//! 载荷」，零键名字面量、零协议判定（与 `web_search` 的「已门控最终值」同构）。
++//!
++//! 留空返回 `None` 而非空对象：这是「留空零痕迹」的类型化表达——空载荷若成
++//! 形为 `{}`，非 DeepSeek / 非官方 Anthropic 的兼容网关会被无谓的新增键污染，
++//! 而存量 provider（两档留空）必须与变更前逐字等价。
++//!
++//! 零值域校验：自定义值原样透传（与保存期「只 `trim`」同一条纪律）——两
++//! vendor 的 effort 值域不是同一集合，本模块只负责形状，不负责合法性。
++
++use serde_json::{Map, Value};
++
++use crate::sdk::config::Protocol;
++
++/// openai 臂的 wire 键（`{"reasoning_effort": v}`，Chat Completions 顶层）。
++pub(crate) const OPENAI_EFFORT_KEY: &str = "reasoning_effort";
++
++/// anthropic 臂的外层 wire 键（`{"output_config": {"effort": v}}`）。
++pub(crate) const ANTHROPIC_OUTPUT_CONFIG_KEY: &str = "output_config";
++
++/// anthropic 臂的内层 wire 键（`output_config.effort`）。
++pub(crate) const ANTHROPIC_EFFORT_KEY: &str = "effort";
++
++/// 按协议把 effort 原文 shaping 成请求侧旁路载荷：裁剪后为空 ⇒ `None`
++/// （留空 = 不发）；`Openai` ⇒ `{"reasoning_effort": v}`；`Anthropic` ⇒
++/// `{"output_config": {"effort": v}}`。纯函数，零 IO、零值域判定。
++pub(crate) fn params(protocol: Protocol, effort: &str) -> Option<Value> {
++    let value = effort.trim();
++    if value.is_empty() {
++        return None;
++    }
++
++    let mut params = Map::new();
++    match protocol {
++        Protocol::Openai => {
++            params.insert(
++                OPENAI_EFFORT_KEY.to_owned(),
++                Value::String(value.to_owned()),
++            );
++        }
++        Protocol::Anthropic => {
++            let mut output_config = Map::new();
++            output_config.insert(
++                ANTHROPIC_EFFORT_KEY.to_owned(),
++                Value::String(value.to_owned()),
++            );
++            params.insert(
++                ANTHROPIC_OUTPUT_CONFIG_KEY.to_owned(),
++                Value::Object(output_config),
++            );
++        }
++    }
++    Some(Value::Object(params))
++}
+diff --git a/crates/infra/agent/src/sdk/effort_test.rs b/crates/infra/agent/src/sdk/effort_test.rs
+new file mode 100644
+index 000000000000..87896525931a
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/effort_test.rs
+@@ -0,0 +1,197 @@
++//! `effort` shaping 单点单测：三常量键面 + 两协议 wire 形状 + 留空零痕迹 +
++//! 零值域校验（AC-4 / AC-5 引擎侧半边）。
++//!
++//! 装置约定（见 test-design `Mock策略`）：**无 Mock**——纯函数零 IO、零环境依
++//! 赖，直接以 `Protocol` 变体与字符串入参驱动；`serde_json::Value` 仅作断言对
++//! 象。`Protocol` 是封闭两变体枚举（无法构造非法变体），故以「两臂穷举 + 每
++//! 臂正 / 反 / 边界三类」承担 N+1 的等价覆盖。
++
++use serde_json::json;
++
++use crate::sdk::config::Protocol;
++use crate::sdk::effort::{
++    params, ANTHROPIC_EFFORT_KEY, ANTHROPIC_OUTPUT_CONFIG_KEY, OPENAI_EFFORT_KEY,
++};
++
++/// 两协议穷举（封闭枚举的值域全覆盖）。
++const PROTOCOLS: [Protocol; 2] = [Protocol::Openai, Protocol::Anthropic];
++
++// ---------------------------------------------------------------------------
++// 正向：两臂 wire 形状
++// ---------------------------------------------------------------------------
++
++#[test]
++fn openai臂载荷恰为reasoning_effort单键() {
++    let payload = params(Protocol::Openai, "high").expect("非空 effort 应成形");
++
++    assert_eq!(
++        payload,
++        json!({ "reasoning_effort": "high" }),
++        "openai 臂载荷为 {{reasoning_effort: v}}"
++    );
++    let object = payload.as_object().expect("顶层为对象");
++    assert_eq!(object.len(), 1, "顶层键数恰 1（无多余键）");
++    assert!(
++        !object.contains_key(ANTHROPIC_OUTPUT_CONFIG_KEY),
++        "openai 臂不带 anthropic 外层键，实际: {payload}"
++    );
++}
++
++#[test]
++fn anthropic臂载荷恰为output_config套effort且内外各一键() {
++    let payload = params(Protocol::Anthropic, "high").expect("非空 effort 应成形");
++
++    assert_eq!(
++        payload,
++        json!({ "output_config": { "effort": "high" } }),
++        "anthropic 臂载荷为 {{output_config: {{effort: v}}}}"
++    );
++    let outer = payload.as_object().expect("外层为对象");
++    assert_eq!(outer.len(), 1, "外层键数恰 1");
++    let inner = outer[ANTHROPIC_OUTPUT_CONFIG_KEY]
++        .as_object()
++        .expect("内层为对象");
++    assert_eq!(inner.len(), 1, "内层键数恰 1");
++    assert!(
++        !outer.contains_key(OPENAI_EFFORT_KEY),
++        "anthropic 臂不带 openai 平铺键，实际: {payload}"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 边界：留空零痕迹（空串 / 纯空白 ⇒ None）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 空串effort两协议均返回none() {
++    for protocol in PROTOCOLS {
++        assert_eq!(
++            params(protocol, ""),
++            None,
++            "{protocol:?} 臂空串 ⇒ None（留空 = 不发，不落空对象）"
++        );
++    }
++}
++
++#[test]
++fn 纯空白effort两协议均返回none() {
++    // 半角空格 / 制表换行 / 全角空格三类空白形态
++    for effort in ["   ", "\t\n", "\u{3000}"] {
++        for protocol in PROTOCOLS {
++            assert_eq!(
++                params(protocol, effort),
++                None,
++                "{protocol:?} 臂 effort={effort:?} 裁剪后为空 ⇒ None"
++            );
++        }
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 边界：裁剪与透传（调用方零预处理）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 两侧空白被裁剪后载荷值取裁剪结果() {
++    assert_eq!(
++        params(Protocol::Openai, "  low  "),
++        Some(json!({ "reasoning_effort": "low" })),
++        "openai 臂载荷值 = 裁剪后原值（调用方零预处理）"
++    );
++    assert_eq!(
++        params(Protocol::Anthropic, "\tmax\n"),
++        Some(json!({ "output_config": { "effort": "max" } })),
++        "anthropic 臂同口径裁剪"
++    );
++}
++
++#[test]
++fn 超长值原样透传不截断() {
++    let long = "e".repeat(1_500);
++    for protocol in PROTOCOLS {
++        let payload = params(protocol, &long).expect("超长非空值应成形");
++        let carried = match protocol {
++            Protocol::Openai => payload[OPENAI_EFFORT_KEY].clone(),
++            Protocol::Anthropic => {
++                payload[ANTHROPIC_OUTPUT_CONFIG_KEY][ANTHROPIC_EFFORT_KEY].clone()
++            }
++        };
++        assert_eq!(
++            carried,
++            json!(long),
++            "{protocol:?} 臂超长值原样透传（不截断）"
++        );
++    }
++}
++
++#[test]
++fn 特殊字符只裁两侧内部形态原样透传() {
++    for effort in ["a\nb", "thinking 🎉", "a b"] {
++        assert_eq!(
++            params(Protocol::Openai, effort),
++            Some(json!({ "reasoning_effort": effort })),
++            "内部换行 / emoji / 中间空格原样承载（只裁两侧）：{effort:?}"
++        );
++        assert_eq!(
++            params(Protocol::Anthropic, effort),
++            Some(json!({ "output_config": { "effort": effort } })),
++            "anthropic 臂同口径：{effort:?}"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 异常：目录外取值（零值域校验、零大小写归一）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 目录外取值原样透传零值域校验() {
++    for effort in ["ultra-thinking", "none", "MAX"] {
++        assert_eq!(
++            params(Protocol::Openai, effort),
++            Some(json!({ "reasoning_effort": effort })),
++            "目录外取值 {effort:?} 原样透传（保存期只 trim、shaping 零值域校验）"
++        );
++        assert_eq!(
++            params(Protocol::Anthropic, effort),
++            Some(json!({ "output_config": { "effort": effort } })),
++            "「MAX」不被归一为「max」（零大小写归一）"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 常量面与纯函数性
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 键名常量逐字锚定且为载荷唯一键源() {
++    assert_eq!(OPENAI_EFFORT_KEY, "reasoning_effort");
++    assert_eq!(ANTHROPIC_OUTPUT_CONFIG_KEY, "output_config");
++    assert_eq!(ANTHROPIC_EFFORT_KEY, "effort");
++    assert_ne!(
++        OPENAI_EFFORT_KEY, ANTHROPIC_OUTPUT_CONFIG_KEY,
++        "两协议外层键不同名（否则门控无法按键区分）"
++    );
++
++    // 键名单点：载荷键名与常量逐字对齐（`Map` 构造使常量成为唯一键源）
++    let openai = params(Protocol::Openai, "v").expect("成形");
++    assert!(openai.get(OPENAI_EFFORT_KEY).is_some());
++    let anthropic = params(Protocol::Anthropic, "v").expect("成形");
++    let inner = anthropic
++        .get(ANTHROPIC_OUTPUT_CONFIG_KEY)
++        .and_then(|value| value.get(ANTHROPIC_EFFORT_KEY));
++    assert!(inner.is_some(), "anthropic 内层键名与常量对齐");
++}
++
++#[test]
++fn 纯函数性_同入参连续两次调用结果相等() {
++    for protocol in PROTOCOLS {
++        let first = params(protocol, "  high  ");
++        let second = params(protocol, "  high  ");
++        assert_eq!(
++            first, second,
++            "{protocol:?} 臂无状态、零 IO（无全局态漂移）"
++        );
++    }
++}
+diff --git a/crates/infra/agent/src/sdk/loop.rs b/crates/infra/agent/src/sdk/loop.rs
+index 2779f6ec956a..53a7e5171fed 100644
+--- a/crates/infra/agent/src/sdk/loop.rs
++++ b/crates/infra/agent/src/sdk/loop.rs
+@@ -156,6 +156,10 @@ pub(crate) struct LoopTurn {
+     /// Anthropic 云端 `web_search` 服务端工具开关（**已按协议门控**的最终
+     /// 值——门控在组合根解析期完成，loop 零协议判定）；真才挂 provider tool
+     pub web_search: bool,
++    /// 思考强度旁路载荷（**已按协议 shaping** 的 wire 载荷——shaping 在
++    /// `sdk/effort.rs` 单点完成，本模块零协议判定、零键名字面量）；留空即
++    /// `None`（请求体零新增键）
++    pub effort_params: Option<serde_json::Value>,
+ }
+ 
+ /// 系统消息合成单点：会话 preamble（产品知识，前）与本轮 `AGENT.md`（逐字，后）
+@@ -325,7 +329,10 @@ pub(crate) async fn run(
+                     temperature: None,
+                     max_tokens: None,
+                     tool_choice: None,
+-                    additional_params: None,
++                    // effort 先落位；`provider_tool(..)` 在同一
++                    // `additional_params` 上按 `tools` 键合并（rig
++                    // `merge_params`），两键互不覆盖、次序无关
++                    additional_params: turn.effort_params.clone(),
+                     output_schema: None,
+                     record_telemetry_content: false,
+                 };
+diff --git a/crates/infra/agent/src/sdk/loop_test.rs b/crates/infra/agent/src/sdk/loop_test.rs
+index d29b4a6c2615..5a111030d5c7 100644
+--- a/crates/infra/agent/src/sdk/loop_test.rs
++++ b/crates/infra/agent/src/sdk/loop_test.rs
+@@ -427,6 +427,7 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
+             ask: None,
+             protect: turn.protect.clone(),
+             web_search: turn.web_search,
++            effort_params: turn.effort_params.clone(),
+         };
+         let handle = handle.clone();
+         async move {
+@@ -474,6 +475,7 @@ async fn drive_loop_collecting_history(
+             ask: None,
+             protect: turn.protect.clone(),
+             web_search: turn.web_search,
++            effort_params: turn.effort_params.clone(),
+         };
+         let handle = handle.clone();
+         async move {
+@@ -569,6 +571,7 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
+         ask: None,
+         protect: crate::sdk::protect::ProtectRules::load(None),
+         web_search: false,
++        effort_params: None,
+     }
+ }
+ 
+@@ -1751,6 +1754,7 @@ fn loop_turn字段面完整构造锚定() {
+         ask: None,
+         protect: crate::sdk::protect::ProtectRules::load(None),
+         web_search: false,
++        effort_params: None,
+     };
+     assert_eq!(turn.question, "q");
+     assert_eq!(turn.session_id, "sdk-0-1");
+@@ -6998,6 +7002,7 @@ async fn drive_loop_with_steers_and_history(
+             ask: None,
+             protect: turn.protect.clone(),
+             web_search: turn.web_search,
++            effort_params: turn.effort_params.clone(),
+         };
+         let handle = handle.clone();
+         async move { r#loop::run(&dyn_model, &turn, history, steers, sender, handle).await }
+@@ -7037,6 +7042,7 @@ async fn drive_loop_with_steers_and_handle(
+             ask: None,
+             protect: turn.protect.clone(),
+             web_search: turn.web_search,
++            effort_params: turn.effort_params.clone(),
+         };
+         async move { r#loop::run(&dyn_model, &turn, Vec::new(), steers, sender, handle).await }
+     });
+@@ -8145,3 +8151,235 @@ async fn db执行体err串以is_error回灌且长度不超硬墙() {
+         assert_eq!(sealed_messages(&events).len(), 2, "Err 回灌后续轮不中断");
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// effort 旁路载荷：请求侧形状（AC-4 / AC-5 loop 半边）
++//
++// 载荷已由 `sdk/effort.rs` shaping 完毕，loop 只落位（`additional_params =
++// turn.effort_params.clone()`）；与 `web_search` 的 `provider_tool(..)` 按
++// rig 的按键合并共存，两键互不覆盖。
++// ---------------------------------------------------------------------------
++
++/// 携 effort 旁路载荷（与可选 `web_search` 开关）的轮参数（其余面同基线）。
++fn effort_turn(cwd: &Path, effort_params: Option<serde_json::Value>, web_search: bool) -> LoopTurn {
++    LoopTurn {
++        effort_params,
++        web_search,
++        ..loop_turn(cwd, AgentPermissionMode::BypassPermissions)
++    }
++}
++
++/// 单轮请求捕获（一轮假流 → 恰一条请求）。
++async fn single_request(
++    tag: &str,
++    effort_params: Option<serde_json::Value>,
++    web_search: bool,
++) -> CompletionRequest {
++    let dir = tempdir(tag);
++    let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
++    let turn = effort_turn(dir.path(), effort_params, web_search);
++    let handle = RunHandle::default();
++
++    let _events = drive_loop(&model, &turn, &handle).await;
++
++    let requests = model.captured_requests();
++    assert_eq!(requests.len(), 1, "一轮假流恰一次请求");
++    requests.into_iter().next().expect("请求在场")
++}
++
++#[tokio::test]
++async fn openai形载荷原样落additional_params且顶层恰一键() {
++    let payload = serde_json::json!({ "reasoning_effort": "max" });
++    let request = single_request("effort-openai", Some(payload.clone()), false).await;
++
++    let params = request
++        .additional_params
++        .as_ref()
++        .expect("载荷在场 ⇒ additional_params 在场");
++    assert_eq!(params, &payload, "additional_params 深等于该对象");
++    assert_eq!(
++        params.as_object().expect("顶层为对象").len(),
++        1,
++        "顶层键数恰 1（loop 零加工、零多余键）"
++    );
++}
++
++#[tokio::test]
++async fn anthropic形载荷原样落additional_params且嵌套各一键() {
++    let payload = serde_json::json!({ "output_config": { "effort": "max" } });
++    let request = single_request("effort-anthropic", Some(payload.clone()), false).await;
++
++    let params = request
++        .additional_params
++        .as_ref()
++        .expect("载荷在场 ⇒ additional_params 在场");
++    assert_eq!(params, &payload, "嵌套载荷原样透传");
++    let outer = params.as_object().expect("顶层为对象");
++    assert_eq!(outer.len(), 1, "外层键数恰 1");
++    assert_eq!(
++        outer["output_config"]
++            .as_object()
++            .expect("内层为对象")
++            .len(),
++        1,
++        "内层键数恰 1"
++    );
++}
++
++#[tokio::test]
++async fn 载荷缺席时additional_params恒none且其余请求字段与基线一致() {
++    let request = single_request("effort-absent", None, false).await;
++
++    assert!(
++        request.additional_params.is_none(),
++        "留空零痕迹：additional_params 恒 None，实际: {:?}",
++        request.additional_params
++    );
++    assert!(request.model.is_none(), "model 不覆写");
++    assert!(request.temperature.is_none());
++    assert!(request.max_tokens.is_none());
++    assert!(request.tool_choice.is_none());
++    assert!(request.output_schema.is_none());
++    assert!(request.documents.is_empty());
++}
++
++#[tokio::test]
++async fn 空对象载荷不被归一为none且原样落位() {
++    let request = single_request("effort-empty-object", Some(serde_json::json!({})), false).await;
++
++    assert_eq!(
++        request.additional_params,
++        Some(serde_json::json!({})),
++        "loop 零判定：不做「空对象归一为 None」（归一职责在 shaping 单点）"
++    );
++}
++
++#[tokio::test]
++async fn effort与web_search同开两键共存互不覆盖() {
++    let payload = serde_json::json!({ "output_config": { "effort": "max" } });
++    let request = single_request("effort-with-search", Some(payload), true).await;
++
++    let params = request
++        .additional_params
++        .as_ref()
++        .expect("两载荷同开 ⇒ additional_params 在场");
++    assert_eq!(
++        params["output_config"],
++        serde_json::json!({ "effort": "max" }),
++        "effort 载荷键不被 provider_tool 覆盖"
++    );
++    assert_eq!(
++        params["tools"],
++        serde_json::json!([
++            { "type": "web_search_20250305", "name": "web_search", "max_uses": 5 }
++        ]),
++        "tools 键深等于既有「一项三键」形态（服务端工具面零变化）"
++    );
++    assert_eq!(
++        params.as_object().expect("顶层为对象").len(),
++        2,
++        "顶层恰两键（effort 键 + tools 键）"
++    );
++}
++
++#[tokio::test]
++async fn effort在场web_search关时仅effort键在场() {
++    let payload = serde_json::json!({ "reasoning_effort": "low" });
++    let request = single_request("effort-no-search", Some(payload), false).await;
++
++    let params = request
++        .additional_params
++        .as_ref()
++        .expect("载荷在场 ⇒ additional_params 在场");
++    assert_eq!(
++        params,
++        &serde_json::json!({ "reasoning_effort": "low" }),
++        "工具关：仅 effort 键，无 tools 键"
++    );
++    assert!(
++        params.get("tools").is_none(),
++        "web_search=false ⇒ 不挂 provider tool，实际: {params}"
++    );
++}
++
++#[tokio::test]
++async fn effort缺席web_search开时仅tools键在场() {
++    let request = single_request("search-no-effort", None, true).await;
++
++    let params = request
++        .additional_params
++        .as_ref()
++        .expect("工具开 ⇒ additional_params 在场");
++    assert_eq!(
++        params.as_object().expect("顶层为对象").len(),
++        1,
++        "顶层恰一键（无 effort 空壳）"
++    );
++    assert!(
++        params.get("output_config").is_none() && params.get("reasoning_effort").is_none(),
++        "effort 缺席不落空键，实际: {params}"
++    );
++    assert_eq!(
++        params["tools"],
++        serde_json::json!([
++            { "type": "web_search_20250305", "name": "web_search", "max_uses": 5 }
++        ]),
++        "既有 web_search 用例口径不回归"
++    );
++}
++
++#[tokio::test]
++async fn 两键合并次序无关_顶层键序不作判据() {
++    let payload = serde_json::json!({ "output_config": { "effort": "max" } });
++    let request = single_request("effort-merge-order", Some(payload.clone()), true).await;
++    let params = request
++        .additional_params
++        .as_ref()
++        .expect("两载荷同开 ⇒ additional_params 在场");
++
++    // 两种书写次序合成的期望对象（serde_json 对象比较与键序无关）
++    let effort_first = serde_json::json!({
++        "output_config": { "effort": "max" },
++        "tools": [{ "type": "web_search_20250305", "name": "web_search", "max_uses": 5 }],
++    });
++    let tools_first = serde_json::json!({
++        "tools": [{ "type": "web_search_20250305", "name": "web_search", "max_uses": 5 }],
++        "output_config": { "effort": "max" },
++    });
++    assert_eq!(effort_first, tools_first, "期望对象两序等价（键序非判据）");
++    assert_eq!(params, &effort_first, "合并结果深等于两键共存形态");
++}
++
++#[tokio::test]
++async fn 两轮会话每轮请求均携同一载荷不累积不改写() {
++    let dir = tempdir("effort-two-rounds");
++    write_file(&dir.path().join("README.md"), "你好工作区");
++    let payload = serde_json::json!({ "reasoning_effort": "max" });
++    let model = FakeModel::with_turns(vec![
++        vec![
++            raw_text("先读文件"),
++            raw_tool_call("tu_1", "read", serde_json::json!({ "path": "README.md" })),
++            raw_final(usage(5, 6)),
++        ],
++        vec![raw_text("文件内容已确认"), raw_final(usage(7, 8))],
++    ]);
++    let handle = RunHandle::default();
++
++    let _events = drive_loop(
++        &model,
++        &effort_turn(dir.path(), Some(payload.clone()), false),
++        &handle,
++    )
++    .await;
++
++    let requests = model.captured_requests();
++    assert_eq!(requests.len(), 2, "工具轮回灌后续跑 ⇒ 两次请求");
++    for (index, request) in requests.iter().enumerate() {
++        assert_eq!(
++            request.additional_params.as_ref(),
++            Some(&payload),
++            "第 {} 轮请求均携同一载荷（turn 级 clone，跨轮不累积、不改写）",
++            index + 1
++        );
++    }
++}
+diff --git a/crates/infra/agent/src/sdk/mod.rs b/crates/infra/agent/src/sdk/mod.rs
+index 7d7bb337e158..5373ca836698 100644
+--- a/crates/infra/agent/src/sdk/mod.rs
++++ b/crates/infra/agent/src/sdk/mod.rs
+@@ -5,6 +5,7 @@ pub(crate) mod compact;
+ pub(crate) mod config;
+ pub(crate) mod context;
+ pub(crate) mod db_tool;
++pub(crate) mod effort;
+ pub(crate) mod explore_note;
+ pub(crate) mod log;
+ // `loop` 为 Rust 关键字：文件名按 design 定为 `loop.rs`，模块名以 raw
+@@ -38,6 +39,8 @@ mod context_test;
+ #[cfg(test)]
+ mod db_tool_test;
+ #[cfg(test)]
++mod effort_test;
++#[cfg(test)]
+ mod explore_note_test;
+ #[cfg(test)]
+ mod log_test;
+diff --git a/crates/infra/agent/src/sdk/runner.rs b/crates/infra/agent/src/sdk/runner.rs
+index 368e93038725..ab1b9d815de2 100644
+--- a/crates/infra/agent/src/sdk/runner.rs
++++ b/crates/infra/agent/src/sdk/runner.rs
+@@ -73,6 +73,9 @@ pub struct SdkRunner {
+     /// 云端 `web_search` 服务端工具开关（组合根已按协议门控的最终值；
+     /// `new` 缺省 false——与「显式关」同义，故全链收 `bool` 而非 `Option`）
+     web_search: bool,
++    /// 两档思考强度（组合根原样带出的 provider 原值对，**未 shaping**、**零
++    /// 门控**——两协议皆在）；协议 shaping 只在 `open_session` 做一次
++    efforts: store::AgentEffortTiers,
+     /// workspace 库句柄（组合根注入缝）：名字清单含 `create_explore_note` 的
+     /// 会话 per-turn 铸造该工具执行上下文的原料（None = 未注入）
+     explore_store: Option<Arc<Store>>,
+@@ -106,6 +109,7 @@ impl SdkRunner {
+             context_window,
+             max_tokens: None,
+             web_search: false,
++            efforts: store::AgentEffortTiers::default(),
+             explore_store,
+             workspace_root: None,
+             db_global: None,
+@@ -156,6 +160,13 @@ impl SdkRunner {
+         Self { web_search, ..self }
+     }
+ 
++    /// 两档思考强度旁路注入（builder 缝，与 `with_web_search` 同型）：值已由
++    /// 组合根原样带出（两协议皆在），runner 只在 `open_session` 做一次协议
++    /// shaping；`new` 签名不动（既有调用点零改）。
++    pub fn with_efforts(self, efforts: store::AgentEffortTiers) -> Self {
++        Self { efforts, ..self }
++    }
++
+     /// 双库句柄旁路注入（builder 缝，与 `with_workspace_root` 同型）：全局库经
+     /// `WorkspaceStores::global_shared()`、workspace 库取会话 workspace root 的
+     /// 实例——MUST NOT 二次 open（redb 单进程单句柄）。
+@@ -204,10 +215,22 @@ impl SdkRunner {
+ 
+ impl AgentRunner for SdkRunner {
+     fn open_session(&self, open: SessionOpen) -> Result<AgentSession, AgentStartError> {
+-        let (model_field, model_name) = match open.ctx.model_level {
+-            ModelLevel::High => ("model_high", self.config.model_high.clone()),
+-            ModelLevel::Low => ("model_low", self.config.model_low.clone()),
++        // 档位唯一分发点：模型名与 effort 同源于这一个 match（「模型 + effort」
++        // 二元组）；effort 的协议 shaping 紧随其后做一次，`loop` / 门面 / 组合根
++        // 只持已 shaping 的载荷
++        let (model_field, model_name, effort) = match open.ctx.model_level {
++            ModelLevel::High => (
++                "model_high",
++                self.config.model_high.clone(),
++                self.efforts.high.clone(),
++            ),
++            ModelLevel::Low => (
++                "model_low",
++                self.config.model_low.clone(),
++                self.efforts.low.clone(),
++            ),
+         };
++        let effort_params = crate::sdk::effort::params(self.config.protocol, &effort);
+         // 连接配置字段面齐备校验（消息区分成因；单一中性变体承载全部启动
+         // 失败；协议恒有值不参与校验）
+         let missing: Vec<&str> = [
+@@ -266,6 +289,8 @@ impl AgentRunner for SdkRunner {
+                 resume_notices,
+                 protocol: self.config.protocol,
+                 web_search: self.web_search,
++                effort,
++                effort_params,
+                 raw_model: model_name,
+                 explore_store: self.explore_store.clone(),
+                 workspace_root: self.workspace_root.clone(),
+@@ -401,6 +426,13 @@ struct PumpPayload {
+     protocol: Protocol,
+     /// 云端 `web_search` 开关（泵启动日志诊断面 `web_search=…`；已门控值）
+     web_search: bool,
++    /// 该轮生效 effort 原值（泵启动日志诊断面 `effort=…`，留空记 `-`）：与
++    /// `effort_params` 同源于 `open_session` 的三元绑定，日志 MUST NOT 另走
++    /// 一遍取值链（与 `output_tokens` 同纪律）
++    effort: String,
++    /// 该轮生效 effort 的 **wire 载荷**（已按协议 shaping；留空即 `None`——
++    /// 请求体零新增键）
++    effort_params: Option<serde_json::Value>,
+     /// 该档模型原文（日志 `raw=…`；上报与请求用裸名——见 `ModelSpec.name`）
+     raw_model: String,
+     /// workspace 库句柄（组合根注入缝）——名字清单含 `create_explore_note` 的
+@@ -527,8 +559,13 @@ async fn session_pump(
+     let output = payload
+         .output_tokens
+         .map_or_else(|| "-".to_owned(), |tokens| tokens.to_string());
++    let effort = if payload.effort.trim().is_empty() {
++        "-".to_owned()
++    } else {
++        payload.effort.clone()
++    };
+     crate::sdk::log::append_engine_log(&format!(
+-        "泵启动 session={session_id} protocol={} model={} window={window} max_tokens={output} web_search={} raw={}",
++        "泵启动 session={session_id} protocol={} model={} window={window} max_tokens={output} web_search={} effort={effort} raw={}",
+         payload.protocol.as_str(),
+         spec.name,
+         payload.web_search,
+@@ -555,6 +592,7 @@ async fn session_pump(
+         db,
+         protect,
+         web_search: payload.web_search,
++        effort_params: payload.effort_params.clone(),
+     };
+     let pump_handle = handle.clone();
+     let pump_session = turn.session_id.clone();
+diff --git a/crates/infra/agent/src/sdk/runner_test.rs b/crates/infra/agent/src/sdk/runner_test.rs
+index d192d272c9a7..18d4dbf00ace 100644
+--- a/crates/infra/agent/src/sdk/runner_test.rs
++++ b/crates/infra/agent/src/sdk/runner_test.rs
+@@ -1942,12 +1942,16 @@ async fn with_workspace_root每run装配_两次open事件面一致() {
+ /// 锚定方式：`RunStarted.session_id` 与泵启动日志的 `session=` 同源同值，故可在
+ /// 同进程并行用例写入的众多「泵启动」行中精确取回本用例那一行。
+ async fn pump_start_line(runner: &SdkRunner) -> String {
++    pump_line_with(runner, open_new()).await
++}
++
++/// 起一轮泵（open 入参可指定档位）并取回该轮的泵启动日志行：档位分发用例
++/// （`effort=` 按 `High` / `Low` 取档）经 `open_new_at_level` 驱动。
++async fn pump_line_with(runner: &SdkRunner, open: SessionOpen) -> String {
+     // 先取共享日志目录（取值即 init）：泵的启动行写在 RunStarted 之先，未 init
+     // 时写入静默丢弃——故 init 必须前置于 open_session
+     crate::sdk::log_test::engine_log_dir();
+-    let mut session = runner
+-        .open_session(open_new())
+-        .expect("New 会话 open 应成功");
++    let mut session = runner.open_session(open).expect("New 会话 open 应成功");
+     session
+         .questions
+         .send(agent::TurnQuestion {
+@@ -3765,3 +3769,250 @@ async fn with_db_stores缺省与重复调用均不报错() {
+         .open_session(open_new())
+         .expect("重复调用后者覆盖前者（不 panic）");
+ }
++
++// ---------------------------------------------------------------------------
++// efforts 旁路载荷（AC-6）：builder 缝、档位分发（`High` 取 `efforts.high` /
++// `Low` 取 `efforts.low`）与泵启动日志 `effort=` 列（shaping 只在
++// `open_session` 一处，故引擎侧可考点收敛为日志原值与配置校验面）。
++// ---------------------------------------------------------------------------
++
++/// 两档 effort 载荷 fixture。
++fn effort_tiers(high: &str, low: &str) -> store::AgentEffortTiers {
++    store::AgentEffortTiers {
++        high: high.to_owned(),
++        low: low.to_owned(),
++    }
++}
++
++#[tokio::test]
++#[allow(clippy::type_complexity)]
++async fn with_efforts高档经泵启动日志报原值且与既有诊断列同行并列() {
++    let runner = SdkRunner::new(complete_config(), None, None, None)
++        .with_efforts(effort_tiers("max", "low"));
++
++    let line = pump_start_line(&runner).await;
++
++    assert!(
++        line.contains("effort=max"),
++        "该轮生效 effort 原值进日志，实际: {line}"
++    );
++    for column in [
++        "protocol=",
++        "model=",
++        "window=",
++        "max_tokens=",
++        "web_search=",
++        "effort=",
++        "raw=",
++    ] {
++        assert!(line.contains(column), "应与 {column} 同列，实际: {line}");
++    }
++    assert!(
++        line.contains("model=rig-test-model-high"),
++        "高档裸名同行（模型与 effort 同源于档位 match），实际: {line}"
++    );
++
++    // 四参 new 调用形态编译可达（既有调用点零改的编译面锚）
++    let _four_args: fn(
++        EngineConfig,
++        Option<ResumeTranscript>,
++        Option<u64>,
++        Option<Arc<Store>>,
++    ) -> SdkRunner = SdkRunner::new;
++}
++
++#[tokio::test]
++async fn 档位分发_高档取efforts_high低档取efforts_low() {
++    let runner = SdkRunner::new(complete_config(), None, None, None)
++        .with_efforts(effort_tiers("max", "low"));
++
++    let high_line = pump_line_with(&runner, open_new_at_level(ModelLevel::High)).await;
++    assert!(
++        high_line.contains("effort=max"),
++        "High 档取 efforts.high，实际: {high_line}"
++    );
++    assert!(
++        high_line.contains("model=rig-test-model-high"),
++        "同档裸名成对（模型与 effort 同一个 match），实际: {high_line}"
++    );
++
++    let low_line = pump_line_with(&runner, open_new_at_level(ModelLevel::Low)).await;
++    assert!(
++        low_line.contains("effort=low"),
++        "Low 档取 efforts.low，实际: {low_line}"
++    );
++    assert!(
++        low_line.contains("model=rig-test-model-low"),
++        "低档裸名成对，实际: {low_line}"
++    );
++}
++
++#[tokio::test]
++async fn 档位分发_单档留空该档记短横且两档互不冒用() {
++    let runner =
++        SdkRunner::new(complete_config(), None, None, None).with_efforts(effort_tiers("", "low"));
++
++    let high_line = pump_line_with(&runner, open_new_at_level(ModelLevel::High)).await;
++    assert!(
++        high_line.contains("effort=-"),
++        "high 档留空 ⇒ 日志记 `-`（不冒用 low 档值），实际: {high_line}"
++    );
++    assert!(
++        !high_line.contains("effort=low"),
++        "高档不得跨界取低档 effort，实际: {high_line}"
++    );
++
++    let low_line = pump_line_with(&runner, open_new_at_level(ModelLevel::Low)).await;
++    assert!(
++        low_line.contains("effort=low"),
++        "低档仍报自身原值，实际: {low_line}"
++    );
++}
++
++#[tokio::test]
++async fn 档位分发_两档纯空白日志均记短横() {
++    let runner =
++        SdkRunner::new(complete_config(), None, None, None).with_efforts(effort_tiers("   ", "\t"));
++
++    for level in [ModelLevel::High, ModelLevel::Low] {
++        let line = pump_line_with(&runner, open_new_at_level(level)).await;
++        assert!(
++            line.contains("effort=-"),
++            "{level:?}：纯空白裁剪后为空 ⇒ 记 `-`（裁剪判据在 shaping 单点），实际: {line}"
++        );
++    }
++}
++
++#[tokio::test]
++async fn 未装配efforts与显式两档空串日志除会话外逐列同形() {
++    let unset = pump_start_line(&SdkRunner::new(complete_config(), None, None, None)).await;
++    let explicit_default = pump_start_line(
++        &SdkRunner::new(complete_config(), None, None, None)
++            .with_efforts(store::AgentEffortTiers::default()),
++    )
++    .await;
++
++    // `session=` 每轮铸造，故列面对比从 `protocol=` 起
++    let columns = |line: &str| -> Vec<String> {
++        line.split_whitespace()
++            .filter(|token| !token.starts_with("session=") && *token != "泵启动")
++            .map(str::to_owned)
++            .collect()
++    };
++    assert_eq!(
++        columns(&unset),
++        columns(&explicit_default),
++        "未装配 = 显式两档空串（无第三条「undefined」态）"
++    );
++    assert!(unset.contains("effort=-"), "未装配档记 `-`，实际: {unset}");
++}
++
++#[tokio::test]
++async fn 泵启动日志effort列原值透传不转义不截断() {
++    let long = "e".repeat(1_200);
++    for effort in ["ultra-thinking", long.as_str(), "thinking 🎉 a b"] {
++        let runner = SdkRunner::new(complete_config(), None, None, None)
++            .with_efforts(effort_tiers(effort, ""));
++        let line = pump_start_line(&runner).await;
++
++        assert!(
++            line.contains(&format!("effort={effort}")),
++            "effort={effort:?} 原值进日志（不 JSON 转义、不截断），实际: {line}"
++        );
++    }
++}
++
++#[tokio::test]
++async fn efforts非空不改变启动校验面_缺api_key仍config_missing且成因不含effort() {
++    let mut config = complete_config();
++    config.api_key = String::new();
++    let runner = SdkRunner::new(config, None, None, None).with_efforts(effort_tiers("max", "low"));
++
++    let error = runner
++        .open_session(open_new())
++        .expect_err("缺 api_key 必须显式失败");
++
++    let AgentStartError::ConfigMissing(message) = &error else {
++        panic!("应为 ConfigMissing，实际: {error:?}");
++    };
++    // 首缺成因逐字为 api_key（成因集仍取既有三档的同一判定次序）
++    assert!(
++        message.contains("api_key"),
++        "成因串报首个缺失项 api_key，实际: {message}"
++    );
++    for other in ["base_url", "model"] {
++        assert!(
++            !message.contains(other),
++            "首缺之外的字段不进因果串（{other}），实际: {message}"
++        );
++    }
++    assert!(
++        !message.contains("effort"),
++        "effort 空是合法态，不进配置齐备校验，实际: {message}"
++    );
++}
++
++#[tokio::test]
++async fn efforts非空时_new会话open照常成功且与裸四参错误面一致() {
++    // 完整配置 New 会话 open 成功（载荷不改变开面）
++    let with_efforts = SdkRunner::new(complete_config(), None, None, None)
++        .with_efforts(effort_tiers("max", "low"));
++    drop(
++        with_efforts
++            .open_session(open_new())
++            .expect("完整配置 New 会话 open 应成功"),
++    );
++
++    // 启动校验面：无装载缝续会话两态逐字一致（effort 不参与校验）
++    let plain = SdkRunner::new(complete_config(), None, None, None);
++    assert_eq!(
++        SdkRunner::new(complete_config(), None, None, None)
++            .with_efforts(effort_tiers("max", "low"))
++            .open_session(open_continue("ses-effort-validation"))
++            .expect_err("无装载缝续会话必须显式失败")
++            .to_string(),
++        plain
++            .open_session(open_continue("ses-effort-validation"))
++            .expect_err("裸四参同口径失败")
++            .to_string(),
++        "efforts 载荷不改变续会话启动校验面"
++    );
++}
++
++/// 边界：四参 `SdkRunner::new` 的签名零改锚（既有调用点零改的编译面证据）——
++/// `efforts` 走 `.with_efforts(..)` 旁路注入，构造器参数面逐字不动。
++#[tokio::test]
++#[allow(clippy::type_complexity)]
++async fn 四参构造器签名零改锚定函数指针可达() {
++    type Ctor = fn(
++        EngineConfig,
++        Option<ResumeTranscript>,
++        Option<u64>,
++        Option<StoreArc<store::Store>>,
++    ) -> SdkRunner;
++
++    let constructor: Ctor = SdkRunner::new;
++
++    // 函数指针构造的 runner 与直构同形：New 会话 open 成功（四参面可构造可用）
++    let runner = constructor(complete_config(), None, Some(200_000), None);
++    drop(
++        runner
++            .open_session(open_new())
++            .expect("四参构造的 runner 应能开 New 会话"),
++    );
++
++    // 续会话错误面逐字一致：四参面不因函数指针路径改变启动校验
++    let via_pointer = constructor(complete_config(), None, None, None);
++    let direct = SdkRunner::new(complete_config(), None, None, None);
++    assert_eq!(
++        via_pointer
++            .open_session(open_continue("ses-ctor-anchor"))
++            .expect_err("无装载缝续会话必须显式失败")
++            .to_string(),
++        direct
++            .open_session(open_continue("ses-ctor-anchor"))
++            .expect_err("裸四参同口径失败")
++            .to_string(),
++        "函数指针构造与直构错误面逐字一致"
++    );
++}
+diff --git a/crates/infra/store/src/describe_test.rs b/crates/infra/store/src/describe_test.rs
+index fe18782aa3bf..66a4f5b1d838 100644
+--- a/crates/infra/store/src/describe_test.rs
++++ b/crates/infra/store/src/describe_test.rs
+@@ -100,6 +100,7 @@ fn provider_record(id: i64, name: &str) -> AgentProviderRecord {
+         context_length: Some(128_000),
+         max_tokens: None,
+         web_search: false,
++        efforts: crate::AgentEffortTiers::default(),
+     }
+ }
+ 
+diff --git a/crates/infra/store/src/lib.rs b/crates/infra/store/src/lib.rs
+index 9fdb7a2a07b3..6ae0165401e2 100644
+--- a/crates/infra/store/src/lib.rs
++++ b/crates/infra/store/src/lib.rs
+@@ -9,7 +9,7 @@ mod store;
+ pub use describe::{FieldDoc, ModelDoc, TableDoc};
+ pub use envelope::{dimension_of, ModelInfo, RecordEnvelope, RecordsPage};
+ pub use model::{
+-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
++    AgentEffortTiers, AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+     AgentProviderRecord, AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord,
+     ExploreRecord, PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionConfigSnapshot,
+     SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord, CLI_TENANT_RETIRED,
+diff --git a/crates/infra/store/src/model.rs b/crates/infra/store/src/model.rs
+index 81fdb40f14b0..cf419f789c0c 100644
+--- a/crates/infra/store/src/model.rs
++++ b/crates/infra/store/src/model.rs
+@@ -1127,8 +1127,9 @@ impl RunEdgeRecord {
+ 
+ /// provider 三档模型档位（agent 管理域，纯嵌套 struct 不落独立模型——嵌装
+ /// 先例同转录单表的 `AgentEvent`）：high / medium / low 三档
+-/// 模型标识，运行发起解析消费固定取 high 档（effort 进 run 参数与档位选择
+-/// 器为后续迭代，本期只存不选）。
++/// 模型标识，运行发起解析消费固定取 high 档（深度轴由 sibling 列
++/// [`AgentEffortTiers`] 承担，见 provider-effort-knob；per-run effort 参数与
++/// 前端档位选择器仍为后续迭代，medium 档仍只存不选）。
+ #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "camelCase")]
+ pub struct AgentModelTiers {
+@@ -1138,6 +1139,21 @@ pub struct AgentModelTiers {
+     pub low: String,
+ }
+ 
++/// provider 两档思考强度（effort）档位（agent 管理域，纯嵌套 struct 不落独立
++/// 模型）：与 [`AgentModelTiers`] 成 **sibling 列**——MUST NOT 并入三档模型
++/// struct（该 struct 未版本化，往里加字段即改 bincode 布局却无 `from` 链可依）。
++/// 语义为「同一模型在不同档位想多深」：`high` 供 `ModelLevel::High`、`low` 供
++/// `ModelLevel::Low`；**空串 = 留空 = 不发**（与三档模型名用空串表未配置同型）。
++/// 值域不封闭：保存期只 `trim()`，自定义值原样透传。
++#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
++#[serde(rename_all = "camelCase")]
++pub struct AgentEffortTiers {
++    /// 深相位档（proposal / 设计 / 检视 / 验收）的思考强度
++    pub high: String,
++    /// 快相位档（实现 / 测试生成）的思考强度
++    pub low: String,
++}
++
+ /// 「CLI 租户已下线」共享拒收文案（design DD3）：`runner_for` /
+ /// `resolve_agent_engine` / `upsert_agent_instance` /
+ /// `set_default_agent_instance` 四拒点逐字复用、不加前后缀——同一产品事实
+@@ -1326,14 +1342,15 @@ impl From<AgentProviderRecordV3> for AgentProviderRecordV2 {
+     }
+ }
+ 
+-/// agent provider 记录
+-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
++/// `AgentProviderRecord` 的 version 4 历史形态（仅作 native_model 升级链的
++/// 解码目标，不注册进库模型组、不出公共查询面）：无 `efforts` 列。存量 v4
++/// 行经版本机制自动升级为 v5（两档 effort 读出空串，零迁移代码路径、行为
++/// 零变化）。`Debug` 为 derive（与 V1–V3 同型，只作降级 / 解码中转，无日志位）。
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "camelCase")]
+ #[native_model(id = 5, version = 4, from = AgentProviderRecordV3)]
+-#[native_db]
+-pub struct AgentProviderRecord {
++pub(crate) struct AgentProviderRecordV4 {
+     /// 记录 id（主键，写事务内 max+1 分配）
+-    #[primary_key]
+     pub id: i64,
+     /// 展示名（唯一 = 写事务内查重）
+     pub name: String,
+@@ -1372,7 +1389,7 @@ pub struct AgentProviderRecord {
+ 
+ /// v3 → v4 升级半边（缺列读兼容：旧记录无 `web_search` 列——默认关，行为
+ /// 零变化、无迁移脚本）。
+-impl From<AgentProviderRecordV3> for AgentProviderRecord {
++impl From<AgentProviderRecordV3> for AgentProviderRecordV4 {
+     fn from(previous: AgentProviderRecordV3) -> Self {
+         Self {
+             id: previous.id,
+@@ -1390,7 +1407,94 @@ impl From<AgentProviderRecordV3> for AgentProviderRecord {
+ 
+ /// v4 → v3 降级半边（`web_search` 丢弃——只保升级语义真实性，降级形态不作
+ /// 数据承诺）。
+-impl From<AgentProviderRecord> for AgentProviderRecordV3 {
++impl From<AgentProviderRecordV4> for AgentProviderRecordV3 {
++    fn from(record: AgentProviderRecordV4) -> Self {
++        Self {
++            id: record.id,
++            name: record.name,
++            protocol: record.protocol,
++            base_url: record.base_url,
++            api_key: record.api_key,
++            models: record.models,
++            context_length: record.context_length,
++            max_tokens: record.max_tokens,
++        }
++    }
++}
++
++/// agent provider 记录（当前形态）
++#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
++#[serde(rename_all = "camelCase")]
++#[native_model(id = 5, version = 5, from = AgentProviderRecordV4)]
++#[native_db]
++pub struct AgentProviderRecord {
++    /// 记录 id（主键，写事务内 max+1 分配）
++    #[primary_key]
++    pub id: i64,
++    /// 展示名（唯一 = 写事务内查重）
++    pub name: String,
++    /// 模型协议（wire 语义与 `base_url` 拼法由此决定；缺省 `openai`——
++    /// 存量行升级即本档）
++    #[serde(default)]
++    pub protocol: AgentProviderProtocol,
++    /// 协议对应端点 base_url（openai 含版本段如 `https://…/v1`；anthropic
++    /// 的 `/v1` / `/messages` 后缀由引擎侧归一化后拼 `/v1/messages`）
++    pub base_url: String,
++    /// 认证凭据（bearer token，明文）
++    // 机密面有意放宽:明文存储与传输（读写单 DTO 即记录本体，无遮蔽信封臂），
++    // 遮蔽只在前端展示层，边界表见 specs/desktop-agent-management
++    pub api_key: String,
++    /// 三档模型标识（运行发起解析消费固定取 high 档；原文可带 `[1m]` 后缀，
++    /// 后缀解析归引擎侧单点）
++    pub models: AgentModelTiers,
++    /// provider 上下文窗长（token 数；sdk 引擎上下文防线消费）：可空列，
++    /// `None` = 未配置（缺省走 128K 启发式；编辑语义留空 = 未配置，MUST NOT
++    /// 落 0 或缺省字面）
++    #[serde(default)]
++    pub context_length: Option<u64>,
++    /// provider 输出上限（token 数；等价 Claude Code 的
++    /// `CLAUDE_CODE_MAX_OUTPUT_TOKENS`）：可空列，`None` = 按上下文窗长分档
++    /// 推导（未配置窗长时 32000）；仅 anthropic 协议消费（openai 协议请求保持
++    /// 省略上限），保存期下限 4096
++    #[serde(default)]
++    pub max_tokens: Option<u64>,
++    /// 是否启用 Anthropic 云端 `web_search` 服务端工具（缺省 `false`——存量
++    /// 行升级即关，行为零变化）。**生效门在解析期**（`provider.web_search &&
++    /// protocol == Anthropic`）：保存期无条件接受（openai 下也原样入库，不
++    /// 拒收、不清零），纠偏只在运行发起解析单点
++    #[serde(default)]
++    pub web_search: bool,
++    /// 两档思考强度（**sibling 列**，MUST NOT 并入 [`AgentModelTiers`]）：与
++    /// `models` 同一记录不同轴——`high` 供 `ModelLevel::High`、`low` 供
++    /// `ModelLevel::Low`。**空串 = 留空 = 不发**（请求体零新增键）；值域不
++    /// 封闭（两协议值域不是同一集合，保存期只 `trim`）；**无协议门控**（两
++    /// 协议都有 effort 语义，wire 形状差异由引擎侧 shaping 单点吸收）
++    #[serde(default)]
++    pub efforts: AgentEffortTiers,
++}
++
++/// v4 → v5 升级半边（缺列读兼容：旧记录无 `efforts` 列——两档读出空串 =
++/// 留空 = 不发，行为零变化、无迁移脚本）。
++impl From<AgentProviderRecordV4> for AgentProviderRecord {
++    fn from(previous: AgentProviderRecordV4) -> Self {
++        Self {
++            id: previous.id,
++            name: previous.name,
++            protocol: previous.protocol,
++            base_url: previous.base_url,
++            api_key: previous.api_key,
++            models: previous.models,
++            context_length: previous.context_length,
++            max_tokens: previous.max_tokens,
++            web_search: previous.web_search,
++            efforts: AgentEffortTiers::default(),
++        }
++    }
++}
++
++/// v5 → v4 降级半边（`efforts` 丢弃——只保升级语义真实性，降级形态不作数据
++/// 承诺）。
++impl From<AgentProviderRecord> for AgentProviderRecordV4 {
+     fn from(record: AgentProviderRecord) -> Self {
+         Self {
+             id: record.id,
+@@ -1401,6 +1505,7 @@ impl From<AgentProviderRecord> for AgentProviderRecordV3 {
+             models: record.models,
+             context_length: record.context_length,
+             max_tokens: record.max_tokens,
++            web_search: record.web_search,
+         }
+     }
+ }
+@@ -1409,8 +1514,9 @@ impl AgentProviderRecord {
+     /// 由连接档案构造新记录：`id` 置 0（写事务内 max+1 分配覆盖）；api_key
+     /// 传空即空（新建语义无原值可保）；`context_length` / `max_tokens` 传
+     /// `None` 即未配置；`web_search` 缺省关（开走 [`Self::with_web_search`]——
+-    /// 现有参数面不动的唯一实现路径）。`protocol` 紧跟 `name`——协议决定
+-    /// `base_url` 语义。
++    /// 现有参数面不动的唯一实现路径）；`efforts` 缺省两档空串（开走
++    /// [`Self::with_efforts`]——现有参数面不动的唯一实现路径）。`protocol`
++    /// 紧跟 `name`——协议决定 `base_url` 语义。
+     pub fn new(
+         name: String,
+         protocol: AgentProviderProtocol,
+@@ -1430,6 +1536,7 @@ impl AgentProviderRecord {
+             context_length,
+             max_tokens,
+             web_search: false,
++            efforts: AgentEffortTiers::default(),
+         }
+     }
+ 
+@@ -1438,6 +1545,13 @@ impl AgentProviderRecord {
+     pub fn with_web_search(self, web_search: bool) -> Self {
+         Self { web_search, ..self }
+     }
++
++    /// 两档思考强度（构造器链式缝，与 `with_web_search` 同型）：保存期无条件
++    /// 接受两档原值（零值域校验、零协议门控），wire 形状由引擎侧 shaping 单点
++    /// 吸收。
++    pub fn with_efforts(self, efforts: AgentEffortTiers) -> Self {
++        Self { efforts, ..self }
++    }
+ }
+ 
+ /// 手写遮蔽 Debug（字段面与 derive 形态逐位对齐，仅 api_key 位遮蔽）：明文
+@@ -1454,6 +1568,7 @@ impl std::fmt::Debug for AgentProviderRecord {
+             .field("context_length", &self.context_length)
+             .field("max_tokens", &self.max_tokens)
+             .field("web_search", &self.web_search)
++            .field("efforts", &self.efforts)
+             .finish()
+     }
+ }
+diff --git a/crates/infra/store/src/model_test.rs b/crates/infra/store/src/model_test.rs
+index fa3aaf448647..d16b5fb50130 100644
+--- a/crates/infra/store/src/model_test.rs
++++ b/crates/infra/store/src/model_test.rs
+@@ -6,11 +6,11 @@ use native_model::native_model;
+ use workflow::model::{ChecklistItem, Verdict};
+ 
+ use crate::model::{
+-    pack_checklist_item_key, pack_session_event_key, AgentEngineKind, AgentInstanceRecord,
+-    AgentModelTiers, AgentProviderProtocol, AgentProviderRecord, AgentProviderRecordV1,
+-    AgentProviderRecordV2, AgentProviderRecordV3, AgentRunRecord, AgentRunRecordV3,
+-    ChecklistItemRecord, PhaseRecord, SessionConfigSnapshot, SessionEventRecord, SessionRecord,
+-    WorkspaceRecord,
++    pack_checklist_item_key, pack_session_event_key, AgentEffortTiers, AgentEngineKind,
++    AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol, AgentProviderRecord,
++    AgentProviderRecordV1, AgentProviderRecordV2, AgentProviderRecordV3, AgentProviderRecordV4,
++    AgentRunRecord, AgentRunRecordV3, ChecklistItemRecord, PhaseRecord, SessionConfigSnapshot,
++    SessionEventRecord, SessionRecord, WorkspaceRecord,
+ };
+ use crate::store::Store;
+ 
+@@ -688,8 +688,8 @@ fn provider_roundtrip(record: &AgentProviderRecord) -> AgentProviderRecord {
+     let (decoded, version) =
+         native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
+     assert_eq!(
+-        version, 4,
+-        "native_model 版本封装为 version 4（web_search 列演进落位）"
++        version, 5,
++        "native_model 版本封装为 version 5（efforts sibling 列演进落位）"
+     );
+     decoded
+ }
+@@ -736,8 +736,8 @@ fn provider记录编解码版本断言2() {
+     let (_decoded, version) =
+         native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
+     assert_eq!(
+-        version, 4,
+-        "native_model 版本封装为 version 4（web_search 列）"
++        version, 5,
++        "native_model 版本封装为 version 5（efforts 列）"
+     );
+ }
+ 
+@@ -790,8 +790,8 @@ fn v1_from双向upgrade补none与downgrade丢新字段无损() {
+     };
+     // 逐级链：v1 → v2（补 context_length）→ v3（补 protocol / max_tokens）→ v4
+     // （补 web_search），无跳级 `From`（`ExploreRecord` V1 → V4 先例）
+-    let upgraded = AgentProviderRecord::from(AgentProviderRecordV3::from(
+-        AgentProviderRecordV2::from(legacy.clone()),
++    let upgraded = AgentProviderRecord::from(AgentProviderRecordV4::from(
++        AgentProviderRecordV3::from(AgentProviderRecordV2::from(legacy.clone())),
+     ));
+     assert_eq!(
+         upgraded.context_length, None,
+@@ -817,7 +817,7 @@ fn v1_from双向upgrade补none与downgrade丢新字段无损() {
+     // 逆序逐级链：v4 → v3（丢 web_search）→ v2（丢 protocol / max_tokens）→ v1
+     // （丢 context_length）
+     let downgraded = AgentProviderRecordV1::from(AgentProviderRecordV2::from(
+-        AgentProviderRecordV3::from(record),
++        AgentProviderRecordV3::from(AgentProviderRecordV4::from(record)),
+     ));
+     assert_eq!(downgraded, legacy, "降级还原五字段原形（新字段丢弃无损）");
+ }
+@@ -3558,8 +3558,8 @@ fn provider_v1载荷经两级链升级读入且新列全缺省() {
+     let bytes = native_model::encode(&v1).expect("encode v1 应成功");
+ 
+     // v1 → v2 → v3 → v4 逐级链（无跳级 From impl）
+-    let via_steps = AgentProviderRecord::from(AgentProviderRecordV3::from(
+-        AgentProviderRecordV2::from(v1.clone()),
++    let via_steps = AgentProviderRecord::from(AgentProviderRecordV4::from(
++        AgentProviderRecordV3::from(AgentProviderRecordV2::from(v1.clone())),
+     ));
+     let (via_decode, version) =
+         native_model::decode::<AgentProviderRecord>(bytes).expect("v1 载荷应逐级升级");
+@@ -3592,7 +3592,9 @@ fn provider_v2直达升级与降级半边逐字段对位() {
+     assert_eq!(v2.context_length, None, "V1→V2 补 context_length = None");
+ 
+     // V2 → V3：补 protocol = Openai 与 max_tokens = None
+-    let v3 = AgentProviderRecord::from(AgentProviderRecordV3::from(v2.clone()));
++    let v3 = AgentProviderRecord::from(AgentProviderRecordV4::from(AgentProviderRecordV3::from(
++        v2.clone(),
++    )));
+     assert_eq!(v3.protocol, AgentProviderProtocol::Openai, "V2→V3 补协议");
+     assert_eq!(v3.max_tokens, None, "V2→V3 补上限");
+     assert_eq!(v3.context_length, v2.context_length);
+@@ -3601,7 +3603,9 @@ fn provider_v2直达升级与降级半边逐字段对位() {
+     let mut record = v3.clone();
+     record.protocol = AgentProviderProtocol::Anthropic;
+     record.max_tokens = Some(8192);
+-    let downgraded_v2 = AgentProviderRecordV2::from(AgentProviderRecordV3::from(record.clone()));
++    let downgraded_v2 = AgentProviderRecordV2::from(AgentProviderRecordV3::from(
++        AgentProviderRecordV4::from(record.clone()),
++    ));
+     assert_eq!(
+         downgraded_v2, v2,
+         "V3→V2 丢两新列后与升级源等值（其余保真）"
+@@ -3616,7 +3620,7 @@ fn provider_v2直达升级与降级半边逐字段对位() {
+ }
+ 
+ #[test]
+-fn provider版本头四层逐字为4与3与2与1() {
++fn provider版本头五层逐字为5与4与3与2与1() {
+     let record = AgentProviderRecord::new(
+         "版本头".to_owned(),
+         AgentProviderProtocol::Anthropic,
+@@ -3629,8 +3633,26 @@ fn provider版本头四层逐字为4与3与2与1() {
+     let (_, version) = native_model::decode::<AgentProviderRecord>(
+         native_model::encode(&record).expect("encode v4"),
+     )
++    .expect("decode v5");
++    assert_eq!(version, 5, "当前形态版本头 5（efforts 列演进落位）");
++
++    // v4 中转形态版本头 4（efforts 缺列，仅升级链解码目标）
++    let v4 = AgentProviderRecordV4 {
++        id: 1,
++        name: "v4".to_owned(),
++        protocol: AgentProviderProtocol::Anthropic,
++        base_url: "u".to_owned(),
++        api_key: "k".to_owned(),
++        models: tiers("h", "m", "l"),
++        context_length: None,
++        max_tokens: Some(8192),
++        web_search: false,
++    };
++    let (_, version) = native_model::decode::<AgentProviderRecordV4>(
++        native_model::encode(&v4).expect("encode v4"),
++    )
+     .expect("decode v4");
+-    assert_eq!(version, 4, "当前形态版本头 4（web_search 列演进落位）");
++    assert_eq!(version, 4, "v4 中转形态版本头 4（v3 → v4 升级链中段）");
+ 
+     // v3 中转形态版本头 3（web_search 缺列，仅升级链解码目标）
+     let v3 = AgentProviderRecordV3 {
+@@ -3715,8 +3737,8 @@ fn agent_provider_protocol变体序号锚_openai恰0_anthropic恰1字节级() {
+ }
+ 
+ #[test]
+-fn provider模型组注册_当前形态id5版本4且中转形态不入库模型组() {
+-    // 注册锚：当前形态 id 5 / version 4（`web_search` 列演进落位）；三条中转
++fn provider模型组注册_当前形态id5版本5且中转形态不入库模型组() {
++    // 注册锚：当前形态 id 5 / version 5（`efforts` 列演进落位）；四条中转
+     // 形态同 id 不同版本，仅作升级链解码目标（无 `#[native_db]` 派生 → 结构上
+     // 不可注册进库模型组）
+     assert_eq!(
+@@ -3725,10 +3747,20 @@ fn provider模型组注册_当前形态id5版本4且中转形态不入库模型
+     );
+     assert_eq!(
+         <AgentProviderRecord as native_model::Model>::native_model_version(),
++        5,
++        "当前形态版本头逐字 5（v4 → v5 升级链顶，efforts 列在此落位）"
++    );
++    // 升级链逐级锚：v1 = 1 → v2 = 2 → v3 = 3 → v4 = 4 → v5 = 5（同 id、无跳级）
++    assert_eq!(
++        <AgentProviderRecordV4 as native_model::Model>::native_model_version(),
+         4,
+-        "当前形态版本头逐字 4（v3 → v4 升级链顶，web_search 列在此落位）"
++        "v4 中转形态版本头逐字 4（efforts 缺列）"
++    );
++    assert_eq!(
++        <AgentProviderRecordV4 as native_model::Model>::native_model_id(),
++        5,
++        "v4 中转形态与当前形态同 id"
+     );
+-    // 升级链逐级锚：v1 = 1 → v2 = 2 → v3 = 3 → v4 = 4（同 id、无跳级）
+     assert_eq!(
+         <AgentProviderRecordV3 as native_model::Model>::native_model_version(),
+         3,
+@@ -4143,8 +4175,8 @@ fn v1到v2到v3到v4三级链升级对齐_web_search关且协议缺省openai() {
+     assert_eq!(upgraded.models, legacy.models);
+ 
+     // 逐级链 From 与版本机制同口径（无跳级 From）
+-    let by_chain = AgentProviderRecord::from(AgentProviderRecordV3::from(
+-        AgentProviderRecordV2::from(legacy.clone()),
++    let by_chain = AgentProviderRecord::from(AgentProviderRecordV4::from(
++        AgentProviderRecordV3::from(AgentProviderRecordV2::from(legacy.clone())),
+     ));
+     assert_eq!(by_chain, upgraded, "逐级链与版本机制产出逐字段一致");
+ }
+@@ -4152,7 +4184,7 @@ fn v1到v2到v3到v4三级链升级对齐_web_search关且协议缺省openai() {
+ #[test]
+ fn 降级半边_v4到v3丢web_search其余保真且降级产物不作数据承诺() {
+     let record = provider_with_switch(true);
+-    let v3 = AgentProviderRecordV3::from(record.clone());
++    let v3 = AgentProviderRecordV3::from(AgentProviderRecordV4::from(record.clone()));
+ 
+     assert_eq!(v3.id, record.id);
+     assert_eq!(v3.name, record.name);
+@@ -4164,14 +4196,14 @@ fn 降级半边_v4到v3丢web_search其余保真且降级产物不作数据承
+     assert_eq!(v3.max_tokens, record.max_tokens);
+ 
+     // 降级再升级回来：新字段归缺省（可逆性不成立）
+-    let roundtripped = AgentProviderRecord::from(AgentProviderRecordV3::from(
+-        AgentProviderRecordV2::from(AgentProviderRecordV1 {
++    let roundtripped = AgentProviderRecord::from(AgentProviderRecordV4::from(
++        AgentProviderRecordV3::from(AgentProviderRecordV2::from(AgentProviderRecordV1 {
+             id: record.id,
+             name: record.name.clone(),
+             base_url: record.base_url.clone(),
+             api_key: record.api_key.clone(),
+             models: record.models.clone(),
+-        }),
++        })),
+     ));
+     assert!(
+         !roundtripped.web_search,
+@@ -5139,3 +5171,403 @@ fn agent_run_record_interrupted线格式与孤儿轮行组合往返() {
+     let back: AgentRunRecord = serde_json::from_value(value).expect("反序列化成功");
+     assert_eq!(back, orphan, "孤儿行 + interrupted 往返逐字段相等");
+ }
++
++// ---------------------------------------------------------------------------
++// provider 记录 v5：`efforts` sibling 列（AC-1 存储演进一条链 / AC-2 构造器面
++// 不动）。全内存构造：`native_model::{encode,decode}` 与 `serde_json` 不触 db
++// 文件，v4 载荷由真实 `AgentProviderRecordV4` 结构体编码产出（不手搓字节）。
++// ---------------------------------------------------------------------------
++
++/// 两档 effort fixture（high / low 可区分取值）。
++fn efforts_of(high: &str, low: &str) -> AgentEffortTiers {
++    AgentEffortTiers {
++        high: high.to_owned(),
++        low: low.to_owned(),
++    }
++}
++
++/// 携两档 effort 的 provider fixture（其余字段同 `provider_with_switch` 底座）。
++fn provider_with_efforts(high: &str, low: &str) -> AgentProviderRecord {
++    provider_with_switch(false).with_efforts(efforts_of(high, low))
++}
++
++#[test]
++fn with_efforts构造置位且两档逐字段保真其余字段不受影响() {
++    let record = provider_with_switch(true).with_efforts(efforts_of("max", "low"));
++
++    assert_eq!(record.efforts, efforts_of("max", "low"), "两档逐字段保真");
++    assert_eq!(record.efforts.high, "max", "high 档原值承载");
++    assert_eq!(record.efforts.low, "low", "low 档原值承载");
++    // 其余字段不受链式缝影响（store 层无条件接受、无协议门控）
++    assert!(record.web_search, "web_search 位不被 efforts 覆盖");
++    assert_eq!(record.context_length, Some(200_000));
++    assert_eq!(record.max_tokens, Some(8192));
++    assert_eq!(record.protocol, AgentProviderProtocol::Anthropic);
++    assert_eq!(record.id, 0);
++}
++
++#[test]
++fn with_efforts两档全空与未装配逐字段相等() {
++    let plain = provider_with_switch(false);
++    let explicit_empty = provider_with_switch(false).with_efforts(AgentEffortTiers::default());
++
++    assert_eq!(
++        explicit_empty, plain,
++        "显式两档空串与未装配逐字段相等（空串 = 留空，无第三条「未配置」态）"
++    );
++    assert_eq!(explicit_empty.efforts.high, "");
++    assert_eq!(explicit_empty.efforts.low, "");
++}
++
++#[test]
++fn with_efforts超长与特殊字符原样承载且store层零校验() {
++    let long = "e".repeat(1_200);
++    for effort in [long.as_str(), "含 空格 与 \"引号\"\n换行 🎉", "a b"] {
++        let record = provider_with_switch(false).with_efforts(efforts_of(effort, effort));
++        assert_eq!(
++            record.efforts,
++            efforts_of(effort, effort),
++            "effort={effort:?} 原样承载（store 层零校验、零裁剪）"
++        );
++    }
++}
++
++#[test]
++fn with_efforts与with_web_search两种次序组合互不覆盖() {
++    for web_search in [true, false] {
++        let efforts_first = provider_with_switch(false)
++            .with_efforts(efforts_of("max", "low"))
++            .with_web_search(web_search);
++        let switch_first = provider_with_switch(false)
++            .with_web_search(web_search)
++            .with_efforts(efforts_of("max", "low"));
++
++        for (label, record) in [
++            ("efforts 先", efforts_first),
++            ("web_search 先", switch_first),
++        ] {
++            assert_eq!(record.web_search, web_search, "{label}：开关按入参置位");
++            assert_eq!(
++                record.efforts,
++                efforts_of("max", "low"),
++                "{label}：两档 effort 不被开关覆盖"
++            );
++        }
++    }
++}
++
++#[test]
++fn new七参构造两档effort皆空串且id置零() {
++    let record = AgentProviderRecord::new(
++        "七参供应".to_owned(),
++        AgentProviderProtocol::Openai,
++        "https://api.example.com/v1".to_owned(),
++        "sk-live-1234567890".to_owned(),
++        tiers("m-high", "m-medium", "m-low"),
++        Some(200_000),
++        Some(8192),
++    );
++
++    assert_eq!(
++        record.efforts,
++        AgentEffortTiers::default(),
++        "new 不新增参数：两档缺省空串"
++    );
++    assert_eq!(record.efforts.high, "", "high 档缺省空串");
++    assert_eq!(record.efforts.low, "", "low 档缺省空串");
++    assert_eq!(record.id, 0, "id 仍置 0（写事务内分配）");
++    assert!(!record.web_search, "web_search 仍缺省关");
++}
++
++#[test]
++#[allow(clippy::type_complexity)]
++fn new七参签名零改锚定函数指针可达() {
++    // 44 处既有调用点零改的编译面证据：签名逐字为七参（末两项 Option<u64>）
++    let signature: fn(
++        String,
++        AgentProviderProtocol,
++        String,
++        String,
++        AgentModelTiers,
++        Option<u64>,
++        Option<u64>,
++    ) -> AgentProviderRecord = AgentProviderRecord::new;
++
++    let record = signature(
++        "指针供应".to_owned(),
++        AgentProviderProtocol::Anthropic,
++        "https://api.anthropic.com".to_owned(),
++        "sk-ant-1234567890".to_owned(),
++        tiers("h", "m", "l"),
++        None,
++        None,
++    );
++    assert_eq!(
++        record.efforts,
++        AgentEffortTiers::default(),
++        "签名面不携 effort"
++    );
++}
++
++#[test]
++fn v5记录编解码往返version为五且efforts三态保真() {
++    for (high, low) in [("", ""), ("max", "low"), ("max", "")] {
++        let record = provider_with_efforts(high, low);
++
++        let decoded = provider_roundtrip(&record);
++
++        assert_eq!(
++            decoded, record,
++            "efforts=({high:?}, {low:?}) 往返逐字段相等"
++        );
++        assert_eq!(
++            decoded.efforts,
++            efforts_of(high, low),
++            "两档经 bincode 尾部嵌套不漂移"
++        );
++    }
++}
++
++#[test]
++fn v5版本头锚点id与version均为五且v4中转形为四() {
++    assert_eq!(
++        <AgentProviderRecord as native_model::Model>::native_model_id(),
++        5,
++        "id 仍为 5（同一条版本链，不新增第二条）"
++    );
++    assert_eq!(
++        <AgentProviderRecord as native_model::Model>::native_model_version(),
++        5,
++        "版本头 4 → 5（efforts sibling 列）"
++    );
++    assert_eq!(
++        <AgentProviderRecordV4 as native_model::Model>::native_model_version(),
++        4,
++        "v4 中转形态版本头仍为 4"
++    );
++    assert_eq!(
++        <AgentProviderRecordV4 as native_model::Model>::native_model_id(),
++        5,
++        "中转形态与当前形态同 id（升级链同源）"
++    );
++}
++
++#[test]
++fn efforts线格式含camel_case两键且缺键解为两档空串() {
++    let record = provider_with_efforts("max", "low");
++    let value = serde_json::to_value(&record).expect("serde 序列化应成功");
++    assert_eq!(
++        value["efforts"],
++        serde_json::json!({ "high": "max", "low": "low" }),
++        "serde camelCase 线格式含 efforts 两键"
++    );
++
++    // 缺 efforts 键 → 两档空串（`#[serde(default)]` 只兜 JSON 面；bincode 升级
++    // 语义由 `From<V4>` 承担）
++    let mut absent = value.clone();
++    absent
++        .as_object_mut()
++        .expect("object 形态")
++        .remove("efforts");
++    let back: AgentProviderRecord = serde_json::from_value(absent).expect("缺键反序列化成功");
++    assert_eq!(
++        back.efforts,
++        AgentEffortTiers::default(),
++        "缺键解为两档空串"
++    );
++    assert_eq!(
++        back,
++        provider_with_efforts("", ""),
++        "缺键形态与显式留空等价"
++    );
++}
++
++#[test]
++fn efforts非法载荷拒收不静默补值() {
++    let base = serde_json::to_value(provider_with_efforts("max", "low")).expect("序列化成功");
++    for invalid in [
++        serde_json::json!("max"),
++        serde_json::json!({ "high": "max" }),
++    ] {
++        let mut value = base.clone();
++        value
++            .as_object_mut()
++            .expect("object 形态")
++            .insert("efforts".to_owned(), invalid.clone());
++        assert!(
++            serde_json::from_value::<AgentProviderRecord>(value).is_err(),
++            "efforts = {invalid} 必须 Err（两档皆是必填子键，不静默补值）"
++        );
++    }
++}
++
++#[test]
++fn agent_effort_tiers默认两档空串且partial_eq区分两档交换() {
++    let default = AgentEffortTiers::default();
++    assert_eq!(default.high, "", "Default 两档空串语义是「留空」");
++    assert_eq!(default.low, "");
++
++    assert_ne!(
++        efforts_of("max", "low"),
++        efforts_of("low", "max"),
++        "PartialEq 区分两档交换（不做无序比较）"
++    );
++    assert_eq!(efforts_of("max", "low"), efforts_of("max", "low"));
++    assert_ne!(efforts_of("max", "low"), efforts_of("max", ""));
++}
++
++#[test]
++fn v4升级到v5补空efforts且其余字段逐字段相等() {
++    let record = provider_with_switch(true);
++    let v4 = AgentProviderRecordV4::from(record.clone());
++
++    let upgraded = AgentProviderRecord::from(v4.clone());
++
++    assert_eq!(
++        upgraded.efforts,
++        AgentEffortTiers::default(),
++        "升级补两档空串（缺列读兼容、无迁移脚本）"
++    );
++    assert_eq!(upgraded.id, v4.id);
++    assert_eq!(upgraded.name, v4.name);
++    assert_eq!(upgraded.protocol, v4.protocol);
++    assert_eq!(upgraded.base_url, v4.base_url);
++    assert_eq!(upgraded.api_key, v4.api_key);
++    assert_eq!(upgraded.models, v4.models);
++    assert_eq!(upgraded.context_length, v4.context_length);
++    assert_eq!(upgraded.max_tokens, v4.max_tokens);
++    assert_eq!(upgraded.web_search, v4.web_search, "web_search 位原样搬运");
++}
++
++#[test]
++fn v4载荷字节经版本机制升级为v5且efforts为空() {
++    let v4 = AgentProviderRecordV4::from(provider_with_switch(true));
++    let bytes = native_model::encode(&v4).expect("encode v4 应成功");
++
++    let (upgraded, version) =
++        native_model::decode::<AgentProviderRecord>(bytes).expect("v4 载荷应经版本机制升级");
++
++    assert_eq!(version, 4, "decode 返回载荷头源版本 4");
++    assert_eq!(
++        upgraded.efforts,
++        AgentEffortTiers::default(),
++        "存量行读出即留空"
++    );
++    assert_eq!(upgraded.web_search, v4.web_search);
++    assert_eq!(upgraded.name, v4.name);
++    assert_eq!(upgraded.models, v4.models);
++
++    // 升级形态再编码为 v5 载荷（新写入面）
++    let v5_bytes = native_model::encode(&upgraded).expect("encode v5 应成功");
++    let (_back, v5_version) =
++        native_model::decode::<AgentProviderRecord>(v5_bytes).expect("v5 载荷回环解码应成功");
++    assert_eq!(v5_version, 5, "新写入面版本头为 5");
++}
++
++#[test]
++fn v1到v5四级链与直接构造v5逐字段一致() {
++    let legacy = AgentProviderRecordV1 {
++        id: 41,
++        name: "四级链供应".to_owned(),
++        base_url: "https://legacy.example.com/v1".to_owned(),
++        api_key: "sk-legacy-1234567890".to_owned(),
++        models: tiers("v1-high", "v1-medium", "v1-low"),
++    };
++
++    let by_chain = AgentProviderRecord::from(AgentProviderRecordV4::from(
++        AgentProviderRecordV3::from(AgentProviderRecordV2::from(legacy.clone())),
++    ));
++
++    let mut direct = AgentProviderRecord::new(
++        legacy.name.clone(),
++        AgentProviderProtocol::Openai,
++        legacy.base_url.clone(),
++        legacy.api_key.clone(),
++        legacy.models.clone(),
++        None,
++        None,
++    );
++    direct.id = legacy.id;
++
++    assert_eq!(by_chain, direct, "四级链产物与直接构造 v5 逐字段一致");
++    assert_eq!(
++        by_chain.efforts,
++        AgentEffortTiers::default(),
++        "四级链补两档空串"
++    );
++    assert_eq!(
++        by_chain.protocol,
++        AgentProviderProtocol::Openai,
++        "v2→v3 补协议"
++    );
++    assert_eq!(by_chain.max_tokens, None, "v3 补上限");
++    assert_eq!(by_chain.context_length, None, "v2 补窗长");
++    assert!(!by_chain.web_search, "v3→v4 补开关");
++}
++
++#[test]
++fn v5降级到v4丢efforts其余保真且再升级归空() {
++    let record = provider_with_efforts("max", "low");
++
++    let v4 = AgentProviderRecordV4::from(record.clone());
++
++    assert_eq!(v4.id, record.id);
++    assert_eq!(v4.name, record.name);
++    assert_eq!(v4.protocol, record.protocol);
++    assert_eq!(v4.base_url, record.base_url);
++    assert_eq!(v4.api_key, record.api_key);
++    assert_eq!(v4.models, record.models);
++    assert_eq!(v4.context_length, record.context_length);
++    assert_eq!(v4.max_tokens, record.max_tokens);
++    assert_eq!(v4.web_search, record.web_search);
++
++    // 降级再升级：efforts 归缺省（降级形态不作数据承诺）
++    let roundtripped = AgentProviderRecord::from(v4);
++    assert_eq!(
++        roundtripped.efforts,
++        AgentEffortTiers::default(),
++        "降级再升级后两档归空串"
++    );
++    assert_ne!(roundtripped, record, "降级往返不可逆（efforts 已丢）");
++}
++
++#[test]
++fn 手写遮蔽debug补efforts位且api_key位仍遮蔽() {
++    let record = provider_with_efforts("max", "low");
++
++    let debug_text = format!("{record:?}");
++
++    assert!(
++        debug_text.contains("efforts: AgentEffortTiers"),
++        "Debug 含 efforts 字段位（值可读），实际: {debug_text}"
++    );
++    assert!(
++        debug_text.contains("high: \"max\"") && debug_text.contains("low: \"low\""),
++        "两档取值在 Debug 输出可读，实际: {debug_text}"
++    );
++    assert!(debug_text.contains("sk-***890"), "api_key 位仍为遮蔽形态");
++    assert!(
++        !debug_text.contains("sk-ant-1234567890"),
++        "Debug 输出不得含 api_key 明文，实际: {debug_text}"
++    );
++}
++
++#[test]
++fn agent_model_tiers三档结构零改动且与efforts为兄弟列() {
++    let record = provider_with_efforts("max", "low");
++
++    assert_eq!(
++        record.models,
++        tiers("m-high", "m-medium", "m-low"),
++        "三档 models 结构零改动（efforts 不嵌入该 struct）"
++    );
++    assert_eq!(
++        record.models.medium, "m-medium",
++        "medium 档仍在（本期只存不选）"
++    );
++
++    let decoded = provider_roundtrip(&record);
++    assert_eq!(decoded.models, record.models, "三档往返保真");
++    assert_eq!(decoded.efforts, record.efforts, "两档与三档各自独立往返");
++    assert_eq!(decoded, record);
++}
+diff --git a/crates/infra/store/src/query_test.rs b/crates/infra/store/src/query_test.rs
+index 5ed27b428e0b..8af77842a2a9 100644
+--- a/crates/infra/store/src/query_test.rs
++++ b/crates/infra/store/src/query_test.rs
+@@ -229,6 +229,7 @@ fn seed_providers(db: &Database<'static>, count: i64) {
+             context_length: None,
+             max_tokens: None,
+             web_search: false,
++            efforts: crate::AgentEffortTiers::default(),
+         })
+         .expect("落 provider 行");
+     }
+diff --git a/src/bindings/mod_test.rs b/src/bindings/mod_test.rs
+index 5077fa576f66..73434e07c86d 100644
+--- a/src/bindings/mod_test.rs
++++ b/src/bindings/mod_test.rs
+@@ -143,6 +143,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
+     "saveAgentInstance",
+     "deleteAgentInstance",
+     "setDefaultAgentInstance",
++    "listModelCatalog",
+     "agentStart",
+     "agentStop",
+     "agentAnswer",
+@@ -200,6 +201,7 @@ const COMMAND_NAMES: &[&str] = &[
+     "save_agent_instance",
+     "delete_agent_instance",
+     "set_default_agent_instance",
++    "list_model_catalog",
+     "agent_start",
+     "agent_stop",
+     "agent_answer",
+@@ -242,6 +244,7 @@ const DTO_TYPES: &[&str] = &[
+     "ActivePhase",
+     "ExecOutputChunk",
+     "AgentBlock",
++    "AgentEffortTiers",
+     "AgentEngineKind",
+     "AgentEvent",
+     "AgentEventKind",
+@@ -249,6 +252,7 @@ const DTO_TYPES: &[&str] = &[
+     "AgentModelTiers",
+     "AgentPermissionMode",
+     "AgentProviderRecord",
++    "AgentProviderTuning",
+     "AgentRunMessage",
+     "AgentRunStatus",
+     "SessionPage",
+@@ -263,6 +267,8 @@ const DTO_TYPES: &[&str] = &[
+     "ArtifactDescriptor",
+     "ArtifactEnvelope",
+     "AttemptRecord",
++    "CatalogModel",
++    "CatalogProtocol",
+     "ChangeDetail",
+     "ChangeList",
+     "ChangeSource",
+@@ -283,6 +289,7 @@ const DTO_TYPES: &[&str] = &[
+     "FileStat",
+     "FileWatchEvent",
+     "LanguageStats",
++    "ModelCatalog",
+     "ModelInfo",
+     "MutationConfig",
+     "PhaseEntry",
+@@ -1059,13 +1066,13 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保
+     // 其后补 agent_steer（50 → 51）；本变更再补两条契约面命令（51 → 53）
+     assert_eq!(
+         COMMAND_NAMES.len(),
+-        53,
+-        "命令清单本变更补录两条（archi_api_check / archi_api_generate，51 → 53）"
++        54,
++        "命令清单本变更补录一条（list_model_catalog，53 → 54）"
+     );
+     assert_eq!(
+         COMMAND_WRAPPERS.len(),
+-        53,
+-        "包装清单本变更补录两条（archiApiCheck / archiApiGenerate，51 → 53）"
++        54,
++        "包装清单本变更补录一条（listModelCatalog，53 → 54）"
+     );
+     assert!(
+         COMMAND_NAMES.contains(&"agent_steer"),
+@@ -1143,8 +1150,8 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保
+ fn dto类型清单零补录_条目数与首尾锚持衡() {
+     assert_eq!(
+         DTO_TYPES.len(),
+-        99,
+-        "退役五类型出清单（ArchiWarning / DocKind / DocRef / DocSource / WarningKind）：104 − 5"
++        104,
++        "清单 99 → 104：本变更补录五类型（AgentEffortTiers / AgentProviderTuning / ModelCatalog / CatalogProtocol / CatalogModel）"
+     );
+     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
+     assert_eq!(
+@@ -2027,18 +2034,18 @@ fn 登记面_架构页会话清单命令在册() {
+     );
+ }
+ 
+-/// 边界：命令总数 51 → 53（本变更新增两条契约面命令），两份清单条目数持衡
+-/// （漏登记或重复登记即红）。
++/// 边界：命令总数 51 → 54（本变更新增 `list_model_catalog` 一条），两份清单
++/// 条目数持衡（漏登记或重复登记即红）。
+ #[test]
+-fn 登记面_命令总数加二且两清单持衡() {
++fn 登记面_命令总数加三且两清单持衡() {
+     assert_eq!(
+         COMMAND_NAMES.len(),
+-        53,
+-        "本变更补录两条后的命令总数（51 → 53）"
++        54,
++        "累计补录三条后的命令总数（51 → 54）"
+     );
+     assert_eq!(
+         COMMAND_WRAPPERS.len(),
+-        53,
++        54,
+         "包装清单条目数与 invoke 清单持衡（一一对应）"
+     );
+ }
+@@ -2504,14 +2511,14 @@ fn 登记面_三新命令在两清单与生成物各在册() {
+     }
+ }
+ 
+-/// 正向：总数锚 51 → 53（本变更新增两条契约面命令，两份清单持衡、一一对应）；
+-/// 尾锚仍为 `read_file`（新条目插在 archi 组内，尾锚零位移）。
++/// 正向：总数锚 51 → 54（逐变更叠加，两份清单持衡、一一对应）；
++/// 尾锚仍为 `read_file`（`list_model_catalog` 插在 agents 组内，尾锚零位移）。
+ #[test]
+ fn 登记面_总数五十且尾锚零位移() {
+-    assert_eq!(COMMAND_NAMES.len(), 53, "命令清单总数 51 → 53");
++    assert_eq!(COMMAND_NAMES.len(), 54, "命令清单总数 51 → 54");
+     assert_eq!(
+         COMMAND_WRAPPERS.len(),
+-        53,
++        54,
+         "包装清单条目数与 invoke 清单持衡（一一对应）"
+     );
+     assert_eq!(
+@@ -3639,3 +3646,110 @@ fn 两新命令的zod三表形态() {
+         assert!(bindings.contains(&signature), "包装签名为 `{signature}`");
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// 目录命令的登记面与出线形参面（AC-7 注册面 / AC-13 出线契约）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 目录命令在登记面恰一次且包装同在册() {
++    let _lock = lock();
++
++    // 单一登记面（`all_commands!` 一行）：清单内不重不漏——invoke 名走
++    // snake_case、生成包装名走 camelCase，两份清单各查各自形态
++    let invoke_hits = COMMAND_NAMES
++        .iter()
++        .filter(|name| **name == "list_model_catalog")
++        .count();
++    assert_eq!(
++        invoke_hits, 1,
++        "命令名清单：list_model_catalog 恰一次，实际 {invoke_hits}"
++    );
++    let wrapper_hits = COMMAND_WRAPPERS
++        .iter()
++        .filter(|name| **name == "listModelCatalog")
++        .count();
++    assert_eq!(
++        wrapper_hits, 1,
++        "包装名清单：listModelCatalog 恰一次，实际 {wrapper_hits}"
++    );
++
++    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++    assert_eq!(
++        content.matches("\"list_model_catalog\"").count(),
++        1,
++        "产物内 invoke 目标恰一处（单一登记面，不重不漏）"
++    );
++}
++
++#[test]
++fn 目录与effort四类型在出线_dto清单() {
++    for name in [
++        "AgentEffortTiers",
++        "ModelCatalog",
++        "CatalogProtocol",
++        "CatalogModel",
++    ] {
++        assert!(
++            DTO_TYPES.contains(&name),
++            "出线 DTO 类型清单含 {name}（specta 按结构体名生成）"
++        );
++    }
++
++    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++    for signature in [
++        "export type AgentEffortTiers = {",
++        "export type ModelCatalog = {",
++        "export type CatalogProtocol = {",
++        "export type CatalogModel = {",
++    ] {
++        assert!(content.contains(signature), "产物含类型声明 `{signature}`");
++    }
++}
++
++#[test]
++fn save_agent_provider形参面末位为tuning组而目录命令零形参() {
++    let _lock = lock();
++    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++    let squashed = content.split_whitespace().collect::<Vec<_>>().join(" ");
++
++    // 八参签名：四项可空调参收成末位一个 `tuning` 组（参数位上限 DD15）
++    let save_signature = "saveAgentProvider: (id: number | null, name: string, protocol: \
++                          AgentProviderProtocol, baseUrl: string, apiKey: string, models: \
++                          AgentModelTiers, tuning: AgentProviderTuning) => \
++                          __TAURI_INVOKE<AgentProviderRecord>(\"save_agent_provider\", \
++                          { id, name, protocol, baseUrl, apiKey, models, tuning })";
++    let expected = save_signature
++        .split_whitespace()
++        .collect::<Vec<_>>()
++        .join(" ");
++    assert!(
++        squashed.contains(&expected),
++        "saveAgentProvider 形参面与 invoke 目标逐字（末位 tuning 组）"
++    );
++    assert!(
++        squashed.contains("efforts: AgentEffortTiers"),
++        "AgentProviderTuning 出线含 efforts 字段"
++    );
++    assert!(
++        squashed.contains("tuning: AgentProviderTuning"),
++        "tuning 组为首层唯一末位形参（不平铺四参）"
++    );
++
++    // 目录命令零形参：invoke 载荷恒空对象
++    let list_signature = "listModelCatalog: () => __TAURI_INVOKE<ModelCatalog>(\
++                          \"list_model_catalog\")";
++    let expected_list = list_signature
++        .split_whitespace()
++        .collect::<Vec<_>>()
++        .join(" ");
++    assert!(
++        squashed.contains(&expected_list),
++        "listModelCatalog 零形参（载荷 {}），实际产物: {}",
++        "…",
++        squashed
++            .find("listModelCatalog")
++            .map(|index| &squashed[index..index.min(squashed.len())])
++            .unwrap_or("")
++    );
++}
+diff --git a/src/commands/agents/mod.rs b/src/commands/agents/mod.rs
+index 4c4db8a64022..7c2a85690663 100644
+--- a/src/commands/agents/mod.rs
++++ b/src/commands/agents/mod.rs
+@@ -9,17 +9,36 @@
+ //! `.to_string()` 转 `Err(String)`，本类型不进命令签名）。错误约定沿全轨道
+ //! 模板：`Err` 由 Tauri 转为前端 reject，MUST NOT 静默吞掉失败。
+ 
+-use agent_runtime::{parse_model_spec, MIN_OUTPUT_TOKENS};
++use agent_runtime::{catalog, parse_model_spec, ModelCatalog, MIN_OUTPUT_TOKENS};
+ use tauri::State;
+ 
+ use store::{
+-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
++    AgentEffortTiers, AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+     AgentProviderRecord, WorkspaceStores,
+ };
+ 
+ #[cfg(test)]
+ mod mod_test;
+ 
++/// provider 可空调参组（**IPC 入参形态**，不是记录形态）：`context_length` /
++/// `max_tokens` / `web_search` / `efforts` 四项同属「门面旁路载荷」——连接
++/// 配置字段面之外的引擎可空参与开关，MUST NOT 进 `EngineConfig`。收一个参数
++/// 是因为 IPC 命令面的参数位有硬上限（specta `SpectaFn` 实现到 10 参、`State`
++/// 计入其一），四项拆开平铺会越界；把同一族的四项收成一组也顺带把「哪四项是
++/// 旁路载荷」写在签名上。
++#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize, specta::Type)]
++#[serde(rename_all = "camelCase")]
++pub struct AgentProviderTuning {
++    /// provider 上下文窗长（token 数；留空 = 未配置，不得 0 / 缺省字面）
++    pub context_length: Option<u64>,
++    /// provider 输出上限（token 数；留空 = 按上下文窗长分档，非空须 >= 4096）
++    pub max_tokens: Option<u64>,
++    /// 云端 `web_search` 开关（恒携；openai 协议下原样入库、生效门在解析期）
++    pub web_search: bool,
++    /// 两档思考强度（恒携；空串 = 留空 = 不发）
++    pub efforts: AgentEffortTiers,
++}
++
+ /// provider 清单（主键 id 升序）。
+ #[tauri::command]
+ #[specta::specta]
+@@ -35,7 +54,9 @@ pub fn list_agent_providers(
+ /// 保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）。
+ ///
+ /// 参数序：`protocol` 紧跟 `name`——协议决定 `base_url` 语义与 wire，属连接
+-/// 配置核心项，签名上显式；`web_search` 居末位（provider 属性，缺省关）。
++/// 配置核心项，签名上显式；`tuning` 居末位收四项旁路载荷（`context_length` /
++/// `max_tokens` / `web_search` / `efforts`——同属「可空调参」，MUST NOT 进
++/// `EngineConfig`；参数位上限见 [`AgentProviderTuning`]）。
+ ///
+ /// 保存期校验单点（避免「保存成功但跑不起来」）：三档模型名经引擎侧**同一**
+ /// `parse_model_spec`（`high → medium → low`，首个非法即 `Err`，不造第二套
+@@ -46,8 +67,13 @@ pub fn list_agent_providers(
+ /// `web_search` **不因协议拒收或清零**（openai 下同收原值）——生效门在运行
+ /// 发起解析期（`provider.web_search && protocol == Anthropic`），保存期纠偏
+ /// 会让「先开开关后改协议」与「先改协议后开开关」收敛到不同记录形态。
+-// 九参为 IPC 命令面定稿签名（design DD16 / DD17：协议紧跟 name，可空调参相邻），
+-// 拆结构体只增 IPC 载荷间接且与前端实参序脱耦——沿 `agent_start` 命令面先例。
++///
++/// `efforts` **只 `trim`**：两档各自裁剪两侧空白（空串 = 留空 = 不发），值域
++/// 零校验——自定义值必须能存（两 vendor 值域不是同一集合，目录成员与否不参与
++/// 判定）；也 MUST NOT 因协议拒收或清零（两协议都有 effort 语义，wire 形状由
++/// 引擎侧 shaping 吸收）。
++// 八参为 IPC 命令面定稿签名（design DD16 / DD17：协议紧跟 name，四项可空调参
++// 收成末位一个 `tuning` 组——参数位上限 10 含 `State`，平铺即越界）。
+ #[allow(clippy::too_many_arguments)]
+ #[tauri::command]
+ #[specta::specta]
+@@ -59,9 +85,7 @@ pub fn save_agent_provider(
+     base_url: String,
+     api_key: String,
+     models: AgentModelTiers,
+-    context_length: Option<u64>,
+-    max_tokens: Option<u64>,
+-    web_search: bool,
++    tuning: AgentProviderTuning,
+ ) -> Result<AgentProviderRecord, String> {
+     for (tier, raw) in [
+         ("high", &models.high),
+@@ -70,21 +94,31 @@ pub fn save_agent_provider(
+     ] {
+         parse_model_spec(raw).map_err(|error| format!("models.{tier} 档{error}"))?;
+     }
+-    if let Some(tokens) = max_tokens.filter(|tokens| *tokens < MIN_OUTPUT_TOKENS) {
++    if let Some(tokens) = tuning
++        .max_tokens
++        .filter(|tokens| *tokens < MIN_OUTPUT_TOKENS)
++    {
+         return Err(format!(
+             "max_tokens 过小: {tokens}（输出上限下限 {MIN_OUTPUT_TOKENS}）"
+         ));
+     }
++    // 两档各自裁剪两侧空白（空串 = 留空 = 不发）：值域零校验——自定义值必须
++    // 能存，目录成员与否不参与判定（两 vendor 值域不是同一集合）
++    let efforts = AgentEffortTiers {
++        high: tuning.efforts.high.trim().to_owned(),
++        low: tuning.efforts.low.trim().to_owned(),
++    };
+     let mut record = AgentProviderRecord::new(
+         name,
+         protocol,
+         base_url,
+         api_key,
+         models,
+-        context_length,
+-        max_tokens,
++        tuning.context_length,
++        tuning.max_tokens,
+     )
+-    .with_web_search(web_search);
++    .with_web_search(tuning.web_search)
++    .with_efforts(efforts);
+     record.id = id.unwrap_or(0);
+     if record.id != 0 && record.api_key.is_empty() {
+         // 留空 key 回填原值：读存量记录（miss 由 upsert 的行存在校验统一报错）
+@@ -111,6 +145,16 @@ pub fn delete_agent_provider(stores: State<'_, WorkspaceStores>, id: i64) -> Res
+         .map_err(|e| e.to_string())
+ }
+ 
++/// 模型目录（静态建议表）：零参数、零 IO、零状态薄包装（`Result` 仅为与同轨
++/// 模板一致，恒 `Ok`）。目录**不参与保存期校验、不参与运行期解析**——它只为
++/// 「这家协议有哪些常用模型 / 可填哪些 effort 建议值」提供参考面，漂移代价
++/// 上限是「建议不准」。
++#[tauri::command]
++#[specta::specta]
++pub fn list_model_catalog() -> Result<ModelCatalog, String> {
++    Ok(catalog())
++}
++
+ /// agent 实例清单（主键 id 升序）。
+ #[tauri::command]
+ #[specta::specta]
+diff --git a/src/commands/agents/mod_test.rs b/src/commands/agents/mod_test.rs
+index 14801a239f7a..1f8559541e91 100644
+--- a/src/commands/agents/mod_test.rs
++++ b/src/commands/agents/mod_test.rs
+@@ -12,13 +12,13 @@
+ use tauri::{App, Manager};
+ 
+ use store::{
+-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
++    AgentEffortTiers, AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+     AgentProviderRecord, WorkspaceStores, CLI_TENANT_RETIRED,
+ };
+ 
+ use super::{
+     delete_agent_instance, delete_agent_provider, list_agent_instances, list_agent_providers,
+-    save_agent_instance, save_agent_provider, set_default_agent_instance,
++    save_agent_instance, save_agent_provider, set_default_agent_instance, AgentProviderTuning,
+ };
+ 
+ // ---------------------------------------------------------------------------
+@@ -81,9 +81,12 @@ fn save_new_provider(
+         "https://api.example.com/v1".to_owned(),
+         api_key.to_owned(),
+         fixture_tiers(),
+-        None,
+-        None,
+-        false,
++        AgentProviderTuning {
++            context_length: None,
++            max_tokens: None,
++            web_search: false,
++            efforts: AgentEffortTiers::default(),
++        },
+     )
+ }
+ 
+@@ -102,9 +105,12 @@ fn save_provider_with_key(
+         "https://api.example.com/v1".to_owned(),
+         api_key.to_owned(),
+         fixture_tiers(),
+-        None,
+-        None,
+-        false,
++        AgentProviderTuning {
++            context_length: None,
++            max_tokens: None,
++            web_search: false,
++            efforts: AgentEffortTiers::default(),
++        },
+     )
+ }
+ 
+@@ -250,9 +256,12 @@ fn provider命令_重名保存err清单不变_更新miss_id_err_name空白err()
+         "https://api.example.com/v1".to_owned(),
+         "sk-live-1234567890".to_owned(),
+         fixture_tiers(),
+-        None,
+-        None,
+-        false,
++        AgentProviderTuning {
++            context_length: None,
++            max_tokens: None,
++            web_search: false,
++            efforts: AgentEffortTiers::default(),
++        },
+     );
+     assert!(blank.is_err(), "name 空白应 Err");
+ }
+@@ -693,9 +702,12 @@ fn save携context_length落库且重开一致() {
+             "https://api.example.com/v1".to_owned(),
+             "sk-live-1234567890".to_owned(),
+             fixture_tiers(),
+-            Some(200_000),
+-            None,
+-            false,
++            AgentProviderTuning {
++                context_length: Some(200_000),
++                max_tokens: None,
++                web_search: false,
++                efforts: AgentEffortTiers::default(),
++            },
+         )
+         .expect("新建应成功");
+         assert_eq!(created.context_length, Some(200_000), "命令面平参落记录");
+@@ -750,9 +762,12 @@ fn save编辑态context_length双向翻转按入参落库() {
+         "https://api.example.com/v1".to_owned(),
+         "".to_owned(),
+         fixture_tiers(),
+-        Some(131_072),
+-        None,
+-        false,
++        AgentProviderTuning {
++            context_length: Some(131_072),
++            max_tokens: None,
++            web_search: false,
++            efforts: AgentEffortTiers::default(),
++        },
+     )
+     .expect("补窗长编辑应成功");
+     assert_eq!(
+@@ -770,9 +785,12 @@ fn save编辑态context_length双向翻转按入参落库() {
+         "https://api.example.com/v1".to_owned(),
+         "".to_owned(),
+         fixture_tiers(),
+-        None,
+-        None,
+-        false,
++        AgentProviderTuning {
++            context_length: None,
++            max_tokens: None,
++            web_search: false,
++            efforts: AgentEffortTiers::default(),
++        },
+     )
+     .expect("清窗长编辑应成功");
+     assert_eq!(
+@@ -797,9 +815,12 @@ fn save_api_key回填与新context_length参正交() {
+         "https://api.example.com/v1".to_owned(),
+         "".to_owned(),
+         fixture_tiers(),
+-        Some(200_000),
+-        None,
+-        false,
++        AgentProviderTuning {
++            context_length: Some(200_000),
++            max_tokens: None,
++            web_search: false,
++            efforts: AgentEffortTiers::default(),
++        },
+     )
+     .expect("编辑应成功");
+ 
+@@ -875,9 +896,12 @@ fn save_full(
+             medium: medium.to_owned(),
+             low: low.to_owned(),
+         },
+-        context_length,
+-        max_tokens,
+-        false,
++        AgentProviderTuning {
++            context_length,
++            max_tokens,
++            web_search: false,
++            efforts: AgentEffortTiers::default(),
++        },
+     )
+ }
+ 
+@@ -1473,9 +1497,12 @@ fn save_with_switch(
+         "https://api.example.com/v1".to_owned(),
+         api_key.to_owned(),
+         fixture_tiers(),
+-        None,
+-        None,
+-        web_search,
++        AgentProviderTuning {
++            context_length: None,
++            max_tokens: None,
++            web_search,
++            efforts: AgentEffortTiers::default(),
++        },
+     )
+ }
+ 
+@@ -1665,9 +1692,12 @@ fn 第九参与既有失败面正交_四种err形态文案与开关取值无关(
+                 medium: "m-medium".to_owned(),
+                 low: "m-low".to_owned(),
+             },
+-            None,
+-            None,
+-            web_search,
++            AgentProviderTuning {
++                context_length: None,
++                max_tokens: None,
++                web_search,
++                efforts: AgentEffortTiers::default(),
++            },
+         ));
+         // 3) max_tokens 低于下限
+         let low_tokens = err_of(save_agent_provider(
+@@ -1678,9 +1708,12 @@ fn 第九参与既有失败面正交_四种err形态文案与开关取值无关(
+             "https://api.example.com/v1".to_owned(),
+             "sk-ant-1234567890".to_owned(),
+             fixture_tiers(),
+-            None,
+-            Some(4_095),
+-            web_search,
++            AgentProviderTuning {
++                context_length: None,
++                max_tokens: Some(4_095),
++                web_search,
++                efforts: AgentEffortTiers::default(),
++            },
+         ));
+         // 4) 重名 provider（先落一行，再以同名新建）
+         save_with_switch(
+@@ -1722,3 +1755,507 @@ fn 第九参与既有失败面正交_四种err形态文案与开关取值无关(
+         );
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// `save_agent_provider` 的 efforts 半面（AC-3）：两档各自 `trim()`、空串 =
++// 留空、零值域校验、零协议门控；既有校验与错误面逐字保留。
++// ---------------------------------------------------------------------------
++
++/// 两档 effort fixture。
++fn efforts_of(high: &str, low: &str) -> AgentEffortTiers {
++    AgentEffortTiers {
++        high: high.to_owned(),
++        low: low.to_owned(),
++    }
++}
++
++/// 携两档 effort 的保存直调（其余面同 `save_with_switch` 底座：固定
++/// base_url / api_key / 三档模型 / 两空可空列）。
++fn save_with_efforts(
++    state: &tauri::State<'_, WorkspaceStores>,
++    id: Option<i64>,
++    name: &str,
++    protocol: AgentProviderProtocol,
++    efforts: AgentEffortTiers,
++    web_search: bool,
++) -> Result<AgentProviderRecord, String> {
++    save_agent_provider(
++        state.clone(),
++        id,
++        name.to_owned(),
++        protocol,
++        "https://api.example.com/v1".to_owned(),
++        "sk-ant-1234567890".to_owned(),
++        fixture_tiers(),
++        AgentProviderTuning {
++            context_length: None,
++            max_tokens: None,
++            web_search,
++            efforts,
++        },
++    )
++}
++
++#[test]
++fn save_efforts两档各自trim且目录外取值零拒收() {
++    let env = Env::new("efforts-trim");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    let saved = save_with_efforts(
++        &state,
++        None,
++        "裁剪端点",
++        AgentProviderProtocol::Openai,
++        efforts_of("  low  ", "ultra-thinking"),
++        false,
++    )
++    .expect("目录外取值必须可存（零值域校验）");
++
++    assert_eq!(saved.efforts.high, "low", "两侧空白裁剪后入库");
++    assert_eq!(
++        saved.efforts.low, "ultra-thinking",
++        "目录外自定义值原样入库（不拒收、不清零）"
++    );
++
++    let listed = list_agent_providers(state.clone()).expect("list 应成功");
++    assert_eq!(
++        listed[0].efforts,
++        efforts_of("low", "ultra-thinking"),
++        "回读逐字段一致"
++    );
++}
++
++#[test]
++fn save_efforts两档纯空白回读空串即留空() {
++    for (high, low) in [("   ", "\t"), ("\n", "  ")] {
++        let env = Env::new("efforts-blank");
++        let app = app_with_stores(&env);
++        let state = app.state::<WorkspaceStores>();
++
++        let saved = save_with_efforts(
++            &state,
++            None,
++            "空白端点",
++            AgentProviderProtocol::Anthropic,
++            efforts_of(high, low),
++            false,
++        )
++        .expect("纯空白保存应成功（= 留空）");
++
++        assert_eq!(
++            saved.efforts,
++            AgentEffortTiers::default(),
++            "纯空白 → 两档空串"
++        );
++        assert_eq!(saved.efforts.high, "", "不落 \"high\" 之类缺省字面");
++        assert_eq!(saved.efforts.low, "");
++    }
++}
++
++#[test]
++fn save_efforts缺省两档与显式留空逐字段等价() {
++    let env = Env::new("efforts-default");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    let default_tiers =
++        save_new_provider(&state, "缺省端点", "sk-live-1234567890").expect("保存应成功");
++    assert_eq!(
++        default_tiers.efforts,
++        AgentEffortTiers::default(),
++        "既有调用点（default）落两档空串"
++    );
++
++    let explicit = save_with_efforts(
++        &state,
++        None,
++        "显式留空端点",
++        AgentProviderProtocol::Openai,
++        AgentEffortTiers::default(),
++        false,
++    )
++    .expect("保存应成功");
++    assert_eq!(
++        explicit.efforts, default_tiers.efforts,
++        "「显式留空」与「既有缺省」形态等价"
++    );
++}
++
++#[test]
++fn save_efforts两协议非空均原样入库零门控() {
++    for protocol in [
++        AgentProviderProtocol::Openai,
++        AgentProviderProtocol::Anthropic,
++    ] {
++        let env = Env::new("efforts-protocol");
++        let app = app_with_stores(&env);
++        let state = app.state::<WorkspaceStores>();
++
++        let saved = save_with_efforts(
++            &state,
++            None,
++            "协议端点",
++            protocol,
++            efforts_of("max", "low"),
++            false,
++        )
++        .expect("保存应成功");
++
++        assert_eq!(
++            saved.efforts,
++            efforts_of("max", "low"),
++            "{protocol:?}：零协议门控、零静默清零"
++        );
++    }
++}
++
++#[test]
++fn save_efforts目录外自定义值可存可回读且重开库一致() {
++    let env = Env::new("efforts-custom");
++    let snapshot;
++    {
++        let app = app_with_stores(&env);
++        let state = app.state::<WorkspaceStores>();
++
++        for (index, value) in ["ultra-thinking", "none", "MAX"].iter().enumerate() {
++            save_with_efforts(
++                &state,
++                None,
++                &format!("自定义端点-{index}"),
++                AgentProviderProtocol::Openai,
++                efforts_of(value, ""),
++                false,
++            )
++            .expect("不在任何建议清单里的值必须可存");
++        }
++        snapshot = list_agent_providers(state.clone()).expect("list 应成功");
++        #[allow(deprecated)]
++        let _stores = app.unmanage::<WorkspaceStores>().expect("应处于托管中");
++    }
++
++    let values: Vec<String> = snapshot
++        .iter()
++        .map(|row| row.efforts.high.clone())
++        .collect();
++    assert_eq!(
++        values,
++        vec![
++            "ultra-thinking".to_owned(),
++            "none".to_owned(),
++            "MAX".to_owned()
++        ],
++        "三项目录外取值原样回读（零值域校验）"
++    );
++
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++    assert_eq!(
++        list_agent_providers(state.clone()).expect("重开 list 应成功"),
++        snapshot,
++        "重开库后 efforts 持久化一致"
++    );
++}
++
++#[test]
++fn save_efforts超长emoji与内部换行原样入库只裁两侧() {
++    let env = Env::new("efforts-special");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++    let long = "e".repeat(1_200);
++
++    for (index, value) in [long.as_str(), "thinking 🎉", "a\nb"].iter().enumerate() {
++        let saved = save_with_efforts(
++            &state,
++            None,
++            &format!("特殊端点-{index}"),
++            AgentProviderProtocol::Openai,
++            efforts_of(value, "  low  "),
++            false,
++        )
++        .expect("保存应成功");
++
++        assert_eq!(
++            saved.efforts.high, *value,
++            "超长 / emoji / 内部换行原样入库"
++        );
++        assert_eq!(saved.efforts.low, "low", "另一档各自裁剪");
++    }
++}
++
++#[test]
++fn save_efforts_id存在时按入参替换不粘滞() {
++    let env = Env::new("efforts-update");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    let created = save_with_efforts(
++        &state,
++        None,
++        "更新端点",
++        AgentProviderProtocol::Openai,
++        efforts_of("max", "low"),
++        false,
++    )
++    .expect("新建应成功");
++
++    let replaced = save_with_efforts(
++        &state,
++        Some(created.id),
++        "更新端点",
++        AgentProviderProtocol::Openai,
++        efforts_of("high", ""),
++        false,
++    )
++    .expect("编辑应成功");
++    assert_eq!(
++        replaced.efforts,
++        efforts_of("high", ""),
++        "按入参整行替换（不累积、不粘滞）"
++    );
++
++    let cleared = save_with_efforts(
++        &state,
++        Some(created.id),
++        "更新端点",
++        AgentProviderProtocol::Openai,
++        AgentEffortTiers::default(),
++        false,
++    )
++    .expect("清空应成功");
++    assert_eq!(
++        cleared.efforts,
++        AgentEffortTiers::default(),
++        "清空即留空（可回未配置）"
++    );
++    assert_eq!(
++        list_agent_providers(state.clone())
++            .expect("list 应成功")
++            .len(),
++        1,
++        "upsert 语义：行数不增"
++    );
++}
++
++#[test]
++fn save_efforts非空不改变既有校验面且错误串不含api_key明文() {
++    let env = Env::new("efforts-error");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++    let secret = "sk-ant-secret-1234567890";
++
++    // 1) 非法模型名后缀
++    let bad_suffix = err_of(save_agent_provider(
++        state.clone(),
++        None,
++        "后缀端点".to_owned(),
++        AgentProviderProtocol::Anthropic,
++        "https://api.example.com/v1".to_owned(),
++        secret.to_owned(),
++        AgentModelTiers {
++            high: "m-high[2m]".to_owned(),
++            medium: "m-medium".to_owned(),
++            low: "m-low".to_owned(),
++        },
++        AgentProviderTuning {
++            context_length: None,
++            max_tokens: None,
++            web_search: false,
++            efforts: efforts_of("max", "low"),
++        },
++    ));
++    // 2) 上限低于下限
++    let low_tokens = err_of(save_agent_provider(
++        state.clone(),
++        None,
++        "下限端点".to_owned(),
++        AgentProviderProtocol::Anthropic,
++        "https://api.example.com/v1".to_owned(),
++        secret.to_owned(),
++        fixture_tiers(),
++        AgentProviderTuning {
++            context_length: None,
++            max_tokens: Some(4_095),
++            web_search: false,
++            efforts: efforts_of("max", "low"),
++        },
++    ));
++
++    assert!(
++        bad_suffix.contains("m-high[2m]"),
++        "非法后缀按档报错逐字保留，实际: {bad_suffix}"
++    );
++    assert!(
++        low_tokens.contains("4095") && low_tokens.contains("4096"),
++        "上限下限错误串逐字保留，实际: {low_tokens}"
++    );
++    for message in [&bad_suffix, &low_tokens] {
++        assert!(
++            !message.contains(secret),
++            "错误串结构上不含 api_key 明文，实际: {message}"
++        );
++        assert!(
++            !message.contains("effort"),
++            "efforts 不参与任何校验，不进错误串，实际: {message}"
++        );
++    }
++    assert!(
++        list_agent_providers(state.clone())
++            .expect("list 应成功")
++            .is_empty(),
++        "两次拒收均零落库"
++    );
++}
++
++#[test]
++fn save_留空api_key回填与efforts正交() {
++    let env = Env::new("efforts-key-orthogonal");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    let created = save_with_efforts(
++        &state,
++        None,
++        "正交端点",
++        AgentProviderProtocol::Anthropic,
++        efforts_of("max", "low"),
++        false,
++    )
++    .expect("新建应成功");
++
++    let refilled = save_agent_provider(
++        state.clone(),
++        Some(created.id),
++        "正交端点".to_owned(),
++        AgentProviderProtocol::Anthropic,
++        "https://api.example.com/v1".to_owned(),
++        String::new(),
++        fixture_tiers(),
++        AgentProviderTuning {
++            context_length: None,
++            max_tokens: None,
++            web_search: false,
++            efforts: efforts_of("high", ""),
++        },
++    )
++    .expect("编辑应成功");
++
++    assert_eq!(
++        refilled.api_key, "sk-ant-1234567890",
++        "留空 key 回填原值（既有语义不变）"
++    );
++    assert_eq!(
++        refilled.efforts,
++        efforts_of("high", ""),
++        "回填与 efforts 两列正交"
++    );
++}
++
++#[test]
++fn save_web_search与efforts双向取值不串位() {
++    for (web_search, efforts) in [
++        (true, AgentEffortTiers::default()),
++        (false, efforts_of("max", "low")),
++    ] {
++        let env = Env::new("efforts-position");
++        let app = app_with_stores(&env);
++        let state = app.state::<WorkspaceStores>();
++
++        // 八形参逐位对齐：协议 / 可空列 / 开关 / efforts 各自落位（不串位）
++        let saved = save_with_efforts(
++            &state,
++            None,
++            "位置端点",
++            AgentProviderProtocol::Anthropic,
++            efforts.clone(),
++            web_search,
++        )
++        .expect("保存应成功");
++
++        assert_eq!(saved.web_search, web_search, "开关位落位");
++        assert_eq!(saved.efforts, efforts, "efforts 位落位");
++        assert_eq!(
++            saved.protocol,
++            AgentProviderProtocol::Anthropic,
++            "协议位落位"
++        );
++        assert_eq!(
++            saved.base_url, "https://api.example.com/v1",
++            "base_url 位落位"
++        );
++        assert_eq!(saved.models, fixture_tiers(), "三档模型位落位");
++    }
++}
++
++#[test]
++fn list_model_catalog零参数直调返回两协议非空目录() {
++    let catalog = super::list_model_catalog().expect("薄包装恒 Ok");
++
++    assert!(!catalog.protocols.is_empty(), "目录 protocols 非空");
++    let protocols: Vec<AgentProviderProtocol> = catalog
++        .protocols
++        .iter()
++        .map(|entry| entry.protocol)
++        .collect();
++    for expected in [
++        AgentProviderProtocol::Openai,
++        AgentProviderProtocol::Anthropic,
++    ] {
++        assert!(
++            protocols.contains(&expected),
++            "协议段 {expected:?} 应在场，实际: {protocols:?}"
++        );
++    }
++    for entry in &catalog.protocols {
++        assert!(!entry.models.is_empty(), "{:?} 段模型非空", entry.protocol);
++        assert!(
++            !entry.efforts.is_empty(),
++            "{:?} 段 effort 建议非空",
++            entry.protocol
++        );
++    }
++}
++
++#[test]
++fn list_model_catalog与运行时catalog逐字段相等且无加工() {
++    let from_command = super::list_model_catalog().expect("薄包装恒 Ok");
++    let from_runtime = agent_runtime::catalog();
++
++    assert_eq!(
++        from_command, from_runtime,
++        "命令体零加工（直接返回 catalog()，无过滤 / 无排序 / 无缓存）"
++    );
++
++    let again = super::list_model_catalog().expect("第二次调用应成功");
++    assert_eq!(
++        again, from_command,
++        "连续两次调用结果相等（零 IO、无缓存态）"
++    );
++}
++
++#[test]
++fn list_agent_providers带出efforts两态_清单语义零改动() {
++    for efforts in [AgentEffortTiers::default(), efforts_of("max", "low")] {
++        let env = Env::new("efforts-list");
++        let app = app_with_stores(&env);
++        let state = app.state::<WorkspaceStores>();
++
++        let saved = save_with_efforts(
++            &state,
++            None,
++            "清单端点",
++            AgentProviderProtocol::Openai,
++            efforts.clone(),
++            false,
++        )
++        .expect("保存应成功");
++
++        let listed = list_agent_providers(state.clone()).expect("list 应成功");
++        assert_eq!(listed.len(), 1, "清单行数不变（删除 / 查询语义零改动）");
++        assert_eq!(listed[0], saved, "清单记录与新列逐字段一致");
++        assert_eq!(
++            listed[0].efforts, efforts,
++            "efforts={efforts:?} 随记录出线（空 / 非空两态均可辨）"
++        );
++    }
++}
+diff --git a/src/commands/mod.rs b/src/commands/mod.rs
+index b53f943dab6b..7a2cb6cec06a 100644
+--- a/src/commands/mod.rs
++++ b/src/commands/mod.rs
+@@ -47,6 +47,7 @@ macro_rules! all_commands {
+             $crate::commands::agents::save_agent_instance,
+             $crate::commands::agents::delete_agent_instance,
+             $crate::commands::agents::set_default_agent_instance,
++            $crate::commands::agents::list_model_catalog,
+             $crate::commands::exec::agent_start,
+             $crate::commands::exec::agent_stop,
+             $crate::commands::exec::agent_answer,

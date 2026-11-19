@@ -6,11 +6,11 @@ use native_model::native_model;
 use workflow::model::{ChecklistItem, Verdict};
 
 use crate::model::{
-    pack_checklist_item_key, pack_session_event_key, AgentEngineKind, AgentInstanceRecord,
-    AgentModelTiers, AgentProviderProtocol, AgentProviderRecord, AgentProviderRecordV1,
-    AgentProviderRecordV2, AgentProviderRecordV3, AgentRunRecord, AgentRunRecordV3,
-    ChecklistItemRecord, PhaseRecord, SessionConfigSnapshot, SessionEventRecord, SessionRecord,
-    WorkspaceRecord,
+    pack_checklist_item_key, pack_session_event_key, AgentEffortTiers, AgentEngineKind,
+    AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol, AgentProviderRecord,
+    AgentProviderRecordV1, AgentProviderRecordV2, AgentProviderRecordV3, AgentProviderRecordV4,
+    AgentRunRecord, AgentRunRecordV3, ChecklistItemRecord, PhaseRecord, SessionConfigSnapshot,
+    SessionEventRecord, SessionRecord, WorkspaceRecord,
 };
 use crate::store::Store;
 
@@ -688,8 +688,8 @@ fn provider_roundtrip(record: &AgentProviderRecord) -> AgentProviderRecord {
     let (decoded, version) =
         native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
     assert_eq!(
-        version, 4,
-        "native_model 版本封装为 version 4（web_search 列演进落位）"
+        version, 5,
+        "native_model 版本封装为 version 5（efforts sibling 列演进落位）"
     );
     decoded
 }
@@ -736,8 +736,8 @@ fn provider记录编解码版本断言2() {
     let (_decoded, version) =
         native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
     assert_eq!(
-        version, 4,
-        "native_model 版本封装为 version 4（web_search 列）"
+        version, 5,
+        "native_model 版本封装为 version 5（efforts 列）"
     );
 }
 
@@ -790,8 +790,8 @@ fn v1_from双向upgrade补none与downgrade丢新字段无损() {
     };
     // 逐级链：v1 → v2（补 context_length）→ v3（补 protocol / max_tokens）→ v4
     // （补 web_search），无跳级 `From`（`ExploreRecord` V1 → V4 先例）
-    let upgraded = AgentProviderRecord::from(AgentProviderRecordV3::from(
-        AgentProviderRecordV2::from(legacy.clone()),
+    let upgraded = AgentProviderRecord::from(AgentProviderRecordV4::from(
+        AgentProviderRecordV3::from(AgentProviderRecordV2::from(legacy.clone())),
     ));
     assert_eq!(
         upgraded.context_length, None,
@@ -817,7 +817,7 @@ fn v1_from双向upgrade补none与downgrade丢新字段无损() {
     // 逆序逐级链：v4 → v3（丢 web_search）→ v2（丢 protocol / max_tokens）→ v1
     // （丢 context_length）
     let downgraded = AgentProviderRecordV1::from(AgentProviderRecordV2::from(
-        AgentProviderRecordV3::from(record),
+        AgentProviderRecordV3::from(AgentProviderRecordV4::from(record)),
     ));
     assert_eq!(downgraded, legacy, "降级还原五字段原形（新字段丢弃无损）");
 }
@@ -3558,8 +3558,8 @@ fn provider_v1载荷经两级链升级读入且新列全缺省() {
     let bytes = native_model::encode(&v1).expect("encode v1 应成功");
 
     // v1 → v2 → v3 → v4 逐级链（无跳级 From impl）
-    let via_steps = AgentProviderRecord::from(AgentProviderRecordV3::from(
-        AgentProviderRecordV2::from(v1.clone()),
+    let via_steps = AgentProviderRecord::from(AgentProviderRecordV4::from(
+        AgentProviderRecordV3::from(AgentProviderRecordV2::from(v1.clone())),
     ));
     let (via_decode, version) =
         native_model::decode::<AgentProviderRecord>(bytes).expect("v1 载荷应逐级升级");
@@ -3592,7 +3592,9 @@ fn provider_v2直达升级与降级半边逐字段对位() {
     assert_eq!(v2.context_length, None, "V1→V2 补 context_length = None");
 
     // V2 → V3：补 protocol = Openai 与 max_tokens = None
-    let v3 = AgentProviderRecord::from(AgentProviderRecordV3::from(v2.clone()));
+    let v3 = AgentProviderRecord::from(AgentProviderRecordV4::from(AgentProviderRecordV3::from(
+        v2.clone(),
+    )));
     assert_eq!(v3.protocol, AgentProviderProtocol::Openai, "V2→V3 补协议");
     assert_eq!(v3.max_tokens, None, "V2→V3 补上限");
     assert_eq!(v3.context_length, v2.context_length);
@@ -3601,7 +3603,9 @@ fn provider_v2直达升级与降级半边逐字段对位() {
     let mut record = v3.clone();
     record.protocol = AgentProviderProtocol::Anthropic;
     record.max_tokens = Some(8192);
-    let downgraded_v2 = AgentProviderRecordV2::from(AgentProviderRecordV3::from(record.clone()));
+    let downgraded_v2 = AgentProviderRecordV2::from(AgentProviderRecordV3::from(
+        AgentProviderRecordV4::from(record.clone()),
+    ));
     assert_eq!(
         downgraded_v2, v2,
         "V3→V2 丢两新列后与升级源等值（其余保真）"
@@ -3616,7 +3620,7 @@ fn provider_v2直达升级与降级半边逐字段对位() {
 }
 
 #[test]
-fn provider版本头四层逐字为4与3与2与1() {
+fn provider版本头五层逐字为5与4与3与2与1() {
     let record = AgentProviderRecord::new(
         "版本头".to_owned(),
         AgentProviderProtocol::Anthropic,
@@ -3629,8 +3633,26 @@ fn provider版本头四层逐字为4与3与2与1() {
     let (_, version) = native_model::decode::<AgentProviderRecord>(
         native_model::encode(&record).expect("encode v4"),
     )
+    .expect("decode v5");
+    assert_eq!(version, 5, "当前形态版本头 5（efforts 列演进落位）");
+
+    // v4 中转形态版本头 4（efforts 缺列，仅升级链解码目标）
+    let v4 = AgentProviderRecordV4 {
+        id: 1,
+        name: "v4".to_owned(),
+        protocol: AgentProviderProtocol::Anthropic,
+        base_url: "u".to_owned(),
+        api_key: "k".to_owned(),
+        models: tiers("h", "m", "l"),
+        context_length: None,
+        max_tokens: Some(8192),
+        web_search: false,
+    };
+    let (_, version) = native_model::decode::<AgentProviderRecordV4>(
+        native_model::encode(&v4).expect("encode v4"),
+    )
     .expect("decode v4");
-    assert_eq!(version, 4, "当前形态版本头 4（web_search 列演进落位）");
+    assert_eq!(version, 4, "v4 中转形态版本头 4（v3 → v4 升级链中段）");
 
     // v3 中转形态版本头 3（web_search 缺列，仅升级链解码目标）
     let v3 = AgentProviderRecordV3 {
@@ -3715,8 +3737,8 @@ fn agent_provider_protocol变体序号锚_openai恰0_anthropic恰1字节级() {
 }
 
 #[test]
-fn provider模型组注册_当前形态id5版本4且中转形态不入库模型组() {
-    // 注册锚：当前形态 id 5 / version 4（`web_search` 列演进落位）；三条中转
+fn provider模型组注册_当前形态id5版本5且中转形态不入库模型组() {
+    // 注册锚：当前形态 id 5 / version 5（`efforts` 列演进落位）；四条中转
     // 形态同 id 不同版本，仅作升级链解码目标（无 `#[native_db]` 派生 → 结构上
     // 不可注册进库模型组）
     assert_eq!(
@@ -3725,10 +3747,20 @@ fn provider模型组注册_当前形态id5版本4且中转形态不入库模型�
     );
     assert_eq!(
         <AgentProviderRecord as native_model::Model>::native_model_version(),
-        4,
-        "当前形态版本头逐字 4（v3 → v4 升级链顶，web_search 列在此落位）"
+        5,
+        "当前形态版本头逐字 5（v4 → v5 升级链顶，efforts 列在此落位）"
     );
-    // 升级链逐级锚：v1 = 1 → v2 = 2 → v3 = 3 → v4 = 4（同 id、无跳级）
+    // 升级链逐级锚：v1 = 1 → v2 = 2 → v3 = 3 → v4 = 4 → v5 = 5（同 id、无跳级）
+    assert_eq!(
+        <AgentProviderRecordV4 as native_model::Model>::native_model_version(),
+        4,
+        "v4 中转形态版本头逐字 4（efforts 缺列）"
+    );
+    assert_eq!(
+        <AgentProviderRecordV4 as native_model::Model>::native_model_id(),
+        5,
+        "v4 中转形态与当前形态同 id"
+    );
     assert_eq!(
         <AgentProviderRecordV3 as native_model::Model>::native_model_version(),
         3,
@@ -4143,8 +4175,8 @@ fn v1到v2到v3到v4三级链升级对齐_web_search关且协议缺省openai() {
     assert_eq!(upgraded.models, legacy.models);
 
     // 逐级链 From 与版本机制同口径（无跳级 From）
-    let by_chain = AgentProviderRecord::from(AgentProviderRecordV3::from(
-        AgentProviderRecordV2::from(legacy.clone()),
+    let by_chain = AgentProviderRecord::from(AgentProviderRecordV4::from(
+        AgentProviderRecordV3::from(AgentProviderRecordV2::from(legacy.clone())),
     ));
     assert_eq!(by_chain, upgraded, "逐级链与版本机制产出逐字段一致");
 }
@@ -4152,7 +4184,7 @@ fn v1到v2到v3到v4三级链升级对齐_web_search关且协议缺省openai() {
 #[test]
 fn 降级半边_v4到v3丢web_search其余保真且降级产物不作数据承诺() {
     let record = provider_with_switch(true);
-    let v3 = AgentProviderRecordV3::from(record.clone());
+    let v3 = AgentProviderRecordV3::from(AgentProviderRecordV4::from(record.clone()));
 
     assert_eq!(v3.id, record.id);
     assert_eq!(v3.name, record.name);
@@ -4164,14 +4196,14 @@ fn 降级半边_v4到v3丢web_search其余保真且降级产物不作数据承�
     assert_eq!(v3.max_tokens, record.max_tokens);
 
     // 降级再升级回来：新字段归缺省（可逆性不成立）
-    let roundtripped = AgentProviderRecord::from(AgentProviderRecordV3::from(
-        AgentProviderRecordV2::from(AgentProviderRecordV1 {
+    let roundtripped = AgentProviderRecord::from(AgentProviderRecordV4::from(
+        AgentProviderRecordV3::from(AgentProviderRecordV2::from(AgentProviderRecordV1 {
             id: record.id,
             name: record.name.clone(),
             base_url: record.base_url.clone(),
             api_key: record.api_key.clone(),
             models: record.models.clone(),
-        }),
+        })),
     ));
     assert!(
         !roundtripped.web_search,
@@ -5138,4 +5170,404 @@ fn agent_run_record_interrupted线格式与孤儿轮行组合往返() {
     );
     let back: AgentRunRecord = serde_json::from_value(value).expect("反序列化成功");
     assert_eq!(back, orphan, "孤儿行 + interrupted 往返逐字段相等");
+}
+
+// ---------------------------------------------------------------------------
+// provider 记录 v5：`efforts` sibling 列（AC-1 存储演进一条链 / AC-2 构造器面
+// 不动）。全内存构造：`native_model::{encode,decode}` 与 `serde_json` 不触 db
+// 文件，v4 载荷由真实 `AgentProviderRecordV4` 结构体编码产出（不手搓字节）。
+// ---------------------------------------------------------------------------
+
+/// 两档 effort fixture（high / low 可区分取值）。
+fn efforts_of(high: &str, low: &str) -> AgentEffortTiers {
+    AgentEffortTiers {
+        high: high.to_owned(),
+        low: low.to_owned(),
+    }
+}
+
+/// 携两档 effort 的 provider fixture（其余字段同 `provider_with_switch` 底座）。
+fn provider_with_efforts(high: &str, low: &str) -> AgentProviderRecord {
+    provider_with_switch(false).with_efforts(efforts_of(high, low))
+}
+
+#[test]
+fn with_efforts构造置位且两档逐字段保真其余字段不受影响() {
+    let record = provider_with_switch(true).with_efforts(efforts_of("max", "low"));
+
+    assert_eq!(record.efforts, efforts_of("max", "low"), "两档逐字段保真");
+    assert_eq!(record.efforts.high, "max", "high 档原值承载");
+    assert_eq!(record.efforts.low, "low", "low 档原值承载");
+    // 其余字段不受链式缝影响（store 层无条件接受、无协议门控）
+    assert!(record.web_search, "web_search 位不被 efforts 覆盖");
+    assert_eq!(record.context_length, Some(200_000));
+    assert_eq!(record.max_tokens, Some(8192));
+    assert_eq!(record.protocol, AgentProviderProtocol::Anthropic);
+    assert_eq!(record.id, 0);
+}
+
+#[test]
+fn with_efforts两档全空与未装配逐字段相等() {
+    let plain = provider_with_switch(false);
+    let explicit_empty = provider_with_switch(false).with_efforts(AgentEffortTiers::default());
+
+    assert_eq!(
+        explicit_empty, plain,
+        "显式两档空串与未装配逐字段相等（空串 = 留空，无第三条「未配置」态）"
+    );
+    assert_eq!(explicit_empty.efforts.high, "");
+    assert_eq!(explicit_empty.efforts.low, "");
+}
+
+#[test]
+fn with_efforts超长与特殊字符原样承载且store层零校验() {
+    let long = "e".repeat(1_200);
+    for effort in [long.as_str(), "含 空格 与 \"引号\"\n换行 🎉", "a b"] {
+        let record = provider_with_switch(false).with_efforts(efforts_of(effort, effort));
+        assert_eq!(
+            record.efforts,
+            efforts_of(effort, effort),
+            "effort={effort:?} 原样承载（store 层零校验、零裁剪）"
+        );
+    }
+}
+
+#[test]
+fn with_efforts与with_web_search两种次序组合互不覆盖() {
+    for web_search in [true, false] {
+        let efforts_first = provider_with_switch(false)
+            .with_efforts(efforts_of("max", "low"))
+            .with_web_search(web_search);
+        let switch_first = provider_with_switch(false)
+            .with_web_search(web_search)
+            .with_efforts(efforts_of("max", "low"));
+
+        for (label, record) in [
+            ("efforts 先", efforts_first),
+            ("web_search 先", switch_first),
+        ] {
+            assert_eq!(record.web_search, web_search, "{label}：开关按入参置位");
+            assert_eq!(
+                record.efforts,
+                efforts_of("max", "low"),
+                "{label}：两档 effort 不被开关覆盖"
+            );
+        }
+    }
+}
+
+#[test]
+fn new七参构造两档effort皆空串且id置零() {
+    let record = AgentProviderRecord::new(
+        "七参供应".to_owned(),
+        AgentProviderProtocol::Openai,
+        "https://api.example.com/v1".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        tiers("m-high", "m-medium", "m-low"),
+        Some(200_000),
+        Some(8192),
+    );
+
+    assert_eq!(
+        record.efforts,
+        AgentEffortTiers::default(),
+        "new 不新增参数：两档缺省空串"
+    );
+    assert_eq!(record.efforts.high, "", "high 档缺省空串");
+    assert_eq!(record.efforts.low, "", "low 档缺省空串");
+    assert_eq!(record.id, 0, "id 仍置 0（写事务内分配）");
+    assert!(!record.web_search, "web_search 仍缺省关");
+}
+
+#[test]
+#[allow(clippy::type_complexity)]
+fn new七参签名零改锚定函数指针可达() {
+    // 44 处既有调用点零改的编译面证据：签名逐字为七参（末两项 Option<u64>）
+    let signature: fn(
+        String,
+        AgentProviderProtocol,
+        String,
+        String,
+        AgentModelTiers,
+        Option<u64>,
+        Option<u64>,
+    ) -> AgentProviderRecord = AgentProviderRecord::new;
+
+    let record = signature(
+        "指针供应".to_owned(),
+        AgentProviderProtocol::Anthropic,
+        "https://api.anthropic.com".to_owned(),
+        "sk-ant-1234567890".to_owned(),
+        tiers("h", "m", "l"),
+        None,
+        None,
+    );
+    assert_eq!(
+        record.efforts,
+        AgentEffortTiers::default(),
+        "签名面不携 effort"
+    );
+}
+
+#[test]
+fn v5记录编解码往返version为五且efforts三态保真() {
+    for (high, low) in [("", ""), ("max", "low"), ("max", "")] {
+        let record = provider_with_efforts(high, low);
+
+        let decoded = provider_roundtrip(&record);
+
+        assert_eq!(
+            decoded, record,
+            "efforts=({high:?}, {low:?}) 往返逐字段相等"
+        );
+        assert_eq!(
+            decoded.efforts,
+            efforts_of(high, low),
+            "两档经 bincode 尾部嵌套不漂移"
+        );
+    }
+}
+
+#[test]
+fn v5版本头锚点id与version均为五且v4中转形为四() {
+    assert_eq!(
+        <AgentProviderRecord as native_model::Model>::native_model_id(),
+        5,
+        "id 仍为 5（同一条版本链，不新增第二条）"
+    );
+    assert_eq!(
+        <AgentProviderRecord as native_model::Model>::native_model_version(),
+        5,
+        "版本头 4 → 5（efforts sibling 列）"
+    );
+    assert_eq!(
+        <AgentProviderRecordV4 as native_model::Model>::native_model_version(),
+        4,
+        "v4 中转形态版本头仍为 4"
+    );
+    assert_eq!(
+        <AgentProviderRecordV4 as native_model::Model>::native_model_id(),
+        5,
+        "中转形态与当前形态同 id（升级链同源）"
+    );
+}
+
+#[test]
+fn efforts线格式含camel_case两键且缺键解为两档空串() {
+    let record = provider_with_efforts("max", "low");
+    let value = serde_json::to_value(&record).expect("serde 序列化应成功");
+    assert_eq!(
+        value["efforts"],
+        serde_json::json!({ "high": "max", "low": "low" }),
+        "serde camelCase 线格式含 efforts 两键"
+    );
+
+    // 缺 efforts 键 → 两档空串（`#[serde(default)]` 只兜 JSON 面；bincode 升级
+    // 语义由 `From<V4>` 承担）
+    let mut absent = value.clone();
+    absent
+        .as_object_mut()
+        .expect("object 形态")
+        .remove("efforts");
+    let back: AgentProviderRecord = serde_json::from_value(absent).expect("缺键反序列化成功");
+    assert_eq!(
+        back.efforts,
+        AgentEffortTiers::default(),
+        "缺键解为两档空串"
+    );
+    assert_eq!(
+        back,
+        provider_with_efforts("", ""),
+        "缺键形态与显式留空等价"
+    );
+}
+
+#[test]
+fn efforts非法载荷拒收不静默补值() {
+    let base = serde_json::to_value(provider_with_efforts("max", "low")).expect("序列化成功");
+    for invalid in [
+        serde_json::json!("max"),
+        serde_json::json!({ "high": "max" }),
+    ] {
+        let mut value = base.clone();
+        value
+            .as_object_mut()
+            .expect("object 形态")
+            .insert("efforts".to_owned(), invalid.clone());
+        assert!(
+            serde_json::from_value::<AgentProviderRecord>(value).is_err(),
+            "efforts = {invalid} 必须 Err（两档皆是必填子键，不静默补值）"
+        );
+    }
+}
+
+#[test]
+fn agent_effort_tiers默认两档空串且partial_eq区分两档交换() {
+    let default = AgentEffortTiers::default();
+    assert_eq!(default.high, "", "Default 两档空串语义是「留空」");
+    assert_eq!(default.low, "");
+
+    assert_ne!(
+        efforts_of("max", "low"),
+        efforts_of("low", "max"),
+        "PartialEq 区分两档交换（不做无序比较）"
+    );
+    assert_eq!(efforts_of("max", "low"), efforts_of("max", "low"));
+    assert_ne!(efforts_of("max", "low"), efforts_of("max", ""));
+}
+
+#[test]
+fn v4升级到v5补空efforts且其余字段逐字段相等() {
+    let record = provider_with_switch(true);
+    let v4 = AgentProviderRecordV4::from(record.clone());
+
+    let upgraded = AgentProviderRecord::from(v4.clone());
+
+    assert_eq!(
+        upgraded.efforts,
+        AgentEffortTiers::default(),
+        "升级补两档空串（缺列读兼容、无迁移脚本）"
+    );
+    assert_eq!(upgraded.id, v4.id);
+    assert_eq!(upgraded.name, v4.name);
+    assert_eq!(upgraded.protocol, v4.protocol);
+    assert_eq!(upgraded.base_url, v4.base_url);
+    assert_eq!(upgraded.api_key, v4.api_key);
+    assert_eq!(upgraded.models, v4.models);
+    assert_eq!(upgraded.context_length, v4.context_length);
+    assert_eq!(upgraded.max_tokens, v4.max_tokens);
+    assert_eq!(upgraded.web_search, v4.web_search, "web_search 位原样搬运");
+}
+
+#[test]
+fn v4载荷字节经版本机制升级为v5且efforts为空() {
+    let v4 = AgentProviderRecordV4::from(provider_with_switch(true));
+    let bytes = native_model::encode(&v4).expect("encode v4 应成功");
+
+    let (upgraded, version) =
+        native_model::decode::<AgentProviderRecord>(bytes).expect("v4 载荷应经版本机制升级");
+
+    assert_eq!(version, 4, "decode 返回载荷头源版本 4");
+    assert_eq!(
+        upgraded.efforts,
+        AgentEffortTiers::default(),
+        "存量行读出即留空"
+    );
+    assert_eq!(upgraded.web_search, v4.web_search);
+    assert_eq!(upgraded.name, v4.name);
+    assert_eq!(upgraded.models, v4.models);
+
+    // 升级形态再编码为 v5 载荷（新写入面）
+    let v5_bytes = native_model::encode(&upgraded).expect("encode v5 应成功");
+    let (_back, v5_version) =
+        native_model::decode::<AgentProviderRecord>(v5_bytes).expect("v5 载荷回环解码应成功");
+    assert_eq!(v5_version, 5, "新写入面版本头为 5");
+}
+
+#[test]
+fn v1到v5四级链与直接构造v5逐字段一致() {
+    let legacy = AgentProviderRecordV1 {
+        id: 41,
+        name: "四级链供应".to_owned(),
+        base_url: "https://legacy.example.com/v1".to_owned(),
+        api_key: "sk-legacy-1234567890".to_owned(),
+        models: tiers("v1-high", "v1-medium", "v1-low"),
+    };
+
+    let by_chain = AgentProviderRecord::from(AgentProviderRecordV4::from(
+        AgentProviderRecordV3::from(AgentProviderRecordV2::from(legacy.clone())),
+    ));
+
+    let mut direct = AgentProviderRecord::new(
+        legacy.name.clone(),
+        AgentProviderProtocol::Openai,
+        legacy.base_url.clone(),
+        legacy.api_key.clone(),
+        legacy.models.clone(),
+        None,
+        None,
+    );
+    direct.id = legacy.id;
+
+    assert_eq!(by_chain, direct, "四级链产物与直接构造 v5 逐字段一致");
+    assert_eq!(
+        by_chain.efforts,
+        AgentEffortTiers::default(),
+        "四级链补两档空串"
+    );
+    assert_eq!(
+        by_chain.protocol,
+        AgentProviderProtocol::Openai,
+        "v2→v3 补协议"
+    );
+    assert_eq!(by_chain.max_tokens, None, "v3 补上限");
+    assert_eq!(by_chain.context_length, None, "v2 补窗长");
+    assert!(!by_chain.web_search, "v3→v4 补开关");
+}
+
+#[test]
+fn v5降级到v4丢efforts其余保真且再升级归空() {
+    let record = provider_with_efforts("max", "low");
+
+    let v4 = AgentProviderRecordV4::from(record.clone());
+
+    assert_eq!(v4.id, record.id);
+    assert_eq!(v4.name, record.name);
+    assert_eq!(v4.protocol, record.protocol);
+    assert_eq!(v4.base_url, record.base_url);
+    assert_eq!(v4.api_key, record.api_key);
+    assert_eq!(v4.models, record.models);
+    assert_eq!(v4.context_length, record.context_length);
+    assert_eq!(v4.max_tokens, record.max_tokens);
+    assert_eq!(v4.web_search, record.web_search);
+
+    // 降级再升级：efforts 归缺省（降级形态不作数据承诺）
+    let roundtripped = AgentProviderRecord::from(v4);
+    assert_eq!(
+        roundtripped.efforts,
+        AgentEffortTiers::default(),
+        "降级再升级后两档归空串"
+    );
+    assert_ne!(roundtripped, record, "降级往返不可逆（efforts 已丢）");
+}
+
+#[test]
+fn 手写遮蔽debug补efforts位且api_key位仍遮蔽() {
+    let record = provider_with_efforts("max", "low");
+
+    let debug_text = format!("{record:?}");
+
+    assert!(
+        debug_text.contains("efforts: AgentEffortTiers"),
+        "Debug 含 efforts 字段位（值可读），实际: {debug_text}"
+    );
+    assert!(
+        debug_text.contains("high: \"max\"") && debug_text.contains("low: \"low\""),
+        "两档取值在 Debug 输出可读，实际: {debug_text}"
+    );
+    assert!(debug_text.contains("sk-***890"), "api_key 位仍为遮蔽形态");
+    assert!(
+        !debug_text.contains("sk-ant-1234567890"),
+        "Debug 输出不得含 api_key 明文，实际: {debug_text}"
+    );
+}
+
+#[test]
+fn agent_model_tiers三档结构零改动且与efforts为兄弟列() {
+    let record = provider_with_efforts("max", "low");
+
+    assert_eq!(
+        record.models,
+        tiers("m-high", "m-medium", "m-low"),
+        "三档 models 结构零改动（efforts 不嵌入该 struct）"
+    );
+    assert_eq!(
+        record.models.medium, "m-medium",
+        "medium 档仍在（本期只存不选）"
+    );
+
+    let decoded = provider_roundtrip(&record);
+    assert_eq!(decoded.models, record.models, "三档往返保真");
+    assert_eq!(decoded.efforts, record.efforts, "两档与三档各自独立往返");
+    assert_eq!(decoded, record);
 }

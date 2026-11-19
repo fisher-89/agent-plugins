@@ -156,6 +156,10 @@ pub(crate) struct LoopTurn {
     /// Anthropic 云端 `web_search` 服务端工具开关（**已按协议门控**的最终
     /// 值——门控在组合根解析期完成，loop 零协议判定）；真才挂 provider tool
     pub web_search: bool,
+    /// 思考强度旁路载荷（**已按协议 shaping** 的 wire 载荷——shaping 在
+    /// `sdk/effort.rs` 单点完成，本模块零协议判定、零键名字面量）；留空即
+    /// `None`（请求体零新增键）
+    pub effort_params: Option<serde_json::Value>,
 }
 
 /// 系统消息合成单点：会话 preamble（产品知识，前）与本轮 `AGENT.md`（逐字，后）
@@ -325,7 +329,10 @@ pub(crate) async fn run(
                     temperature: None,
                     max_tokens: None,
                     tool_choice: None,
-                    additional_params: None,
+                    // effort 先落位；`provider_tool(..)` 在同一
+                    // `additional_params` 上按 `tools` 键合并（rig
+                    // `merge_params`），两键互不覆盖、次序无关
+                    additional_params: turn.effort_params.clone(),
                     output_schema: None,
                     record_telemetry_content: false,
                 };

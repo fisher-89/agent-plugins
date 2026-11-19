@@ -5011,3 +5011,255 @@ async fn compose_turn身份锚恒主仓root不随会话cwd的worktree派生() {
         "worktree 路径零会话行（库身份锚不经 cwd 派生）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// efforts 原值带出（AC-6 组合根半边 / AC-8 取值链零回归）：provider 的
+// `efforts` 原样下行、零协议门控、零校验；`web_search` 的门控单点不受影响。
+// ---------------------------------------------------------------------------
+
+/// 两档 effort fixture。
+fn efforts_of(high: &str, low: &str) -> store::AgentEffortTiers {
+    store::AgentEffortTiers {
+        high: high.to_owned(),
+        low: low.to_owned(),
+    }
+}
+
+/// 可指定 effort / 开关 / 可空列的 sdk provider fixture（端点 discard，解析仅
+/// 组装不触网络）。
+fn seed_provider_with_efforts(
+    stores: &WorkspaceStores,
+    name: &str,
+    protocol: AgentProviderProtocol,
+    efforts: store::AgentEffortTiers,
+    web_search: bool,
+    context_length: Option<u64>,
+    max_tokens: Option<u64>,
+) -> i64 {
+    let provider = AgentProviderRecord::new(
+        name.to_owned(),
+        protocol,
+        "http://127.0.0.1:9/v1".to_owned(),
+        "sk-compose".to_owned(),
+        AgentModelTiers {
+            high: "m-high".to_owned(),
+            medium: "m-medium".to_owned(),
+            low: "m-low".to_owned(),
+        },
+        context_length,
+        max_tokens,
+    )
+    .with_web_search(web_search)
+    .with_efforts(efforts);
+    stores
+        .global()
+        .upsert_agent_provider(provider)
+        .expect("落 provider fixture")
+        .id
+}
+
+/// 解析产物摘取（`ResolvedEngine` 不实现 Debug，`expect` 不可用）。
+fn resolve_of(stores: &WorkspaceStores, instance_id: i64) -> super::ResolvedEngine {
+    match super::resolve_agent_engine(stores, Some(instance_id)) {
+        Ok(resolved) => resolved,
+        Err(error) => panic!("解析应成功: {error}"),
+    }
+}
+
+#[test]
+fn resolve_sdk臂原样带出efforts且两协议同形零门控() {
+    for protocol in [
+        AgentProviderProtocol::Openai,
+        AgentProviderProtocol::Anthropic,
+    ] {
+        let env = DualEnv::new("efforts-protocol");
+        let stores = env.stores();
+        let provider_id = seed_provider_with_efforts(
+            stores,
+            "协议供应",
+            protocol,
+            efforts_of("max", "low"),
+            false,
+            None,
+            None,
+        );
+        let instance_id = seed_sdk_instance(stores, "协议实例", Some(provider_id));
+
+        let resolved = resolve_of(stores, instance_id);
+
+        assert_eq!(
+            resolved.efforts,
+            efforts_of("max", "low"),
+            "{protocol:?} 臂原样带出（零门控：两协议结果同形）"
+        );
+    }
+}
+
+#[test]
+fn resolve_sdk臂两档皆空时带出空串不落缺省字面() {
+    let env = DualEnv::new("efforts-empty");
+    let stores = env.stores();
+    let provider_id = seed_provider_with_efforts(
+        stores,
+        "空档供应",
+        AgentProviderProtocol::Openai,
+        store::AgentEffortTiers::default(),
+        false,
+        None,
+        None,
+    );
+    let instance_id = seed_sdk_instance(stores, "空档实例", Some(provider_id));
+
+    let resolved = resolve_of(stores, instance_id);
+
+    assert_eq!(
+        resolved.efforts.high, "",
+        "两档空串原样带出（不落 None / 缺省字面）"
+    );
+    assert_eq!(resolved.efforts.low, "");
+}
+
+#[test]
+fn resolve_sdk臂目录外自定义值原样带出组合根零校验() {
+    for (high, low) in [("ultra-thinking", "none"), ("MAX", "a b")] {
+        let env = DualEnv::new("efforts-custom");
+        let stores = env.stores();
+        let provider_id = seed_provider_with_efforts(
+            stores,
+            "自定义供应",
+            AgentProviderProtocol::Anthropic,
+            efforts_of(high, low),
+            false,
+            None,
+            None,
+        );
+        let instance_id = seed_sdk_instance(stores, "自定义实例", Some(provider_id));
+
+        let resolved = resolve_of(stores, instance_id);
+
+        assert_eq!(
+            resolved.efforts,
+            efforts_of(high, low),
+            "目录外取值 ({high:?}, {low:?}) 原样带出（组合根零校验）"
+        );
+    }
+}
+
+/// 解析期取值链观察面（窗长 / 上限 / 三档模型名）。
+type ResolvedChainView = (Option<u64>, Option<u64>, String, String, String);
+
+#[test]
+fn efforts三态不改变解析期取值链与连接配置() {
+    let mut baseline: Option<ResolvedChainView> = None;
+    for efforts in [
+        store::AgentEffortTiers::default(),
+        efforts_of("max", ""),
+        efforts_of("max", "low"),
+    ] {
+        let env = DualEnv::new("efforts-chain");
+        let stores = env.stores();
+        let provider_id = seed_provider_with_efforts(
+            stores,
+            "取值链供应",
+            AgentProviderProtocol::Anthropic,
+            efforts.clone(),
+            false,
+            Some(200_000),
+            Some(8_192),
+        );
+        let instance_id = seed_sdk_instance(stores, "取值链实例", Some(provider_id));
+
+        let resolved = resolve_of(stores, instance_id);
+        let observed = (
+            resolved.context_window,
+            resolved.max_tokens,
+            resolved.config.model_high.clone(),
+            resolved.config.model_low.clone(),
+            resolved.config.base_url.clone(),
+        );
+
+        match &baseline {
+            None => baseline = Some(observed),
+            Some(expected) => assert_eq!(
+                &observed, expected,
+                "efforts={efforts:?}：窗长 / 上限 / 连接配置与无 efforts 情形逐字一致（AC-8）"
+            ),
+        }
+        assert_eq!(resolved.efforts, efforts, "仅有 efforts 列随入参变化");
+    }
+}
+
+#[test]
+fn efforts非空不影响web_search协议门控单点() {
+    for (protocol, web_search) in [
+        (AgentProviderProtocol::Anthropic, true),
+        (AgentProviderProtocol::Anthropic, false),
+        (AgentProviderProtocol::Openai, true),
+        (AgentProviderProtocol::Openai, false),
+    ] {
+        let env = DualEnv::new("efforts-gate");
+        let stores = env.stores();
+        let provider_id = seed_provider_with_efforts(
+            stores,
+            "门控供应",
+            protocol,
+            efforts_of("max", "low"),
+            web_search,
+            None,
+            None,
+        );
+        let instance_id = seed_sdk_instance(stores, "门控实例", Some(provider_id));
+
+        let resolved = resolve_of(stores, instance_id);
+
+        let expected = web_search && matches!(protocol, AgentProviderProtocol::Anthropic);
+        assert_eq!(
+            resolved.web_search, expected,
+            "{protocol:?} + web_search={web_search}：判定仍为 provider.web_search && anthropic（不受 efforts 影响）"
+        );
+        assert_eq!(
+            resolved.efforts,
+            efforts_of("max", "low"),
+            "门控判定不吞 efforts（两列正交）"
+        );
+    }
+}
+
+#[tokio::test]
+async fn compose_turn门面链接入efforts后_new会话open照常成功() {
+    let env = DualEnv::new("efforts-compose");
+    let stores = env.stores();
+    let provider_id = seed_provider_with_efforts(
+        stores,
+        "装配供应",
+        AgentProviderProtocol::Anthropic,
+        efforts_of("max", "low"),
+        false,
+        None,
+        None,
+    );
+    seed_sdk_instance(stores, "装配实例", Some(provider_id));
+
+    let composed = compose_turn(
+        stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
+        env.store(),
+        None,
+        Path::new(&env.root()),
+        None,
+    )
+    .expect("装配应成功（.with_efforts 链接入不塌 runner_for）");
+
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "efforts 装配一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("begin 应成功（effort 非空是合法装配态）");
+    drop(running);
+}

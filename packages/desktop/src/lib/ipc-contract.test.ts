@@ -172,9 +172,7 @@ describe('三表 runtime 面：键集与 commands 逐一对应', () => {
       'baseUrl',
       'apiKey',
       'models',
-      'contextLength',
-      'maxTokens',
-      'webSearch',
+      'tuning',
     ]);
   });
 
@@ -330,9 +328,12 @@ describe('argsSchemas 类型面：必填键 + null 可过（未用 .optional() �
       protocol: 'openai',
       baseUrl: 'https://api.example.com',
       apiKey: 'sk-1',
-      contextLength: null,
-      maxTokens: null,
-      webSearch: false,
+      tuning: {
+        contextLength: null,
+        maxTokens: null,
+        webSearch: false,
+        efforts: { high: '', low: '' },
+      },
     };
 
     const valid = argsSchemas.saveAgentProvider.safeParse({

@@ -47,6 +47,7 @@ macro_rules! all_commands {
             $crate::commands::agents::save_agent_instance,
             $crate::commands::agents::delete_agent_instance,
             $crate::commands::agents::set_default_agent_instance,
+            $crate::commands::agents::list_model_catalog,
             $crate::commands::exec::agent_start,
             $crate::commands::exec::agent_stop,
             $crate::commands::exec::agent_answer,
