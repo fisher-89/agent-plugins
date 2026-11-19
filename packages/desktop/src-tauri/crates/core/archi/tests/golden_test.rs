@@ -168,9 +168,9 @@ struct Actual {
     relations: Vec<(String, String)>,
 }
 
-/// 语料暂存根：把 `<case>/*.toml` 复制到 `<tmp>/.dev-team/architecture/models/`
-/// 的仓库形态后驱动（`parse_dir` 的入口是 repo 根，模型目录经
-/// `foundation::layout::archi_models_dir` 派生）。crate 无 dev-dependency，故以
+/// 语料暂存根：把 `<case>/*.toml` 复制到 `<tmp>/.dev-team/architecture/graph/model/`
+/// 的仓库形态后驱动（`parse_dir` 的入口是 repo 根，模型声明目录经
+/// `foundation::layout::archi_graph_model_dir` 派生）。crate 无 dev-dependency，故以
 /// std 自建 RAII 临时目录。
 struct StagedRoot(PathBuf);
 
@@ -184,7 +184,11 @@ impl StagedRoot {
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&dir);
-        let models = dir.join(".dev-team").join("architecture").join("models");
+        let models = dir
+            .join(".dev-team")
+            .join("architecture")
+            .join("graph")
+            .join("model");
         fs::create_dir_all(&models).expect("建暂存模型目录失败");
         let source = corpus_root().join(case);
         for entry in fs::read_dir(&source).expect("读取 case 目录失败").flatten() {
@@ -449,7 +453,7 @@ fn 登记面kind均属封闭词汇() {
 // `DESKTOP_GOLDEN_REWRITE=1` 时显式重写（断言仍按登记面执行，快照不参与判定）。
 //
 // 语料形态（一 case 一目录）：
-//   `models/*.toml`  → 暂存到 `<tmp>/.dev-team/architecture/models/`
+//   `models/*.toml`  → 暂存到 `<tmp>/.dev-team/architecture/graph/model/`
 //   `config.json`    → 暂存到 `<tmp>/.dev-team/architecture/config.json`（可选）
 //   `contracts/**`   → 暂存到 `<tmp>/.dev-team/architecture/models/**`（可选；契约面）
 //   `repo/**`        → 暂存到 `<tmp>/**`（源码观察面）
@@ -854,8 +858,12 @@ impl DriftStage {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("建暂存根失败");
         let source = drift_corpus_root().join(case);
-        // 模型 → <tmp>/.dev-team/architecture/models/
-        let models = dir.join(".dev-team").join("architecture").join("models");
+        // 模型 → <tmp>/.dev-team/architecture/graph/model/
+        let models = dir
+            .join(".dev-team")
+            .join("architecture")
+            .join("graph")
+            .join("model");
         let source_models = source.join("models");
         if source_models.is_dir() {
             copy_tree(&source_models, &models);

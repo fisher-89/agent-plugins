@@ -218,7 +218,7 @@
   "root": "/abs/path",
   "change": "add-billing-gate",       // 无 change 上下文（命令面）时为 null；门禁面两模式均携 change 名
   "base": "HEAD",                     // full 模式为 null（增量恒 HEAD 差，见「全量与增量两模式」）
-  "modelHash": "sha256:…",            // models/*.toml 聚合哈希
+  "modelHash": "sha256:…",            // graph/model/*.toml 聚合哈希
 
   "model": {
     "elements": 24, "relations": 31,
@@ -243,7 +243,7 @@
 - **`observations` 与 `warnings` 分界**：`warnings` 是「有问题的依赖」（方向 / 目标 / 可解析性 / 归属不确定），随 `status` 影响提示强度；`observations` 是「设计态陈述」（声明未兑现 / 长期未使用），永不影响 `status`、永不进 `passed`。
 - **`occurrences` 聚合**：同元素对的全部命中点聚合在一条记录内（按 `(from, to)` 聚合，逐条带 `file` / `line` / `specifier` / `typeOnly`），不按行铺开。
 - **`suppressed` 必留痕**：豁免不等于不存在——保留被抑制条目 + 理由 + 来源，豁免了什么才可审计。
-- **`modelHash`**：`models/*.toml` 聚合哈希，供消费方判断「手上报告是否对应当前模型」与历史报告追溯；MUST NOT 被用作缓存失效依据（本期零缓存）。模型字节变化即哈希变化（本变更删 `01-app.toml` 一行 `docs` ⇒ 本仓 `modelHash` 必然变，元素 / 关系计数不变）。
+- **`modelHash`**：`graph/model/*.toml` 聚合哈希（文件名 + 字节累加，不含父目录），供消费方判断「手上报告是否对应当前模型」与历史报告追溯；MUST NOT 被用作缓存失效依据（本期零缓存）。模型字节变化即哈希变化（本变更删 `01-app.toml` 一行 `docs` ⇒ 本仓 `modelHash` 必然变，元素 / 关系计数不变）。
 - **词汇封闭且单点**：报告自带**四组**封闭词汇——`status`（五值）、漂移条目 `kind`（`undeclaredDependency` / `pathNotFound` / `ambiguousOwner` / `noPath`）、观察项 `kind`（`unfulfilledDeclaration` / `unusedDeclaration`）、**契约判据 `kind`**（`ArchiApiFindingKind` **十三值**，定义与语义见 `desktop-archi-api-check`「契约判据词汇封闭十三值与开放分类」）；每组 SHALL 在报告结构模块单点定义并附 `ALL` 常量，语料对拍断言「新增变体未同步即红」。报告词汇 MUST NOT 复用既有 DTO 词汇：`desktop-archi-model` 的 `DiagnosticKind`（结构诊断九类）与 `EdgeMark` / `NodeMark`（画布标记）语义面各不相同——混用会让「结构错」「漂移违例」两类在类型上不可辨。**`WarningKind`（旧文档警告，单值 `docNotFound`）已随 `docs` 三源退役删除**：入口文档面的读数改由契约判据的 `docMissing` / `docNotFound` / `apiDocMissing` 承载（`category = doc`），MUST NOT 在报告里恢复「文档警告」这一类别。
 - **`version`**：报告结构版本号 SHALL 走显式兼容说明（`version = 1` 无 `apiFindings` 字段；`version = 2` 有该字段但 `status` 推导不读契约判据；`version = 3` 纳管口径进 `status`）。**本变更不递增**：字段面无增删，变的只是判据取值、档位与纳管口径——`version` 仍为 **3**，MUST NOT 因语义收紧而无字段变化地递增（否则消费方按版本分支会读到「形状未变的伪新版本」）。
 - **`apiFindings` 为并列槽位**：契约判据结果 SHALL 落本字段（空数组 = 无契约问题），MUST NOT 与 `errors` / `warnings` / `observations` 混装——三者事实源与定级语义各不相同（模型关系图 / 可解析性与归属 / 设计态陈述 vs 契约文件）。对 `status` 的影响 SHALL 限于**纳管子集**（口径、判据与单点实现归 `desktop-archi-api-check`「报告并列槽位 apiFindings」）——本变更把该子集的口径由「契约在案元素」改写为「**入口文档承诺已成立**」（`api = declared` 且派生契约 md 在盘 / `api = none` 且 `doc` 已声明），并允许子集内 `error` 档条目把结果抬到 `errors`。`docMissing` 永不纳管 ⇒ 存量入口文档债 MUST NOT 把状态词常规化为永久 `warnings`。条目形状 `{ kind, category, element, target, message, occurrences }`：`occurrences` 复用既有聚合形状，`category` 为开放值集字符串（无 `ALL`，渲染层据此分组）。
@@ -267,7 +267,7 @@
 
 #### Scenario: modelHash 随模型变化
 
-- **WHEN** 修改任一 `models/*.toml` 字节后重跑（本变更删 `01-app.toml` 的 `docs` 一行即属此列）
+- **WHEN** 修改任一 `graph/model/*.toml` 字节后重跑（本变更删 `01-app.toml` 的 `docs` 一行即属此列）
 - **THEN** `modelHash` 变化；未修改模型时两次运行的 `modelHash` 相同
 
 #### Scenario: apiFindings 并列而不混装

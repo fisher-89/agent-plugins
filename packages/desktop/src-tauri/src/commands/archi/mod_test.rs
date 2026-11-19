@@ -11,7 +11,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use foundation::layout::archi_models_dir;
+use foundation::layout::archi_graph_model_dir;
 use store::{Store, WorkspaceStores};
 use tauri::{App, Manager};
 use workflow::state::{ChangeStateRecord, ChangeStatus};
@@ -64,8 +64,8 @@ impl TempDir {
     }
 
     fn write_model(&self, name: &str, content: &str) -> PathBuf {
-        let dir = archi_models_dir(&self.0);
-        fs::create_dir_all(&dir).expect("创建模型目录失败");
+        let dir = archi_graph_model_dir(&self.0);
+        fs::create_dir_all(&dir).expect("创建模型声明目录失败");
         let path = dir.join(name);
         fs::write(&path, content).expect("写模型文件失败");
         path
@@ -302,8 +302,8 @@ fn 八命令root校验四形态一律err() {
 
     // 写命令零写入：非法 root 下目标文件不存在即证明未落盘
     assert!(
-        !archi_models_dir(&file_root).exists(),
-        "非法 root 下不产生任何模型目录（写命令零写入）"
+        !archi_graph_model_dir(&file_root).exists(),
+        "非法 root 下不产生任何模型声明目录（写命令零写入）"
     );
 }
 
@@ -386,8 +386,8 @@ fn set_gate改档原子写回无残留() {
     let temp = healthy("set-gate");
     archi_set_gate(temp.root(), "App.Auth".to_owned(), GateTier::Strict).expect("改档 Ok");
 
-    let source =
-        fs::read_to_string(archi_models_dir(temp.path()).join("01-core.toml")).expect("读模型文件");
+    let source = fs::read_to_string(archi_graph_model_dir(temp.path()).join("01-core.toml"))
+        .expect("读模型文件");
     assert!(source.contains("gate = \"strict\""), "目标行变为新档位");
     assert!(
         source.contains("# 核心包"),
@@ -396,8 +396,8 @@ fn set_gate改档原子写回无残留() {
     let reread = archi_module(temp.root(), "App.Auth".to_owned()).expect("Ok");
     assert_eq!(reread.element.gate, GateTier::Strict, "读回为新档位");
 
-    let mut names: Vec<String> = fs::read_dir(archi_models_dir(temp.path()))
-        .expect("读模型目录")
+    let mut names: Vec<String> = fs::read_dir(archi_graph_model_dir(temp.path()))
+        .expect("读模型声明目录")
         .flatten()
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .collect();
@@ -409,7 +409,7 @@ fn set_gate改档原子写回无残留() {
 #[test]
 fn set_gate失败零写入() {
     let temp = healthy("set-gate-err");
-    let path = archi_models_dir(temp.path()).join("01-core.toml");
+    let path = archi_graph_model_dir(temp.path()).join("01-core.toml");
     let before = fs::read(&path).expect("读模型文件");
 
     assert!(
@@ -475,7 +475,7 @@ fn write_atomic只读目录失败且无残留() {
     use std::os::unix::fs::PermissionsExt;
 
     let temp = healthy("write-atomic");
-    let models = archi_models_dir(temp.path());
+    let models = archi_graph_model_dir(temp.path());
     let path = models.join("01-core.toml");
     let before = fs::read(&path).expect("读模型文件");
 
@@ -1469,7 +1469,7 @@ fn archi_file_tree空模型返回ok且全无主() {
     for tag in ["file-tree-models-absent", "file-tree-models-empty"] {
         let temp = TempDir::new(tag);
         if tag.ends_with("empty") {
-            fs::create_dir_all(archi_models_dir(temp.path())).expect("建空模型目录");
+            fs::create_dir_all(archi_graph_model_dir(temp.path())).expect("建空模型声明目录");
         }
         temp.write("src/a.ts", "export const a = 1;\n");
 

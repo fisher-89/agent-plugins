@@ -152,7 +152,7 @@ pair 锚点（不进元素循环，与元素锚点并列、互不挤占）
 
 #### Scenario: 启用判据与载体同源
 
-- **WHEN** 观察根下 `models/` 一级有六个 `NN-<域>.toml`，另有 `models/notes.md`（非任何元素的载体）与 `<Domain>/notes.md`（无 fence）
+- **WHEN** 观察根下 `graph/model/` 一级有六个 `NN-<域>.toml`，另有 `models/notes.md`（非任何元素的载体）与 `<Domain>/notes.md`（无 fence）
 - **THEN** `enabled = false` 且 `apiFindings = []`；随后在某元素派生契约路径放入一份带 `api-op` fence 的 md ⇒ `enabled = true`、全部 `path` 非空元素纳入判据。两例共用同一判定函数（`doc_facts` 上的 `has_api_fence`），MUST NOT 在命令层另判一套
 
 #### Scenario: entry 优先互斥
@@ -295,12 +295,12 @@ pair 锚点（不进元素循环，与元素锚点并列、互不挤占）
 - **语料守护（分两层，各有 owner，本变更**不新增文件**）**：① **判定面逐判据用例**由 `crates/core/archi/src/api/**` 的 **13 份** sidecar 用例承担——十三值各自正反例、两支互斥与首错、pair 锚点三条、`doc_facts` 三态、签名归一、嵌套与透传、生成物渲染两侧键集一致；三值新判据的用例 MUST 落在既有 sidecar（如 `check_test.rs` / `mod_test.rs`）内，**MUST NOT 新增 `api/**` 文件**——`golden_test.rs` 断言「`api/**` sidecar 恰 13 份」，新增文件即撞红。② **crate 级报告面语料**沿既有 `crates/core/archi/tests/corpus/drift/` + `tests/golden_test.rs` 的 `DRIFT_CASES` 登记面驱动，快照为 `expected/<case>.<mode>.json`；既有 `api-mismatch` case SHALL 保持非空 `apiFindings`；新增 case 未登记进 `DRIFT_CASES` 即红、登记了但 case 目录不存在亦红。golden 更新 SHALL 沿既有 `DESKTOP_GOLDEN_REWRITE=1` 显式重写并人工确认（快照不参与判定）。
 - **首错改写会改动金样读数**：一个元素命中第一条即 `break` ⇒ 「同元素多报」的 case（如 `apiMissing` + `apiReexportDrift`、`apiMissing` + `apiConstructorDeclared`）条目数下降乃**预期**；每条变化 SHALL 在 change 留痕中说明「哪一条因首错被短路」。代码注释里「与 ① 独立、MUST NOT 与 ② 双报」一类纪律句 MUST 同批改写，否则后人会按旧口径写回归用例。
 - **语料覆盖的已知缺口（就地留痕）**：三条新判据**不新增 sidecar 文件**（撞上 13 份计数断言），其正反例落在既有文件内；因此「十三判据各自正反例」一句 MUST NOT 被读成「十三判据各有独立语料文件」。兜底只剩两层——crate 级 `corpus/drift/` 金样（不经本仓模型）与本仓实测留痕。
-- **MUST NOT 把本仓模型与契约塞进 crate 语料**：本仓 `models/**`（含契约子树）与 `graph/**` 是仓库数据资产，纳入 crate 测试语料会破坏「语料自足、可移植」；本仓核对以命令 + 留痕执行（落 change `reports/`）。`reports/archi/` 是**门禁运行时产物**——不入库、不计入交付面、不作判红面（`git status` 出现 `??` 属预期）。
+- **MUST NOT 把本仓模型与契约塞进 crate 语料**：本仓 `graph/**`（契约索引 + 模型声明）与 `models/**`（契约资产）是仓库数据资产，纳入 crate 测试语料会破坏「语料自足、可移植」；本仓核对以命令 + 留痕执行（落 change `reports/`）。`reports/archi/` 是**门禁运行时产物**——不入库、不计入交付面、不作判红面（`git status` 出现 `??` 属预期）。
 - **生成器正确性由自身单测守护**：`verify`（零 diff + 编译器）覆盖不到生成器自身的 bug——渲染、装配、抽取三面各有逐字段断言。
 
 #### Scenario: 契约面未启用时零判据
 
-- **WHEN** 观察根下 `models/` 存在且一级为六个 `NN-<域>.toml`，但没有任何 `path` 非空元素的载体在盘带 fence 时跑一次全量检查
+- **WHEN** 观察根下 `graph/model/` 存在且一级为六个 `NN-<域>.toml`，但没有任何 `path` 非空元素的载体在盘带 fence 时跑一次全量检查
 - **THEN** `apiFindings = []`（零条任何契约判据），`errors` / `warnings` / `status` 与不加契约面时逐字相同；MUST NOT 产 `docMissing` / `apiEntryMissing`
 
 #### Scenario: 试点契约落地后全量纳入

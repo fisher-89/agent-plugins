@@ -13280,7 +13280,7 @@ async fn 归档模型冲突交人裁决零会话零abort() {
 
     let vcs = Arc::new(
         FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
-            ".dev-team/architecture/models/02-auth.toml".to_owned(),
+            ".dev-team/architecture/graph/model/02-auth.toml".to_owned(),
         ]))),
     );
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -13356,7 +13356,7 @@ async fn 归档混合冲突走模型臂不先解代码() {
     let vcs = Arc::new(
         FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
             "src/auth/token.rs".to_owned(),
-            ".dev-team/architecture/models/01-core.toml".to_owned(),
+            ".dev-team/architecture/graph/model/01-core.toml".to_owned(),
         ]))),
     );
     let (task, _rx, _history) = spawn_run_with_vcs(
@@ -13792,7 +13792,7 @@ async fn 归档模型冲突多路径文案计数与前两样本() {
         FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
             ".dev-team/architecture".to_owned(),
             r".dev-team\architecture\models\01-core.toml".to_owned(),
-            ".dev-team/architecture/models/03-billing.toml".to_owned(),
+            ".dev-team/architecture/graph/model/03-billing.toml".to_owned(),
         ]))),
     );
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -22340,10 +22340,10 @@ async fn initialize_archi三态跑动后源码字节零变化() {
         std::fs::create_dir_all(worktree.join("src")).expect("建源码目录");
         std::fs::write(worktree.join("src/app.ts"), "export const token = 1;\n")
             .expect("写源码夹具");
-        std::fs::create_dir_all(worktree.join(".dev-team/architecture/models"))
+        std::fs::create_dir_all(worktree.join(".dev-team/architecture/graph/model"))
             .expect("建模型目录");
         std::fs::write(
-            worktree.join(".dev-team/architecture/models/01-test.toml"),
+            worktree.join(".dev-team/architecture/graph/model/01-test.toml"),
             "[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n",
         )
         .expect("写模型夹具");

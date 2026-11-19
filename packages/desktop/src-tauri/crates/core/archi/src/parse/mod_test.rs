@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use foundation::layout::archi_models_dir;
+use foundation::layout::archi_graph_model_dir;
 
 use crate::dto::DiagnosticKind;
 
@@ -48,17 +48,17 @@ impl Drop for TempDir {
     }
 }
 
-/// 在 `<root>/.dev-team/architecture/models/` 下落一个模型文件。
+/// 在 `<root>/.dev-team/architecture/graph/model/` 下落一个模型声明文件。
 fn write_model(root: &Path, name: &str, content: &str) {
-    let dir = archi_models_dir(root);
-    fs::create_dir_all(&dir).expect("创建模型目录失败");
+    let dir = archi_graph_model_dir(root);
+    fs::create_dir_all(&dir).expect("创建模型声明目录失败");
     fs::write(dir.join(name), content).expect("写模型文件失败");
 }
 
-/// 在 `<root>/.dev-team/architecture/models/` 下落一个非 UTF-8 文件（读盘失败面）。
+/// 在 `<root>/.dev-team/architecture/graph/model/` 下落一个非 UTF-8 文件（读盘失败面）。
 fn write_broken_model(root: &Path, name: &str) {
-    let dir = archi_models_dir(root);
-    fs::create_dir_all(&dir).expect("创建模型目录失败");
+    let dir = archi_graph_model_dir(root);
+    fs::create_dir_all(&dir).expect("创建模型声明目录失败");
     fs::write(dir.join(name), [0xff_u8, 0xfe, 0x00, 0x80]).expect("写坏文件失败");
 }
 
@@ -137,7 +137,7 @@ fn 聚合回填文件相对路径与表头行号() {
     let outcome = parse_dir(temp.root());
     let app = outcome.model.element("App").expect("App 在模型内");
     assert_eq!(
-        app.file, ".dev-team/architecture/models/01-core.toml",
+        app.file, ".dev-team/architecture/graph/model/01-core.toml",
         "file 为 repo 相对路径且 / 分隔"
     );
     assert_eq!(
@@ -151,7 +151,7 @@ fn 聚合回填文件相对路径与表头行号() {
         .element("App.Auth.Token")
         .expect("子元素在模型内");
     assert_eq!(
-        token.file, ".dev-team/architecture/models/02-auth.toml",
+        token.file, ".dev-team/architecture/graph/model/02-auth.toml",
         "跨文件回填指向各自文件"
     );
     assert_eq!(
@@ -159,7 +159,7 @@ fn 聚合回填文件相对路径与表头行号() {
         line_at(AUTH_SOURCE, "[element.\"App.Auth.Token\"]")
     );
     assert_eq!(
-        outcome.model.relations[0].file, ".dev-team/architecture/models/02-auth.toml",
+        outcome.model.relations[0].file, ".dev-team/architecture/graph/model/02-auth.toml",
         "关系 file 亦回填"
     );
     assert_eq!(
@@ -208,7 +208,7 @@ fn 聚合序按字节字典序而非数字序() {
             .unwrap_or_else(|| panic!("{name} 应有对应元素"));
         assert_eq!(
             element.file,
-            format!(".dev-team/architecture/models/{name}"),
+            format!(".dev-team/architecture/graph/model/{name}"),
             "各文件 file 指向自身"
         );
     }
@@ -232,7 +232,7 @@ fn 跨文件重复fqn诊断为一条且指向靠后者() {
     let diagnostic = &outcome.diagnostics[0];
     assert_eq!(diagnostic.kind, DiagnosticKind::DuplicateElement);
     assert_eq!(
-        diagnostic.file, ".dev-team/architecture/models/03-billing.toml",
+        diagnostic.file, ".dev-team/architecture/graph/model/03-billing.toml",
         "file 指字典序靠后者"
     );
     assert_eq!(
@@ -274,8 +274,8 @@ fn 跨文件三处重复fqn产两条诊断() {
     assert_eq!(
         files,
         vec![
-            ".dev-team/architecture/models/02-auth.toml",
-            ".dev-team/architecture/models/03-billing.toml"
+            ".dev-team/architecture/graph/model/02-auth.toml",
+            ".dev-team/architecture/graph/model/03-billing.toml"
         ],
         "file 分别指向第二 / 第三个文件（字典序）"
     );
@@ -300,7 +300,7 @@ fn 读盘失败落_syntax_error_且其余文件照常解析() {
         diagnostic.message
     );
     assert_eq!(
-        diagnostic.file, ".dev-team/architecture/models/02-auth.toml",
+        diagnostic.file, ".dev-team/architecture/graph/model/02-auth.toml",
         "file 回填到失败文件"
     );
     assert_eq!(diagnostic.line, 0, "读取失败无位置（line 0）");
@@ -377,7 +377,7 @@ fn 模型目录不存在返回空模型零诊断() {
 #[test]
 fn 空目录与空文件与仅注释文件均为空模型() {
     let empty_dir = TempDir::new("empty-dir");
-    fs::create_dir_all(archi_models_dir(empty_dir.root())).expect("建空目录");
+    fs::create_dir_all(archi_graph_model_dir(empty_dir.root())).expect("建空目录");
     let outcome = parse_dir(empty_dir.root());
     assert!(outcome.diagnostics.is_empty());
     assert!(outcome.model.elements.is_empty());
@@ -416,7 +416,7 @@ fn 非toml与子目录文件不参与聚合() {
         "x.toml.bak",
         "[element.\"App.Bak\"]\nkind = \"module\"\n",
     );
-    let nested = archi_models_dir(temp.root()).join("nested");
+    let nested = archi_graph_model_dir(temp.root()).join("nested");
     fs::create_dir_all(&nested).expect("建子目录");
     fs::write(
         nested.join("y.toml"),
@@ -433,6 +433,30 @@ fn 非toml与子目录文件不参与聚合() {
         .map(|e| e.fqn.as_str())
         .collect();
     assert_eq!(fqns, vec!["App", "App.Auth"], "只由顶层 *.toml 决定元素面");
+}
+
+/// 反向（收面换根）：`models/`（契约资产目录）一级放合法 `.toml` 不被模型解析收取；
+/// 模型收面 = `graph/model/` 一级。
+#[test]
+fn 契约目录下的toml不参与聚合() {
+    let temp = TempDir::new("contract-dir-toml");
+    let stray = temp.root().join(".dev-team/architecture/models");
+    fs::create_dir_all(&stray).expect("建契约目录");
+    fs::write(
+        stray.join("01-stray.toml"),
+        "[element.\"App.Stray\"]\nkind = \"module\"\n",
+    )
+    .expect("写契约目录下的 toml");
+
+    let outcome = parse_dir(temp.root());
+    assert!(
+        outcome.model.elements.is_empty(),
+        "models/ 下的 .toml 不再被当模型解析（收面 = graph/model）"
+    );
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "零诊断：在收面之外，不是语法错"
+    );
 }
 
 /// 边界：规模面——100 个文件 × 各 5 元素 / 单文件 500 元素 / 单文件 500 关系 →
@@ -501,13 +525,13 @@ fn 特殊字符文件名逐字保留且不panic() {
         assert!(
             diagnostic
                 .file
-                .starts_with(".dev-team/architecture/models/"),
+                .starts_with(".dev-team/architecture/graph/model/"),
             "目录段由派生函数给出: {}",
             diagnostic.file
         );
         let name = diagnostic
             .file
-            .trim_start_matches(".dev-team/architecture/models/");
+            .trim_start_matches(".dev-team/architecture/graph/model/");
         assert!(
             ["架构 模型.toml", "🚀模型.toml", "with space.toml"].contains(&name),
             "文件名逐字保留（含 UTF-8 / 空格）: {name}"

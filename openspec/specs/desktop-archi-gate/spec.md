@@ -125,7 +125,7 @@ ArchiCheck 步 SHALL 按报告派生结论并按所在表项的 `on_fail` 分派
 - **root**：SHALL 为 run 的 exec root（有 worktree 时 `detail.worktree`，legacy change 为主仓根）——模型与源码同根读盘，MUST NOT 混根。initialize 表头同守本条（其 `Clean` 步已把 worktree 恢复为基线态，故观察根即基线快照）。
 - **变更集（增量挂载点，implement）**：变更文件清单 SHALL 经 `ArchiveVcsPort::change_edit_set(root, "HEAD")` 由 `steps.rs` 取数后注入（与 mutation 的清单注入同式，唯一入口）；取数失败 SHALL 显式传播为步失败，MUST NOT 降级为空清单（空清单会静默变成 `noChanges` = 假通过）。
 - **变更集（全量挂载点，initialize）**：`changed` SHALL 为空且 `steps.rs` MUST NOT 触碰 vcs 缝（零 `change_edit_set` 调用——全量模式忽略变更集，取数只会引入与基线架构无关的失败面）。全量模式扫整个观察根的源文件（遍历 + 排除约定见 desktop-archi-drift「扫描范围与测试文件排除正交」）。
-- **模型**：SHALL 读同一 root 下的架构模型（`<archi_dir>/models/*.toml`）；模型不存在即 `skipped`（不阻断），模型结构错即不通过（阻断）——两挂载点同一口径。
+- **模型**：SHALL 读同一 root 下的架构模型（`<archi_dir>/graph/model/*.toml`）；模型不存在即 `skipped`（不阻断），模型结构错即不通过（阻断）——两挂载点同一口径。
 - **不读工作区配置**：本步 MUST NOT 读 `.dev-team/config.json`（不含 `tests[]` 扩展名矩阵、不含 `static_analysis`）；扫描排除与豁免只来自架构域配置（见 desktop-archi-drift「架构域看护配置」）。
 
 #### Scenario: worktree 根下模型与源码同根

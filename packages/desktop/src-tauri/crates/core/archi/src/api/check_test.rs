@@ -89,7 +89,7 @@ fn element(fqn: &str, paths: &[&str]) -> ArchiElement {
         path: paths.iter().map(|path| (*path).to_owned()).collect(),
         summary: None,
         metadata: BTreeMap::new(),
-        model_file: ".dev-team/architecture/models/01-test.toml".to_owned(),
+        model_file: ".dev-team/architecture/graph/model/01-test.toml".to_owned(),
         model_line: 1,
         mark: NodeMark::None,
         doc: None,

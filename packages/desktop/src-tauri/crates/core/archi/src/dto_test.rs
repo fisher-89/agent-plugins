@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use foundation::layout::archi_models_dir;
+use foundation::layout::archi_graph_model_dir;
 use serde_json::json;
 
 use crate::dto::{
@@ -53,15 +53,15 @@ impl TempDir {
     }
 
     fn write_model(&self, name: &str, content: &str) {
-        let dir = archi_models_dir(&self.0);
-        fs::create_dir_all(&dir).expect("创建模型目录失败");
+        let dir = archi_graph_model_dir(&self.0);
+        fs::create_dir_all(&dir).expect("创建模型声明目录失败");
         fs::write(dir.join(name), content).expect("写模型文件失败");
     }
 
-    /// 带模型目录的空根（用于「空目录」形态）。
+    /// 带模型声明目录的空根（用于「空目录」形态）。
     fn with_empty_models(tag: &str) -> Self {
         let temp = TempDir::new(tag);
-        fs::create_dir_all(archi_models_dir(temp.root())).expect("建空模型目录");
+        fs::create_dir_all(archi_graph_model_dir(temp.root())).expect("建空模型声明目录");
         temp
     }
 }
@@ -183,7 +183,7 @@ fn graph_view健康模型稳定序与显式空值() {
     assert_eq!(auth.path, vec!["./src/auth/".to_owned()]);
     assert_eq!(auth.summary.as_deref(), Some("认证域"));
     assert_eq!(
-        auth.model_file, ".dev-team/architecture/models/01-core.toml",
+        auth.model_file, ".dev-team/architecture/graph/model/01-core.toml",
         "modelFile 精确到文件"
     );
     assert_eq!(auth.model_line, line_at(CORE, "[element.\"App.Auth\"]"));
@@ -837,7 +837,7 @@ fn 缺省与可选字段显式线形() {
     let diagnostic = ArchiDiagnostic {
         kind: DiagnosticKind::MissingField,
         message: "缺字段".to_owned(),
-        file: ".dev-team/architecture/models/01.toml".to_owned(),
+        file: ".dev-team/architecture/graph/model/01.toml".to_owned(),
         line: 0,
         column: None,
     };
@@ -858,7 +858,7 @@ fn 缺省与可选字段显式线形() {
         path: Vec::new(),
         summary: None,
         metadata: std::collections::BTreeMap::new(),
-        model_file: ".dev-team/architecture/models/01.toml".to_owned(),
+        model_file: ".dev-team/architecture/graph/model/01.toml".to_owned(),
         model_line: 1,
         mark: NodeMark::None,
         doc: None,
@@ -1043,7 +1043,7 @@ fn declared_ref(root: &Path, fqn: &str) -> serde_json::Value {
         path: vec!["src/mod/".to_owned()],
         summary: None,
         metadata: std::collections::BTreeMap::new(),
-        model_file: ".dev-team/architecture/models/01.toml".to_owned(),
+        model_file: ".dev-team/architecture/graph/model/01.toml".to_owned(),
         model_line: 1,
         mark: NodeMark::None,
         doc: None,
@@ -1394,7 +1394,7 @@ fn archi_element_api两态线形() {
         path: vec!["./src/mod/".to_owned()],
         summary: Some("模块摘要".to_owned()),
         metadata: std::collections::BTreeMap::from([("owner".to_owned(), "core".to_owned())]),
-        model_file: ".dev-team/architecture/models/01.toml".to_owned(),
+        model_file: ".dev-team/architecture/graph/model/01.toml".to_owned(),
         model_line: 7,
         mark: NodeMark::None,
         doc: None,
@@ -1483,7 +1483,7 @@ fn archi_api_ref超长与特殊字符路径() {
             path: vec!["src/x/".to_owned()],
             summary: None,
             metadata: std::collections::BTreeMap::new(),
-            model_file: ".dev-team/architecture/models/01.toml".to_owned(),
+            model_file: ".dev-team/architecture/graph/model/01.toml".to_owned(),
             model_line: 1,
             mark: NodeMark::None,
             doc: None,

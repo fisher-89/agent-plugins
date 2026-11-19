@@ -26,10 +26,10 @@ fn tempdir(tag: &str) -> tempfile::TempDir {
         .expect("创建合成目录失败")
 }
 
-/// 落一个模型文件（`.dev-team/architecture/models/`）。
+/// 落一个模型文件（`.dev-team/architecture/graph/model/`）。
 fn write_model(root: &Path, name: &str, content: &str) {
-    let dir = root.join(".dev-team/architecture/models");
-    fs::create_dir_all(&dir).expect("创建模型目录失败");
+    let dir = root.join(".dev-team/architecture/graph/model");
+    fs::create_dir_all(&dir).expect("创建模型声明目录失败");
     fs::write(dir.join(name), content).expect("写模型文件失败");
 }
 
@@ -139,7 +139,7 @@ async fn archi_module指定元素返回邻接与声明位置() {
     assert_eq!(element["metadata"]["owner"], json!("core"));
     assert_eq!(
         element["modelFile"],
-        json!(".dev-team/architecture/models/01-core.toml")
+        json!(".dev-team/architecture/graph/model/01-core.toml")
     );
     let line = element["modelLine"].as_u64().expect("modelLine 为数字");
     assert!(line >= 1, "modelLine 可直接 edit 到声明行: {line}");

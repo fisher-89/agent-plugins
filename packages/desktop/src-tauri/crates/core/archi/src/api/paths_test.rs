@@ -72,13 +72,13 @@ impl TempDir {
         fs::write(&path, content).expect("写文件失败");
     }
 
-    /// 落模型（`.dev-team/architecture/models/01-test.toml`）。
+    /// 落模型（`.dev-team/architecture/graph/model/01-test.toml`）。
     ///
     /// 叶元素的祖先链自动补齐：`render_all` 的元素表经 `dto::graph_view` 取数，
     /// 缺祖先即 `orphanHierarchy` 结构错（fail-closed）。
     fn write_model(&self, content: &str) {
         self.write(
-            ".dev-team/architecture/models/01-test.toml",
+            ".dev-team/architecture/graph/model/01-test.toml",
             &declare_ancestors(content),
         );
     }
@@ -110,7 +110,7 @@ fn element(fqn: &str, paths: &[&str]) -> ArchiElement {
         path: paths.iter().map(|path| (*path).to_owned()).collect(),
         summary: None,
         metadata: BTreeMap::new(),
-        model_file: ".dev-team/architecture/models/01-test.toml".to_owned(),
+        model_file: ".dev-team/architecture/graph/model/01-test.toml".to_owned(),
         model_line: 1,
         mark: NodeMark::None,
         doc: None,

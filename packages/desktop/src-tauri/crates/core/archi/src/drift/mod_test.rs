@@ -56,9 +56,9 @@ impl TempDir {
         fs::write(&path, content).expect("写文件失败");
     }
 
-    /// 落模型（`.dev-team/architecture/models/01-test.toml`）。
+    /// 落模型（`.dev-team/architecture/graph/model/01-test.toml`）。
     fn write_model(&self, content: &str) {
-        self.write(".dev-team/architecture/models/01-test.toml", content);
+        self.write(".dev-team/architecture/graph/model/01-test.toml", content);
     }
 
     /// 落架构域看护配置（唯一合法位置）。
@@ -178,11 +178,14 @@ fn 无模型返回skipped() {
     assert_eq!(report.scan.scanned_files, 0, "不扫描");
 }
 
-/// 边界（D3）：模型目录在但零 `*.toml`（只有 README）→ `skipped`。
+/// 边界（D3）：模型声明目录在但零 `*.toml`（只有 README）→ `skipped`。
 #[test]
 fn 模型目录空返回skipped() {
     let temp = TempDir::new("empty-models-dir");
-    temp.write(".dev-team/architecture/models/README.md", "# 模型说明\n");
+    temp.write(
+        ".dev-team/architecture/graph/model/README.md",
+        "# 模型说明\n",
+    );
     temp.write("src/a.ts", "export const a = 1;\n");
     let report = run_full(temp.root()).expect("零 toml 不是错误");
     assert_eq!(

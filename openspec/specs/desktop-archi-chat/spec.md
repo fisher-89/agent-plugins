@@ -106,14 +106,14 @@
 架构页会话的工具面 SHALL 为七通用工具（含 `write` / `edit` / `bash`）叠加两 archi 只读工具（注入矩阵与工具面见 `desktop-archi-agent`）：**写权落在会话里，画布仍零写入口**。
 
 - **画布不参与**：`mode = "full"` 的画布 MUST NOT 因本能力新增任何可提交的 `gate` 编辑入口或写命令（见 `desktop-archi-canvas`「能力差异」的消歧条款）；MUST NOT 以「会话能写」为理由放宽画布，也 MUST NOT 以「画布只读」为理由禁会话写。
-- **直改主仓**：agent 写模型 SHALL 直改主仓 `<archi_dir>/models/*.toml`（无 worktree、无归档确认回合、无专用写工具，仍用 `write` / `edit`）；写入不校验、读取报错（既有纪律见 `desktop-archi-agent`「模型 = 源码」）。
+- **直改主仓**：agent 写模型 SHALL 直改主仓 `<archi_dir>/graph/model/*.toml`（无 worktree、无归档确认回合、无专用写工具，仍用 `write` / `edit`）；写入不校验、读取报错（既有纪律见 `desktop-archi-agent`「模型 = 源码」）。
 - **可见性**：agent 写盘后画布 MUST NOT 自动更新（零 watch 零轮询的必然推论）；用户点 `archi-refresh` 后 SHALL 见到新图，模型被写坏时 SHALL 见到停摆态诊断（`file:line` 逐条，与 agent 读取面同一份 `archi::dto` 投影）。该语义 SHALL 在面板状态行提示，MUST NOT 被当作缺陷处理。
 - **零自动提交**：会话 MUST NOT 在轮收口或写盘后自动提交 / 自动归档 / 自动 `git add`；改动一律经用户 `git diff` 评审后自行处置。
 - **档位**：composer 不呈档位行（`AgentInput` 缺省 `hidePermissionMode = true`），发送恒携缺省 `bypassPermissions`（与既有 `AgentInput` 一致）；静态权限三档语义零改动（`default` 档仍拒绝 `write` / `edit` / `bash`），档位选择仅在显式 `hidePermissionMode = false` 的消费点可用。
 
 #### Scenario: 直改主仓模型成功
 
-- **WHEN** 在架构面板会话中要求 agent 新增一个元素并写入 `<archi_dir>/models/09-billing.toml`
+- **WHEN** 在架构面板会话中要求 agent 新增一个元素并写入 `<archi_dir>/graph/model/09-billing.toml`
 - **THEN** 写入落在主仓该文件（工作区其他会话随即可读），会话行与事件转录正常收口；画布在用户点刷新前保持旧图
 
 #### Scenario: 写后刷新才可见

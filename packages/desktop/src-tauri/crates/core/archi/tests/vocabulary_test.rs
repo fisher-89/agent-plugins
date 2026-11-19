@@ -34,7 +34,8 @@ impl TempDir {
             tag
         ));
         let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(dir.join(".dev-team/architecture/models")).expect("建模型目录失败");
+        fs::create_dir_all(dir.join(".dev-team/architecture/graph/model"))
+            .expect("建模型声明目录失败");
         TempDir(dir)
     }
 
@@ -44,7 +45,7 @@ impl TempDir {
 
     fn write_model(&self, name: &str, content: &str) {
         fs::write(
-            self.0.join(".dev-team/architecture/models").join(name),
+            self.0.join(".dev-team/architecture/graph/model").join(name),
             content,
         )
         .expect("写模型文件失败");
@@ -524,7 +525,7 @@ fn api_status线词与投影串对拍() {
             path: vec!["src/mod/".to_owned()],
             summary: None,
             metadata: std::collections::BTreeMap::new(),
-            model_file: ".dev-team/architecture/models/01.toml".to_owned(),
+            model_file: ".dev-team/architecture/graph/model/01.toml".to_owned(),
             model_line: 1,
             mark: NodeMark::None,
             doc: None,

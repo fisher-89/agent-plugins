@@ -99,15 +99,20 @@ fn contract_markdown(fqn: &str) -> String {
     )
 }
 
+/// 后端 crate 形态的模型声明（`App` 容器 + `App.Backend.Core.Archi` 叶）。
+const CRATE_MODEL: &str = concat!(
+    "[element.\"App\"]\nkind = \"package\"\ngate = \"off\"\npath = []\n\n",
+    "[element.\"App.Backend\"]\nkind = \"domain\"\ngate = \"off\"\npath = []\n\n",
+    "[element.\"App.Backend.Core\"]\nkind = \"domain\"\ngate = \"off\"\npath = []\n\n",
+    "[element.\"App.Backend.Core.Archi\"]\nkind = \"module\"\ngate = \"off\"\n",
+    "path = [\"crates/core/archi/\"]\n",
+);
+
 /// 落一套可生成的后端 crate 元素（模型 + `src/lib.rs` + 契约）。
 fn stage_crate(temp: &TempDir) {
     temp.write(
-        ".dev-team/architecture/models/01-test.toml",
-        "[element.\"App\"]\nkind = \"package\"\ngate = \"off\"\npath = []\n\n\
-         [element.\"App.Backend\"]\nkind = \"domain\"\ngate = \"off\"\npath = []\n\n\
-         [element.\"App.Backend.Core\"]\nkind = \"domain\"\ngate = \"off\"\npath = []\n\n\
-         [element.\"App.Backend.Core.Archi\"]\nkind = \"module\"\ngate = \"off\"\n\
-         path = [\"crates/core/archi/\"]\n",
+        ".dev-team/architecture/graph/model/01-test.toml",
+        CRATE_MODEL,
     );
     temp.write(
         "crates/core/archi/src/lib.rs",
@@ -126,7 +131,7 @@ fn stage_crate(temp: &TempDir) {
 /// `views/welcome-view.i.ts`（入口同级、`<root>` 主干逐字不变）。
 fn stage_ts(temp: &TempDir) {
     temp.write(
-        ".dev-team/architecture/models/02-test.toml",
+        ".dev-team/architecture/graph/model/02-test.toml",
         "[element.\"App\"]\nkind = \"package\"\ngate = \"off\"\npath = []\n\n\
          [element.\"App.Frontend\"]\nkind = \"domain\"\ngate = \"off\"\npath = []\n\n\
          [element.\"App.Frontend.Views\"]\nkind = \"domain\"\ngate = \"off\"\npath = []\n\n\
@@ -296,12 +301,19 @@ fn generate目录创建经layout派生() {
     assert!(contracts.exists(), "夹具已在契约目录下落地 md");
     assert_eq!(remove_contract_md(&contracts), 1, "夹具仅一份契约 md");
     assert!(
-        contracts.join("01-test.toml").exists(),
-        "清空只摘 md：模型文件仍在（不是启用证据也不被误删）"
+        foundation::layout::archi_graph_model_dir(temp.root())
+            .join("01-test.toml")
+            .exists(),
+        "清空只摘 md：模型声明仍在（不是启用证据也不被误删）"
     );
     let graph = foundation::layout::archi_graph_dir(temp.root());
     fs::remove_dir_all(&graph).ok();
     assert!(!graph.exists(), "索引目录已清空");
+    // 模型声明与索引同树（graph/model）：清空 graph 会连模型一起摘掉，按仓库形态重落模型
+    temp.write(
+        ".dev-team/architecture/graph/model/01-test.toml",
+        CRATE_MODEL,
+    );
 
     assert_eq!(run(Command::Generate, temp.root()).expect("生成应成功"), 0);
     assert!(graph.exists(), "索引目录由 layout 派生重建");
@@ -530,7 +542,7 @@ fn check零写盘总断言() {
 fn check未启用契约面() {
     let temp = TempDir::new("check-no-contract-face");
     temp.write(
-        ".dev-team/architecture/models/01-test.toml",
+        ".dev-team/architecture/graph/model/01-test.toml",
         "[element.\"App\"]\nkind = \"package\"\ngate = \"off\"\n\n\
          [element.\"App.Backend\"]\nkind = \"domain\"\ngate = \"off\"\n\n\
          [element.\"App.Backend.Core\"]\nkind = \"domain\"\ngate = \"off\"\n\n\
@@ -1361,15 +1373,15 @@ fn generate结构错模型即err且零写盘() {
     stage_crate(&temp);
     // 用环语料覆盖模型（祖先链刻意缺失 ⇒ 结构诊断）
     temp.write(
-        ".dev-team/architecture/models/01-broken.toml",
+        ".dev-team/architecture/graph/model/01-broken.toml",
         "[element.\"App\"]\nkind = \"package\"\n\n\
          [element.\"App.A\"]\nkind = \"module\"\n\n\
          [element.\"App.B\"]\nkind = \"module\"\n\n\
          [[relation]]\nfrom = \"App.A\"\nto = \"App.B\"\n\n\
          [[relation]]\nfrom = \"App.B\"\nto = \"App.A\"\n",
     );
-    let staged_models = fs::read_dir(foundation::layout::archi_models_dir(temp.root()))
-        .expect("读模型目录")
+    let staged_models = fs::read_dir(foundation::layout::archi_graph_model_dir(temp.root()))
+        .expect("读模型声明目录")
         .flatten()
         .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "toml"))

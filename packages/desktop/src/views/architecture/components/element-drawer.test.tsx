@@ -31,7 +31,7 @@ function element(overrides: Partial<ArchiElement> = {}): ArchiElement {
     path: ['./src/auth/', './src/token/'],
     summary: '认证域',
     metadata: { owner: 'core' },
-    modelFile: '.dev-team/architecture/models/01-core.toml',
+    modelFile: '.dev-team/architecture/graph/model/01-core.toml',
     modelLine: 6,
     entry: null,
     doc: null,
@@ -123,7 +123,7 @@ describe('抽屉概览', () => {
     expect(drawer.textContent).toContain('kind domain · gate strict');
     expect(drawer.textContent).toContain('path ./src/auth/、./src/token/');
     expect(screen.getByTestId('archi-drawer-position').textContent).toBe(
-      '.dev-team/architecture/models/01-core.toml:6',
+      '.dev-team/architecture/graph/model/01-core.toml:6',
     );
     expect(drawer.textContent).toContain('认证域');
   });
@@ -141,7 +141,7 @@ describe('抽屉概览', () => {
     );
     await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
     expect(screen.getByTestId('archi-drawer-position').textContent).toBe(
-      '.dev-team/architecture/models/01-core.toml',
+      '.dev-team/architecture/graph/model/01-core.toml',
     );
   });
 

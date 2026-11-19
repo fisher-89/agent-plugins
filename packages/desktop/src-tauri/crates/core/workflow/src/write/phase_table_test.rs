@@ -3350,7 +3350,7 @@ fn 命中md零路径模板() {
             "{name} 不应含架构域路径字面量"
         );
         assert!(
-            !text.contains("architecture/models"),
+            !text.contains("architecture/graph/model"),
             "{name} 不应含模型目录路径模板"
         );
         assert!(

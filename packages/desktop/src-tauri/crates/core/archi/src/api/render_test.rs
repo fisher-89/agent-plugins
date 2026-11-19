@@ -55,13 +55,13 @@ impl TempDir {
         fs::write(path, content).expect("写文件失败");
     }
 
-    /// 落模型（`.dev-team/architecture/models/01-test.toml`，祖先链自动补齐）。
+    /// 落模型（`.dev-team/architecture/graph/model/01-test.toml`，祖先链自动补齐）。
     ///
     /// `elements_of` 经 `dto::graph_view` 取数：缺祖先即 `orphanHierarchy` 结构错，
     /// 而本文件多数夹具只声明叶元素，故统一在落盘前补齐（与 `paths_test` 同一装置）。
     fn write_model(&self, content: &str) {
         self.write(
-            ".dev-team/architecture/models/01-test.toml",
+            ".dev-team/architecture/graph/model/01-test.toml",
             &declare_ancestors(content),
         );
     }
@@ -269,7 +269,7 @@ fn workspace_render结构诊断非空即err() {
     for (kind, model) in broken_models() {
         let temp = TempDir::new(&format!("render-broken-{kind}"));
         // 绕过 `declare_ancestors` 直接落盘坏模型（补齐会让孤儿层级变成合法树）
-        temp.write(".dev-team/architecture/models/01-test.toml", model);
+        temp.write(".dev-team/architecture/graph/model/01-test.toml", model);
         temp.write_contract("App.Core.Archi", &typed_contract("App.Core.Archi"));
 
         let error = workspace_render(temp.root()).expect_err("结构错 ⇒ 整体 Err");
@@ -302,7 +302,7 @@ fn workspace_render结构诊断非空即err() {
 fn workspace_render坏模型零写盘() {
     let temp = TempDir::new("render-broken-no-write");
     temp.write(
-        ".dev-team/architecture/models/01-test.toml",
+        ".dev-team/architecture/graph/model/01-test.toml",
         broken_models()[0].1,
     );
     temp.write_contract("App.Core.Archi", &typed_contract("App.Core.Archi"));
@@ -331,7 +331,8 @@ fn workspace_render坏模型零写盘() {
 fn workspace_render空模型冷启动应生成集() {
     let absent = TempDir::new("render-empty-absent");
     let no_toml = TempDir::new("render-empty-no-toml");
-    fs::create_dir_all(no_toml.root().join(".dev-team/architecture/models")).expect("建空模型目录");
+    fs::create_dir_all(no_toml.root().join(".dev-team/architecture/graph/model"))
+        .expect("建空模型声明目录");
 
     for (tag, temp) in [("模型目录缺席", &absent), ("零 toml", &no_toml)] {
         let files = workspace_render(temp.root()).expect("空模型不报错");

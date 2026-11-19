@@ -402,13 +402,13 @@ fn 定位单点() {
         "{ \"exclude\": [\"src/workspace/**\"] }",
     );
     elsewhere.write(
-        ".dev-team/architecture/models/config.json",
+        ".dev-team/architecture/graph/model/config.json",
         "{ \"exclude\": [\"src/models/**\"] }",
     );
     let config = load(elsewhere.root()).expect("别处文件不影响");
     assert!(
         config.exclude.is_empty(),
-        "工作区配置位置 / 模型目录下的同名文件 MUST NOT 被读取"
+        "工作区配置位置 / 模型声明目录下的同名文件 MUST NOT 被读取"
     );
 }
 

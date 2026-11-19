@@ -24,7 +24,7 @@
 - **载体为 md 内含 fenced json，MUST NOT 用 JSON 内嵌 `description`（散文变整行超长字符串）与 YAML block scalar**：YAML 1.1 把 `off` / `on` / `yes` / `no` 解析为布尔，而 `off` 恰是本仓 `GateTier` 的真实枚举值，各语言解析器版本不一致会破坏跨语言一致性。
 - **双向 gate（机械可校验）**：`### <op-id>` heading 集合 SHALL ≡ `api-op` fence 归属集合；`api-types` fence 的键集 SHALL ⊆ `<FQN>.schema.json` 的 `$defs` 键集；`api-reexport` fence 键集 SHALL ≡ 同文件散文区透传列表。任一不成立 SHALL 判为契约错误并点名缺失项。
 - **统一目录（不跟代码走）**：契约 MUST NOT 落元素主目录。审计型问题（「这批改动动了哪些模块的契约」）只有统一目录能答（`git diff --stat <archi>/models/<Domain>/` 即列出），且无替代物；伴随型问题（「我改的这行契约同步了吗」）由门禁机械回答，不需要文件相邻。代价 SHALL 显式留痕：在 crate 里读代码时看不到契约，只能经画布 / `archi_module` / 门禁失败提示 / 全局搜索四条路之一。
-- **与模型同树（`models/` 双身份，本变更承认的事实）**：`<archi_models_dir>` SHALL 同时容纳两类住户，且两类互不参与对方的判据——**一级文件**是模型声明（恰六个 `NN-<域>.toml`，见 `repo-archi-model`「基线落位与模型文件划分」）；**`<Domain>/` 子目录**是契约资产（`<FQN>.md` 手写真相 + `<FQN>.schema.json` 生成物）。模型解析的收面判据因此 SHALL 为「一级 + `.toml` 后缀」（不递归、不按目录名猜），MUST NOT 因同目录出现 md / schema / 子目录而改变；反向，契约面的收面判据 MUST NOT 把一级 `*.toml` 当契约或启用证据。文件命名因此承担了全部身份区分，MUST NOT 引入第二份目录级豁免清单。
+- **与模型分目录（模型声明在 `graph/model/`，契约资产在 `models/`）**：`<archi_models_dir>` SHALL 只容纳契约资产——**`<Domain>/` 子目录**内的 `<FQN>.md`（手写真相）+ `<FQN>.schema.json`（生成物）；模型声明（恰六个 `NN-<域>.toml`，见 `repo-archi-model`「基线落位与模型文件划分」）在另一目录 `<archi_graph_model_dir>`（`<archi_graph_dir>/model`）。两面的分离判据是**目录**：模型解析的收面只扫 `graph/model/` 一级，MUST NOT 因 `models/` 出现 md / schema / `.toml` 而改变；反向，契约面的收面 MUST NOT 把 `graph/model/*.toml` 当契约或启用证据。MUST NOT 引入目录级豁免清单（目录分家本身就是判据）。
 - **契约 md = declared 元素的入口文档（把「落点唯一」变成结构性事实）**：`api = declared`（含缺省）元素的**入口文档就是这个派生落点**，故——
   1. 模型 MUST NOT 为该元素声明 `doc`：写了即 `apiUnexpected`（两事实矛盾），且该值不参与任何判定——`contract_path` 既是派生值又是契约装载源（`load_contracts` 只认它），若放行第二个可写事实，就会出现「`doc` 指向的带 fence 文件让判据以为契约在案、而装载器读的是派生路径」⇒ 零判据静默通过；
   2. `api = none` 元素的入口文档由模型 `doc` 单值声明（可选；不写 = 无入口文档，合法但产出 `docMissing` 读数），该元素 MUST NOT 在派生路径上留契约文件（留了即 `apiUnexpected`）。
@@ -48,10 +48,10 @@
 - **WHEN** 审查资产形态与提交内容
 - **THEN** `<archi_dir>/models/<Domain>/` 下每个元素只有一份 `*.md` 手写真相（同目录的 `.schema.json` 为生成物且头部带警示；`INDEX.toml` 不在契约目录内，落 `<archi_dir>/graph/`）；不存在与 `.md` 配对的第二份手写 `.json`，散文不出现在 JSON 字符串里
 
-#### Scenario: 契约与模型同树互不干扰
+#### Scenario: 契约与模型分目录互不干扰
 
-- **WHEN** 在 `models/` 于六个 `NN-<域>.toml` 之外同时放入 `<Domain>/<FQN>.md`、`<Domain>/<FQN>.schema.json` 与三级子目录，随后跑一次模型解析与一次契约装载
-- **THEN** 模型解析结果与只放六个 toml 时逐字相同（`diagnostics` 空、元素 / 关系计数不变——收面判据是「一级 + `.toml` 后缀」）；契约装载恰好读到那份 md；任一方向 MUST NOT 因同目录混居产生诊断或判据
+- **WHEN** 在 `<archi_dir>/graph/model/` 放六个 `NN-<域>.toml`，同时在 `<archi_dir>/models/` 放 `<Domain>/<FQN>.md`、`<Domain>/<FQN>.schema.json` 与三级子目录，随后跑一次模型解析与一次契约装载
+- **THEN** 模型解析结果与只放六个 toml 时逐字相同（`diagnostics` 空、元素 / 关系计数不变——收面判据是「`graph/model/` 一级 + `.toml` 后缀」）；契约装载恰好读到那份 md；任一方向 MUST NOT 因两目录并存产生诊断或判据；反向在 `models/` 一级放一份合法 `.toml` MUST NOT 进模型收面
 
 #### Scenario: declared 元素写 doc 即两事实矛盾
 
@@ -65,12 +65,12 @@
 
 #### Scenario: 启用判据不因杂项 md 误启用
 
-- **WHEN** 观察根下 `models/` 一级有六个 `NN-<域>.toml`，另有 `models/notes.md`（非任何元素的载体）与 `<Domain>/notes.md`（无 fence）
+- **WHEN** 观察根下 `graph/model/` 一级有六个 `NN-<域>.toml`，另有 `models/notes.md`（非任何元素的载体）与 `<Domain>/notes.md`（无 fence）
 - **THEN** `api::enabled = false` 且 `apiFindings = []`；随后在某 `api = declared` 元素的派生契约路径放入一份带 `api-op` fence 的 md ⇒ `enabled = true`、全部 `path` 非空元素纳入判据
 
 ### Requirement: schema.json 与 INDEX.toml 为纯派生且不可手改
 
-每个契约 SHALL 派生 `<FQN>.schema.json`（JSON Schema 投影，与 `<FQN>.md` 同目录，即 `<archi_models_dir>/<Domain>/`），并由全体契约派生出 `INDEX.toml`（落 `<archi_graph_dir>` 下、全局唯一一份，MUST NOT 落契约目录 = 模型目录的根）。两者都是生成物、都不可手改。
+每个契约 SHALL 派生 `<FQN>.schema.json`（JSON Schema 投影，与 `<FQN>.md` 同目录，即 `<archi_models_dir>/<Domain>/`），并由全体契约派生出 `INDEX.toml`（落 `<archi_graph_dir>` 下、全局唯一一份，MUST NOT 落契约目录的根、MUST NOT 落模型声明目录 `graph/model/`）。两者都是生成物、都不可手改。
 
 `<FQN>.schema.json` SHALL 的每一项字段都必须有 markdown 出处，生成器只做**装配**不做**翻译**：
 
@@ -86,7 +86,7 @@
 
 - **不可手改**：生成物 SHALL 带警示（`$comment` 文本 / 首行注释），文案须说明「由 `<FQN>.md` 生成、手改将在下次 generate 时被覆盖、且零 diff 门会失败」。MUST NOT 为任何内容开口手改——`api-types` / `api-op` fence 的内容本身就是原生 JSON Schema（`minLength` / `pattern` / `enum` / `anyOf` / `x-*` 均可在 md 内表达），表达不了即生成器能力不足，应修生成器。
 - **必须提交**：两份生成物 SHALL 入库（MUST NOT `.gitignore`）——零 diff 门需要 git 基线、工具可离线消费、审计型 review 可 `git diff --stat` 一眼看全。
-- **索引与契约目录分家（本变更）**：`INDEX.toml` SHALL 落 `<archi_graph_dir>`，MUST NOT 落 `<archi_models_dir>` 根。判据是机械的：模型聚合的收面是「一级 + `.toml` 后缀」（`desktop-archi-model`「多文件聚合与声明定位」）且单文件反序列化 `deny_unknown_fields`——索引落模型目录根会被当模型文件解析，产出 `unknownField` 诊断并使模型停摆；`drift` 的 `modelHash` 取同一收面，索引落根还会改变全部漂移金样。故索引路径 SHALL 由 `paths::index_path(root)` 单点派生为 `<archi_graph_dir>/INDEX.toml`，MUST NOT 由契约目录 `join` 得到。
+- **索引独立于契约目录与模型声明目录（本变更）**：`INDEX.toml` SHALL 落 `<archi_graph_dir>`，MUST NOT 落 `<archi_models_dir>` 根（契约目录根只住契约资产），亦 MUST NOT 落 `<archi_graph_model_dir>`（模型声明目录）。判据是机械的：模型聚合的收面是「`graph/model/` 一级 + `.toml` 后缀」（`desktop-archi-model`「多文件聚合与声明定位」）且单文件反序列化 `deny_unknown_fields`——索引落模型声明目录根会被当模型文件解析，产出 `unknownField` 诊断并使模型停摆；`drift` 的 `modelHash` 取同一收面，索引落根还会改变全部漂移金样。故索引路径 SHALL 由 `paths::index_path(root)` 单点派生为 `<archi_graph_dir>/INDEX.toml`，MUST NOT 由契约目录 `join` 得到。
 - **review 口径**：每次改契约产生多份 diff；因 schema 零手改自由度，review SHALL 只读 `.md`，schema diff 视为机械噪声——该口径 SHALL 落 `INDEX.toml` 的说明段（不写进散文约定）。
 - `INDEX.toml` SHALL 按元素列出：`fqn` / `api` 状态 / 类型数 / 操作数 / 生成物路径 / `degraded` 计数 / `category` 分布，并含 review 口径说明段；条目序 SHALL 为 FQN 字典序（稳定序，便于断言与 diff）。说明段的「契约面：目录 …」串 SHALL 取 `<archi_models_rel_dir>`（契约资产所在的相对路径，MUST NOT 取索引自身所在目录——索引与契约已分家，写成索引目录会指错地方）。
 - **派生前置（消费方约束）**：读 `schema.json` 的工具 SHALL 以 **draft 2020-12 校验器**配合 `strict: "log"` 或 `false`（`x-function` / `x-common` / `x-class` 是未知关键字，strict 模式必然报错），并 SHALL 先按 `$id` 逐个注册被引用 schema（跨文件 `$ref` 是结构性的，`schema.json` 不自包含）。
@@ -111,9 +111,9 @@
 - **WHEN** 修改一份契约的类型数（加 1 个 `$defs` 条目）后重生成
 - **THEN** `INDEX.toml` 该元素的类型数与 `degraded` 计数随动，其余元素条目逐字不变；条目序为 FQN 字典序；说明段的「契约面：目录」取 `<archi_models_rel_dir>`（与索引自身所在的 `<archi_graph_rel_dir>` 不同串）
 
-#### Scenario: 索引落模型目录根被拒
+#### Scenario: 索引落模型声明目录根被拒
 
-- **WHEN** 手工把 `INDEX.toml` 复制到 `<archi_models_dir>/INDEX.toml`（契约目录根）后跑一次模型解析
+- **WHEN** 手工把 `INDEX.toml` 复制到 `<archi_graph_model_dir>/INDEX.toml`（模型声明目录根）后跑一次模型解析
 - **THEN** 该文件被当模型文件解析并产出 `unknownField` 诊断（`[[entry]]` 非模型字段），模型进入停摆态；`drift` 的 `modelHash` 随该文件变化——两处判红即本条的存在理由；删除该副本后恢复零诊断、`modelHash` 回到原值
 
 ### Requirement: 引用与命名规则

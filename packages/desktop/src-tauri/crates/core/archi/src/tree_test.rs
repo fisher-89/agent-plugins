@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use foundation::layout::{archi_config_path, archi_models_dir};
+use foundation::layout::{archi_config_path, archi_graph_model_dir};
 
 use crate::dto::{ArchiFileEntry, ArchiFileTree, FileEntryKind, FileTreeMark};
 
@@ -53,8 +53,8 @@ impl TempDir {
 
     /// 落模型（单文件）：每项为 `(FQN, kind, path 列表)`。
     fn write_model(&self, elements: &[(&str, &str, &[&str])]) {
-        let dir = archi_models_dir(&self.0);
-        fs::create_dir_all(&dir).expect("创建模型目录失败");
+        let dir = archi_graph_model_dir(&self.0);
+        fs::create_dir_all(&dir).expect("创建模型声明目录失败");
         fs::write(dir.join("01-test.toml"), model_toml(elements)).expect("写模型文件失败");
     }
 
@@ -658,8 +658,8 @@ fn 结构诊断非空即错误且不给部分树() {
 
     for (tag, source, why) in cases {
         let temp = TempDir::new(&format!("diag-{tag}"));
-        let dir = archi_models_dir(temp.root());
-        fs::create_dir_all(&dir).expect("建模型目录");
+        let dir = archi_graph_model_dir(temp.root());
+        fs::create_dir_all(&dir).expect("建模型声明目录");
         fs::write(dir.join("01-test.toml"), source).expect("写模型");
         temp.write("src/a.ts", "export const a = 1;\n");
 
@@ -676,7 +676,7 @@ fn 空模型返回全无主条目而非错误() {
     for tag in ["models-absent", "models-empty"] {
         let temp = TempDir::new(tag);
         if tag == "models-empty" {
-            fs::create_dir_all(archi_models_dir(temp.root())).expect("建空模型目录");
+            fs::create_dir_all(archi_graph_model_dir(temp.root())).expect("建空模型声明目录");
         }
         temp.write("src/a.ts", "export const a = 1;\n");
         temp.write("src/deep/b.rs", "pub fn b() {}\n");
@@ -1305,7 +1305,7 @@ fn 根路径非法与字符串边界形态不panic() {
 
     // 合法但形态特殊的根：空格 / 非 ASCII / emoji 均可正常取数
     let exotic = temp.root().join("空 格🚀");
-    let models = archi_models_dir(&exotic);
+    let models = archi_graph_model_dir(&exotic);
     fs::create_dir_all(&models).expect("建特殊名根");
     fs::write(
         models.join("01-test.toml"),
@@ -1341,8 +1341,8 @@ fn 超大语料的规模与确定性() {
             "[element.\"App.M{index:02}\"]\nkind = \"module\"\npath = [\"./src/m{index:02}/\"]\n\n"
         ));
     }
-    let dir = archi_models_dir(temp.root());
-    fs::create_dir_all(&dir).expect("建模型目录");
+    let dir = archi_graph_model_dir(temp.root());
+    fs::create_dir_all(&dir).expect("建模型声明目录");
     fs::write(dir.join("01-test.toml"), source).expect("写模型");
 
     let mut expected: Vec<(String, String)> = Vec::new();

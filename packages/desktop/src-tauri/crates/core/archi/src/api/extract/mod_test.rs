@@ -39,7 +39,7 @@ fn element(fqn: &str, paths: &[&str]) -> ArchiElement {
         path: paths.iter().map(|path| (*path).to_owned()).collect(),
         summary: None,
         metadata: BTreeMap::new(),
-        model_file: ".dev-team/architecture/models/01-test.toml".to_owned(),
+        model_file: ".dev-team/architecture/graph/model/01-test.toml".to_owned(),
         model_line: 1,
         mark: NodeMark::None,
         doc: None,
@@ -596,7 +596,7 @@ fn extract_element与bootstrap同源() {
     let temp = TempDir::new("element-bootstrap-same");
     let fqn = "App.Core.Alpha";
     temp.write(
-        ".dev-team/architecture/models/01-test.toml",
+        ".dev-team/architecture/graph/model/01-test.toml",
         &crate::api::mod_test::declare_ancestors(&format!(
             "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
         )),

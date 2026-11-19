@@ -58,7 +58,7 @@ fn pilot_element(fqn: &str, paths: &[&str]) -> archi::dto::ArchiElement {
         path: paths.iter().map(|path| (*path).to_owned()).collect(),
         summary: None,
         metadata: BTreeMap::new(),
-        model_file: ".dev-team/architecture/models/03-backend-infra.toml".to_owned(),
+        model_file: ".dev-team/architecture/graph/model/03-backend-infra.toml".to_owned(),
         model_line: 1,
         mark: archi::dto::NodeMark::None,
         doc: None,

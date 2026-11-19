@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use foundation::layout::archi_models_dir;
+use foundation::layout::archi_graph_model_dir;
 
 use crate::dto::GateTier;
 use crate::parse::{SourceParser, TomlParser};
@@ -43,8 +43,8 @@ impl TempDir {
 
     /// 落一个模型文件并返回其绝对路径。
     fn write_model(&self, name: &str, content: &str) -> PathBuf {
-        let dir = archi_models_dir(&self.0);
-        fs::create_dir_all(&dir).expect("创建模型目录失败");
+        let dir = archi_graph_model_dir(&self.0);
+        fs::create_dir_all(&dir).expect("创建模型声明目录失败");
         let path = dir.join(name);
         fs::write(&path, content).expect("写模型文件失败");
         path
@@ -377,8 +377,8 @@ fn plan异常三形态均err() {
 
     // 读盘失败（非 UTF-8 文件）→ 结构诊断路径亦 Err
     let unreadable = TempDir::new("plan-unreadable");
-    let dir = archi_models_dir(unreadable.root());
-    fs::create_dir_all(&dir).expect("建模型目录");
+    let dir = archi_graph_model_dir(unreadable.root());
+    fs::create_dir_all(&dir).expect("建模型声明目录");
     fs::write(dir.join("01-core.toml"), [0xff_u8, 0xfe, 0x80]).expect("写坏文件");
     assert!(
         plan_set_gate(unreadable.root(), "App", GateTier::Strict).is_err(),

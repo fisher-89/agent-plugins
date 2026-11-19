@@ -756,7 +756,7 @@ function archiElement(overrides: Partial<ArchiElement> = {}): ArchiElement {
     path: ['packages/desktop/src/auth'],
     summary: null,
     metadata: {},
-    modelFile: '.dev-team/architecture/models/01-core.toml',
+    modelFile: '.dev-team/architecture/graph/model/01-core.toml',
     modelLine: 1,
     mark: 'none',
     api: 'declared',

@@ -69,14 +69,14 @@ impl TempDir {
         fs::write(path, content).expect("写文件失败");
     }
 
-    /// 落模型（`.dev-team/architecture/models/01-test.toml`）。
+    /// 落模型（`.dev-team/architecture/graph/model/01-test.toml`）。
     ///
     /// `content` 只写叶元素；祖先链由 [`declare_ancestors`] 自动补齐——`elements_of`
     /// 经 `dto::graph_view` 取数，模型缺祖先即 `orphanHierarchy` 结构错（fail-closed），
     /// 而本文件的历史夹具清一色只声明叶元素。
     fn write_model(&self, content: &str) {
         self.write(
-            ".dev-team/architecture/models/01-test.toml",
+            ".dev-team/architecture/graph/model/01-test.toml",
             &declare_ancestors(content),
         );
     }
@@ -179,7 +179,7 @@ fn element(fqn: &str, paths: &[&str]) -> ArchiElement {
         path: paths.iter().map(|path| (*path).to_owned()).collect(),
         summary: None,
         metadata: BTreeMap::new(),
-        model_file: ".dev-team/architecture/models/01-test.toml".to_owned(),
+        model_file: ".dev-team/architecture/graph/model/01-test.toml".to_owned(),
         model_line: 1,
         mark: NodeMark::None,
         doc: None,
@@ -1759,7 +1759,7 @@ fn 结构诊断下render_all与bootstrap拒绝生成() {
     let temp = TempDir::new("render-all-broken-model");
     let fqn = "App.Backend.Infra.ArchiRuntime";
     temp.write(
-        ".dev-team/architecture/models/01-test.toml",
+        ".dev-team/architecture/graph/model/01-test.toml",
         &format!(
             "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\n\
              path = [\"crates/infra/archi/\"]\n"
@@ -2508,7 +2508,7 @@ fn api_ref元素缺席仍报契约事实() {
     // ② 模型结构错（叶子缺祖先链 ⇒ orphanHierarchy）：元素表为空，文件事实仍报
     let broken = TempDir::new("api-ref-broken-model");
     broken.write(
-        ".dev-team/architecture/models/01-test.toml",
+        ".dev-team/architecture/graph/model/01-test.toml",
         &format!(
             "[element.\"{absent_fqn}\"]\nkind = \"module\"\ngate = \"warn\"\n\
              path = [\"src/ghost/\"]\n"
@@ -2942,7 +2942,10 @@ fn meta幂等且三处产出物载元一致() {
 #[test]
 fn meta零io零spawn() {
     let temp = TempDir::new("meta-no-io");
-    temp.write(".dev-team/architecture/models/01-test.toml", "# 模型占位\n");
+    temp.write(
+        ".dev-team/architecture/graph/model/01-test.toml",
+        "# 模型占位\n",
+    );
     temp.write(".dev-team/architecture/graph/INDEX.toml", "# 索引占位\n");
     temp.write_contract("App.Core.Alpha", &pilot_markdown("App.Core.Alpha"));
 
@@ -4007,7 +4010,7 @@ fn artifact_check未启用契约面仍ok() {
 fn artifact_check结构错模型即err() {
     let temp = TempDir::new("artifact-check-broken");
     temp.write(
-        ".dev-team/architecture/models/01-test.toml",
+        ".dev-team/architecture/graph/model/01-test.toml",
         "[element.\"App\"]\nkind = \"package\"\n\n\
          [element.\"App.A\"]\nkind = \"module\"\n\n\
          [element.\"App.B\"]\nkind = \"module\"\n\n\
@@ -5075,12 +5078,12 @@ fn bootstrap空符号集草稿() {
 // ---------------------------------------------------------------------------
 // enabled：模型文件不是启用证据（`module-entry-docs-semantics` / AC-4）
 //
-// 判据 = `models/`（== 契约资产目录）递归含 ≥1 份 `*.md`；一级 `NN-<域>.toml` 是模型
-// 声明，**不是**启用证据——「有模型、零契约 md」必须是未启用。
+// 判据 = `models/`（== 契约资产目录）递归含 ≥1 份 `*.md`；`graph/model/` 一级的
+// `NN-<域>.toml` 是模型声明，**不是**启用证据——「有模型、零契约 md」必须是未启用。
 // ---------------------------------------------------------------------------
 
-/// 异常（AC-4 反向判据）：`models/` 一级恰 6 个 `NN-<域>.toml`（外加 schema 与索引）
-/// 而递归零 `*.md` → 未启用。
+/// 异常（AC-4 反向判据）：`graph/model/` 一级恰 6 个 `NN-<域>.toml`（外加 schema 与
+/// 索引），而 `models/` 递归零 `*.md` → 未启用。
 #[test]
 fn enabled模型文件不是启用证据() {
     let temp = TempDir::new("enabled-models-only");
@@ -5093,7 +5096,7 @@ fn enabled模型文件不是启用证据() {
         "06-tools",
     ] {
         temp.write(
-            &format!(".dev-team/architecture/models/{name}.toml"),
+            &format!(".dev-team/architecture/graph/model/{name}.toml"),
             "[element.\"App\"]\nkind = \"package\"\n",
         );
     }
@@ -5116,13 +5119,13 @@ fn enabled模型文件不是启用证据() {
     );
 }
 
-/// 正向（AC-4）：模型 toml 与契约 md 并存 → 启用（双身份混居零干扰）；`models/` 与
-/// `graph/` 两目录都在但零 md 的冷启动态 → 未启用且零 panic。
+/// 正向（AC-4）：模型声明 toml 与契约 md 并存 → 启用（两目录分家零干扰）；`models/`
+/// 与 `graph/` 两目录都在但零 md 的冷启动态 → 未启用且零 panic。
 #[test]
 fn enabled模型与契约混居与冷启动态() {
     let mixed = TempDir::new("enabled-mixed");
     mixed.write(
-        ".dev-team/architecture/models/01-app.toml",
+        ".dev-team/architecture/graph/model/01-app.toml",
         "[element.\"App\"]\nkind = \"package\"\n",
     );
     let fqn = "App.Backend.Infra.ArchiRuntime";
@@ -5738,10 +5741,10 @@ fn enabled旧判据残留形态一律不启用() {
         "README.md 不是任何元素的载体"
     );
 
-    // ③ `models/` 仅 `*.toml`
+    // ③ `graph/model/` 仅 `*.toml`（模型声明不是启用证据）
     let toml_only = TempDir::new("enabled-toml-only");
     toml_only.write(
-        ".dev-team/architecture/models/01-app.toml",
+        ".dev-team/architecture/graph/model/01-app.toml",
         "[element.\"App\"]\nkind = \"package\"\n",
     );
     assert!(

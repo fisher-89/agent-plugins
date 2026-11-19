@@ -899,7 +899,7 @@ fn is_archi_rel_path命中集() {
     use super::is_archi_rel_path;
 
     assert!(is_archi_rel_path(
-        ".dev-team/architecture/models/02-auth.toml"
+        ".dev-team/architecture/graph/model/02-auth.toml"
     ));
     assert!(
         is_archi_rel_path(".dev-team/architecture"),
@@ -918,7 +918,7 @@ fn is_archi_rel_path归一形态() {
         "Windows 反斜杠归一后命中"
     );
     assert!(
-        is_archi_rel_path("./.dev-team/architecture/models/x.toml"),
+        is_archi_rel_path("./.dev-team/architecture/graph/model/x.toml"),
         "`./` 前缀归一后命中"
     );
 }
@@ -1153,7 +1153,9 @@ fn archi既有绝对族零回归() {
     let dir = archi_dir(root);
     assert_eq!(dir, root.join(".dev-team").join("architecture"));
     assert_eq!(archi_models_dir(root), dir.join("models"));
-    assert!(is_archi_rel_path(".dev-team/architecture/models/01.toml"));
+    assert!(is_archi_rel_path(
+        ".dev-team/architecture/graph/model/01.toml"
+    ));
     assert!(!is_archi_rel_path("openspec/archived/changes"));
 }
 
@@ -1463,6 +1465,54 @@ fn archi_graph_dir互不遮蔽() {
     }
 }
 
+/// 正向：模型声明目录 `graph/model` 派生自索引目录——以 `archi_graph_dir` 为前缀、
+/// 不与索引目录相等、也不在契约目录 `models/` 之下（模型声明与契约资产按目录分家）。
+#[test]
+fn archi_graph_model_dir派生与分家() {
+    use super::{archi_graph_dir, archi_graph_model_dir, archi_models_dir};
+
+    let root = Path::new("/ws");
+    let model = archi_graph_model_dir(root);
+    assert_eq!(model, archi_graph_dir(root).join("model"), "派生逐字");
+    assert!(
+        model.starts_with(archi_graph_dir(root)),
+        "模型声明目录在索引目录之下"
+    );
+    assert_ne!(model, archi_graph_dir(root), "与索引目录本身不相等");
+    assert!(
+        !model.starts_with(archi_models_dir(root)),
+        "契约目录之下没有模型声明（按目录分家）"
+    );
+}
+
+/// 正向：`archi_graph_model_rel_dir()` 返回 `.dev-team/architecture/graph/model`
+/// 形态——`/` 分隔、零前导 `./`、零尾 `/`，且 `== format!("{}/model", archi_graph_rel_dir())`。
+#[test]
+fn archi_graph_model_rel_dir形态() {
+    use super::{archi_graph_model_rel_dir, archi_graph_rel_dir};
+
+    let relative = archi_graph_model_rel_dir();
+    assert_eq!(
+        relative,
+        format!("{}/model", archi_graph_rel_dir()),
+        "派生值逐字相等"
+    );
+    assert!(
+        relative.starts_with(&archi_graph_rel_dir()),
+        "以 archi_graph_rel_dir() 为前缀"
+    );
+    assert!(!relative.contains('\\'), "`/` 分隔（零反斜杠）：{relative}");
+    assert!(!relative.starts_with("./"), "零前导 `./`：{relative}");
+    assert!(!relative.starts_with('/'), "零前导 `/`：{relative}");
+    assert!(!relative.ends_with('/'), "零尾 `/`：{relative}");
+    assert!(relative.ends_with("/model"), "尾段恰为 model：{relative}");
+    assert!(!relative.contains("//"), "零连续 `//`：{relative}");
+    assert!(
+        !relative.split('/').any(str::is_empty),
+        "零空段（无空字符串路径段）：{relative}"
+    );
+}
+
 /// 正向：`archi_graph_rel_dir()` 返回 `.dev-team/architecture/graph` 形态——`/` 分隔、
 /// 零前导 `./`、零尾 `/`，且 `== format!("{}/graph", archi_rel_dir())`。
 #[test]
@@ -1534,6 +1584,35 @@ fn graph_dir_name零字面量纪律() {
     assert!(
         !source.contains("API_DIR_NAME") && !source.contains("archi_api"),
         "`api` 段族的三个符号在产品侧零残留"
+    );
+}
+
+/// 边界：`"model"` 字面量只出现在 `MODEL_DIR_NAME` 定义一处；两个派生函数体各恰一次
+/// 委托（`join(MODEL_DIR_NAME)` / `format!`），零额外分支。
+#[test]
+fn model_dir_name零字面量纪律() {
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source.matches("\"model\"").count(),
+        1,
+        "`\"model\"` 字面量恰一处（常量定义）"
+    );
+    assert!(
+        source.contains("const MODEL_DIR_NAME: &str = \"model\";"),
+        "常量定义在案"
+    );
+
+    let dir_body = function_body(source, "pub fn archi_graph_model_dir(");
+    assert_eq!(
+        dir_body.matches("join(MODEL_DIR_NAME)").count(),
+        1,
+        "`archi_graph_model_dir` 体恰一次 `join(MODEL_DIR_NAME)`：{dir_body}"
+    );
+    let rel_body = function_body(source, "pub fn archi_graph_model_rel_dir(");
+    assert_eq!(
+        rel_body.matches("format!").count(),
+        1,
+        "`archi_graph_model_rel_dir` 体恰一次 `format!`：{rel_body}"
     );
 }
 
@@ -1987,7 +2066,7 @@ fn 退役后既有派生族取值零变化() {
         root.join(".dev-team/architecture/config.json")
     );
     assert!(is_archi_rel_path(
-        ".dev-team/architecture/models/01-app.toml"
+        ".dev-team/architecture/graph/model/01-app.toml"
     ));
     assert!(!is_archi_rel_path("src/models/01-app.toml"));
 }

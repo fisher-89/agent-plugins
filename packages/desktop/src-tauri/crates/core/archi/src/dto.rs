@@ -788,14 +788,14 @@ pub fn search(root: &Path, query: &str, scope: SearchScope) -> Result<ArchiSearc
     })
 }
 
-/// 模型结构 diff 摘要：两侧模型目录俱缺席 → `None`；两侧等价（`is_empty` 且
+/// 模型结构 diff 摘要：两侧模型声明目录俱缺席 → `None`；两侧等价（`is_empty` 且
 /// 改动侧零诊断）→ `None`（零占位）；否则摘要 + 改动侧诊断随行。
 pub fn change_summary(
     main_root: &Path,
     next_root: &Path,
 ) -> Result<Option<ArchiChangeSummary>, String> {
-    let main_models = foundation::layout::archi_models_dir(main_root);
-    let next_models = foundation::layout::archi_models_dir(next_root);
+    let main_models = foundation::layout::archi_graph_model_dir(main_root);
+    let next_models = foundation::layout::archi_graph_model_dir(next_root);
     if !main_models.exists() && !next_models.exists() {
         return Ok(None);
     }

@@ -89,7 +89,11 @@ fn write(root: &Path, relative: &str, content: &str) {
 
 /// 落模型。
 fn write_model(root: &Path, content: &str) {
-    write(root, ".dev-team/architecture/models/01-test.toml", content);
+    write(
+        root,
+        ".dev-team/architecture/graph/model/01-test.toml",
+        content,
+    );
 }
 
 /// 报告目录（被测派生单点）。

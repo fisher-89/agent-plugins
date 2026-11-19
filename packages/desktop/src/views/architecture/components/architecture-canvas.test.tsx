@@ -147,7 +147,7 @@ function element(fqn: string, overrides: Partial<ArchiElement> = {}): ArchiEleme
     path: [],
     summary: null,
     metadata: {},
-    modelFile: '.dev-team/architecture/models/01-core.toml',
+    modelFile: '.dev-team/architecture/graph/model/01-core.toml',
     modelLine: 2,
     entry: null,
     doc: null,
@@ -412,7 +412,7 @@ describe('停摆态（全或无）', () => {
         {
           kind: 'cycle',
           message: '依赖成环：App.A -> App.B -> App.A',
-          file: '.dev-team/architecture/models/01-core.toml',
+          file: '.dev-team/architecture/graph/model/01-core.toml',
           line: 4,
           column: 1,
         },
@@ -1562,7 +1562,7 @@ describe('停摆 / 空模型 / 报告缺席三态的左栏', () => {
           {
             kind: 'cycle',
             message: '依赖成环',
-            file: '.dev-team/architecture/models/01-core.toml',
+            file: '.dev-team/architecture/graph/model/01-core.toml',
             line: 4,
             column: 1,
           },

@@ -4579,7 +4579,7 @@ async fn 计数轴隔离_续跑不增轮数且run_started恰一条() {
 // archi-graph-doc-agent：执行臂三分派（`LoopTurn.archi` 上下文路由）+ 成员校验
 // 矩阵外拒绝 + 两 archi 名在守卫链后段零拦截
 //
-// 装置：真实 tempdir 模型（`.dev-team/architecture/models/*.toml`）+ 真实
+// 装置：真实 tempdir 模型（`.dev-team/architecture/graph/model/*.toml`）+ 真实
 // `ArchiContext`（读面即被测语义，执行体不 mock）；loop 直驱与既有 explore
 // 注入面用例同口径。
 // ---------------------------------------------------------------------------
@@ -4599,10 +4599,10 @@ const ARCHI_CORE: &str = concat!(
     "summary = \"认证域\"\n",
 );
 
-/// 落一个模型文件（`.dev-team/architecture/models/`）。
+/// 落一个模型文件（`.dev-team/architecture/graph/model/`）。
 fn archi_write_model(root: &Path, name: &str, content: &str) {
-    let dir = root.join(".dev-team/architecture/models");
-    std::fs::create_dir_all(&dir).expect("创建模型目录失败");
+    let dir = root.join(".dev-team/architecture/graph/model");
+    std::fs::create_dir_all(&dir).expect("创建模型声明目录失败");
     std::fs::write(dir.join(name), content).expect("写模型文件失败");
 }
 
@@ -4681,7 +4681,7 @@ async fn archi分派两工具到执行体且结果非错误() {
             // AC-1 / AC-10：声明位置单点（`modelFile` repo 相对 + `modelLine` 行号）
             assert!(
                 payload["element"]["modelFile"].as_str().is_some_and(
-                    |file| file.ends_with(".dev-team/architecture/models/01-core.toml")
+                    |file| file.ends_with(".dev-team/architecture/graph/model/01-core.toml")
                 ),
                 "{tool}: modelFile 指向声明文件，实际: {payload}"
             );
@@ -4746,7 +4746,7 @@ async fn archi执行臂结果只取自铸造根且换根即换内容() {
             );
             assert!(
                 payload["element"]["modelFile"].as_str().is_some_and(
-                    |file| file.ends_with(".dev-team/architecture/models/01-model.toml")
+                    |file| file.ends_with(".dev-team/architecture/graph/model/01-model.toml")
                 ),
                 "{tag}: modelFile 指向铸造根下的模型文件，实际: {payload}"
             );
@@ -5307,7 +5307,7 @@ async fn archi面档位两工具放行写面按档判() {
                 "tu_write",
                 "write",
                 serde_json::json!({
-                    "path": ".dev-team/architecture/models/99-denied.toml",
+                    "path": ".dev-team/architecture/graph/model/99-denied.toml",
                     "content": "[element.\"Denied\"]\nkind = \"module\"\n",
                 }),
             ),
@@ -5342,7 +5342,7 @@ async fn archi面档位两工具放行写面按档判() {
     assert!(write_result.2, "default 档写面被拒（is_error 回灌）");
     assert!(
         !dir.path()
-            .join(".dev-team/architecture/models/99-denied.toml")
+            .join(".dev-team/architecture/graph/model/99-denied.toml")
             .exists(),
         "被拒写面零落盘"
     );
@@ -5358,7 +5358,7 @@ async fn archi面档位两工具放行写面按档判() {
                     "tu_write",
                     "write",
                     serde_json::json!({
-                        "path": ".dev-team/architecture/models/98-allowed.toml",
+                        "path": ".dev-team/architecture/graph/model/98-allowed.toml",
                         "content": "[element.\"Allowed\"]\nkind = \"module\"\n",
                     }),
                 ),
@@ -5383,7 +5383,7 @@ async fn archi面档位两工具放行写面按档判() {
         assert!(!results[0].2, "{mode:?} 档：写面放行（is_error = false）");
         assert!(
             dir.path()
-                .join(".dev-team/architecture/models/98-allowed.toml")
+                .join(".dev-team/architecture/graph/model/98-allowed.toml")
                 .exists(),
             "{mode:?} 档：文件落盘"
         );
@@ -5399,7 +5399,7 @@ async fn archi面write新建与edit改gate行落盘且保护零拦截() {
                 "tu_new",
                 "write",
                 serde_json::json!({
-                    "path": ".dev-team/architecture/models/09-x.toml",
+                    "path": ".dev-team/architecture/graph/model/09-x.toml",
                     "content": "[element.\"App.Auth.Token\"]\nkind = \"component\"\n",
                 }),
             ),
@@ -5407,7 +5407,7 @@ async fn archi面write新建与edit改gate行落盘且保护零拦截() {
                 "tu_edit",
                 "edit",
                 serde_json::json!({
-                    "path": ".dev-team/architecture/models/01-core.toml",
+                    "path": ".dev-team/architecture/graph/model/01-core.toml",
                     "old_string": "gate = \"strict\"",
                     "new_string": "gate = \"warn\"",
                 }),
@@ -5439,11 +5439,13 @@ async fn archi面write新建与edit改gate行落盘且保护零拦截() {
     for (id, _, is_error) in &results {
         assert!(!*is_error, "{id}: 写面 / 读面均 is_error = false");
     }
-    let created = dir.path().join(".dev-team/architecture/models/09-x.toml");
+    let created = dir
+        .path()
+        .join(".dev-team/architecture/graph/model/09-x.toml");
     assert!(created.exists(), "write 新建文件落盘");
     let edited = std::fs::read_to_string(
         dir.path()
-            .join(".dev-team/architecture/models/01-core.toml"),
+            .join(".dev-team/architecture/graph/model/01-core.toml"),
     )
     .expect("读既有模型文件");
     assert!(
@@ -5473,7 +5475,7 @@ async fn archi面写坏模型读面is_error带file_line且run不中断() {
                 "tu_bad",
                 "write",
                 serde_json::json!({
-                    "path": ".dev-team/architecture/models/02-bad.toml",
+                    "path": ".dev-team/architecture/graph/model/02-bad.toml",
                     "content": "[element.\"Broken\"\nkind = \"module\"\n",
                 }),
             ),
@@ -5499,7 +5501,7 @@ async fn archi面写坏模型读面is_error带file_line且run不中断() {
     assert!(!written.2, "写入本身零 Err（无新增写前校验插口）");
     assert!(
         dir.path()
-            .join(".dev-team/architecture/models/02-bad.toml")
+            .join(".dev-team/architecture/graph/model/02-bad.toml")
             .exists(),
         "坏模型照常落盘（写入面不校验）"
     );

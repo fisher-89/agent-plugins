@@ -69,7 +69,7 @@ fn element(fqn: &str) -> Element {
         doc: None,
         summary: None,
         metadata: BTreeMap::new(),
-        file: ".dev-team/architecture/models/01-core.toml".to_owned(),
+        file: ".dev-team/architecture/graph/model/01-core.toml".to_owned(),
         line: 1,
     }
 }

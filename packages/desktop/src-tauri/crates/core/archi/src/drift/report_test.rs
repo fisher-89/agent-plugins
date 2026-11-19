@@ -45,7 +45,7 @@ fn diagnostic() -> ArchiDiagnostic {
     ArchiDiagnostic {
         kind: DiagnosticKind::DependsOnAncestor,
         message: "下游依赖祖先".to_owned(),
-        file: ".dev-team/architecture/models/01.toml".to_owned(),
+        file: ".dev-team/architecture/graph/model/01.toml".to_owned(),
         line: 7,
         column: Some(3),
     }

@@ -28,7 +28,7 @@ fn element(fqn: &str) -> Element {
         doc: None,
         summary: None,
         metadata: BTreeMap::new(),
-        file: ".dev-team/architecture/models/01-core.toml".to_owned(),
+        file: ".dev-team/architecture/graph/model/01-core.toml".to_owned(),
         line: 1,
     }
 }
@@ -77,7 +77,7 @@ fn element按fqn取元素且九字段逐项相等() {
         Some("core")
     );
     assert_eq!(
-        found.file, ".dev-team/architecture/models/01-core.toml",
+        found.file, ".dev-team/architecture/graph/model/01-core.toml",
         "声明文件逐字"
     );
     assert_eq!(found.line, 7, "声明行逐字");
@@ -197,7 +197,7 @@ fn 派生相等语义_文件行参与比较与空表同值() {
 
     // 仅 file 不同即不等
     let mut moved = three_elements();
-    moved.elements[1].file = ".dev-team/architecture/models/02-auth.toml".to_owned();
+    moved.elements[1].file = ".dev-team/architecture/graph/model/02-auth.toml".to_owned();
     assert_ne!(moved, three_elements(), "仅 file 不同即不等");
 
     // 仅 line 不同即不等
@@ -215,7 +215,7 @@ fn 派生相等语义_文件行参与比较与空表同值() {
         from: "App.Auth".to_owned(),
         to: "App".to_owned(),
         description: None,
-        file: ".dev-team/architecture/models/01-core.toml".to_owned(),
+        file: ".dev-team/architecture/graph/model/01-core.toml".to_owned(),
         line: 12,
         span: None,
     };
@@ -225,7 +225,7 @@ fn 派生相等语义_文件行参与比较与空表同值() {
             from: "App.Auth".to_owned(),
             to: "App".to_owned(),
             description: None,
-            file: ".dev-team/architecture/models/01-core.toml".to_owned(),
+            file: ".dev-team/architecture/graph/model/01-core.toml".to_owned(),
             line: 12,
             span: None,
         },
@@ -237,7 +237,7 @@ fn 派生相等语义_文件行参与比较与空表同值() {
             from: "App.Auth".to_owned(),
             to: "App".to_owned(),
             description: None,
-            file: ".dev-team/architecture/models/01-core.toml".to_owned(),
+            file: ".dev-team/architecture/graph/model/01-core.toml".to_owned(),
             line: 12,
             span: Some(SourceSpan { start: 10, end: 20 }),
         },

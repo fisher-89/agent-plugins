@@ -1098,7 +1098,7 @@ function driftDiagnostic(): Record<string, unknown> {
   return {
     kind: 'cycle',
     message: '元素 App.Auth 依赖祖先成环',
-    file: '.dev-team/architecture/models/01-app.toml',
+    file: '.dev-team/architecture/graph/model/01-app.toml',
     line: 12,
     column: 3,
   };

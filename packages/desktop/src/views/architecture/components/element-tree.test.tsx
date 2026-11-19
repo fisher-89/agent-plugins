@@ -14,7 +14,7 @@ function element(fqn: string, mark: ArchiElement['mark'] = 'none'): ArchiElement
     path: [],
     summary: null,
     metadata: {},
-    modelFile: '.dev-team/architecture/models/01-core.toml',
+    modelFile: '.dev-team/architecture/graph/model/01-core.toml',
     modelLine: 1,
     entry: null,
     doc: null,

@@ -441,9 +441,9 @@ fn now_timestamp() -> String {
         .unwrap_or_default()
 }
 
-/// 模型文件清单（`models/*.toml`，按文件名序；缺席 → 空）。
+/// 模型声明文件清单（`graph/model/*.toml`，按文件名序；缺席 → 空）。
 fn model_files(root: &Path) -> Vec<PathBuf> {
-    let dir = foundation::layout::archi_models_dir(root);
+    let dir = foundation::layout::archi_graph_model_dir(root);
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
     };
@@ -465,8 +465,9 @@ fn model_file_count(root: &Path) -> usize {
     model_files(root).len()
 }
 
-/// `models/*.toml` 聚合哈希（按文件名序逐份累加字节 → `sha256:<hex>`；读失败按
-/// 空内容参与累加，哈希仍确定）。
+/// `graph/model/*.toml` 聚合哈希（按文件名序逐份累加字节 → `sha256:<hex>`；读失败
+/// 按空内容参与累加，哈希仍确定）。累加输入仅文件名 + 字节、不含父目录——模型声明
+/// 目录迁移不改变哈希。
 fn model_hash(root: &Path) -> String {
     let mut hasher = Sha256::new();
     for file in model_files(root) {

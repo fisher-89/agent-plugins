@@ -96,7 +96,7 @@ function element(fqn: string): ArchiElement {
     path: [],
     summary: null,
     metadata: {},
-    modelFile: '.dev-team/architecture/models/01-core.toml',
+    modelFile: '.dev-team/architecture/graph/model/01-core.toml',
     modelLine: 2,
     entry: null,
     doc: null,
@@ -445,7 +445,7 @@ describe('ArchitectureView：root / 停摆诊断', () => {
       {
         kind: 'missingField',
         message: '缺少必填字段 kind',
-        file: '.dev-team/architecture/models/02-bad.toml',
+        file: '.dev-team/architecture/graph/model/02-bad.toml',
         line: 7,
         column: null,
       },
@@ -456,7 +456,7 @@ describe('ArchitectureView：root / 停摆诊断', () => {
     await waitFor(() => expect(screen.getByTestId('archi-error-panel')).toBeTruthy());
     const rows = screen.getAllByTestId('archi-error-row');
     expect(rows).toHaveLength(1);
-    expect(rows[0].textContent).toContain('.dev-team/architecture/models/02-bad.toml:7');
+    expect(rows[0].textContent).toContain('.dev-team/architecture/graph/model/02-bad.toml:7');
     expect(rows[0].textContent).toContain('missingField');
     expect(
       screen.getByTestId('archi-canvas').querySelector('[data-testid="archi-gate-readonly"]'),

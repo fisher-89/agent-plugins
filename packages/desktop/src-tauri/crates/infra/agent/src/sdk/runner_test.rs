@@ -2405,14 +2405,14 @@ async fn 非archi会话零archi工具面且两专用上下文不串道() {
 //
 // `session_pump` 的铸造点即对该单点函数的调用（入参 = `open.injections.toolset`
 // + `open.ctx.workspace_root`）；本组用例以同两份原料直断铸造产物，root 传递以
-// 真实读盘（`ArchiContext::execute` 读取 `archi_models_dir(root)` 下的模型）反向
+// 真实读盘（`ArchiContext::execute` 读取 `archi_graph_model_dir(root)` 下的模型）反向
 // 锚定：换 root 即换模型内容，root 传错即红。
 // ---------------------------------------------------------------------------
 
-/// 落一个模型文件（`.dev-team/architecture/models/`，路径经 `foundation::layout`）。
+/// 落一个模型文件（`.dev-team/architecture/graph/model/`，路径经 `foundation::layout`）。
 fn archi_write_model(root: &Path, name: &str, content: &str) {
-    let dir = foundation::layout::archi_models_dir(root);
-    std::fs::create_dir_all(&dir).expect("创建模型目录失败");
+    let dir = foundation::layout::archi_graph_model_dir(root);
+    std::fs::create_dir_all(&dir).expect("创建模型声明目录失败");
     std::fs::write(dir.join(name), content).expect("写模型文件失败");
 }
 

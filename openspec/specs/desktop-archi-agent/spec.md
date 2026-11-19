@@ -21,7 +21,7 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_module`（不在七通用工具
 - 元素不存在 SHALL 返回可诊断 `Err`（附近似 FQN 或总量提示），MUST NOT 返回空对象。
 - 模型结构错时 SHALL 返回结构化诊断清单作为 `Err`（绝不 panic），使 agent 能看出"模型本身坏了"而不是"没有这个模块"。
 - 响应 SHALL 经 `archi::dto` 单点投影产出（MUST NOT 在工具执行体内另拼一份 JSON）。
-- **`api` 并列字段**：单元素响应 SHALL 并出 `api` 对象（`status`（`declared` / `none`）/ `contractPath` / `schemaPath` / `generatedPath`），定位 SHALL 按 `<archi_models_dir>/<Domain>/<FQN>.md` 与相应的 `.schema.json` / 生成物路径**派生**（全经 `foundation::layout` 的派生族与 `api::paths` 单点，MUST NOT 行内拼路径；`api` 段已退役，契约资产落在模型目录的 `<Domain>/` 子目录内）；文件不存在即 `status = none` 且三个路径字段为 `null`（零配置，「有契约 / 无契约」成为可枚举事实）。该字段 MUST NOT 承载协议正文（正文由 agent 用 `read` 按路径自取），MUST NOT 成为独立工具、MUST NOT 改变本工具的只读属性与注入矩阵。
+- **`api` 并列字段**：单元素响应 SHALL 并出 `api` 对象（`status`（`declared` / `none`）/ `contractPath` / `schemaPath` / `generatedPath`），定位 SHALL 按 `<archi_models_dir>/<Domain>/<FQN>.md` 与相应的 `.schema.json` / 生成物路径**派生**（全经 `foundation::layout` 的派生族与 `api::paths` 单点，MUST NOT 行内拼路径；`api` 段已退役，契约资产落在契约资产目录 `models/` 的 `<Domain>/` 子目录内）；文件不存在即 `status = none` 且三个路径字段为 `null`（零配置，「有契约 / 无契约」成为可枚举事实）。该字段 MUST NOT 承载协议正文（正文由 agent 用 `read` 按路径自取），MUST NOT 成为独立工具、MUST NOT 改变本工具的只读属性与注入矩阵。
 - **`doc` 并列字段（本变更换面）**：`doc` SHALL 为 repo 相对 POSIX 路径**单值**或 `null`（无 `title` / `kind` / `source` 四字段形态）。只有 `api = none` 的元素会填；`api = declared` 元素的入口文档走既有 `api.contractPath`，MUST NOT 在 `doc` 里重复出线。`doc` 指向的文件不存在时该元素的判据面报 `docNotFound`（`error` 档）——工具响应本身 MUST NOT 为此降级或补默认值。
 - **描述面（`mount.rs`）**：`archi_module` 的工具描述 SHALL 去掉「关联文档（四字段条目）」与「`docNotFound` 警告」两句，改为「入口文档单值 `doc`（仅 `api = none` 元素有值；declared 走 `api.contractPath`）」，MUST NOT 残留 `docs` 词汇或警告语义。
 
@@ -234,7 +234,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 
 ### Requirement: 模型 = 源码（写纪律与不设专用写工具）
 
-架构模型文件 SHALL 与源码同权：agent SHALL 经既有 `write` / `edit` 直接新建与修改 `<archi_dir>/models/*.toml`，MUST NOT 存在专用「写模型」工具（因而也不存在"该不该给某相位发写工具"的问题）。写权 SHALL 有且只有**两条通路**：
+架构模型文件 SHALL 与源码同权：agent SHALL 经既有 `write` / `edit` 直接新建与修改 `<archi_dir>/graph/model/*.toml`，MUST NOT 存在专用「写模型」工具（因而也不存在"该不该给某相位发写工具"的问题）。写权 SHALL 有且只有**两条通路**：
 
 | 通路 | 触发面 | 执行根 | 确认时机 | 归属能力 |
 |---|---|---|---|---|
@@ -243,7 +243,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 
 - **写入不校验，读取报错**：写盘路径 MUST NOT 增加模型校验插口；坏模型的表现是读取面返回结构诊断（见「archi_module 只读工具的定位契约」）与画布停摆，与"写坏 Rust 代码编译不过"同构。
 - **不依赖运行时审批**：写盘那一刻 MUST NOT 要求用户确认（工具分派链只有 `deny`，无挂起等确认能力）。通路 A 的设计权由「回合必须人工确认」承载；通路 B 的设计权由事后 diff 评审 + 手动刷新可见性承载（MUST NOT 承诺写盘前拦截）。
-- **写入保护不纳入**：`<archi_dir>/models/` 与架构域配置 MUST NOT 进入 `write_protection` 的内置锁面——保护规则是绝对路径 glob，在 worktree 与主仓两条通路下同样命中，纳入即等于 agent 改不了模型（详见 `desktop-write-protection` 的对应 requirement）。
+- **写入保护不纳入**：`<archi_dir>/graph/model/` 与架构域配置 MUST NOT 进入 `write_protection` 的内置锁面——保护规则是绝对路径 glob，在 worktree 与主仓两条通路下同样命中，纳入即等于 agent 改不了模型（详见 `desktop-write-protection` 的对应 requirement）。
 - **两通路并存，互不替代**：MUST NOT 因通路 B 存在而移除通路 A（change 侧 worktree 隔离 + 归档确认仍是「改动随 change 一起评审」的唯一形态）；亦 MUST NOT 因通路 A 存在而禁通路 B（架构页会话的用途恰是「不进 change 也能维护模型」）。
 - **场景归属**：冷启动生成骨架 / 增量维护（新增或重构模块）/ 按现状补声明 / 直接修复图或文档错误，四类场景 SHALL 可走任一条通路（走 change 时落 dev-design 阶段，走架构页时落通用会话），MUST NOT 强制单一入口。
 - **新元素缺省档**：两通路生成的新元素均缺省 `gate = "off"`（ratchet 逐块收紧）。
@@ -252,12 +252,12 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 
 #### Scenario: worktree 内直改模型成功
 
-- **WHEN** agent 在 change 的 worktree 内用 `write` 新建 `<archi_dir>/models/03-billing.toml`，或用 `edit` 修改既有模型的 `gate` 行
+- **WHEN** agent 在 change 的 worktree 内用 `write` 新建 `<archi_dir>/graph/model/03-billing.toml`，或用 `edit` 修改既有模型的 `gate` 行
 - **THEN** 写入成功（内置锁面零命中、无额外校验插口）；随后读取面解析出该改动，主仓模型零变化
 
 #### Scenario: 主仓直改模型成功
 
-- **WHEN** agent 在架构页通用会话（`cwd = null` → 主仓根）内用 `write` / `edit` 改 `<archi_dir>/models/*.toml`
+- **WHEN** agent 在架构页通用会话（`cwd = null` → 主仓根）内用 `write` / `edit` 改 `<archi_dir>/graph/model/*.toml`
 - **THEN** 写入落在主仓该文件（内置锁面零命中、无额外校验插口）；随后同 workspace 的 `archi_module` 与画布取数读到该改动，改动保持未提交由用户 `git diff` 评审
 
 #### Scenario: 写坏模型不阻断写盘
@@ -274,7 +274,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 
 `source = "archi"` 的会话 SHALL 注入一段架构会话知识到 `SessionInjections.preamble`（系统消息合成见 `desktop-agent-execution`），内容 SHALL 覆盖以下关注点：
 
-- **模型位置与聚合**：模型文件位于架构域 `models/` 下、按文件名字典序聚合；目录路径 SHALL 为**派生所得**的 repo 相对路径（见 `workspace-layout-resolution`），MUST NOT 在产品源码或知识文本中手写目录字面量。
+- **模型位置与聚合**：模型文件位于架构域 `graph/model/` 下（契约资产在 `models/<Domain>/`，两目录分家）、按文件名字典序聚合；目录路径 SHALL 为**派生所得**的 repo 相对路径（见 `workspace-layout-resolution`），MUST NOT 在产品源码或知识文本中手写目录字面量。
 - **格式约定**：一元素一表头、键为带引号的完整 FQN 单键（禁点分嵌套写法）；元素字段面为 `kind`（必填）/ `gate` / `api` / `entry` / `path` / **`doc`** / `summary` / `metadata`（`docs` 已退役，MUST NOT 再出现在字段面清单里）；`entry` 是**单值**实现入口指针（repo 相对路径，与 `path` 同口径），只在约定默认指不到时显式写（目录型壳与二进制 crate），单文件根元素 MUST NOT 写（根文件即入口）；**`doc` 是单值入口文档指针，只有 `api = none` 的元素可写**（`api = declared` 的入口文档恒为派生落点 `<models>/<Domain>/<FQN>.md`，写了即 `apiUnexpected`）；关系为 `[[relation]]` 条目（`from` / `to` / `desc`）；`metadata` MUST 用内联表，MUST NOT 用子表（子表会被解析为另一个元素）。
 - **层级与缺省**：层级由 FQN 最长前缀推导（子元素须先声明祖先）；新元素 `gate` 缺省 `off`（ratchet 逐块收紧）。
 - **边界**：模型里 MUST NOT 写接口 / 导出符号（契约权威在契约资产）；`api` / `entry` / `doc` 是三个**指针**（有无公共 API / 入口在哪 / 入口文档读哪份），MUST NOT 由它们扩张出协议正文。
@@ -286,7 +286,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 
 - `kind` 四值 ← `ElementKind::ALL`；`gate` 三值 + 缺省档 ← `GateTier::ALL` / `GateTier::default()`；`api` 状态二值 + 缺省档 ← `ApiStatus::ALL` / `ApiStatus::default()`；结构诊断九类词 ← `DiagnosticKind::ALL`；目录相对路径 ← `foundation::layout` 的架构域相对路径派生族。
 - `entry` 与 `doc` SHALL **不进**派生词表：两者的值域是任意 repo 相对路径（开放集），不是封闭词汇；知识文本只给纪律句，判据定义归 `desktop-archi-api` / `desktop-archi-api-check`，不在知识文本内复制判据长表。
-- **派生的目录方位 SHALL 为三处**：模型目录（`archi_models_rel_dir`）、契约资产（`<models>/<Domain>/<FQN>.md`）、契约索引（`archi_graph_rel_dir`/`INDEX.toml`）。**「决策记录目录：{}」一句 SHALL 删除**（`archi_decisions_rel_dir` 已随 `docs` 三源退役删除；ADR 的定位改由入口文档链接与文件树承担）。
+- **派生的目录方位 SHALL 为三处**：模型声明目录（`archi_graph_model_rel_dir`）、契约资产（`<archi_models_rel_dir>/<Domain>/<FQN>.md`）、契约索引（`archi_graph_rel_dir`/`INDEX.toml`）。**「决策记录目录：{}」一句 SHALL 删除**（`archi_decisions_rel_dir` 已随 `docs` 三源退役删除；ADR 的定位改由入口文档链接与文件树承担）。
 - 知识文本 SHALL 为**静态骨架 md（`include_str!`）+ 上述派生片段**在装配侧拼成的单条文本；新增 / 删除任一封闭词汇而知识未同步时，派生消费面测试 MUST 变红（四面词汇集一致性见 `desktop-archi-model`「消费面词汇集一致性对拍」）。
 
 两条工程约束：
@@ -318,7 +318,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 #### Scenario: 字段面八项含 doc 且决策记录目录句已删
 
 - **WHEN** 审查知识文本的「格式约定」段与派生段
-- **THEN** 字段面逐项列出 `kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata` 八项（`docs` 零命中）；`entry` 的三条纪律与 `doc` 的「只有 `api = none` 可写」纪律在案；派生段含模型目录 / 契约资产 / 契约索引三处方位，且**零「决策记录目录」串**
+- **THEN** 字段面逐项列出 `kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata` 八项（`docs` 零命中）；`entry` 的三条纪律与 `doc` 的「只有 `api = none` 可写」纪律在案；派生段含模型声明目录 / 契约资产 / 契约索引三处方位，且**零「决策记录目录」串**
 
 ### Requirement: 检索面纪律与迁移边界
 
@@ -416,7 +416,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 |------|------|------|
 | `crates/infra/agent/src/sdk/mount.rs` | 工具定义面 | `archi_module` 描述去「四字段文档条目」与 `docNotFound` 警告句、加「`doc` 仅 `api = none` 有值」；`archi_search` 的 `scope` enum → `["elements", "doc", "all"]`、描述内「四字段文档条目」→「入口文档路径」；工具名常量与三个定义的参数形状（`element` / `query`+`scope` / `action`+`element`）零变化 |
 | `crates/infra/agent/src/sdk/archi_tool.rs` | 工具执行体 | 经 `LoopTurn` per-turn 上下文取 root → `archi::dto` 投影（`archi_module` 两形态含 `doc` 单值 / `archi_search` 三 scope 含 `doc` 词）；`archi_api` 的 `check` / `bootstrap` 零改动；命中既有单结果上限收口；坏模型 → `is_error` 不 panic |
-| `crates/infra/agent/src/archi_knowledge.rs` | 骨架 + 派生段拼装 | 派生段删「决策记录目录：{}」一句（`archi_decisions_rel_dir` 已删）；保留模型目录 / 契约资产 / 契约索引三处方位；四面词表注入与降级为 `None` 的语义逐字不变 |
+| `crates/infra/agent/src/archi_knowledge.rs` | 骨架 + 派生段拼装 | 派生段删「决策记录目录：{}」一句（`archi_decisions_rel_dir` 已删）；保留模型声明目录 / 契约资产 / 契约索引三处方位；四面词表注入与降级为 `None` 的语义逐字不变 |
 | `crates/infra/agent/src/archi-knowledge.md` | 知识静态骨架 | 「格式约定」字段面八项含 `doc`（`docs` 零命中）；`doc` 的两条纪律（单值 / 只有 `api = none` 可写）；示例两段形态（`api = "none"` + `doc` / declared 零 `doc` 行）；「写面与可见性」段把「只改模型与 `docs` 关联文档」改为「只改模型与 `doc` 所指入口文档」；零 `<>` 占位符、体量受上限约束 |
 | `crates/core/archi/src/dto.rs` | 投影单点 | `module_detail` 的 `doc` 与 `search` 的 `doc: Vec<String>` 由本 crate 单点产出（工具执行体零拼接、零二次读模型） |
 | `crates/infra/agent/src/sdk/policy.rs` | 静态权限表 | `READONLY_TOOLS` 三工具名与三档全放行逐字不变（工具名集合零变化 ⇒ 注入矩阵零变化） |

@@ -125,11 +125,16 @@ fn knowledge词汇漂移守卫三组封闭集长度与去重() {
 #[test]
 fn knowledge目录派生注入两路径逐字在场且零反斜杠() {
     let text = text();
-    let models = foundation::layout::archi_models_rel_dir();
+    let models = foundation::layout::archi_graph_model_rel_dir();
+    let contracts = foundation::layout::archi_models_rel_dir();
     let graph = foundation::layout::archi_graph_rel_dir();
     assert!(
         text.contains(&models),
-        "知识文本缺模型目录派生串 {models}（目录 MUST NOT 手抄）"
+        "知识文本缺模型声明目录派生串 {models}（目录 MUST NOT 手抄）"
+    );
+    assert!(
+        text.contains(&contracts),
+        "知识文本缺契约资产目录派生串 {contracts}（目录 MUST NOT 手抄）"
     );
     assert!(text.contains(&graph), "知识文本缺契约索引派生串 {graph}");
     assert!(
@@ -630,7 +635,7 @@ fn api_status线词与元素投影串相等() {
             path: vec!["src/mod/".to_owned()],
             summary: None,
             metadata: BTreeMap::new(),
-            model_file: ".dev-team/architecture/models/01.toml".to_owned(),
+            model_file: ".dev-team/architecture/graph/model/01.toml".to_owned(),
             model_line: 1,
             mark: archi::dto::NodeMark::None,
             doc: None,
@@ -1200,14 +1205,14 @@ fn knowledge零旧方位与尖括号计数不变() {
     );
 }
 
-/// 边界（AC-8）：体量实测值固定——`knowledge()` 输出恰 3581 字节（骨架字节 + 派生段
-/// 字节），仍在既有 4096 上限内（`doc` 纪律进场不破上限）。
+/// 边界（AC-8）：体量实测值固定——`knowledge()` 输出恰 3586 字节（骨架字节 + 派生段
+/// 字节；模型声明目录换 `graph/model` 后 +5），仍在既有 4096 上限内（`doc` 纪律进场不破上限）。
 #[test]
 fn knowledge体量实测值固定() {
     let text = text();
     assert_eq!(
         text.len(),
-        3581,
+        3586,
         "体量实测值固定（骨架 trim_end 字节 + 派生段字节），实得 {} 字节",
         text.len()
     );

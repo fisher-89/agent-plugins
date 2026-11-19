@@ -78,7 +78,7 @@ impl Fixture {
         fs::create_dir_all(&root).expect("建夹具根失败");
 
         // ① 模型：300 个平级元素（`gate` 按 strict / warn 交替，两档各半边天）
-        let models = layout::archi_models_dir(&root);
+        let models = layout::archi_graph_model_dir(&root);
         fs::create_dir_all(&models).expect("建模型目录失败");
         let mut model = String::from(
             "# 运行期预算夹具（AC-18）：300 元素 / 1000 源文件，由 tests/perf.rs 生成\n",

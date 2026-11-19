@@ -35,11 +35,16 @@ const ARCHI_ROOT_DIR_NAME: &str = ".dev-team";
 /// 架构域子目录名（相对架构域顶层锚定；架构域段名的唯一持有者）
 const ARCHITECTURE_DIR_NAME: &str = "architecture";
 
-/// 架构模型子目录名（相对架构域根锚定）
+/// 契约资产子目录名（相对架构域根锚定）——模型声明在 [`MODEL_DIR_NAME`] 侧，
+/// 本目录只住 `<Domain>/<FQN>.md` 与同目录 `.schema.json`
 const MODELS_DIR_NAME: &str = "models";
 
 /// 契约索引子目录名（相对架构域根锚定）——`INDEX.toml` 的路径段唯一持有者
 const GRAPH_DIR_NAME: &str = "graph";
+
+/// 模型声明子目录名（相对契约索引目录锚定）——模型声明 `NN-<域>.toml` 的路径段
+/// 唯一持有者
+const MODEL_DIR_NAME: &str = "model";
 
 /// 报告槽位（封闭三值，纯进程内枚举——零 serde / specta，不进 IPC）：`Test`
 /// 为缺省槽位（`reports/test`——run 内门禁与 test-execution 相位语义零改动），
@@ -143,8 +148,9 @@ pub fn archi_dir(root: &Path) -> PathBuf {
     root.join(ARCHI_ROOT_DIR_NAME).join(ARCHITECTURE_DIR_NAME)
 }
 
-/// 架构模型目录派生（`<架构域根>/models`；全从 [`archi_dir`] 派生，架构域段名
-/// 不二次出现）。
+/// 架构契约资产目录派生（`<架构域根>/models`；全从 [`archi_dir`] 派生，架构域段名
+/// 不二次出现）。模型声明在 [`archi_graph_model_dir`]；本目录只住契约资产
+/// （`<Domain>/<FQN>.md` 与同目录 `.schema.json`）。
 pub fn archi_models_dir(root: &Path) -> PathBuf {
     archi_dir(root).join(MODELS_DIR_NAME)
 }
@@ -160,10 +166,17 @@ pub fn archi_config_path(root: &Path) -> PathBuf {
 
 /// 架构契约索引目录派生（`<架构域根>/graph`；全从 [`archi_dir`] 派生，段名取
 /// [`GRAPH_DIR_NAME`]）。契约索引 `INDEX.toml` 的唯一合法定位函数——消费者
-/// MUST NOT 行内拼 `graph` 段；纯推导零 IO，存在性判定交读取面。本变更内该目录
-/// 恰住索引一份（扩住属独立变更，MUST NOT 预留分支）。
+/// MUST NOT 行内拼 `graph` 段；纯推导零 IO，存在性判定交读取面。本目录住索引与
+/// 模型声明子目录（[`archi_graph_model_dir`]）两份。
 pub fn archi_graph_dir(root: &Path) -> PathBuf {
     archi_dir(root).join(GRAPH_DIR_NAME)
+}
+
+/// 架构模型声明目录派生（`<架构域根>/graph/model`；全从 [`archi_graph_dir`]
+/// 派生，段名取 [`MODEL_DIR_NAME`]）。模型声明 `NN-<域>.toml` 的唯一合法定位
+/// 函数——消费者 MUST NOT 行内拼 `model` 段；纯推导零 IO，存在性判定交读取面。
+pub fn archi_graph_model_dir(root: &Path) -> PathBuf {
+    archi_graph_dir(root).join(MODEL_DIR_NAME)
 }
 
 /// repo 相对路径是否落在架构域之内（`/` 与 `\` 分隔均归一后判定）：判据 = 归一
@@ -187,8 +200,9 @@ pub fn archi_rel_dir() -> String {
     format!("{ARCHI_ROOT_DIR_NAME}/{ARCHITECTURE_DIR_NAME}")
 }
 
-/// 架构模型目录的 repo 相对路径（`<archi_rel_dir>/models`；全从 [`archi_rel_dir`]
-/// 派生，架构域段名不二次出现）。
+/// 架构契约资产目录的 repo 相对路径（`<archi_rel_dir>/models`；全从 [`archi_rel_dir`]
+/// 派生，架构域段名不二次出现）。模型声明的相对路径见
+/// [`archi_graph_model_rel_dir`]。
 pub fn archi_models_rel_dir() -> String {
     format!("{}/{}", archi_rel_dir(), MODELS_DIR_NAME)
 }
@@ -198,6 +212,13 @@ pub fn archi_models_rel_dir() -> String {
 /// 与段名纪律登记。
 pub fn archi_graph_rel_dir() -> String {
     format!("{}/{}", archi_rel_dir(), GRAPH_DIR_NAME)
+}
+
+/// 架构模型声明目录的 repo 相对路径（`<archi_graph_rel_dir>/model`；全从
+/// [`archi_graph_rel_dir`] 派生）。`/` 分隔、零前导 `./`——消费者限于架构会话
+/// 知识文本。
+pub fn archi_graph_model_rel_dir() -> String {
+    format!("{}/{}", archi_graph_rel_dir(), MODEL_DIR_NAME)
 }
 
 #[cfg(test)]

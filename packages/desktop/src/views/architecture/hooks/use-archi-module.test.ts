@@ -27,7 +27,7 @@ function detailOf(fqn: string): ArchiModuleDetail {
       path: ['./src/auth/'],
       summary: '认证域',
       metadata: { owner: 'core' },
-      modelFile: '.dev-team/architecture/models/01-core.toml',
+      modelFile: '.dev-team/architecture/graph/model/01-core.toml',
       modelLine: 6,
       entry: null,
       doc: null,

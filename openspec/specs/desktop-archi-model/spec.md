@@ -2,13 +2,13 @@
 
 ## Purpose
 
-定义架构模型的格式与解析契约：`<archi_dir>/models/*.toml` 的「一元素一表头」格式与字段封闭（含 `doc` 单值入口文档指针）、多文件聚合与声明位置回填、结构诊断九类分工（parser 免费组 / archi 自实现组）、`ModelGraph` 单点构建与三消费面裁剪型投影、消费面词汇集对拍（四面，含架构会话知识文本）、gate 写回纯函数、模型结构 diff 与八命令（含两条契约面命令）IPC 契约。
+定义架构模型的格式与解析契约：`<archi_dir>/graph/model/*.toml` 的「一元素一表头」格式与字段封闭（含 `doc` 单值入口文档指针）、多文件聚合与声明位置回填、结构诊断九类分工（parser 免费组 / archi 自实现组）、`ModelGraph` 单点构建与三消费面裁剪型投影、消费面词汇集对拍（四面，含架构会话知识文本）、gate 写回纯函数、模型结构 diff 与八命令（含两条契约面命令）IPC 契约。
 
 ## Requirements
 
 ### Requirement: 架构模型文件格式与字段封闭
 
-架构模型 SHALL 落位 `<archi_dir>/models/*.toml`（域根与子目录经 `foundation::layout` 派生，MUST NOT 行内字面量），格式 SHALL 为 TOML「一元素一表头」：
+架构模型 SHALL 落位 `<archi_dir>/graph/model/*.toml`（模型声明目录经 `foundation::layout::archi_graph_model_dir` 派生，MUST NOT 行内字面量），格式 SHALL 为 TOML「一元素一表头」：
 
 ```toml
 [element."App"]
@@ -108,23 +108,23 @@ desc = "复用错误类型"
 
 ### Requirement: 多文件聚合与声明定位
 
-解析层 SHALL 聚合 `<archi_dir>/models/` 下的**一级** `*.toml`（不递归），按文件名**字典序**读取并合并为一个 `Model`。每个元素与每条关系 SHALL 携带声明位置：
+解析层 SHALL 聚合 `<archi_dir>/graph/model/` 下的**一级** `*.toml`（不递归），按文件名**字典序**读取并合并为一个 `Model`。每个元素与每条关系 SHALL 携带声明位置：
 
 - `modelFile` = 声明所在文件的 **repo 相对路径**（`/` 分隔）；
 - `modelLine` = 元素表头键所在行（1 起始）或关系条目 `from` 键所在行。
 
 位置 SHALL 取自 `toml` + serde 反序列化同时产出的 span（`span` → 行列换算），MUST NOT 以再扫文本、模糊匹配或二次 grep 反推。关系级 span SHALL 保留可选位（`Option<SourceSpan>`），当前只消费行号、不消费列区间。
 
-- **收面判据 SHALL 恰为「一级文件 + `.toml` 后缀」两条**（`read_dir` 逐条 `is_file()` + 后缀匹配，MUST NOT 递归、MUST NOT 按目录名或文件名前缀（`NN-`）白名单筛）：`models/` 同时容纳契约资产（`<Domain>/` 子目录内的 `*.md` / `*.schema.json`）与模型文件，两类靠这两条判据天然分离——子目录不递归即不可见，md / schema 后缀不匹配即不收。收面 MUST NOT 因同目录多出住户而扩张或收窄，也 MUST NOT 引入「跳过契约目录」一类豁免名单（那是第二份身份判据）。
-- **索引 MUST NOT 落 `models/` 根**：模型收面的 `.toml` 后缀会把 `<archi_dir>/models/INDEX.toml` 当模型文件解析，其 `[[entry]]` 表在 `deny_unknown_fields` 下产 `unknownField` 诊断并使模型停摆；契约索引的合法落点是 `<archi_graph_dir>/INDEX.toml`（`desktop-archi-api`「schema.json 与 INDEX.toml 为纯派生且不可手改」）。本能力 MUST NOT 为兼容该摆放而放宽收面判据或为 `INDEX.toml` 开字段白名单。
+- **收面判据 SHALL 恰为「一级文件 + `.toml` 后缀」两条**（`read_dir` 逐条 `is_file()` + 后缀匹配，MUST NOT 递归、MUST NOT 按目录名或文件名前缀（`NN-`）白名单筛）：模型声明目录 `graph/model/` 只住模型文件，契约资产在另一目录 `models/<Domain>/`（`*.md` / `*.schema.json`），两者按目录分家，互不进对方收面。收面 MUST NOT 因同目录多出住户而扩张或收窄；`models/` 一级出现 `.toml` MUST NOT 被当模型解析（反向判据在案）。
+- **索引 MUST NOT 落 `graph/model/` 根**：模型收面的 `.toml` 后缀会把 `<archi_dir>/graph/model/INDEX.toml` 当模型文件解析，其 `[[entry]]` 表在 `deny_unknown_fields` 下产 `unknownField` 诊断并使模型停摆；契约索引的合法落点是 `<archi_graph_dir>/INDEX.toml`（`desktop-archi-api`「schema.json 与 INDEX.toml 为纯派生且不可手改」）。本能力 MUST NOT 为兼容该摆放而放宽收面判据或为 `INDEX.toml` 开字段白名单。
 
 **跨文件重复 FQN**：同一 FQN 在一个文件内重复声明由 TOML map 语义天然拒绝；**跨文件**重复 SHALL 由聚合层自实现检出，诊断 `kind = duplicateElement`，`file` / `line` SHALL 指向**后出现**的那条声明（字典序靠后的文件内位置）。聚合层 MUST NOT 静默取其一。
 
-`models/` 目录缺席或为空 SHALL 解析为**空模型**（零元素零关系零诊断），MUST NOT 报错——空模型是冷启动的合法起点。目录存在而其一级零 `*.toml`（例如只剩 `<Domain>/` 契约子树）SHALL 按同一口径解析为空模型：零诊断、零元素，MUST NOT 因「目录非空」判为异常。
+`graph/model/` 目录缺席或为空 SHALL 解析为**空模型**（零元素零关系零诊断），MUST NOT 报错——空模型是冷启动的合法起点。目录存在而其一级零 `*.toml` SHALL 按同一口径解析为空模型：零诊断、零元素，MUST NOT 因「目录非空」判为异常；`models/`（契约资产目录）下的 `.toml` MUST NOT 进入收面。
 
 #### Scenario: 多文件字典序聚合
 
-- **WHEN** `models/` 内含 `02-auth.toml` 与 `01-core.toml`（各声明不同元素，`02` 引用 `01` 的元素）
+- **WHEN** `graph/model/` 内含 `02-auth.toml` 与 `01-core.toml`（各声明不同元素，`02` 引用 `01` 的元素）
 - **THEN** 聚合结果含两文件的全部元素与关系，字典序决定聚合次序（`01` 先于 `02`），跨文件 `unknownReference` 不误报；每条元素 / 关系的 `modelFile` 指向各自文件
 
 #### Scenario: 声明行号可点击
@@ -144,13 +144,13 @@ desc = "复用错误类型"
 
 #### Scenario: 空模型合法
 
-- **WHEN** `<archi_dir>/models/` 不存在或为空目录
+- **WHEN** `<archi_dir>/graph/model/` 不存在或为空目录
 - **THEN** 返回空模型（零元素 / 零关系 / 零诊断），画布呈现空态而非停摆态，冷启动可继续
 
-#### Scenario: 契约子树与模型文件混居零干扰
+#### Scenario: 模型声明目录与契约资产目录分家零干扰
 
-- **WHEN** `<archi_dir>/models/` 一级为六个 `NN-<域>.toml`，同目录另有 `<Domain>/<FQN>.md`、`<Domain>/<FQN>.schema.json` 与 `<Domain>/Sub/` 三级子目录，跑一次解析
-- **THEN** 元素 / 关系计数与只放六个 toml 时逐字相同、`diagnostics` 空、`modelFile` 仍指向一级六个文件；删掉全部六个 toml 后（只留契约子树）解析为空模型且零诊断——两例 MUST NOT 出现「把 md 当模型文件」或「因子目录存在而报错」
+- **WHEN** `<archi_dir>/graph/model/` 一级为六个 `NN-<域>.toml`，`<archi_dir>/models/` 另有 `<Domain>/<FQN>.md`、`<Domain>/<FQN>.schema.json` 与 `<Domain>/Sub/` 三级子目录，跑一次解析
+- **THEN** 元素 / 关系计数与只放六个 toml 时逐字相同、`diagnostics` 空、`modelFile` 仍指向 `graph/model/` 的六个文件；删掉全部六个 toml 后（契约目录保留）解析为空模型且零诊断；反向在 `models/` 一级放一份合法 `.toml` 亦 MUST NOT 进模型收面——两例 MUST NOT 出现「把契约目录里的文件当模型」或「因另一目录存在而报错」
 
 ### Requirement: 结构诊断九类分工与不 panic 纪律
 
@@ -351,7 +351,7 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 - `archi_set_gate` MUST NOT 出现在 `mode = full` 的前端调用路径（只读视图约束由前端承载、由命令可用性背书——命令本身不区分模式）；`archi_api_generate` 同理只在 `mode = incremental` 的前端调用路径出现（生成权限归 `desktop-archi-contract-panel`）。
 - 八个命令 SHALL 登记进命令清单并随 `bindings:export` 生成到 `bindings.ts`（再生成后入库，过期由提交前 `git status` / `git diff` 人工核对——零 diff 守卫已退役，`check` 链只前置重导出、不做生成物比对）。命令清单与出线类型清单的机械守卫（`bindings/mod_test.rs`）SHALL 在同一 change 内随动（条数断言只作清单长度连带核对，MUST NOT 作为语义判据）。
 - **`ArchiElement.doc` 的授权进场口径**：判据 / 纳管 / 检索的入参是 `ArchiElement` 而非模型 AST，故 `paths::carrier_path`、`api::doc_facts`、`api::gating_findings` 的 `none` 支与 `check` 的两支求值都只能从该字段取 `doc` 事实——它是**同一事实的投影拷贝**，不是第二个事实源：与 `ArchiModuleDetail.doc` 同值同源（均拷自模型 `doc` 原文），`api = declared` 元素恒 `null`；`ArchiElementBrief` MUST NOT 带 `doc`（薄条目仍只有 `fqn` / `kind` / `gate` / `api` / `summary` 五项），`ArchiApiRef` 逐字不变。
-- **`archi_module` 的 `api` 并列字段**：`ArchiModuleDetail` 的并列字段 `api`（`ArchiElement` 与薄概览条目同步带 `api` 状态），语义为「该元素的契约是否在案」——按 `<archi_models_dir>/<Domain>/<FQN>.md` 约定定位（`api` 段退役后契约资产落在模型目录的 `<Domain>/` 子目录内），文件不存在即 `status = none`（零配置，且「有契约 / 无契约」成为可枚举事实）。字段结构与定位规则定义归 `desktop-archi-api`，本能力只登记「`archi_module` 出参形状扩展、命令层仍零领域规则」。该字段 MUST NOT 承载协议正文（契约正文与模块文档正文同一通路：由调用方经 `read_file` 自取）。
+- **`archi_module` 的 `api` 并列字段**：`ArchiModuleDetail` 的并列字段 `api`（`ArchiElement` 与薄概览条目同步带 `api` 状态），语义为「该元素的契约是否在案」——按 `<archi_models_dir>/<Domain>/<FQN>.md` 约定定位（模型声明迁入 `graph/model/` 后，`models/` 即契约资产目录，契约落其 `<Domain>/` 子目录内），文件不存在即 `status = none`（零配置，且「有契约 / 无契约」成为可枚举事实）。字段结构与定位规则定义归 `desktop-archi-api`，本能力只登记「`archi_module` 出参形状扩展、命令层仍零领域规则」。该字段 MUST NOT 承载协议正文（契约正文与模块文档正文同一通路：由调用方经 `read_file` 自取）。
 - **`archi_module` 的 `doc` 并列字段**：`ArchiModuleDetail.doc: Option<String>` 为 repo 相对 POSIX 路径单值（无 `title` / `kind` / `source`），**只有 `api = none` 元素会填**；`api = declared` 元素的入口文档走既有 `api.contractPath`，MUST NOT 在 `doc` 里重复出线（否则抽屉会出现两条入口文档）。
 
 #### Scenario: 读命令零写盘
@@ -390,7 +390,7 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 |------|------|----------|
 | `crates/core/archi/Cargo.toml` | crate 落位与依赖 | 依赖 `foundation` + `serde` / `serde_json` / `specta` + `toml` / `toml_edit` / `petgraph` / `ignore`（均取自锁内既有版本，零新增包）；零 Tauri、零 store、零 spawn、零 `workflow` 依赖 |
 | `crates/core/archi/src/model.rs` | 格式无关 AST | `Model` / `Element`（`fqn` / `kind` / `gate` / **`api`** / **`entry`** / `path` / **`doc: Option<String>`** / `summary` / `metadata` / `file` / `line`，`docs` 已删）/ `Relation` / `SourceSpan` / `Diagnostic`；`derive PartialEq`（UI diff 预留）；关系级 `Option<SourceSpan>` 占位；`Element.api: ApiStatus`（`#[serde(default)]` 语义面 = 缺省 `Declared`）与 `Element.entry: Option<String>`（缺省 `None`，语义归 `desktop-archi-api`）；其余字段名 / 顺序 / 语义零变化 |
-| `crates/core/archi/src/parse/mod.rs` | 多文件聚合（语义零变化、收面判据显式化） | `trait SourceParser { fn parse(&str) -> ParseOutcome }`；`parse_dir(models_dir) -> ParseOutcome`：收面仍是「`archi_models_dir` 一级 `is_file()` + `MODEL_FILE_SUFFIX` 后缀」（MUST NOT 递归、MUST NOT 加目录豁免，`<Domain>/` 契约子树对聚合面不可见）、字典序、跨文件 `duplicateElement`、位置回填；空目录 / 一级零 toml → 空模型 |
+| `crates/core/archi/src/parse/mod.rs` | 多文件聚合（语义零变化、收面判据显式化） | `trait SourceParser { fn parse(&str) -> ParseOutcome }`；`parse_dir(root) -> ParseOutcome`：收面是「`archi_graph_model_dir(root)` 一级 `is_file()` + `MODEL_FILE_SUFFIX` 后缀」（MUST NOT 递归、MUST NOT 加目录豁免，`models/` 契约资产目录对聚合面不可见）、字典序、跨文件 `duplicateElement`、位置回填；空目录 / 一级零 toml → 空模型 |
 | `crates/core/archi/src/model.rs`（doc 串） | 仅 `api` 字段 doc 方位串 | 「接口定义写在架构域 `api` 目录的契约资产里」改为「架构域 `models/<Domain>/` 目录」——该行是本文件唯一允许的 diff；字段面（八项）、`deny_unknown_fields` 与解析实现逐字不变 |
 | `crates/core/archi/src/parse/toml.rs` | TOML 实现 | `toml` + span 反序列化；`deny_unknown_fields`；`kind` / `gate` 封闭枚举；`RawElement` 含 `api` / **`entry`** / **`doc`**（均 `#[serde(default)]`；`entry` 与 `doc` 为 `Option<String>`）、不含 `docs`，落在既有 `deny_unknown_fields` 面内 ⇒ `api = "non"` 报 `invalidValue` 并列全合法值、`entry = ["a"]` / `doc = ["a"]` / `{…}` 由 serde `invalid type` 归 `invalidValue`、`docs` 与拼错的键归 `unknownField`，MUST NOT 走 `metadata` 自由键；parser 错误 → 结构化诊断（保留原文与 line/column） |
 | `crates/core/archi/src/graph.rs` | 图单点 | `ModelGraph`（petgraph）唯一构建点；SCC 成环 / 依赖祖先 / 未定义引用 / 孤儿层级；`depends_on` / `depended_by` / `children` / `neighborhood`（1-hop） |

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use foundation::layout::archi_models_dir;
+use foundation::layout::archi_graph_model_dir;
 
 use crate::dto::DiagnosticKind;
 use crate::model::{Diagnostic, Model, ParseOutcome};
@@ -27,13 +27,14 @@ pub trait SourceParser {
 /// 模型源文件扩展名（唯一收面判据）。
 const MODEL_FILE_SUFFIX: &str = ".toml";
 
-/// 聚合入口：模型目录下全部 `.toml` 按**文件名**字典序解析 → 合并（元素 / 关系
-/// 按文件序 + 各自声明序）→ 跨文件重复 FQN 检出 → 文件相对路径回填。
+/// 聚合入口：模型声明目录（`<graph>/model`）下全部 `.toml` 按**文件名**字典序
+/// 解析 → 合并（元素 / 关系按文件序 + 各自声明序）→ 跨文件重复 FQN 检出 → 文件
+/// 相对路径回填。
 ///
-/// 模型目录缺席 / 空目录 → 空模型零诊断（冷启动合法起点，不报错）；单文件读取
-/// 失败 → `syntaxError` 诊断（读取面 MUST NOT 静默丢文件）。
+/// 模型声明目录缺席 / 空目录 → 空模型零诊断（冷启动合法起点，不报错）；单文件
+/// 读取失败 → `syntaxError` 诊断（读取面 MUST NOT 静默丢文件）。
 pub fn parse_dir(root: &Path) -> ParseOutcome {
-    let dir = archi_models_dir(root);
+    let dir = archi_graph_model_dir(root);
     let mut files: Vec<(String, PathBuf)> = Vec::new();
     let Ok(reader) = fs::read_dir(&dir) else {
         return ParseOutcome {

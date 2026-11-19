@@ -23,7 +23,7 @@
 - **三类差异即生成预览**：三列合起来 SHALL 恰好是「点生成会写什么」的完整清单（内容不符的会被覆盖、缺失的会被创建、孤儿不会被删）——面板据此先看清单再点生成。
 - **`enabled = false` 仍照跑**：契约面未启用时命令 SHALL 返回 `Ok`（而非 `Err` 或空壳），三类差异照实计算——此时应生成集只含 `INDEX.toml`，故 `missing` 通常就是那一条（其落点为 `<archi_graph_dir>/INDEX.toml`）；MUST NOT 因 `enabled = false` 返回空的结构化结果让面板无从呈现冷启动态。
 - **`enabled` 判据（本变更收紧，行为变化）**：判据 SHALL 为「**存在任一 `path` 非空元素的入口文档载体在盘且正文含 api fence 语言标**」——载体按 `api` 状态取值（`declared` → 派生契约 md、`none` → `doc` 声明），fence 语言标单点复用 `contract::FENCE_OP` / `contract::FENCE_TYPES`。三条后果必须说准：
-  1. **冷启动态**不再是「递归零份 `*.md`」而是「**没有任何元素的载体带 fence**」——`models/` 一级的六个 `NN-<域>.toml`、`models/notes.md`（非任何元素的载体）、`<Domain>/notes.md`（无 fence）三者都 MUST NOT 构成启用证据；
+  1. **冷启动态**不再是「递归零份 `*.md`」而是「**没有任何元素的载体带 fence**」——`graph/model/` 一级的六个 `NN-<域>.toml`、`models/notes.md`（非任何元素的载体）、`<Domain>/notes.md`（无 fence）三者都 MUST NOT 构成启用证据；
   2. 本仓读数**仍为 `true`**（试点契约 `models/Infra/App.Backend.Infra.ArchiRuntime.md` 在盘且含 `api-op` / `api-types` fence），MUST NOT 被改写成「模型在即启用」；
   3. 判据与判据面同源（同一 `doc_facts` 事实），命令层 MUST NOT 另判一套、MUST NOT 缓存。
 - **路径串口径**：三列元素 SHALL 为 repo 相对 POSIX 串（剥 `root` 前缀、`\` → `/`、去前导 `./`），经 `archi::display` 单点产出；MUST NOT 在命令层或前端另写一份归一。
@@ -38,7 +38,7 @@
 
 #### Scenario: 冷启动态照实报告
 
-- **WHEN** 观察根的 `models/` 含六个 `NN-<域>.toml` 与一份 `notes.md`（非任何元素的载体），且没有任何元素的载体带 fence
+- **WHEN** 观察根的 `graph/model/` 含六个 `NN-<域>.toml`，`models/` 含一份 `notes.md`（非任何元素的载体），且没有任何元素的载体带 fence
 - **THEN** `enabled = false` 且命令返回 `Ok`；`missing` 含 `<archi_graph_dir>/INDEX.toml` 一条（应生成集仅含索引），`mismatched` / `orphaned` 依盘上实况列出；MUST NOT 返回 `Err`、MUST NOT 返回全空的伪造结果、MUST NOT 因「模型文件在场」或「有杂项 md」把 `enabled` 报成 `true`
 
 #### Scenario: 载体带 fence 才启用

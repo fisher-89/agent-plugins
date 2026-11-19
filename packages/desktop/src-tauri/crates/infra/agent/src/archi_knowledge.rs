@@ -48,7 +48,7 @@ pub(crate) fn build(skeleton: &str) -> Result<String, String> {
         skeleton.trim_end(),
         GateTier::default().as_str(),
         ApiStatus::default().as_str(),
-        foundation::layout::archi_models_rel_dir(),
+        foundation::layout::archi_graph_model_rel_dir(),
         foundation::layout::archi_models_rel_dir(),
         foundation::layout::archi_graph_rel_dir(),
     ))

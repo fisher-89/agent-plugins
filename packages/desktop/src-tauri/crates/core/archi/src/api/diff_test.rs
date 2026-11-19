@@ -58,7 +58,7 @@ impl TempDir {
 
     fn write_model(&self, content: &str) {
         self.write(
-            ".dev-team/architecture/models/01-test.toml",
+            ".dev-team/architecture/graph/model/01-test.toml",
             &declare_ancestors(content),
         );
     }
@@ -480,7 +480,8 @@ fn compare契约目录有界枚举的深度上限() {
 fn compare空仓库与契约面未启用() {
     let absent = TempDir::new("compare-empty-absent");
     let no_toml = TempDir::new("compare-empty-no-toml");
-    fs::create_dir_all(no_toml.root().join(".dev-team/architecture/models")).expect("建空模型目录");
+    fs::create_dir_all(no_toml.root().join(".dev-team/architecture/graph/model"))
+        .expect("建空模型声明目录");
     let no_api_dir = TempDir::new("compare-empty-no-api");
     no_api_dir.write_model(
         "[element.\"App.Core.Archi\"]\nkind = \"module\"\ngate = \"warn\"\n\
@@ -599,7 +600,7 @@ fn compare零写盘() {
 fn compare结构错模型即err() {
     let temp = TempDir::new("compare-broken-model");
     temp.write(
-        ".dev-team/architecture/models/01-test.toml",
+        ".dev-team/architecture/graph/model/01-test.toml",
         "[element.\"App\"]\nkind = \"package\"\n\n\
          [element.\"App.A\"]\nkind = \"module\"\n\n\
          [element.\"App.B\"]\nkind = \"module\"\n\n\

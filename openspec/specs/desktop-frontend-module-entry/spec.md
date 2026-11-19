@@ -141,7 +141,7 @@ after  : kind = "module" · path = ["./packages/desktop/src/components/agent/"]
 #### Scenario: 翻转后入口由约定默认命中
 
 - **WHEN** 对翻转后的 `App.Frontend.Components.Agent` 跑 `paths::entry_state`
-- **THEN** `Resolved`、入口 = `packages/desktop/src/components/agent/index.tsx`（③ 的第四候选）；模型内该元素零 `entry` 行；`grep -c "^entry"` 于 `models/` 仍为 **3**
+- **THEN** `Resolved`、入口 = `packages/desktop/src/components/agent/index.tsx`（③ 的第四候选）；模型内该元素零 `entry` 行；`grep -c "^entry"` 于 `graph/model/` 仍为 **3**
 
 #### Scenario: 7 条端点边逐条不变
 
@@ -150,7 +150,7 @@ after  : kind = "module" · path = ["./packages/desktop/src/components/agent/"]
 
 #### Scenario: 计数换段无溢出
 
-- **WHEN** 聚合 `models/` 六个文件
+- **WHEN** 聚合 `graph/model/` 六个文件
 - **THEN** 元素 **53**（容器 **9** + 叶 **44**）、关系 **120**（后端 49 + 前端 71）、`06` 段 **30 元素 / 71 关系**（3 容器 + 27 叶）；`diagnostics` 空、`warnings` 空；表头注释、`repo-archi-model` 计数表与 ADR `§9` 三处同值
 
 #### Scenario: 翻转不外溢到代码层

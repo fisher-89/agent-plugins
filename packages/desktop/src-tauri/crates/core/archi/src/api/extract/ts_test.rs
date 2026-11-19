@@ -911,9 +911,10 @@ fn apply_knip_report零产品调用者() {
             .unwrap_or(0)
     ));
     let _ = std::fs::remove_dir_all(&temp);
-    std::fs::create_dir_all(temp.join(".dev-team/architecture/models")).expect("建模型目录");
+    std::fs::create_dir_all(temp.join(".dev-team/architecture/graph/model"))
+        .expect("建模型声明目录");
     std::fs::write(
-        temp.join(".dev-team/architecture/models/01-test.toml"),
+        temp.join(".dev-team/architecture/graph/model/01-test.toml"),
         crate::api::mod_test::declare_ancestors(
             "[element.\"App.Core.Ts\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/views/x\"]\n",
         ),
