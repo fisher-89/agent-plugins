@@ -48,7 +48,7 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_module`（不在七通用工具
 #### Scenario: doc 只在 api = none 元素上有值
 
 - **WHEN** 分别对 `api = none` 且声明了 `doc` 的元素、`api = none` 未声明 `doc` 的元素、`api = declared` 的元素调用 `archi_module`
-- **THEN** 依次为「路径串」/ `null` / `null`（字段不省略）；declared 元素的入口文档只能经 `api.contractPath` 读到——两处 MUST NOT 同时给出口 entry 文档（否则抽屉会出现两条）
+- **THEN** 依次为「路径串」/ `null` / `null`（字段不省略）；declared 元素的入口文档只能经 `api.contractPath` 读到——两处 MUST NOT 同时给出口 entry 文档（否则元素信息面板会出现两条）
 
 #### Scenario: 薄概览带 api.status 但不带路径与 doc
 

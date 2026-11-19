@@ -5,14 +5,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { ArchiElement, ArchiRelation } from '../../../types/generated/bindings';
-import { ElementDrawer } from './element-drawer';
+import { ModelInfo } from './model-info';
 
 /**
- * `ElementDrawer` 单测（AC-6 / AC-18 / AC-19 / D22）：概览字段与声明位置、文档
- * 四字段条目按强度序、ADR 正文按需取（展开才 invoke）与行内错误、`incremental`
- * 改档（三档值 / 成功回调 / 失败行内错误且不触发重取）、`full` 只读提示、零「相邻
- * 报告」区块。
- *
  * 进程边界 mock：`@tauri-apps/api/core` 的 `invoke`（`archi_module` /
  * `read_file` / `archi_set_gate` 按命令名分发）；`onChanged` 以 `vi.fn()`
  * 观测（重取触发即被测语义）。
@@ -106,9 +101,9 @@ afterEach(() => {
 });
 
 describe('抽屉概览', () => {
-  it('应呈现 kind / path / gate / modelFile:line 与摘要', async () => {
+  it('应呈现 kind / gate 徽标、源码路径与摘要', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element()}
@@ -121,16 +116,18 @@ describe('抽屉概览', () => {
     const drawer = screen.getByTestId('archi-drawer');
     expect(drawer.textContent).toContain('App.Auth');
     expect(drawer.textContent).toContain('kind domain · gate strict');
-    expect(drawer.textContent).toContain('path ./src/auth/、./src/token/');
-    expect(screen.getByTestId('archi-drawer-position').textContent).toBe(
-      '.dev-team/architecture/graph/model/01-core.toml:6',
-    );
     expect(drawer.textContent).toContain('认证域');
+    expect(drawer.textContent).toContain('源码');
+    expect(drawer.textContent).toContain('./src/auth/');
+    expect(drawer.textContent).toContain('./src/token/');
+    // 声明位置（modelFile:line）只在数据面，概览不渲
+    expect(screen.queryByTestId('archi-drawer-position')).toBeNull();
+    expect(drawer.textContent).not.toContain('01-core.toml');
   });
 
-  it('应在行号未知（modelLine = 0）时只渲文件', async () => {
+  it('应在行号未知（modelLine = 0）时同样零声明位置行', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element({ modelLine: 0 })}
@@ -140,14 +137,13 @@ describe('抽屉概览', () => {
       />,
     );
     await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
-    expect(screen.getByTestId('archi-drawer-position').textContent).toBe(
-      '.dev-team/architecture/graph/model/01-core.toml',
-    );
+    expect(screen.queryByTestId('archi-drawer-position')).toBeNull();
+    expect(screen.getByTestId('archi-drawer').textContent).not.toContain('01-core.toml');
   });
 
-  it('应在无 path 时呈现未声明占位（不出现空串）', async () => {
+  it('应在无 path 时呈现未配置占位（不出现空串）', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element({ path: [], summary: null })}
@@ -157,14 +153,14 @@ describe('抽屉概览', () => {
       />,
     );
     await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
-    expect(screen.getByTestId('archi-drawer').textContent).toContain('path （未声明）');
+    expect(screen.getByTestId('archi-drawer').textContent).toContain('源码（未配置）');
   });
 });
 
 describe('入口文档段', () => {
   it('应在 api = none 时渲单值路径行（路径经 title 透出，未点击零 invoke）', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element({ api: 'none' })}
@@ -184,7 +180,7 @@ describe('入口文档段', () => {
 
   it('应在 declared 元素上整段不渲（入口文档由契约段承担，零重复）', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element({ api: 'declared' })}
@@ -217,7 +213,7 @@ describe('入口文档段', () => {
       return Promise.reject(new Error(`未预期命令: ${command}`));
     });
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element({ api: 'none' })}
@@ -248,7 +244,7 @@ describe('入口文档段', () => {
       return Promise.reject(new Error('路径越界（读盘失败）'));
     });
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'/ws'}
         mode="full"
         element={element({ api: 'none' })}
@@ -271,7 +267,7 @@ describe('incremental 改档', () => {
   it('应提供三档选择并在提交时调用 archiSetGate 且成功后触发父级重取', async () => {
     const onChanged = vi.fn();
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="incremental"
         element={element()}
@@ -323,7 +319,7 @@ describe('incremental 改档', () => {
       return Promise.reject(new Error('改档渲染自证失败：回读档位为 off'));
     });
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="incremental"
         element={element()}
@@ -345,7 +341,7 @@ describe('incremental 改档', () => {
 describe('full 只读与本期边界', () => {
   it('应在 full 模式下零可提交控件并给出开 change 提示', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element()}
@@ -365,7 +361,7 @@ describe('full 只读与本期边界', () => {
 
   it('应无「相邻报告」区块与计数占位（本期射程外）', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element()}
@@ -383,7 +379,7 @@ describe('full 只读与本期边界', () => {
 
   it('应在豁免边存在时呈现 reason 行', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element()}
@@ -417,7 +413,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
       });
     });
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element({ api: 'none' })}
@@ -458,7 +454,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
       });
     });
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="incremental"
         element={element()}
@@ -486,7 +482,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
 
   it('应在 root 为 null 时提交 gate 给出「无工作根」行内错误且零 invoke', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={null}
         mode="incremental"
         element={element()}
@@ -506,7 +502,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
 
   it('应在无 gate 错误时零错误行（不渲空占位）', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="incremental"
         element={element()}
@@ -522,7 +518,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
 
   it('应在非法取值被拒后保持原草稿（写回值不漂移）', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="incremental"
         element={element({ gate: 'strict' })}
@@ -554,7 +550,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
 describe('入口文档查看交互', () => {
   it('应在点击查看时取该路径正文（载荷 = root + doc 单值，默认零 invoke）', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element({ api: 'none' })}
@@ -576,7 +572,7 @@ describe('入口文档查看交互', () => {
 
   it('应在关闭后重开再取一次（关闭即卸载，零跨开合缓存）', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element({ api: 'none' })}
@@ -601,7 +597,7 @@ describe('入口文档查看交互', () => {
 describe('豁免段', () => {
   it('应只呈现与当前元素相关且带 reason 的边', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element()}
@@ -625,7 +621,7 @@ describe('豁免段', () => {
 
   it('应在无豁免边时整段隐藏（零「豁免」标题）', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element()}
@@ -649,7 +645,7 @@ describe('取数异常', () => {
       Promise.reject(new Error('元素不存在：App.Missing（模型共 3 个元素）')),
     );
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={element({ fqn: 'App.Missing' })}
@@ -665,7 +661,7 @@ describe('取数异常', () => {
 
   it('应在未选中元素时零 invoke 并列空态', async () => {
     render(
-      <ElementDrawer
+      <ModelInfo
         root={'C:\\demo\\alpha'}
         mode="full"
         element={null}
@@ -740,7 +736,7 @@ function renderWith(
 ) {
   serveModuleWithApi(api, elementApi);
   render(
-    <ElementDrawer
+    <ModelInfo
       root={'/ws'}
       mode="full"
       element={element({ api: elementApi })}
@@ -889,7 +885,7 @@ describe('抽屉契约段', () => {
   it('应在 root = null 时不渲契约段且零 archi_module 取数', async () => {
     serveModuleWithApi(DECLARED_API);
     render(
-      <ElementDrawer
+      <ModelInfo
         root={null}
         mode="full"
         element={element()}
@@ -914,11 +910,11 @@ describe('抽屉契约段', () => {
 describe('抽屉契约段：零新增 invoke（源码自证）', () => {
   it('应零引用契约面两命令与漂移命令（数据只经既有 archi_module 与 read_file）', () => {
     const source = readFileSync(
-      resolve(process.cwd(), 'src/views/architecture/components/element-drawer.tsx'),
+      resolve(process.cwd(), 'src/views/architecture/components/model-info.tsx'),
       'utf8',
     );
     for (const command of ['archiApiCheck', 'archiApiGenerate', 'archiDrift']) {
-      expect(source.includes(command), `element-drawer.tsx 零 ${command} 引用`).toBe(false);
+      expect(source.includes(command), `model-info.tsx 零 ${command} 引用`).toBe(false);
     }
     // 数据来源仍是既有模块详情 hook（零第二份取数）
     expect(source).toContain('useArchiModule');

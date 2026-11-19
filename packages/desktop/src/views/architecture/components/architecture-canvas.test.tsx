@@ -14,7 +14,7 @@ import type {
 import { ArchitectureCanvas } from './architecture-canvas';
 
 /**
- * `ArchitectureCanvas` 单测（AC-4 / AC-18 / D9 / D21）：全或无停摆、正常态三段
+ * `ArchitectureCanvas` 单测（AC-4 / AC-18 / D9 / D21）：全或无停摆、正常态两栏
  * 布局、缺省 1-hop 聚焦、聚焦切换零取数、空模型与取数失败两态、`mode` 透传、
  * 改档后刷新的三触发纪律。
  *
@@ -123,6 +123,9 @@ class ResizeObserverStub {
               bottom: 0,
               right: 0,
             },
+            // react-resizable-panels 经 borderBoxSize[0] 判在测面板尺寸；
+            // 缺省形状只有 contentRect 会让其面板回调读到 undefined[0]。
+            borderBoxSize: [{ inlineSize: target.clientWidth, blockSize: target.clientHeight }],
           }) as unknown as ResizeObserverEntry,
       );
       observer.callback(entries, observer);
@@ -1277,19 +1280,21 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
     expect(screen.queryByTestId('archi-tree-mode')).toBeNull();
   });
 
-  it('应让左栏三视图共用同一宽度（w-80，不随视图变化）', async () => {
+  it('应让左栏三视图共用同一可调宽栏位（宽度不随视图变化）', async () => {
     render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
     const columnOf = (): HTMLElement => screen.getByTestId('archi-tree-mode').parentElement!;
-    expect(columnOf().className.split(/\s+/)).toContain('w-80');
+    const panelOf = (): HTMLElement => columnOf().closest('[data-panel]')!;
+    const panel = panelOf();
+    expect(panel, '左栏由 ResizablePanel 承载').not.toBeNull();
+    expect(panel.closest('[data-group]')).not.toBeNull();
 
     switchTo('元素');
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
-    expect(columnOf(), '元素视图沿用同一栏宽').toBe(
+    expect(columnOf(), '元素视图沿用同一栏位').toBe(
       screen.getByTestId('archi-tree-mode').parentElement,
     );
-    expect(columnOf().className.split(/\s+/)).toContain('w-80');
-    expect(columnOf().className.split(/\s+/)).not.toContain('w-72');
+    expect(panelOf(), '面板元素不随视图切换重建').toBe(panel);
   });
 });
 
@@ -1485,20 +1490,21 @@ describe('左栏第三视图（契约）', () => {
     );
   });
 
-  it('应让左栏三视图共用同一宽度类名（w-80，不随视图变化）', async () => {
+  it('应让契约视图与另两视图共用同一可调宽栏位（宽度不随视图变化）', async () => {
     serveWithApiCheck(healthyGraph(), reportWithFindings());
     render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
     await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
 
     const columnOf = (): HTMLElement => screen.getByTestId('archi-tree-mode').parentElement!;
-    expect(columnOf().className.split(/\s+/)).toContain('w-80');
+    const panelOf = (): HTMLElement => columnOf().closest('[data-panel]')!;
+    const panel = panelOf();
+    expect(panel).not.toBeNull();
     switchTo('元素');
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
-    expect(columnOf().className.split(/\s+/)).toContain('w-80');
-    expect(columnOf().className.split(/\s+/)).not.toContain('w-72');
+    expect(panelOf(), '元素视图沿用同一栏位').toBe(panel);
     switchToContract();
     await waitFor(() => expect(screen.getByTestId('archi-contract-panel')).toBeTruthy());
-    expect(columnOf().className.split(/\s+/)).toContain('w-80');
+    expect(panelOf(), '契约视图沿用同一栏位').toBe(panel);
   });
 });
 

@@ -568,9 +568,9 @@ describe('views/changes/flow 入口：压力样本 11 名与类型出口', () =>
     expect(valueForm[0]!.names).toEqual(TYPE_EXPORTS);
   });
 
-  it('目录 41 个具名导出只出 11 个（其余 30 名逐个零命中）', () => {
+  it('目录 40 个具名导出只出 11 个（其余 29 名逐个零命中）', () => {
     const declared = new Set(moduleFiles().flatMap((file) => declaredNamesOf(sourceOf(file))));
-    expect(declared.size).toBe(41);
+    expect(declared.size).toBe(40);
     for (const name of [...VALUE_EXPORTS.map(([name]) => name), ...TYPE_EXPORTS]) {
       expect(declared.has(name), `目录内有 ${name}`).toBe(true);
     }

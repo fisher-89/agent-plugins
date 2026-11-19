@@ -29,7 +29,7 @@ summary = "agent 实例与供应商配置页"
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/views/architecture/"]
-summary = "架构页：元素树、画布与元素抽屉"
+summary = "架构页：文件树 / 元素树 / 契约三视图、画布与元素信息面板"
 
 [element."App.Frontend.Views.Changes"]
 kind = "module"

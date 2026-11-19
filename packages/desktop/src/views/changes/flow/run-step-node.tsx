@@ -1,12 +1,14 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { useEffect, useState } from 'react';
 
+import { TextTooltip } from '@/components/standard/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Spinner } from '@/components/ui/spinner';
+import { formatTokens } from '@/lib/token';
 
 import type { ChangeStepKind, ChangeStepStatus } from '../../../types/dto';
-import { formatTokens, runningDurationLabel, settledDurationLabel } from './metrics';
+import { runningDurationLabel, settledDurationLabel } from './metrics';
 import type { RunStepGroup, RuntimeFlowNode } from './types';
 
 type RunStepNodeData = { node: RuntimeFlowNode };
@@ -112,9 +114,13 @@ function StepMetricsRow({ node, tickNow }: { node: RuntimeFlowNode; tickNow: num
       {showTokens && (
         <>
           {duration !== null && <span> ▸ </span>}
-          <span data-testid="run-step-tokens">
-            tokens {formatTokens(node.tokenInput)}/{formatTokens(node.tokenOutput)}
-          </span>
+          <TextTooltip
+            text={`输入：${formatTokens(node.tokenInput)} / 输出：${formatTokens(node.tokenOutput)}`}
+          >
+            <span data-testid="run-step-tokens">
+              tokens {formatTokens((node.tokenInput ?? 0) + (node.tokenOutput ?? 0))}
+            </span>
+          </TextTooltip>
         </>
       )}
     </div>

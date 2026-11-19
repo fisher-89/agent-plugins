@@ -341,7 +341,7 @@ describe('SessionTranscriptPanel：refreshKey 状态重评估', () => {
 
     await waitFor(() => expect(panelTexts()).toContain('重取后新增'));
     expect(callsOf('session_detail')).toHaveLength(2);
-    expect(screen.getByTestId('session-meta-turns').textContent).toBe('轮数 2');
+    expect(screen.getByTestId('session-meta-turns').textContent).toBe('对话 2 轮');
   });
 
   it('running 转收口 → 订阅拆除、不重订（并行流 ≤ 1）', async () => {

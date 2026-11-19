@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义契约面在桌面端的**可操作落点**：左栏第三视图「契约」的两轴并列呈现（`category` 七值含 `doc`）、`archi_api_check` / `archi_api_generate` 两条 IPC 的命令语义与出线 DTO、`enabled` 判据（入口文档载体带 fence 才启用）、判定单源与写盘单点、生成交互（二次确认 / 孤儿如实 / 非原子如实）、按 `mode` 的生成权限、面板取数与成本纪律、元素抽屉「契约」段。契约格式、十三条判据语义、生成物落点与零 diff 门挂载分别归 `desktop-archi-api` / `desktop-archi-api-check`；漂移 `status` 推导归 `desktop-archi-drift`；画布渲染与抽屉其余段落归 `desktop-archi-canvas`；左栏另两视图归 `desktop-archi-file-tree`。
+定义契约面在桌面端的**可操作落点**：左栏第三视图「契约」的两轴并列呈现（`category` 七值含 `doc`）、`archi_api_check` / `archi_api_generate` 两条 IPC 的命令语义与出线 DTO、`enabled` 判据（入口文档载体带 fence 才启用）、判定单源与写盘单点、生成交互（二次确认 / 孤儿如实 / 非原子如实）、按 `mode` 的生成权限、面板取数与成本纪律、元素信息面板「契约」段。契约格式、十三条判据语义、生成物落点与零 diff 门挂载分别归 `desktop-archi-api` / `desktop-archi-api-check`；漂移 `status` 推导归 `desktop-archi-drift`；画布渲染与元素信息面板其余段落归 `desktop-archi-canvas`；左栏另两视图归 `desktop-archi-file-tree`。
 
 ## Requirements
 
@@ -134,7 +134,7 @@
 
 - **两轴分区独立计数**：两区各自呈现计数，MUST NOT 出现跨轴求和的总数（两轴的可修复者不同，「43 + 3 = 46 个问题」会让用户以为都得手改）。
 - **`category` 词汇零新增（前端面）**：chip 取值 SHALL 取自报告既有开放值集——**`entry` / `contract` / `signature` / `reexport` / `nesting` / `constructor` / `doc`**（本变更由六值扩七值，`doc` 承载 `docMissing` / `docNotFound` / `apiDocMissing`），计数由同一份 `apiFindings` 聚合；MUST NOT 在前端另立词表或类别常量（chip 集合由数据驱动，新增分类只改打标处）。
-- **条目点击 = 聚焦**：点击判据条目 SHALL 调既有 `onFocus(element)`（与元素树 / 文件树同一语义：画布切到该元素 1-hop、抽屉取该元素详情），MUST NOT 新增交互范式；`element` 为空的条目 SHALL 只呈文本、不聚焦。
+- **条目点击 = 聚焦**：点击判据条目 SHALL 调既有 `onFocus(element)`（与元素树 / 文件树同一语义：画布切到该元素 1-hop、元素信息面板取该元素详情），MUST NOT 新增交互范式；`element` 为空的条目 SHALL 只呈文本、不聚焦。
 - **「打开」走通用读面**：契约 md / schema / 生成物 / 入口文档的路径行 SHALL 经既有 `FileViewer` + `read_file` 打开（`read_file` 已是通用绝对路径读面），MUST NOT 为面板新增专用读命令。
 - **五态全画**：
 
@@ -143,7 +143,7 @@
 | `loading` | 「解析中…」（沿既有 loading 文案） |
 | `enabled = false` | 「契约面未启用」+ 冷启动说明（应生成集此时只含 `INDEX.toml`），且仍呈现 `missing` 实况——MUST NOT 渲成空面板 |
 | 零差异 + 零判据 | 「生成物最新，判据 0 条」 |
-| 检查 invoke reject | 面板内行内错误（沿 `archi-file-tree-error` 形态），画布与抽屉照常可用 |
+| 检查 invoke reject | 面板内行内错误（沿 `archi-file-tree-error` 形态），画布与元素信息面板照常可用 |
 | 生成失败 | 错误回显在面板顶部，文案如实（非原子、失败点之前已写） |
 
 - **不阻断画布**：检查或生成失败 MUST NOT 阻断图渲染、MUST NOT 使画布进入停摆态（停摆态的唯一成因仍是模型结构错）。
@@ -157,7 +157,7 @@
 #### Scenario: chip 过滤与聚焦
 
 - **WHEN** 点下 `doc` chip 并点击其中一条 `docNotFound` 条目
-- **THEN** 列表只剩该 category 的条目（计数不变、只筛显示）；条目点击触发一次 `onFocus(element)`——画布切到该元素 1-hop、抽屉取该元素详情（`archi_module` 恰一次）
+- **THEN** 列表只剩该 category 的条目（计数不变、只筛显示）；条目点击触发一次 `onFocus(element)`——画布切到该元素 1-hop、元素信息面板取该元素详情（`archi_module` 恰一次）
 
 #### Scenario: 冷启动态不渲空面板
 
@@ -167,7 +167,7 @@
 #### Scenario: 检查失败不阻断画布
 
 - **WHEN** `archi_api_check` 以 `Err` 返回（模型结构错 / 契约资产非法）
-- **THEN** 面板呈行内错误并可重试；画布与抽屉照常渲染（图零降级），MUST NOT 进入停摆态
+- **THEN** 面板呈行内错误并可重试；画布与元素信息面板照常渲染（图零降级），MUST NOT 进入停摆态
 
 ### Requirement: 生成交互与模式权限
 
@@ -225,19 +225,19 @@
 - **WHEN** `root = null` 时切到契约视图
 - **THEN** 三次 invoke 均为零次，面板呈空态提示；不抛错、不崩溃
 
-### Requirement: 抽屉契约段
+### Requirement: 元素信息面板契约段
 
-元素抽屉 SHALL 在「概览」与「入口文档」之间呈现本元素的契约事实，数据来源零新增：
+元素信息面板（`ModelInfo`）SHALL 在「概览」与「入口文档」之间呈现本元素的契约事实，数据来源零新增：
 
 - **三路径行**：`api.status = declared` 时 SHALL 逐行呈现契约 md / schema / 生成物三个路径（`ArchiApiRef.contractPath` / `schemaPath` / `generatedPath`），各行可经 `FileViewer` 打开；`status = none` 时 SHALL 呈一行「无契约（`api = none` 或契约文件不在案）」且三路径行不渲染。
-- **契约 md 行＝入口文档行（本变更改写）**：`declared` 元素的入口文档**就是** `contractPath`，故本段第一行 `ContractPathRow("契约", api.contractPath)` 同时承担「入口文档」的呈现职责——抽屉 MUST NOT 另渲第二条入口文档行；`api = none` 元素的入口文档走抽屉的「入口文档」段（`ArchiModuleDetail.doc`，见 `desktop-archi-canvas`「抽屉内容与本期边界」）。
-- **本元素判据**：SHALL 从父级同一份 `apiFindings` 按 `element === fqn` 过滤后逐条列出（`kind` + `message`），零命中时一句「本元素无漂移」；MUST NOT 为抽屉单独 invoke 检查或报告。三个新值（`docMissing` / `docNotFound` / `apiDocMissing`）按同一规则呈现，MUST NOT 为它们另写分支。
+- **契约 md 行＝入口文档行（本变更改写）**：`declared` 元素的入口文档**就是** `contractPath`，故本段第一行 `ContractPathRow("契约", api.contractPath)` 同时承担「入口文档」的呈现职责——面板 MUST NOT 另渲第二条入口文档行；`api = none` 元素的入口文档走面板的「入口文档」段（`ArchiModuleDetail.doc`，见 `desktop-archi-canvas`「元素信息面板内容与本期边界」）。
+- **本元素判据**：SHALL 从父级同一份 `apiFindings` 按 `element === fqn` 过滤后逐条列出（`kind` + `message`），零命中时一句「本元素无漂移」；MUST NOT 为面板单独 invoke 检查或报告。三个新值（`docMissing` / `docNotFound` / `apiDocMissing`）按同一规则呈现，MUST NOT 为它们另写分支。
 - **零新取数**：本段数据 SHALL 全部来自既有 `ArchiModuleDetail.api`（`ArchiApiRef`）与父级已取的报告——MUST NOT 新增 IPC、MUST NOT 二次调用 `archi_module`。
-- **不与入口文档段混装**：契约正文 MUST NOT 进抽屉正文通路（正文仍由通用 `read_file` 按路径承担，原「`docs` 关联集」一说不存在）；本段只呈状态与路径，MUST NOT 内联契约 md 内容。
+- **不与入口文档段混装**：契约正文 MUST NOT 进面板正文通路（正文仍由通用 `read_file` 按路径承担，原「`docs` 关联集」一说不存在）；本段只呈状态与路径，MUST NOT 内联契约 md 内容。
 
 #### Scenario: 有契约元素的三路径
 
-- **WHEN** 聚焦契约在案的元素（如 `App.Backend.Infra.ArchiRuntime`）打开抽屉
+- **WHEN** 聚焦契约在案的元素（如 `App.Backend.Infra.ArchiRuntime`）打开元素信息面板
 - **THEN** 契约段呈 `status = declared` + 三路径行，点任一行的「查看」经 `read_file` 打开该文件；本元素判据 0 条时呈「本元素无漂移」
 
 #### Scenario: 无契约元素的空态
@@ -247,12 +247,12 @@
 
 #### Scenario: declared 元素零第二条入口文档
 
-- **WHEN** 聚焦任一 `api = declared` 元素并审查抽屉内指向入口文档的行数
+- **WHEN** 聚焦任一 `api = declared` 元素并审查面板内指向入口文档的行数
 - **THEN** 恰一条（契约段第一行）；「入口文档」段不渲染（`doc` 为 `null`）；两条同时出现即判违例
 
-#### Scenario: 抽屉零新 invoke
+#### Scenario: 元素信息面板零新 invoke
 
-- **WHEN** 打开任意元素抽屉并审查 invoke 次数
+- **WHEN** 打开任意元素信息面板并审查 invoke 次数
 - **THEN** `archi_module` 恰一次（既有取数），`archi_api_check` / `archi_drift` 均零新增调用
 
 ## Module Contract
@@ -299,8 +299,8 @@
 |---|---|---|
 | `hooks/use-archi-api-check.ts` | 新增 | `{ root }` → `{ check, loading, error, refresh }`：三触发（挂载 / `root` 变化 / `refresh`）、`root === null` 零 invoke、零轮询；失败清旧数据 |
 | `components/contract-panel.tsx` | 新增 | 左栏契约视图：两轴分区 + chip 过滤 + 条目聚焦 + 路径行 `FileViewer` + `[检查]` / 按模式的 `[生成]` + 五态；`data-testid` = `archi-contract-panel` / `archi-contract-axis-artifacts` / `archi-contract-axis-findings` / `archi-contract-chip` / `archi-contract-item` / `archi-contract-check` / `archi-contract-generate` / `archi-contract-status` / `archi-contract-error` |
-| `components/architecture-canvas.tsx` | 改 | 左栏 base-ui `Tabs` 三视图分支（第三臂 `value="contract"` 渲 `ContractPanel`；三视图共用栏宽 `w-80`）；把 `report.apiFindings` 与本元素过滤结果传给面板与抽屉；`mode` 决定生成按钮可用性；渲染与标记面零改动 |
-| `components/element-drawer.tsx` | 改 | 概览与文档之间插「契约」段（三路径行 + 本元素判据 + 空态）；零新 invoke |
+| `components/architecture-canvas.tsx` | 改 | 左栏 `ResizablePanel` 内的 base-ui `Tabs` 三视图分支（第三臂 `value="contract"` 渲 `ContractPanel`；三视图共用同一面板，`defaultSize={300}` / `minSize={200}`）；把 `report.apiFindings` 与本元素过滤结果传给面板与元素信息面板；`mode` 决定生成按钮可用性；渲染与标记面零改动 |
+| `components/model-info.tsx` | 改 | 概览与文档之间插「契约」段（三路径行 + 本元素判据 + 空态）；零新 invoke |
 | `components/file-tree.tsx` | 改 | 保留 `TreeMode` 三值枚举（含 `'contract'`）；分段控件本体移至 `architecture-canvas.tsx` 的 `Tabs`（`TreeModeSwitch` 退役）；文件 / 元素两视图行渲染零改动 |
 | 零改动面 | — | `use-archi-graph.ts` / `use-archi-drift.ts` / `use-archi-module.ts` / `use-archi-file-tree.ts`、`lib/marks.ts` / `lib/drift-marks.ts` / `lib/fqn.ts`、`structure-error-panel.tsx`、`element-tree.tsx` |
 
@@ -313,7 +313,7 @@
 | `packages/desktop/src-tauri/src/commands/archi/mod.rs` | 零改动 | `archi_api_check(root) -> Result<ArchiApiCheck, String>` 薄包装、`*_inner` 测试缝、`Err` 面与 `display` 单点逐字不变；`enabled` / 三列全部来自 `core/archi` |
 | `crates/core/archi/src/api/mod.rs::enabled` | 改（换根） | 契约面启用判据 = `<archi_models_dir>` 递归含 ≥1 份 `*.md`（判据形态零变化）；命令层 MUST NOT 另判一套 |
 | `packages/desktop/src/views/architecture/components/contract-panel.tsx` + `hooks/use-archi-api-check.ts` | 零改动 | 两轴呈现、状态矩阵、「契约面未启用」文案分支与三类差异渲染逐字不变（`enabled` 语义与字段名均未变，变的只是后端填值口径中的目录） |
-| `packages/desktop/src/views/architecture/**` 的测试 | 零改动 | 面板用例的 `enabled` / 三列均为 DTO 载荷样例，不参与路径派生；`architecture-canvas.test.tsx` / `element-drawer.test.tsx` 内的旧契约路径串保持原样（fixture 契约） |
+| `packages/desktop/src/views/architecture/**` 的测试 | 零改动 | 面板用例的 `enabled` / 三列均为 DTO 载荷样例，不参与路径派生；`architecture-canvas.test.tsx` / `model-info.test.tsx` 内的旧契约路径串保持原样（fixture 契约） |
 | `packages/desktop/src/types/generated/` | 仅 `bindings.ts` 的 2 行 doc 注释 | 出参形状零改动；`dto.rs` 的 doc 换段经 specta 进 `bindings.ts`（`ApiStatus` / `ArchiApiRef.contractPath`）⇒ 恰 2 行注释随动，`bindings.zod.ts` 零 diff、`bindings:export` 幂等 |
 
 ### CLI: 脚本面（零改动）
@@ -333,4 +333,4 @@
 | `crates/core/archi/src/api/mod.rs::enabled` | 改（判据收紧） | 启用判据 = 任一 `path` 非空元素的载体在盘且 `DocFact::Present { has_api_fence: true }`（不再等价于「递归任意 `*.md`」）；命令层 MUST NOT 另判一套、MUST NOT 缓存 |
 | `crates/core/archi/src/api/artifact_check` | 改（签名透传） | 因 `enabled` 需元素表，`artifact_check` 内部经 `elements_of` 单点取模型后调用 `enabled(root, elements)`；DTO 形状与命令层零改动 |
 | `packages/desktop/src/views/architecture/components/contract-panel.tsx` + `hooks/use-archi-api-check.ts` | 零改动（数据驱动） | 两轴呈现、状态矩阵、「契约面未启用」文案分支与三类差异渲染逐字不变；`category` chip 集合由 `apiFindings` 聚合得出，新增 `doc` 档不要求前端改常量 |
-| `packages/desktop/src/views/architecture/components/element-drawer.tsx` | 改（契约段） | 三路径行、本元素判据过滤、「无契约」空态逐字保留；新增「契约行即入口文档行」的单一性约束（零第二条入口文档行） |
+| `packages/desktop/src/views/architecture/components/model-info.tsx` | 改（契约段） | 三路径行、本元素判据过滤、「无契约」空态逐字保留；新增「契约行即入口文档行」的单一性约束（零第二条入口文档行） |

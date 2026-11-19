@@ -12,7 +12,7 @@ change 详情 SHALL 在**左栏**提供常驻的通用 Agent 面板，与右侧�
 
 - **分栏骨架**：左栏 SHALL 由共享骨架 `SessionPanel` 自带的可折叠分栏承载，默认收起（挂载即窄条形态，收起尺寸 32px / 展开尺寸下限 500px / 留窄条 `collapsible`），窄条内 SHALL 留展开入口、展开体头区 SHALL 提供「收起Agent」入口；`DetailHeader` MUST NOT 另设面板显隐开关（折叠入口全部收在骨架内）；右栏 SHALL 保持既有纵向次序（刷新失败提示 → 运行控制面板 → 流程图区）。
 - **对话体单一实现**：对话区 SHALL 经会话级统一组件 `AgentSessionView`（desktop-agent-chat-infra）的**注入形态**渲染（来源侧建 `useAgentSession`，composer 经插槽注入），MUST NOT 在视图层自行拼装消息 / 轮行 / 事件流，MUST NOT 引入第二套对话渲染或第二套转录查询 hook。
-- **会话头动作面**：面板头 SHALL 提供「新会话」与「历史会话」两个动作（后者为可展开的头区下拉清单），以及一行状态提示（禁发 / 只读理由，见「禁发与只读状态矩阵」）；会话元信息（会话 id / 运行态 / 轮数 / tokens）由 `AgentSessionView` 自带元信息行承载，MUST NOT 复制第二份。
+- **会话头动作面**：面板头 SHALL 提供「新会话」与「历史会话」两个动作（后者为可展开的头区下拉清单），以及一行状态提示（禁发 / 只读理由，见「禁发与只读状态矩阵」）；会话元信息（会话 id / 运行态 / 对话轮数 / 消耗 token 合计，输入 / 输出明细经 tooltip）由 `AgentSessionView` 自带元信息行承载，MUST NOT 复制第二份。
 - **面板态归属**：面板本地态（当前 `sessionId` / 清单数据 / 折叠态）SHALL 挂在页面身份源（URL change id）上——change id 变化时重置（MUST NOT 让旧 change 的会话 id 落到新 change 上）；历史下拉的开合态归下拉组件自持（打开边沿经 `onOpenHistory` 上报取数），折叠态由骨架内部持有，change 切换（组件重挂）SHALL 回到默认收起形态；`sessionId = null` 即空态（可发送草案态，见「change 会话归属与新会话 / 历史会话」）。
 - **实时面纪律**：面板的交互式会话 MUST NOT 接收详情视图的重评估 tick（`refreshTick`）作 `refreshKey`——该值在 run 期间由每条密封事件驱动，传入会导致整轮反复重放；会话状态重评估 SHALL 由 `useAgentSession` 自身的库态推导与订阅面承担（只读消费点如流程抽屉继续收 `refreshKey`，其语义不变）。
 

@@ -90,7 +90,7 @@
 
 #### Scenario: 文档预览链路
 
-- **WHEN** 架构抽屉 / explore 预览需要渲染文档正文
+- **WHEN** 架构元素信息面板 / explore 预览需要渲染文档正文
 - **THEN** 均经 `read_file` 取字节，不再出现 `archi_read_doc` / `read_explore` 调用；`archi_module` 的文档关联集与 `explore_doc_path` 的路径派生语义零变化
 
 #### Scenario: 越界不再被拒（按设计）
@@ -118,4 +118,4 @@
 | `src-tauri/src/commands/mod.rs` | 命令登记 | `all_commands!` 增 `commands::fs::read_file`；删 `archi_read_doc` / `read_explore` / `read_exec_output` 三行 |
 | `packages/desktop/src/components/file/file-viewer.tsx` | 文档预览消费方 | `archiReadDoc` → `readFile`（相对路径按 root 拼接）；binary / 缺失 / 失败三态呈现 |
 | `packages/desktop/src/views/explores/hooks/use-explore-doc.ts` | explore 预览取数 | `explore_doc_path`（按臂单次解析、读取与 watch 共用）+ `read_file`；`ExploreDoc` 转本地类型 |
-| `packages/desktop/src/views/architecture/components/element-drawer.tsx` | 架构文档条目 | `FileViewer` 承载 ADR 正文读取（经 `read_file`） |
+| `packages/desktop/src/views/architecture/components/model-info.tsx` | 架构文档条目 | `FileViewer` 承载 ADR 正文读取（经 `read_file`） |

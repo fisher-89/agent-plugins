@@ -248,7 +248,7 @@ pair 锚点（不进元素循环，与元素锚点并列、互不挤占）
 - **聚合与稳定序**：`apiFindings` SHALL 按 `(kind, element, target)` 稳定排序（同 `kind` 内按元素 FQN 字典序），使报告可逐字 diff；命中点复用 `occurrences` 聚合（同元素对多处命中聚在一条内，不按行铺开）。
 - **词汇组表述校准**：报告自带封闭词汇由四组（`status` / 漂移条目 `kind` / 观察项 `kind` / 契约判据 `kind`）维持四组，但 `ArchiApiFindingKind` 由十值扩**十三值**；`WarningKind`（旧文档警告单值）已删除，MUST NOT 再出现在「互不混用」的对照清单里。
 - **判定单源**：`api_findings` 的装配 SHALL 在 `crates/core/archi/src/drift/mod.rs` 的 `check()` 内单点完成（调 `api::check`）；命令面（`archi_drift`）与门禁面（`LocalArchiCheck`）产出 SHALL 逐字段相等（除 `timestamp` / `change` 与落盘路径）。
-- **呈现面**：`apiFindings` SHALL 经架构页左栏「契约」视图与元素抽屉「契约」段呈现（`desktop-archi-contract-panel`），两处 MUST NOT 重算判据、MUST NOT 对同一报告二次 invoke。
+- **呈现面**：`apiFindings` SHALL 经架构页左栏「契约」视图与元素信息面板「契约」段呈现（`desktop-archi-contract-panel`），两处 MUST NOT 重算判据、MUST NOT 对同一报告二次 invoke。
 
 #### Scenario: 存量 backlog 不拉黄灯
 
@@ -368,4 +368,4 @@ pair 锚点（不进元素循环，与元素锚点并列、互不挤占）
 | 项 | 描述 |
 |---|---|
 | `views/architecture/components/contract-panel.tsx` | 判据轴按 `category` 分组呈现同一份 `apiFindings`（零重算） |
-| `views/architecture/components/element-drawer.tsx` | 按 `element === fqn` 过滤呈现本元素判据（零二次 invoke） |
+| `views/architecture/components/model-info.tsx` | 按 `element === fqn` 过滤呈现本元素判据（零二次 invoke） |

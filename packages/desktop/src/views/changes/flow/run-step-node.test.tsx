@@ -798,7 +798,7 @@ function settledWorkerNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlo
 }
 
 describe('RunStepNode：常驻度量行静态双段（AC-7 / D10 词面）', () => {
-  it('已收口 workerAgent 步 → run-step-metrics 行在场：⏱ 前缀 + 分级串、tokens 12k/3.4k、两段以 " ▸ " 分隔', () => {
+  it('已收口 workerAgent 步 → run-step-metrics 行在场：⏱ 前缀 + 分级串、tokens 15.4k、两段以 " ▸ " 分隔', () => {
     renderNode(settledWorkerNode());
     const metrics = within(screen.getByTestId('run-step-node')).getByTestId('run-step-metrics');
     const duration = within(metrics).getByTestId('run-step-duration');
@@ -806,9 +806,9 @@ describe('RunStepNode：常驻度量行静态双段（AC-7 / D10 词面）', () 
     // 耗时段：⏱ 前缀 + 分级串（200_000ms → 3m20s）
     expect(duration.textContent).toBe('⏱ 3m20s');
     // token 段：k / 一位小数缩写
-    expect(tokens.textContent).toBe('tokens 12k/3.4k');
+    expect(tokens.textContent).toBe('tokens 15.4k');
     // 两段以 " ▸ " 分隔（D10 词面，整行文本逐字）
-    expect(metrics.textContent).toBe('⏱ 3m20s ▸ tokens 12k/3.4k');
+    expect(metrics.textContent).toBe('⏱ 3m20s ▸ tokens 15.4k');
   });
 
   it('已收口非 workerAgent 步（toolStep / gate / git）→ token 段不渲染、仅耗时段（无 " ▸ " 分隔符）', () => {
@@ -842,22 +842,22 @@ describe('RunStepNode：常驻度量行静态双段（AC-7 / D10 词面）', () 
     }
   });
 
-  it('workerAgent 步 token 缺席（null）→ token 段 "tokens —/—" 渲染在场（em dash）', () => {
+  it('workerAgent 步 token 缺席（null）→ token 段 "tokens 0" 渲染在场（合计缺省归零）', () => {
     renderNode(settledWorkerNode({ tokenInput: null, tokenOutput: null }));
     const tokens = within(screen.getByTestId('run-step-node')).getByTestId('run-step-tokens');
-    expect(tokens.textContent).toBe('tokens —/—');
+    expect(tokens.textContent).toBe('tokens 0');
   });
 
-  it('workerAgent 步 token 单侧缺席 → 在场侧缩写、缺席侧 em dash（in/out 各自独立缩写）', () => {
+  it('workerAgent 步 token 单侧缺席 → 合计只计在场侧（缺席侧按 0 归并）', () => {
     const rendered = renderNode(settledWorkerNode({ tokenInput: 500, tokenOutput: null }));
     expect(
       within(screen.getByTestId('run-step-node')).getByTestId('run-step-tokens').textContent,
-    ).toBe('tokens 500/—');
+    ).toBe('tokens 500');
     rendered.unmount();
     renderNode(settledWorkerNode({ tokenInput: null, tokenOutput: 1_500_000 }));
     expect(
       within(screen.getByTestId('run-step-node')).getByTestId('run-step-tokens').textContent,
-    ).toBe('tokens —/1.5M');
+    ).toBe('tokens 1.5M');
   });
 });
 
@@ -892,8 +892,8 @@ describe('RunStepNode：常驻度量行边界（0ms 瞬步 / 旧数据）', () =
     );
     const metrics = within(screen.getByTestId('run-step-node')).getByTestId('run-step-metrics');
     expect(screen.queryByTestId('run-step-duration')).toBeNull();
-    expect(within(metrics).getByTestId('run-step-tokens').textContent).toBe('tokens 12k/3.4k');
-    expect(metrics.textContent).toBe('tokens 12k/3.4k');
+    expect(within(metrics).getByTestId('run-step-tokens').textContent).toBe('tokens 15.4k');
+    expect(metrics.textContent).toBe('tokens 15.4k');
   });
 
   it('旧数据（startedAt=0 / endedAt=null、非活面 running）→ 耗时段 "-"（hyphen，AC-7 旧库读史形态）', () => {
@@ -902,8 +902,8 @@ describe('RunStepNode：常驻度量行边界（0ms 瞬步 / 旧数据）', () =
     );
     const metrics = within(screen.getByTestId('run-step-node')).getByTestId('run-step-metrics');
     expect(within(metrics).getByTestId('run-step-duration').textContent).toBe('⏱ -');
-    // token 缺席形态照常渲染（em dash——与耗时 "-" 词面分立）
-    expect(within(metrics).getByTestId('run-step-tokens').textContent).toBe('tokens —/—');
+    // token 合计缺省归零（明细 tooltip 各显 "—"）
+    expect(within(metrics).getByTestId('run-step-tokens').textContent).toBe('tokens 0');
   });
 });
 

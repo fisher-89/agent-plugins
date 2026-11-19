@@ -71,10 +71,10 @@
 - [x] read工具返回的文本不要行数，改为在metadata中包含读取的范围
 - [ ] acceptance 工具面补齐架构图级断言
 - [x] cargo test -p checks --test corpus_golden_test 单独跑会红，--workspace 下变绿——这是 serde_json 的 preserve_order 特性在全 workspace 下被 rig 统一开启、单包下没开导致的键序差异
-- [ ] 扩充project配置能力，标记语言、代替tests，没有配置时支持自动检测（未来基于project划分架构模块、编码/测试按语言使用不同prompt、编码/测试并行）
+- [ ] 扩充project配置协议，可以指定编码语言，依赖project（仅列出project path即可），配置页面支持Agent检测生成配置。（未来基于project划分架构模块、编码/测试按语言使用不同prompt、编码/测试并行）
 - [ ] step增加属性“是否支持并行”用来标记高消耗步骤（如：突变执行），所有类型高消耗步骤共享一个运行队列，当前一个完成后才执行下一个
 - [ ] 模型配置增加Effort选项 https://api-docs.deepseek.com/zh-cn/guides/thinking_mode
-- [ ] 每个模块指定根目录/文件、入口文件（选填，指定根目录时有默认值，指定根文件时无效，接口文件是 `<入口文件>.i.<文件后缀>`）、模块入口文档。总体原则：模块入口唯一，避免架构与实现歧义。
+- [x] 每个模块指定根目录/文件、入口文件（选填，指定根目录时有默认值，指定根文件时无效，接口文件是 `<入口文件>.i.<文件后缀>`）、模块入口文档。总体原则：模块入口唯一，避免架构与实现歧义。
 - [ ] Edit工具多轮修改同一个文件，前一轮修改后应更新old_string，避免后续Edit提示“old_string未命中”，反复read
 - [ ] Agent聊天过程中补充消息未进入队列
 - [ ] 变更检查changes范围应该放过生成物

@@ -5,14 +5,10 @@ import { FileViewer } from '@/components/file/file-viewer';
 import { StandardDialog } from '@/components/standard/dailog';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { commands, type ArchiApiCheck, type ArchiApiFinding } from '@/types/generated/bindings';
 
-import {
-  commands,
-  type ArchiApiCheck,
-  type ArchiApiFinding,
-} from '../../../types/generated/bindings';
 import { useArchiApiCheck } from '../hooks/use-archi-api-check';
-import type { CanvasMode } from './element-drawer';
+import type { CanvasMode } from './model-info';
 
 /** `sha256:<hex>` → 短形（与生成物头注释同形；DTO 出的始终是全量摘要）。 */
 function shortDigest(digest: string): string {

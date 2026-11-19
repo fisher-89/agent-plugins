@@ -1,11 +1,13 @@
 import { useMemo } from 'react';
 
-import { Badge } from '@/components/ui/badge';
+import { TextTooltip } from '@/components/standard/tooltip';
+import { Badge } from '@/components/ui';
 import {
   useAgentSession,
   type AgentSessionSendInput,
   type UseAgentSessionState,
 } from '@/hooks/use-agent-session';
+import { formatTokens } from '@/lib/token';
 import type { SessionSummary } from '@/types/generated/bindings';
 
 import { latestAgentFailure, type AgentFailure } from './agent-error';
@@ -67,10 +69,15 @@ function SessionMeta({
       <Badge variant={running ? 'default' : 'secondary'} data-testid="session-meta-status">
         {running ? '运行中' : '已收口'}
       </Badge>
-      <span data-testid="session-meta-turns">轮数 {summary.stats.turnCount}</span>
-      <span data-testid="session-meta-tokens">
-        tokens {summary.stats.inputTokens ?? '—'} / {summary.stats.outputTokens ?? '—'}
-      </span>
+      <span data-testid="session-meta-turns">对话 {summary.stats.turnCount} 轮</span>
+      <TextTooltip
+        text={`输入：${formatTokens(summary.stats.inputTokens)} / 输出：${formatTokens(summary.stats.outputTokens)}`}
+      >
+        <span data-testid="session-meta-tokens">
+          消耗token{' '}
+          {formatTokens((summary.stats.inputTokens ?? 0) + (summary.stats.outputTokens ?? 0))}
+        </span>
+      </TextTooltip>
     </div>
   );
 }

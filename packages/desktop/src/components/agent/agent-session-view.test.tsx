@@ -270,8 +270,8 @@ describe('AgentSessionView（自持形态）', () => {
     await waitFor(() => expect(screen.getByTestId('session-meta')).toBeTruthy());
     expect(screen.getByTestId('session-meta-id').textContent).toBe(SESSION_ID);
     expect(screen.getByTestId('session-meta-status').textContent).toBe('已收口');
-    expect(screen.getByTestId('session-meta-turns').textContent).toBe('轮数 1');
-    expect(screen.getByTestId('session-meta-tokens').textContent).toBe('tokens — / —');
+    expect(screen.getByTestId('session-meta-turns').textContent).toBe('对话 1 轮');
+    expect(screen.getByTestId('session-meta-tokens').textContent).toBe('消耗token 0');
     expect(bubbleTexts()).toEqual(['首轮提问', '首轮结论']);
     // 轮行为 system 载体（对话透镜过滤），元信息轮数即轮行面单源
     expect(screen.getByTestId('agent-messages')).toBeTruthy();

@@ -123,7 +123,7 @@
 
 #### Scenario: 画布仍只读
 
-- **WHEN** 在 `/architecture` 审查元素抽屉与页面源码
+- **WHEN** 在 `/architecture` 审查元素信息面板与页面源码
 - **THEN** 无任何可提交的 `gate` 编辑控件、零写命令调用；面板会话的存在不改变该断言
 
 #### Scenario: 零自动提交

@@ -608,25 +608,25 @@ stdout 面板 SHALL 经 `hooks/use-exec-output.ts` 取数，入参 SHALL 为 `(r
 
 ### Requirement: 步级耗时与 token 节点呈现
 
-runtime step 节点（`RunStepNode`）SHALL 在标题行下新增**常驻行**呈现步级耗时与 token 消耗（非 HoverCard，决策拍板）：耗时 = `endedAt - startedAt` 前端计算（后端不落 duration）；token 行仅 `group === 'workerAgent'` 节点渲染（`tokenInput` / `tokenOutput` 两值缩写呈现，缺席 "—"）。`RuntimeFlowNode` SHALL 透传 `startedAt` / `endedAt` / `tokenInput` / `tokenOutput` 四字段（`runStepNodes` / `stepFromRecord` 直读透传，词汇归一单点口径不变）。
+runtime step 节点（`RunStepNode`）SHALL 在标题行下新增**常驻行**呈现步级耗时与 token 消耗（非 HoverCard，决策拍板）：耗时 = `endedAt - startedAt` 前端计算（后端不落 duration）；token 行仅 `group === 'workerAgent'` 节点渲染（`formatTokens(tokenInput + tokenOutput)` 合计缩写；缺席侧按 0 归并，明细经 `TextTooltip` 呈「输入：… / 输出：…」、缺席侧显 "—"）。`RuntimeFlowNode` SHALL 透传 `startedAt` / `endedAt` / `tokenInput` / `tokenOutput` 四字段（`runStepNodes` / `stepFromRecord` 直读透传，词汇归一单点口径不变）。
 
 呈现语义 SHALL 为：
 
 - **静态耗时**：已收口步（`endedAt !== null` 且 `startedAt > 0`）显格式化耗时；`startedAt === endedAt`（**存量**单 emit 辅助步节点——新写面已无生产例）按 0ms 呈现，MUST NOT 显「0ms」耗时缀；
 - **running 走秒**：**仅活面（在飞 run）节点**且 `status === 'running'` 时以 `Date.now() - startedAt` 每秒刷新呈现（节点组件自持 interval 局部重渲染——前端全库首例，xyflow 节点独立渲染不惊动画布；节点离开 running 态或卸载即清 timer，收口后回落静态耗时）；库读史 `status=running` 残留节点（run 已死）MUST NOT 走秒，恒静态呈现；
-- **缺席兜底**：`startedAt <= 0`（旧库行）或 `endedAt == null` 的非 running 态显 "-"（决策拍板：旧数据不从 turn 行回填）；token 缺席显 "—"。
+- **缺席兜底**：`startedAt <= 0`（旧库行）或 `endedAt == null` 的非 running 态显 "-"（决策拍板：旧数据不从 turn 行回填）；token 两值均缺席时合计显 "0"（明细 tooltip 各显 "—"）。
 
-毫秒 → 人读格式化 SHALL 为独立纯函数模块（新写，`1.2s` / `3m20s` 类分级；无既有先例可复用），vitest 直测边界；判定「缺席 → "-"」逻辑 SHALL 收格式化侧单点（MUST NOT 散落 `0` 魔数比较）。布局（10 列手工坐标 / subflow）、边表读取、节点点击判据与抽屉交互 MUST NOT 因常驻行改变；测试挂钩 SHALL 使用 data-testid。
+毫秒 → 人读格式化 SHALL 为独立纯函数模块（`views/changes/flow/metrics.ts`，`1.2s` / `3m20s` 类分级；无既有先例可复用），token 数值缩写 SHALL 为独立纯函数模块（`src/lib/token.ts` 的 `formatTokens`，k / M 阶），两者 vitest 直测边界；判定「缺席 → "-"」逻辑 SHALL 收格式化侧单点（MUST NOT 散落 `0` 魔数比较）。布局（10 列手工坐标 / subflow）、边表读取、节点点击判据与抽屉交互 MUST NOT 因常驻行改变；测试挂钩 SHALL 使用 data-testid。
 
 #### Scenario: 常驻行静态耗时与 token
 
 - **WHEN** 打开含已收口 executor 步（`startedAt=T0` / `endedAt=T1` / `tokenInput=12000` / `tokenOutput=3000`）的 change 详情
-- **THEN** 该节点标题下常驻行呈现格式化耗时 `T1 - T0` 与 tokens in / out 缩写；无 HoverCard 依赖、点击判据不变
+- **THEN** 该节点标题下常驻行呈现格式化耗时 `T1 - T0` 与合计缩写 `tokens 15k`（= 12k + 3k），鼠标悬停经 `TextTooltip` 呈「输入：12k / 输出：3k」；点击判据不变
 
 #### Scenario: token 行仅 WorkerAgent 组
 
 - **WHEN** 图上同时呈现 executor 节点与 static-check 工具步节点（后者四字段中 token 恒 null）
-- **THEN** 工具步 / Gate / Git 节点不渲染 token 行（仅耗时）；workerAgent 组节点渲染 tokens in / out 两值
+- **THEN** 工具步 / Gate / Git 节点不渲染 token 行（仅耗时）；workerAgent 组节点渲染合计 token 值
 
 #### Scenario: running 走秒与收口回落
 
@@ -636,7 +636,7 @@ runtime step 节点（`RunStepNode`）SHALL 在标题行下新增**常驻行**�
 #### Scenario: 库读史残留与旧数据兜底
 
 - **WHEN** 打开详情呈现本变更前落库的 run 节点（`startedAt=0` / `endedAt=null`）或库读史 status=running 残留节点
-- **THEN** 耗时显 "-"（不走秒、不报错）；token 显 "—"；其余节点呈现不受影响
+- **THEN** 耗时显 "-"（不走秒、不报错）；token 合计显 "0"（明细 tooltip 各显 "—"）；其余节点呈现不受影响
 
 #### Scenario: 格式化纯函数直测
 
@@ -710,13 +710,13 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 | `workflow.json` 的 `interrupted[]` 字段（磁盘留档） | 历史数据 | 原样保留：不迁移、不清除、不解析；自此纯留档，无写入方 |
 | 图结构与取数模型（不改） | 零触点 | `PIPELINE_PHASES` 布局、边推导、显式刷新 + Channel 例外口径不变 |
 | `packages/desktop/src/views/changes/flow/run-state.ts` | 词汇归一与分组（**零改动**） | `STEP_LABEL` 穷尽 Record 保留 `phaseStart` / `phaseLog` / `verdictGate` / `retryGate` / `whitelistGate` 五键；`normalizeKind` / `stepWord` 五组映射保留；`runStepGroup` 的 gate 分支保留三词归属——旧库行解码必需，MUST NOT 因「新 run 零产出」删键 |
-| `packages/desktop/src/views/changes/flow/run-step-node.tsx` | 步节点渲染（**零改动**） | 耗时 / token 常驻行与 running 走秒逐字不变；存量 `startedAt == endedAt` 节点的 0ms 呈现走既有格式化判据（`0ms` 不显耗时缀） |
+| `packages/desktop/src/views/changes/flow/run-step-node.tsx` | 步节点渲染（**零改动**） | 耗时 / token 常驻行与 running 走秒按「步级耗时与 token 节点呈现」既有口径；存量 `startedAt == endedAt` 节点的 0ms 呈现走既有格式化判据（`0ms` 不显耗时缀） |
 | `packages/desktop/src/views/changes/hooks/use-change-detail.ts` | 失败轮降级与重试单点 | `loadUnifiedView` 失败分流（reject 且 detail 在手 → 保 last-good + 内联失败态 + 退避重试调度；首载失败维持整页 error 兜底）；重试计时器与 tick / 通知去抖同生命周期（新意图取代旧重试、卸载清计时器）；退避常量（3 次 / 1s / 2s / 4s）单点；`None` 清面语义不变 |
 | `packages/desktop/src/views/changes/change-detail-view.tsx` | 内联提示与兜底分流 | 内联「刷新失败」提示（data-testid 挂钩）随 last-good 态呈现 / 成功轮消失；`error` 分支收敛为首载语义（detail 在手的刷新失败不再整页 `DetailFallback`）；首载错误 / 真 `None` 兜底页分支不变 |
 | `packages/desktop/src/views/changes/hooks/use-change-flow-run.ts`（零实现改动） | 订阅粘性验证 | `activeRunPresent` 派生源（统一查询 activeRun）不清 → 订阅不闪拆；仅补测试断言，订阅生命周期实现不动 |
 | `packages/desktop/src/views/changes/flow/types.ts` + `run-state.ts` | 透传 | `RuntimeFlowNode` 增 `startedAt` / `endedAt` / `tokenInput` / `tokenOutput`；`stepFromRecord` / `runStepNodes` 直读透传（`UnifiedRunStep` 单一形状） |
-| `packages/desktop/src/views/changes/flow/run-step-node.tsx` | 常驻行与走秒 | 标题下常驻行（静态耗时 + workerAgent token 行）；running 走秒 interval 仅活面 running 节点挂载、卸载即清；缺席 / 旧数据 "—" 兜底 |
-| `packages/desktop/src/views/changes/flow/`（格式化模块，新） | 毫秒 → 人读 | 纯函数分级格式化 + 缺席判定单点；vitest 直测边界 |
+| `packages/desktop/src/views/changes/flow/run-step-node.tsx` | 常驻行与走秒 | 标题下常驻行（静态耗时 + workerAgent token 合计行）；running 走秒 interval 仅活面 running 节点挂载、卸载即清；token 合计缺省归零、明细 tooltip 各显 "—" 兜底 |
+| `packages/desktop/src/views/changes/flow/metrics.ts` + `packages/desktop/src/lib/token.ts` | 毫秒 / token → 人读 | 耗时分级的纯函数在 `metrics.ts`，token 数值缩写在 `lib/token.ts`（`formatTokens`）；vitest 直测边界 |
 | `packages/desktop/src/types/generated/bindings.ts` | 类型跟随 | `ChangeStepState` / `ChangeRunNodeRecord` 四字段再生成，tsc 全量类型检查拦截漂移 |
 | `packages/desktop/src/views/changes/flow/run-step-node.tsx` | 步词文案 | `STEP_LABEL` 穷尽 Record 补 `clean` 键（人读文案）；`GROUP_LABEL` git 分类覆盖 clean；零新节点类型 / 零新面板 |
 | `packages/desktop/src/views/changes/flow/run-state.ts` | 步词归一 | `normalizeKind` / `stepWord` 单点补 `clean` ↔ `clean` 映射（二十一值逐词对应） |

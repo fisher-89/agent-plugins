@@ -1,9 +1,27 @@
-import { ReactFlow, ReactFlowProvider, type Edge, type Node, ViewportPortal } from '@xyflow/react';
+import {
+  ReactFlow,
+  ReactFlowProvider,
+  type Edge,
+  type Node,
+  ViewportPortal,
+  Background,
+} from '@xyflow/react';
 import { useMemo, useState } from 'react';
 
 import '@xyflow/react/dist/style.css';
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui';
 import type {
   ArchiApiFinding,
   ArchiElement,
@@ -17,11 +35,11 @@ import { driftMarks } from '../lib/drift-marks';
 import { shortName } from '../lib/fqn';
 import { edgeVisual } from '../lib/marks';
 import { ContractPanel } from './contract-panel';
-import { ElementDrawer, type CanvasMode } from './element-drawer';
 import { ElementTree } from './element-tree';
 import { FileTree, type TreeMode } from './file-tree';
 import { ModelGroupNode } from './graph/model-group-node';
 import { ModelNode } from './graph/model-node';
+import { ModelInfo, type CanvasMode } from './model-info';
 import { StructureErrorPanel } from './structure-error-panel';
 
 /** 邻域布局网格步长（纯拓扑定位，不引布局引擎）。 */
@@ -247,13 +265,8 @@ function TreeColumn({
     },
   ];
   return (
-    <Tabs className="shrink-0 bg-card p-4 w-80" value={mode} onValueChange={onModeChange}>
-      <TabsList
-        variant="line"
-        className="mb-1.5 flex shrink-0 gap-1"
-        data-testid="archi-tree-mode"
-        role="group"
-      >
+    <Tabs className="bg-card p-4 w-full h-full" value={mode} onValueChange={onModeChange}>
+      <TabsList variant="line" className="mb-2" data-testid="archi-tree-mode" role="group">
         {options.map((option) => (
           <TabsTrigger value={option.mode}>{option.label}</TabsTrigger>
         ))}
@@ -283,6 +296,43 @@ function DriftErrorNotice({ message }: { message: string }): React.JSX.Element {
   );
 }
 
+function ModelRelationGraph({
+  graph,
+  focus,
+  setFocusOverride,
+  driftError,
+}: {
+  graph: ArchiGraph;
+  focus: string | null;
+  setFocusOverride: (focus: string) => void;
+  driftError: string | null;
+}): React.JSX.Element {
+  const nodes = useMemo(() => (focus === null ? [] : toNodes(graph, focus)), [graph, focus]);
+  const edges = useMemo(() => (focus === null ? [] : toEdges(graph, focus)), [graph, focus]);
+  const zone = useMemo(() => (focus === null ? null : incomingZone(graph, focus)), [graph, focus]);
+  return (
+    <ReactFlowProvider>
+      {driftError === null ? null : <DriftErrorNotice message={driftError} />}
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodeClick={(_event, node) => setFocusOverride(node.id)}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        fitView={true}
+        fitViewOptions={FIT_VIEW_OPTIONS}
+        zoomOnScroll={false}
+        zoomOnDoubleClick={false}
+        panOnScroll
+      >
+        <Background bgColor="black" />
+        {zone === null ? null : <IncomingZone zone={zone} />}
+      </ReactFlow>
+    </ReactFlowProvider>
+  );
+}
+
 /** 正常态三段布局（左栏树——缺省文件树，可切元素树 / 画布 / 抽屉）。漂移取数失败时
  * 零标记照常渲染 + 画布区顶部一行内提示（叠加信息不阻断图）。 */
 function CanvasBody({
@@ -308,9 +358,6 @@ function CanvasBody({
     }
     return defaultFocus(graph);
   }, [graph, focusOverride]);
-  const nodes = useMemo(() => (focus === null ? [] : toNodes(graph, focus)), [graph, focus]);
-  const edges = useMemo(() => (focus === null ? [] : toEdges(graph, focus)), [graph, focus]);
-  const zone = useMemo(() => (focus === null ? null : incomingZone(graph, focus)), [graph, focus]);
   const focused =
     focus === null ? null : (graph.elements.find((element) => element.fqn === focus) ?? null);
   const relations: ArchiRelation[] = graph.relations;
@@ -318,49 +365,43 @@ function CanvasBody({
     return <ModelEmptyNotice />;
   }
   return (
-    <div className="flex h-full min-h-0 gap-2">
-      <TreeColumn
-        root={root}
-        canvasMode={mode}
-        mode={treeMode}
-        onModeChange={setTreeMode}
-        elements={graph.elements}
-        focused={focus}
-        onFocus={setFocusOverride}
-        findings={apiFindings}
-      />
-      <ReactFlowProvider>
-        <div
-          className="min-h-0 flex-1 overflow-hidden rounded-md bg-background"
-          data-testid="archi-canvas"
-        >
-          {driftError === null ? null : <DriftErrorNotice message={driftError} />}
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodeClick={(_event, node) => setFocusOverride(node.id)}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            fitView={true}
-            fitViewOptions={FIT_VIEW_OPTIONS}
-            zoomOnScroll={false}
-            zoomOnDoubleClick={false}
-            panOnScroll
-          >
-            {zone === null ? null : <IncomingZone zone={zone} />}
-          </ReactFlow>
-        </div>
-      </ReactFlowProvider>
-      <ElementDrawer
-        root={root}
-        mode={mode}
-        element={focused}
-        relations={relations}
-        findings={apiFindings}
-        onChanged={onChanged}
-      />
-    </div>
+    <ResizablePanelGroup className="flex h-full min-h-0 gap-2">
+      <ResizablePanel defaultSize={300} minSize={200}>
+        <TreeColumn
+          root={root}
+          canvasMode={mode}
+          mode={treeMode}
+          onModeChange={setTreeMode}
+          elements={graph.elements}
+          focused={focus}
+          onFocus={setFocusOverride}
+          findings={apiFindings}
+        />
+      </ResizablePanel>
+      <ResizableHandle />
+      <ResizablePanel>
+        <Card className="h-full flex flex-col">
+          <CardHeader>
+            <ModelInfo
+              root={root}
+              mode={mode}
+              element={focused}
+              relations={relations}
+              findings={apiFindings}
+              onChanged={onChanged}
+            />
+          </CardHeader>
+          <CardContent className="min-h-0 flex-1 rounded-md" data-testid="archi-canvas">
+            <ModelRelationGraph
+              graph={graph}
+              focus={focus}
+              setFocusOverride={setFocusOverride}
+              driftError={driftError}
+            />
+          </CardContent>
+        </Card>
+      </ResizablePanel>
+    </ResizablePanelGroup>
   );
 }
 

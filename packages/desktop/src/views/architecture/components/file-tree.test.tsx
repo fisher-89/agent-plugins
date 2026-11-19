@@ -7,7 +7,7 @@ import { FileTree } from './file-tree';
 /**
  * 左栏文件树渲染面单测（AC-4 / AC-11 / AC-12 / AC-13）：扁平条目 → 森林的
  * 层级派生与兄弟序、缺省展开三段、归属标记呈现（member 仅弱化文字）、归属行
- * 点击语义、聚焦反查（多行高亮 / 强制展开 / 滚到首条 / 零命中提示）、空树与
+ * 点击语义、聚焦反查（多行高亮 / 强制展开 / 滚到首条 / 零命中静默）、空树与
  * 取数状态面（挂载取数 / 解析中 / 失败行内 / 空根零 invoke）。
  *
  * 取数面已内收到组件：`FileTree` 只收 `root`，条目经 `useArchiFileTree` 取回。
@@ -160,7 +160,7 @@ describe('FileTree 层级派生与兄弟序', () => {
     expect(invokeMock.mock.calls).toHaveLength(treeCalls);
     // per-path 翻转集合稳定：多次翻转后仍回到展开态
     expect(rowOf('a/b/c/d/e.ts')).toBeDefined();
-    // 聚焦面零命中提示不因展开出现
+    // 聚焦面零命中不产生提示节点
     expect(screen.queryByTestId('archi-file-tree-focus-miss')).toBeNull();
   });
 });
@@ -311,20 +311,7 @@ describe('FileTree 聚焦反查', () => {
     expect(first?.getAttribute('data-path')).toBe('a/hit.ts');
   });
 
-  it('应在零命中时渲顶部弱提示且不滚动（文案并列两种成因）', async () => {
-    const scroll = stubScroll();
-    await renderTree([dir('src'), file('src/a.ts')], 'App.Container');
-
-    const tip = screen.getByTestId('archi-file-tree-focus-miss');
-    expect(tip.textContent).toBe(
-      '该元素在树上无可定位节点（容器元素不持有文件，或其源文件均在判定面之外）',
-    );
-    expect(scroll).not.toHaveBeenCalled();
-    // 并列两成因：文案不得只断言「容器元素」
-    expect(tip.textContent).not.toBe('该元素是容器元素');
-  });
-
-  it('应在换焦点时切换提示与高亮，并在 null 时全清', async () => {
+  it('应在换焦点时切换高亮，并在 null 时全清（零命中无提示）', async () => {
     const scroll = stubScroll();
     const entries = [
       file('a/hit.ts', { mark: 'elementRoot', owners: ['App.Hit'] }),
@@ -334,7 +321,7 @@ describe('FileTree 聚焦反查', () => {
     serve(entries);
     const { rerender } = render(<FileTree root={ROOT} focused={'App.Gone'} onFocus={onFocus} />);
     await screen.findByTestId('archi-file-tree');
-    expect(screen.getByTestId('archi-file-tree-focus-miss')).toBeTruthy();
+    expect(screen.queryByTestId('archi-file-tree-focus-miss')).toBeNull();
     expect(isHighlighted('a/hit.ts')).toBe(false);
 
     rerender(<FileTree root={ROOT} focused={'App.Hit'} onFocus={onFocus} />);
@@ -345,7 +332,7 @@ describe('FileTree 聚焦反查', () => {
     expect(screen.queryByTestId('archi-file-tree-focus-miss')).toBeNull();
     expect(isHighlighted('a/hit.ts')).toBe(false);
     expect(onFocus).not.toHaveBeenCalled();
-    // 提示与高亮是派生面，不产生额外滚动（仅首次命中一次）
+    // 高亮是派生面，不产生额外滚动（仅首次命中一次）
     expect(scroll).toHaveBeenCalledTimes(1);
   });
 });

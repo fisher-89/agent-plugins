@@ -238,7 +238,7 @@ function FileRow({
 function useFocusAnchors(
   entries: ArchiFileEntry[],
   focused: string | null,
-): { hitPaths: string[]; forcedOpen: ReadonlySet<string>; refOf: RowContext['refOf'] } {
+): { forcedOpen: ReadonlySet<string>; refOf: RowContext['refOf'] } {
   const nodes = useRef<Map<string, HTMLDivElement>>(new Map());
   const hitPaths = useMemo(
     () =>
@@ -270,7 +270,7 @@ function useFocusAnchors(
     if (first === undefined) return;
     nodes.current.get(first)?.scrollIntoView?.({ block: 'nearest' });
   }, [hitPaths]);
-  return { hitPaths, forcedOpen, refOf };
+  return { forcedOpen, refOf };
 }
 
 /** 左栏文件树：数据面为后端扁平条目，层级 / 兄弟序 / 缩进与展开态全由本件派生。 */
@@ -287,7 +287,7 @@ export function FileTree({ root, focused, onFocus }: FileTreeProps): React.JSX.E
     });
   }, []);
   const forest = useMemo(() => buildForest(tree?.entries ?? []), [tree?.entries]);
-  const { hitPaths, forcedOpen, refOf } = useFocusAnchors(tree?.entries ?? [], focused);
+  const { forcedOpen, refOf } = useFocusAnchors(tree?.entries ?? [], focused);
   const context: RowContext = { focused, flipped, forcedOpen, onToggle, onFocus, refOf };
 
   if (treeError !== null) {
@@ -307,15 +307,7 @@ export function FileTree({ root, focused, onFocus }: FileTreeProps): React.JSX.E
 
   return (
     <ScrollArea className="h-full" data-testid="archi-file-tree">
-      {focused !== null && hitPaths.length === 0 ? (
-        <div
-          className="mb-1.5 text-[11px] text-muted-foreground"
-          data-testid="archi-file-tree-focus-miss"
-        >
-          该元素在树上无可定位节点（容器元素不持有文件，或其源文件均在判定面之外）
-        </div>
-      ) : null}
-      {tree.entries.length === 0 ? (
+      {forest.length === 0 ? (
         <div className="text-[13px] text-muted-foreground" data-testid="archi-file-tree-empty">
           仓库内无源文件
         </div>

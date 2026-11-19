@@ -44,7 +44,7 @@
 
 入口的导出面 SHALL **恰等于**「跨元素被 import 的名字」集合：多导一个名字即虚增公共面，少导一个即断调用点。该等式 SHALL 由两条机械判据守——`knip` 的 unused-export 报告与调用点的 typeCheck；`components/ui/` 在 `knip` 的 `ignore` 内，其导出面由源文本断言守（见「`components/ui` 的入口例外」）。
 
-- **逐条手挑，MUST NOT `export *`**（ui 唯一例外）：本仓 `views/changes/flow/` 有约 38 个公开符号，其入口只出 **11** 个——每次扩公共面都得显式改入口，这是「入口 = 公共面」的机械代价，也是它唯一的价值。
+- **逐条手挑，MUST NOT `export *`**（ui 唯一例外）：本仓 `views/changes/flow/` 有约 40 个公开符号，其入口只出 **11** 个——每次扩公共面都得显式改入口，这是「入口 = 公共面」的机械代价，也是它唯一的价值。
 - **MUST NOT 跨子元素 re-export**：`api::extract` 的同元素约束按 FQN **前缀**放行（子元素也在面内），而 `scan` 把 `export … from` 记作 import fact ⇒ 跨子元素 re-export 会**真加边**（`Views.Changes → Views.Changes.Flow` 一类），前端 71 条关系就不再是不变量。故每个入口只 re-export **本元素直属文件**。
 - **MUST NOT re-export `hooks/` 与 `lib/`**：视图内这两类目录的 owner 就是所属视图（目录归属），机械判据拦不住，只能靠纪律——把内部实现写进入口，等于让「入口 = 公共面」从第一天起失真。
 - **类型出口一律 `export type`**：`isolatedModules = true` 下 `export { TypeName } from './x'` 会在转译期被当成值导出；同一来源文件的类型出口与值出口 SHALL 拆成两条语句（与 `components/agent/index.tsx` 既有形态同族）。
@@ -165,7 +165,7 @@ after  : kind = "module" · path = ["./packages/desktop/src/components/agent/"]
 | `packages/desktop/src/views/{agent,agents,architecture,config,db,info}/index.ts` | 6 个单文件目录的入口 | 各 1 条具名 re-export（视图组件）；`*Props` 不外露；MUST NOT 承载实现 |
 | `packages/desktop/src/views/changes/index.ts` | 变更页目录入口 | `ChangeDetailView` / `ChangeListView`；只导本元素直属文件 |
 | `packages/desktop/src/views/changes/agent/index.ts` | 变更会话子域入口 | `ChangeChatPanel`（`composer` 与两个 `*Props` 不外露） |
-| `packages/desktop/src/views/changes/flow/index.ts` | 流程子域入口（压力样本） | 8 值 + 3 类型共 **11** 名；目录内约 38 个公开符号只出这 11 个；类型出口一律 `export type` |
+| `packages/desktop/src/views/changes/flow/index.ts` | 流程子域入口（压力样本） | 8 值 + 3 类型共 **11** 名；目录内约 40 个公开符号只出这 11 个；类型出口一律 `export type` |
 | `packages/desktop/src/views/changes/renderers/index.ts` | 产物渲染子域入口 | `ArtifactTabs` / `MarkdownDocRenderer` |
 | `packages/desktop/src/views/explores/index.ts` | 探索页目录入口 | `ExploreDetailView` / `ExploreLayout` / `ExploreListView`（`ExploreDetailPane` / `ExploreRouteContext` / `useExploreRouteContext` 不外露） |
 | `packages/desktop/src/components/ui/index.ts` | 原语层入口（唯一例外） | **40** 条 `export *`；零 `export default`；首行外部约束注释；调用点 132 处保持直引；在 `knip` / `NO_STATIC_CHECK` ignore 内 |

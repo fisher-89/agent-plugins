@@ -258,7 +258,7 @@
 #### Scenario: 正常态而非停摆态
 
 - **WHEN** 调用 `archi_graph(root)`
-- **THEN** 返回正常态：`elements` 53、`relations` 120（后端 49 + 前端 71）、`diagnostics` 空；`/architecture` 页面呈现左栏树 + 画布 + 抽屉三段，无结构错面板、零「修好后再看」文案
+- **THEN** 返回正常态：`elements` 53、`relations` 120（后端 49 + 前端 71）、`diagnostics` 空；`/architecture` 页面呈现左栏树 + 右栏元素信息与画布两栏，无结构错面板、零「修好后再看」文案
 
 #### Scenario: 成环与祖先禁边被机械拦住
 

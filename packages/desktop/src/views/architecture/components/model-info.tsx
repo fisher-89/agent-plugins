@@ -1,8 +1,18 @@
 import { useEffect, useState } from 'react';
 
 import { FileViewer } from '@/components/file/file-viewer';
-import { Button } from '@/components/ui/button';
-
+import {
+  Alert,
+  Badge,
+  Button,
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '@/components/ui';
 import {
   commands,
   type ApiStatus,
@@ -11,7 +21,8 @@ import {
   type ArchiElement,
   type ArchiRelation,
   type GateTier,
-} from '../../../types/generated/bindings';
+} from '@/types/generated/bindings';
+
 import { useArchiModule } from '../hooks/use-archi-module';
 
 /** gate 三档（封闭值域；文案 = 线格式词）。 */
@@ -39,31 +50,29 @@ export interface ElementDrawerProps {
   onChanged: () => void;
 }
 
-/** 概览行（`modelFile:line` 行号未知时只渲文件）。 */
+/** 概览 */
 function Overview({ element }: { element: ArchiElement }): React.JSX.Element {
-  const position =
-    element.modelLine === 0 ? element.modelFile : `${element.modelFile}:${element.modelLine}`;
   return (
-    <div className="flex flex-col gap-0.5 text-[13px]">
-      <div className="break-all font-medium" data-testid="archi-drawer-fqn">
-        {element.fqn}
-      </div>
-      <div className="text-muted-foreground">
-        kind {element.kind} · gate {element.gate}
-      </div>
-      <div className="break-all text-muted-foreground">
-        {element.path.length === 0 ? 'path （未声明）' : `path ${element.path.join('、')}`}
-      </div>
-      <div
-        className="break-all font-mono text-xs text-muted-foreground"
-        data-testid="archi-drawer-position"
-      >
-        {position}
-      </div>
-      {element.summary !== null && (
-        <div className="wrap-break-word text-muted-foreground">{element.summary}</div>
-      )}
-    </div>
+    <FieldGroup>
+      <FieldSet>
+        <FieldLegend className="flex" data-testid="archi-drawer-fqn">
+          {element.fqn}
+        </FieldLegend>
+        <FieldContent>{element.summary ?? ''}</FieldContent>
+        <FieldDescription>
+          kind <Badge variant="secondary">{element.kind}</Badge> · gate{' '}
+          <Badge variant="secondary">{element.gate}</Badge>
+        </FieldDescription>
+      </FieldSet>
+      <Field>
+        <FieldLabel>源码</FieldLabel>
+        {element.path.length === 0 ? (
+          <FieldDescription>（未配置）</FieldDescription>
+        ) : (
+          element.path.map((filePath) => <FieldContent>{filePath}</FieldContent>)
+        )}
+      </Field>
+    </FieldGroup>
   );
 }
 
@@ -316,13 +325,7 @@ function ExemptSection({
   );
 }
 
-/**
- * 右抽屉：概览 → 契约 → 入口文档 → 豁免 →（`incremental`）改档入口 /（`full`）只读
- * 提示。未选中元素时呈空态（不发 `archi_module` 取数）；契约段数据全部来自既有
- * `ArchiModuleDetail.api` 与父级同一份判据（零新 invoke）；入口文档段只对 `api = none`
- * 元素渲染（`declared` 的入口文档由契约段承担）。
- */
-export function ElementDrawer({
+export function ModelInfo({
   root,
   mode,
   element,
@@ -333,27 +336,18 @@ export function ElementDrawer({
   const module = useArchiModule(root, element === null ? null : element.fqn);
   if (element === null) {
     return (
-      <aside
-        className="min-h-0 w-72 shrink-0 overflow-auto border-l border-border pl-2"
-        data-testid="archi-drawer"
-      >
+      <div className="min-h-0 shrink-0 overflow-auto" data-testid="archi-drawer">
         <div className="text-[13px] text-muted-foreground">未选中元素</div>
-      </aside>
+      </div>
     );
   }
   return (
-    <aside
-      className="flex min-h-0 w-72 shrink-0 flex-col gap-2 overflow-auto border-l border-border pl-2"
-      data-testid="archi-drawer"
-    >
+    <div className="flex min-h-0 shrink-0 flex-col gap-2 overflow-auto" data-testid="archi-drawer">
       <Overview element={element} />
       {module.error !== null && (
-        <div
-          className="break-all rounded-md bg-fail-bg px-2 py-1 text-xs text-fail"
-          data-testid="archi-drawer-error"
-        >
+        <Alert variant="destructive" data-testid="archi-drawer-error">
           {module.error}
-        </div>
+        </Alert>
       )}
       {root !== null && module.detail !== null && (
         <ContractSection
@@ -374,6 +368,6 @@ export function ElementDrawer({
           改档需要开一个 change（本页为只读视图）
         </div>
       )}
-    </aside>
+    </div>
   );
 }
