@@ -6,10 +6,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use checks::model::MutationTool;
 use config::{MutationConfig, TestFramework};
 use orchestration::port::{
-    ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture, MutationRunner, MutationSkipReason,
-    MutationTestConclusion, OutputRefSink, RebaseOutcome, RunFault, StaticCheckRunner,
-    TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest,
-    WorktreeSnapshot,
+    ArchiCheckMode, ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture, MutationRunner,
+    MutationSkipReason, MutationTestConclusion, OutputRefSink, RebaseOutcome, RunFault,
+    StaticCheckRunner, TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort,
+    ToolStepRequest, WorktreeSnapshot,
 };
 use orchestration::LocalToolSteps;
 use tempfile::TempDir;
@@ -1529,6 +1529,7 @@ impl ArchiCheckRunner for UnusedArchiSeam {
         &self,
         _root: &str,
         _name: &str,
+        _mode: ArchiCheckMode,
         _changed: Vec<String>,
         _cancel: foundation::cancel::CancelFlag,
     ) -> BoxToolFuture {

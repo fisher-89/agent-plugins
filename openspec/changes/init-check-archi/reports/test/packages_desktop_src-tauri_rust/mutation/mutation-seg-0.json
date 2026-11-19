@@ -1,0 +1,489 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/archi/src/runner.rs:34:5: replace drift_mode -> ArchiDriftMode with Default::default()",
+          "package": "archi-runtime",
+          "file": "crates/infra/archi/src/runner.rs",
+          "function": {
+            "function_name": "drift_mode",
+            "return_type": "-> ArchiDriftMode",
+            "span": {
+              "start": {
+                "line": 31,
+                "column": 1
+              },
+              "end": {
+                "line": 38,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 34,
+              "column": 5
+            },
+            "end": {
+              "line": 37,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__archi__src__runner.rs_line_34_col_5.log",
+      "diff_path": "diff/crates__infra__archi__src__runner.rs_line_34_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 46.3917347,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/archi/src/runner.rs:73:9: replace <impl ArchiCheckRunner for LocalArchiCheck>::run -> BoxToolFuture with Default::default()",
+          "package": "archi-runtime",
+          "file": "crates/infra/archi/src/runner.rs",
+          "function": {
+            "function_name": "<impl ArchiCheckRunner for LocalArchiCheck>::run",
+            "return_type": "-> BoxToolFuture",
+            "span": {
+              "start": {
+                "line": 65,
+                "column": 5
+              },
+              "end": {
+                "line": 117,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 73,
+              "column": 9
+            },
+            "end": {
+              "line": 116,
+              "column": 11
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__archi__src__runner.rs_line_73_col_9.log",
+      "diff_path": "diff/crates__infra__archi__src__runner.rs_line_73_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 53.4213666,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/steps.rs:107:5: replace execute -> Result<ToolStepOutput, String> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/steps.rs",
+          "function": {
+            "function_name": "execute",
+            "return_type": "-> Result<ToolStepOutput, String>",
+            "span": {
+              "start": {
+                "line": 92,
+                "column": 1
+              },
+              "end": {
+                "line": 328,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 5
+            },
+            "end": {
+              "line": 327,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__steps.rs_line_107_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__steps.rs_line_107_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 19.8889474,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:1499:5: replace step_archi_check -> Result<StepFlow, Terminal> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "step_archi_check",
+            "return_type": "-> Result<StepFlow, Terminal>",
+            "span": {
+              "start": {
+                "line": 1489,
+                "column": 1
+              },
+              "end": {
+                "line": 1509,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1499,
+              "column": 5
+            },
+            "end": {
+              "line": 1508,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_1499_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_1499_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 19.3210758,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/port.rs:410:9: replace ArchiCheckMode::as_str -> &'static str with \"\"",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/port.rs",
+          "function": {
+            "function_name": "ArchiCheckMode::as_str",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 408,
+                "column": 5
+              },
+              "end": {
+                "line": 414,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 410,
+              "column": 9
+            },
+            "end": {
+              "line": 413,
+              "column": 10
+            }
+          },
+          "replacement": "\"\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__port.rs_line_410_col_9.log",
+      "diff_path": "diff/crates__core__orchestration__src__port.rs_line_410_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 65.8452086,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 13.902423,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/port.rs:410:9: replace ArchiCheckMode::as_str -> &'static str with \"xyzzy\"",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/port.rs",
+          "function": {
+            "function_name": "ArchiCheckMode::as_str",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 408,
+                "column": 5
+              },
+              "end": {
+                "line": 414,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 410,
+              "column": 9
+            },
+            "end": {
+              "line": 413,
+              "column": 10
+            }
+          },
+          "replacement": "\"xyzzy\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__port.rs_line_410_col_9_001.log",
+      "diff_path": "diff/crates__core__orchestration__src__port.rs_line_410_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 67.0400482,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 13.1603393,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:1531:5: replace step_archi_check_terminal -> Result<StepFlow, Terminal> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "step_archi_check_terminal",
+            "return_type": "-> Result<StepFlow, Terminal>",
+            "span": {
+              "start": {
+                "line": 1511,
+                "column": 1
+              },
+              "end": {
+                "line": 1594,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1531,
+              "column": 5
+            },
+            "end": {
+              "line": 1593,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_1531_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_1531_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.3680127,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:1611:5: replace step_archi_check_feedback -> Result<StepFlow, Terminal> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "step_archi_check_feedback",
+            "return_type": "-> Result<StepFlow, Terminal>",
+            "span": {
+              "start": {
+                "line": 1596,
+                "column": 1
+              },
+              "end": {
+                "line": 1721,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1611,
+              "column": 5
+            },
+            "end": {
+              "line": 1720,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_1611_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_1611_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.7838124,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 8,
+  "missed": 0,
+  "caught": 2,
+  "timeout": 0,
+  "unviable": 6,
+  "success": 0,
+  "start_time": "2026-11-18T14:27:29.4776869Z",
+  "end_time": "2026-11-18T14:28:57.325164Z",
+  "cargo_mutants_version": "27.1.0"
+}

@@ -310,7 +310,9 @@ pub enum StepNode {
     Seal,
     /// 归档落盘提交步（vcs.commit_paths；已落盘则跳过）
     Finalize,
-    /// archi-check 门禁工具步（架构漂移判定，定向反馈边、零进程）
+    /// archi-check 门禁工具步（架构漂移判定；按 `on_fail` 两态声明：
+    /// `FeedbackLoop` = implement 相位定向反馈边、`Terminal` = initialize 相位
+    /// 单发终态，零进程）
     ArchiCheck,
 }
 
@@ -414,10 +416,10 @@ pub enum OnFail {
         /// 反馈边独立计数上限
         limit: u32,
     },
-    /// 终态失败停给用户。消费点仅 initialize 相位两检查步 StaticCheck /
-    /// TestExecution（基线绿门——失败即停，无反馈边、零 agent 会话可注入，重试
-    /// 基线无意义）；verdict 裁决内化后不再有以终态收场 verdict 失败的门步。
-    /// 语义与缺省 `None` 等价。
+    /// 终态失败停给用户。消费点仅 initialize 相位三检查步 StaticCheck /
+    /// ArchiCheck / TestExecution（基线绿门——失败即停，无反馈边、零 agent
+    /// 会话可注入，重试基线无意义）；verdict 裁决内化后不再有以终态收场
+    /// verdict 失败的门步。语义与缺省 `None` 等价。
     Terminal,
     /// 失败升格交决策：零 WorkerAgent 会话、代写一条 fail checklist 落账、
     /// 截断本相位余下步（`StepFlow::Upgraded`）回 `phase_next` 进决策分叉；

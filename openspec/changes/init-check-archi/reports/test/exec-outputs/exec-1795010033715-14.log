@@ -1,0 +1,23 @@
+
+=== plan packages_desktop_vite-plus (vite-plus) · files=118 · argv=5972 字符 ===
+JSON report written to D:/Projects/.worktrees/wps-claude-plugin/init-check-archi/openspec/changes/init-check-archi/reports/test/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+
+=== plan packages_desktop_src-tauri_rust (rust) · files=7 · argv=434 字符 ===
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\foundation)
+   Compiling agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\agent)
+   Compiling watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\infra\watch)
+   Compiling specta-zod v0.0.4 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\tools\specta-zod-patched)
+   Compiling dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri)
+   Compiling export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\tools\export-bindings)
+   Compiling archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\archi)
+   Compiling config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\config)
+   Compiling exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\checks)
+   Compiling workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\infra\store)
+   Compiling archi-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\infra\archi)
+   Compiling checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\infra\checks)
+   Compiling vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\infra\vcs)

@@ -5,7 +5,7 @@ use foundation::cancel::CancelFlag;
 use foundation::layout::ReportSlot;
 
 use crate::port::{
-    AskPort, BoxDiffFuture, DiffContextPort, OutputRefSink, RunEventSink, RunFault,
+    ArchiCheckMode, AskPort, BoxDiffFuture, DiffContextPort, OutputRefSink, RunEventSink, RunFault,
     StaticCheckOutcome, StaticCheckRunner, ToolCommand, ToolStepOutput, ToolStepPort,
     WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
 };
@@ -246,7 +246,7 @@ async fn tool_command十一变体封闭集且match穷尽分发() {
             | ToolCommand::StaticCheck { change_id, .. }
             | ToolCommand::TestExecution { change_id, .. }
             | ToolCommand::MutationTest { change_id }
-            | ToolCommand::ArchiCheck { change_id }
+            | ToolCommand::ArchiCheck { change_id, .. }
             | ToolCommand::ArchivePreflight { change_id }
             | ToolCommand::ArchiveSeal { change_id } => change_id,
         }
@@ -3265,10 +3265,10 @@ fn tool_step_output_archi_check变体承载() {
     }
 }
 
-/// 假 archi 门禁 runner（记录型：捕获 `run(root, name, changed, cancel)` 四参，
-/// 返回固定产出——本节被测对象就是「接口形状」，不涉判定）。
-/// 捕获的四参：`(root, name, changed, cancel.is_set())`。
-type ArchiCall = (String, String, Vec<String>, bool);
+/// 假 archi 门禁 runner（记录型：捕获 `run(root, name, mode, changed, cancel)`
+/// 五参，返回固定产出——本节被测对象就是「接口形状」，不涉判定）。
+/// 捕获的五参：`(root, name, mode, changed, cancel.is_set())`。
+type ArchiCall = (String, String, ArchiCheckMode, Vec<String>, bool);
 
 struct RecordingArchiCheck {
     calls: Mutex<Vec<ArchiCall>>,
@@ -3293,12 +3293,14 @@ impl crate::port::ArchiCheckRunner for RecordingArchiCheck {
         &self,
         root: &str,
         name: &str,
+        mode: ArchiCheckMode,
         changed: Vec<String>,
         cancel: CancelFlag,
     ) -> crate::port::BoxToolFuture {
         self.calls.lock().expect("calls 锁不可中毒").push((
             root.to_owned(),
             name.to_owned(),
+            mode,
             changed,
             cancel.is_set(),
         ));
@@ -3307,41 +3309,51 @@ impl crate::port::ArchiCheckRunner for RecordingArchiCheck {
     }
 }
 
-/// 正向：门禁 runner 四参逐值透传——`root` / `name` 原样、`changed` 保序（空集
-/// 与单元素两形态）、槽位不在签名内（恒 `ReportSlot::Archi` 由 runner 内部取用）。
+/// 正向：门禁 runner 五参逐值透传——`root` / `name` 原样、`mode` 第 3 位逐值
+/// （`Full` / `Incremental` 各一次）、`changed` 保序（空集 / 单元素 / 三元素三
+/// 形态）、槽位不在签名内（恒 `ReportSlot::Archi` 由 runner 内部取用）。
 #[tokio::test]
-async fn archi_check_runner四参透传_changed保序且零slot形参() {
-    for changed in [
-        Vec::new(),
-        vec!["src/auth/token.ts".to_owned()],
-        vec![
-            "src/auth/token.ts".to_owned(),
-            "src/billing/x.ts".to_owned(),
-            "src/search/y.ts".to_owned(),
-        ],
-    ] {
-        let runner = Arc::new(RecordingArchiCheck::new(archi_outcome(None)));
-        let outcome: crate::port::ArchiCheckOutcome = {
-            let output = crate::port::ArchiCheckRunner::run(
-                runner.as_ref(),
-                "/ws",
-                "demo",
-                changed.clone(),
-                CancelFlag::never(),
-            )
-            .await
-            .expect("假件恒 Ok");
-            crate::port::ArchiCheckOutcome::try_from(output).expect("产出为 ArchiCheck 变体")
-        };
-        assert!(
-            !outcome.report_dir.is_empty(),
-            "结论经产出携报告目录（槽位派生面不变）"
-        );
-        assert_eq!(
-            runner.calls(),
-            [("/ws".to_owned(), "demo".to_owned(), changed.clone(), false)],
-            "四参逐值到达（changed 保序）"
-        );
+async fn archi_check_runner五参透传_mode与changed保序且零slot形参() {
+    for mode in [ArchiCheckMode::Full, ArchiCheckMode::Incremental] {
+        for changed in [
+            Vec::new(),
+            vec!["src/auth/token.ts".to_owned()],
+            vec![
+                "src/auth/token.ts".to_owned(),
+                "src/billing/x.ts".to_owned(),
+                "src/search/y.ts".to_owned(),
+            ],
+        ] {
+            let runner = Arc::new(RecordingArchiCheck::new(archi_outcome(None)));
+            let outcome: crate::port::ArchiCheckOutcome = {
+                let output = crate::port::ArchiCheckRunner::run(
+                    runner.as_ref(),
+                    "/ws",
+                    "demo",
+                    mode,
+                    changed.clone(),
+                    CancelFlag::never(),
+                )
+                .await
+                .expect("假件恒 Ok");
+                crate::port::ArchiCheckOutcome::try_from(output).expect("产出为 ArchiCheck 变体")
+            };
+            assert!(
+                !outcome.report_dir.is_empty(),
+                "结论经产出携报告目录（槽位派生面不变）"
+            );
+            assert_eq!(
+                runner.calls(),
+                [(
+                    "/ws".to_owned(),
+                    "demo".to_owned(),
+                    mode,
+                    changed.clone(),
+                    false
+                )],
+                "五参逐值到达（mode 第 3 位、changed 保序）"
+            );
+        }
     }
 }
 
@@ -3352,11 +3364,18 @@ async fn archi_check_runner取消透传为真件信号() {
     let runner = Arc::new(RecordingArchiCheck::new(archi_outcome(None)));
     let cancel = CancelFlag::never();
     cancel.handle().set();
-    let _ = crate::port::ArchiCheckRunner::run(runner.as_ref(), "/ws", "demo", Vec::new(), cancel)
-        .await
-        .expect("取消不以 Err 表达");
+    let _ = crate::port::ArchiCheckRunner::run(
+        runner.as_ref(),
+        "/ws",
+        "demo",
+        ArchiCheckMode::Incremental,
+        Vec::new(),
+        cancel,
+    )
+    .await
+    .expect("取消不以 Err 表达");
     assert!(
-        runner.calls()[0].3,
+        runner.calls()[0].4,
         "cancel 置位如实透传（runner 只观测不决策）"
     );
 }
@@ -3461,6 +3480,251 @@ fn archi_check_outcome_try_from八错型恒err() {
         crate::port::ArchiCheckOutcome::try_from(ToolStepOutput::ArchiCheck(expected.clone()))
             .expect("ArchiCheck 变体应窄化成功");
     assert_eq!(converted, expected, "载荷逐字段相等（不重建不默认）");
+}
+
+// ---------------------------------------------------------------------------
+// archi-check 观察口径（init-check-archi / AC-2）：`ArchiCheckMode` 出线词与封闭
+// 性、载荷字段位次、runner 五参签名与 trait doc 口径（源自证）
+// ---------------------------------------------------------------------------
+
+/// 读 `port.rs` 产品源原文（不剔注释——签名 / doc 口径判据的读面）。
+fn port_source() -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("port.rs");
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("读取 {} 失败: {error}", path.display()))
+}
+
+/// `ArchiCheckMode` 定义面（枚举体 + 其 `impl` 块，止于下一类型 doc）：封闭性 /
+/// 零 serde / 零 `Display` 判据的定位面。
+fn archi_check_mode_region(source: &str) -> &str {
+    let start = source
+        .find("pub enum ArchiCheckMode {")
+        .expect("ArchiCheckMode 定义应在源内");
+    let rest = &source[start..];
+    let end = rest
+        .find("/// ToolStep 契约")
+        .expect("ArchiCheckMode 段之后应接 ToolStep 契约 doc");
+    &rest[..end]
+}
+
+/// `ArchiCheckRunner` trait 面（doc + 方法签名，止于下一 port 类型 doc）。
+fn archi_check_runner_region(source: &str) -> &str {
+    let start = source
+        .find("/// archi-check 门禁缝（infra 实现，`crates/infra/archi`")
+        .expect("ArchiCheckRunner doc 应在源内");
+    let rest = &source[start..];
+    let end = rest
+        .find("/// git diff 变更文件上下文缝")
+        .expect("ArchiCheckRunner 段之后应接 DiffContextPort doc");
+    &rest[..end]
+}
+
+/// 正向：`ArchiCheckMode::as_str` 逐值对拍——`Full → "full"`、
+/// `Incremental → "incremental"`（与判定域 `ArchiDriftMode::as_str` 同词面）。
+#[test]
+fn archi_check_mode逐值出线词full与incremental() {
+    assert_eq!(ArchiCheckMode::Full.as_str(), "full");
+    assert_eq!(ArchiCheckMode::Incremental.as_str(), "incremental");
+
+    let words = [
+        ArchiCheckMode::Full.as_str(),
+        ArchiCheckMode::Incremental.as_str(),
+    ];
+    let mut sorted = words.to_vec();
+    sorted.sort_unstable();
+    assert_eq!(sorted, ["full", "incremental"], "取值集合恰两词面");
+}
+
+/// 异常：词面封闭负向——大写 / 全大写 / 空串 / 尾空格 / 连字符五反例均不命中
+/// （`as_str` 是唯一出线口，零 serde 别名）。
+#[test]
+fn archi_check_mode词面封闭负向() {
+    for mode in [ArchiCheckMode::Full, ArchiCheckMode::Incremental] {
+        for wrong in ["Full", "FULL", "", "incremental ", "full-mode"] {
+            assert_ne!(
+                mode.as_str(),
+                wrong,
+                "{mode:?} 的词面不得为 {wrong:?}（零别名 / 零空白 / 零连字符）"
+            );
+        }
+    }
+}
+
+/// 边界：两值互异且可判、`as_str` 幂等、`Copy` 语义下经值传递后仍可取词（不被
+/// move 消耗）。
+#[test]
+fn archi_check_mode两值互异幂等且copy可取词() {
+    assert_ne!(
+        ArchiCheckMode::Full.as_str(),
+        ArchiCheckMode::Incremental.as_str(),
+        "两模式词面互异（可辨）"
+    );
+
+    for mode in [ArchiCheckMode::Full, ArchiCheckMode::Incremental] {
+        assert_eq!(
+            mode.as_str(),
+            mode.as_str(),
+            "as_str 幂等（同值连调两次等值）"
+        );
+        let passed_by_value = mode;
+        assert_eq!(
+            passed_by_value.as_str(),
+            mode.as_str(),
+            "Copy 语义：值传递后原值与副本同词面"
+        );
+    }
+}
+
+/// 边界（封闭两值 + 零 serde / 零 specta，源自证）：`ArchiCheckMode` 定义恰一处、
+/// 变体恰两枚、`impl` 块内零 `ALL` 常量；定义邻域零 `Serialize` / `Deserialize` /
+/// `specta::Type`（不进 IPC），零 `impl Display`、零 `str::parse` 回转实现
+///（`as_str` 是唯一词面出口）。
+#[test]
+fn archi_check_mode封闭两值且零serde零specta() {
+    let source = port_source();
+    assert_eq!(
+        source.matches("pub enum ArchiCheckMode {").count(),
+        1,
+        "`ArchiCheckMode` 定义恰一处"
+    );
+
+    let region = archi_check_mode_region(&source);
+    let variants: Vec<&str> = region
+        .split("pub enum ArchiCheckMode {")
+        .nth(1)
+        .expect("枚举体应在段内")
+        .split('}')
+        .next()
+        .expect("枚举体应闭合")
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.ends_with(','))
+        .collect();
+    assert_eq!(variants, ["Full,", "Incremental,"], "变体恰两枚且序固定");
+    assert!(
+        !region.contains("ALL"),
+        "port 面零枚举遍历消费者（零 ALL 常量）"
+    );
+    for forbidden in [
+        "Serialize",
+        "Deserialize",
+        "specta::Type",
+        "impl Display for ArchiCheckMode",
+        "from_str",
+        "str::parse",
+    ] {
+        assert!(
+            !region.contains(forbidden),
+            "ArchiCheckMode 段不得含 {forbidden}（`as_str` 唯一词面出口）"
+        );
+    }
+}
+
+/// 正向：`ToolCommand::ArchiCheck` 载荷可判——同 `change_id` 不同 `mode` 的两命令
+/// `!=`（`PartialEq` 覆盖新字段，防「模式不进载荷」的静默退化）；穷尽 `match` 的
+/// `describe` 恒 `"archi-check"`（与模式无关）。
+#[test]
+fn tool_command_archi_check载荷可辨且describe恒archi_check() {
+    fn describe(command: &ToolCommand) -> &'static str {
+        match command {
+            ToolCommand::ArchiCheck { .. } => "archi-check",
+            other => panic!("本用例只喂 ArchiCheck 变体，实际：{other:?}"),
+        }
+    }
+
+    let full = ToolCommand::ArchiCheck {
+        change_id: "c-1".to_owned(),
+        mode: ArchiCheckMode::Full,
+    };
+    let incremental = ToolCommand::ArchiCheck {
+        change_id: "c-1".to_owned(),
+        mode: ArchiCheckMode::Incremental,
+    };
+    assert_ne!(full, incremental, "同 change_id 不同 mode 的两命令可辨");
+    assert_eq!(
+        full,
+        ToolCommand::ArchiCheck {
+            change_id: "c-1".to_owned(),
+            mode: ArchiCheckMode::Full,
+        },
+        "逐字段等值（mode 参与 PartialEq）"
+    );
+    for command in [&full, &incremental] {
+        assert_eq!(describe(command), "archi-check", "describe 与模式无关");
+    }
+
+    // 字段位次（源自证）：`mode` 第 2 位，与 StaticCheck / TestExecution 的 slot 同位同形
+    let source = port_source();
+    assert!(
+        source.contains(
+            "    ArchiCheck {\n        change_id: String,\n        mode: ArchiCheckMode,\n    },"
+        ),
+        "port.rs 应载 `ArchiCheck {{ change_id, mode }}` 两字段声明（mode 第 2 位）"
+    );
+}
+
+/// 边界（源自证）：`ArchiCheckRunner::run` 签名五参、位次序 `root` → `name` →
+/// `mode` → `changed` → `cancel`（`mode` 在 `changed` 之前），且 `slot` 不在签名内
+/// （报告槽位恒 `ReportSlot::Archi` 由 runner 内部取用）；对象安全与共享注入由
+/// `Arc<dyn …>` 构造面承载（见 `archi_check_runner对象安全与send_sync`）。
+#[test]
+fn archi_check_runner签名五参且零slot形参() {
+    let source = port_source();
+    let region = archi_check_runner_region(&source);
+    assert!(
+        region.contains(
+            "    fn run(\n        &self,\n        root: &str,\n        name: &str,\n        mode: ArchiCheckMode,\n        changed: Vec<String>,\n        cancel: CancelFlag,\n    ) -> BoxToolFuture;"
+        ),
+        "run 签名应五参且 mode 在 changed 之前（实得段：{region}）"
+    );
+    assert!(
+        !region.contains("slot"),
+        "ArchiCheckRunner 面零 slot 形参（报告槽位恒 Archi，runner 内部取用）"
+    );
+}
+
+/// 正向（源自证）：trait doc「**五参显式化**」在场且形参清单含 `mode`；「报告槽位
+/// 不设形参」逐字保留；「模式由消费面声明」与「`reports/archi`」两处新表述在场。
+#[test]
+fn archi_check_runner_trait_doc五参与模式声明在场() {
+    let source = port_source();
+    let region = archi_check_runner_region(&source);
+    for needle in [
+        "**五参显式化**",
+        "`mode` = 观察口径",
+        "报告槽位不设形参",
+        "模式由消费面声明，runner MUST NOT 自行推断",
+        "reports/archi",
+    ] {
+        assert!(
+            region.contains(needle),
+            "ArchiCheckRunner doc 应含 {needle:?}"
+        );
+    }
+}
+
+/// 异常（源自证）：旧「四参」措辞在 `ArchiCheckRunner` 段内零残留（改述只作用于
+/// 该 trait——`MutationRunner` 的「四参显式化」是另一条接口，不误伤）。
+#[test]
+fn archi_check_runner_trait_doc旧四参措辞零残留() {
+    let source = port_source();
+    let region = archi_check_runner_region(&source);
+    for stale in [
+        "**四参显式化**",
+        "捕获 `run(root, name, changed, cancel)` 四参",
+        "四参逐值到达",
+    ] {
+        assert!(
+            !region.contains(stale),
+            "ArchiCheckRunner 段不得残留旧措辞 {stale:?}"
+        );
+    }
+    assert!(
+        source.contains("**四参显式化**（E3）"),
+        "MutationRunner 的四参接口表述保持原样（改述不越界）"
+    );
 }
 
 // ---------------------------------------------------------------------------

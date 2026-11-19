@@ -2173,3 +2173,158 @@ fn 词汇冻结_gate分支不可删的反向判据() {
     );
     assert_eq!(count(StepGroup::Gate), 3, "Gate 恰三词");
 }
+
+// ---------------------------------------------------------------------------
+// initialize 表头 archi 基线检查（init-check-archi / AC-10）：两处 doc-only 改述的
+// 源自证（`OnFail::Terminal` 三检查步 / `StepNode::ArchiCheck` 两态语义）+
+// 相邻变体零误伤 + 冻结面零改动
+// ---------------------------------------------------------------------------
+
+/// 枚举体内某变体声明之前的连续 `///` doc 段（多行 doc 的完整邻域；`anchor`
+/// 为「换行 + 四空格 + 变体名」形态，可含字段 / 花括号）。
+fn variant_doc(source: &str, enum_decl: &str, anchor: &str) -> String {
+    let region_at = source
+        .find(enum_decl)
+        .unwrap_or_else(|| panic!("{enum_decl} 应在源内"));
+    let region = &source[region_at..];
+    let at = region
+        .find(anchor)
+        .unwrap_or_else(|| panic!("变体 {anchor:?} 应在 {enum_decl} 内"));
+    let mut lines: Vec<&str> = region[..at].lines().collect();
+    let mut collected: Vec<&str> = Vec::new();
+    while let Some(last) = lines.last() {
+        if last.trim_start().starts_with("///") {
+            collected.push(lines.pop().expect("末行在场"));
+        } else {
+            break;
+        }
+    }
+    collected.reverse();
+    collected.join("\n")
+}
+
+/// `OnFail::Terminal` doc 三检查步齐（正向，源自证）：`Terminal` 变体邻域点名
+/// `StaticCheck` / `ArchiCheck` / `TestExecution` 三步，且「无反馈边」与「零
+/// agent 会话」语义句仍在场（初始化基线的失败即停口径不因扩步而弱化）。
+#[test]
+fn terminal_doc三检查步齐且语义句在场() {
+    let source = state_source();
+    let block = variant_doc(&source, "pub enum OnFail {", "\n    Terminal,");
+    for needle in [
+        "StaticCheck",
+        "ArchiCheck",
+        "TestExecution",
+        "无反馈边",
+        "零 agent",
+        "会话可注入",
+    ] {
+        assert!(
+            block.contains(needle),
+            "Terminal doc 应含 {needle:?}：{block}"
+        );
+    }
+}
+
+/// `OnFail::Terminal` doc 旧两步口径零残留（异常，源自证）：全局「两检查步」零
+/// 命中，且 `Terminal` 变体邻域不出现「仅 StaticCheck / TestExecution」式二步
+/// 表述（改述后不得新旧并存）。
+#[test]
+fn terminal_doc旧两步口径零残留() {
+    let source = state_source();
+    assert!(
+        !source.contains("两检查步"),
+        "state.rs 不得残留「两检查步」旧口径"
+    );
+    let block = variant_doc(&source, "pub enum OnFail {", "\n    Terminal,");
+    assert!(
+        !block.contains("StaticCheck / TestExecution"),
+        "Terminal doc 不得把消费点写成两步：{block}"
+    );
+}
+
+/// `StepNode::ArchiCheck` doc 两态语义（正向，源自证）：变体邻域同段含
+/// `FeedbackLoop` 与 `Terminal` 两态词（implement / initialize 两挂载点），并保留
+/// 「零进程」；旧独占式表述（「架构漂移判定，定向反馈边、零进程」）已改述。
+#[test]
+fn step_node_archi_check_doc两态语义在场() {
+    let source = state_source();
+    let block = variant_doc(&source, "pub enum StepNode {", "\n    ArchiCheck,");
+    for needle in ["FeedbackLoop", "Terminal", "零进程"] {
+        assert!(
+            block.contains(needle),
+            "ArchiCheck doc 应含 {needle:?}：{block}"
+        );
+    }
+    assert!(
+        !block.contains("架构漂移判定，定向反馈边、零进程"),
+        "ArchiCheck doc 已改述（不再以定向反馈边为唯一语义）：{block}"
+    );
+}
+
+/// 相邻变体零误伤（边界，源自证）：`StepNode::StaticCheck` 与
+/// `OnFail::FeedbackLoop` 的「定向反馈边」表述各自在案——改述只作用于
+/// `ArchiCheck` 那一条。
+#[test]
+fn 相邻变体定向反馈边表述零误伤() {
+    let source = state_source();
+    for (enum_decl, anchor) in [
+        ("pub enum StepNode {", "\n    StaticCheck,"),
+        ("pub enum OnFail {", "\n    FeedbackLoop {"),
+    ] {
+        let doc = variant_doc(&source, enum_decl, anchor);
+        assert!(
+            doc.contains("定向反馈边"),
+            "{anchor:?} 邻域仍含「定向反馈边」：{doc}"
+        );
+    }
+}
+
+/// 冻结面零改动（正向，源自证）：`RunStepKind::ArchiCheck` 的 doc（「尾部追加——
+/// bincode 下标纪律」，直出 bindings）与 `StepKind::ArchiCheck` 的「定向反馈边」
+/// 措辞逐字保留——doc-only 改述不越界到出线类型（AC-9 绑定零 diff 的源码侧证）。
+#[test]
+fn 冻结面两条archi_check_doc逐字保留() {
+    let source = state_source();
+    for kept in [
+        "/// archi-check 门禁工具步（架构漂移判定；尾部追加——bincode 下标纪律）",
+        "/// 架构漂移门禁步（定向反馈边）",
+    ] {
+        assert!(source.contains(kept), "冻结面 doc 逐字在案：{kept}");
+    }
+}
+
+/// 语义回归（正向，参数化四组）：「注释不改语义」——doc-only 改动后
+/// `StepNode::ArchiCheck` 的词面 / 分组 / 角色 / 与 `RunStepKind` 同源四类判据
+/// 全绿。
+#[test]
+fn archi_check语义回归四判据() {
+    assert_eq!(StepNode::ArchiCheck.as_str(), "archi_check", "词面逐字");
+    assert_eq!(
+        StepNode::ArchiCheck.group(),
+        StepGroup::Exec,
+        "归 Exec 分组（检查步族）"
+    );
+    assert_eq!(StepNode::ArchiCheck.role(), None, "非 agent 步");
+    let kind: RunStepKind =
+        serde_json::from_value(json!("archi_check")).expect("线词应可反序列化为 RunStepKind");
+    assert_eq!(kind.as_str(), StepNode::ArchiCheck.as_str(), "两枚举同源");
+}
+
+/// 语义回归（边界）：封闭集防线零改动——非法线词仍被拒绝，「注释改动不改
+/// 语义」两形态并列（`StepNode` / `RunStepKind` 双枚举）。
+#[test]
+fn archi_check封闭集防线零改动() {
+    for raw in [
+        r#""archi-check""#,
+        r#""ArchiCheck""#,
+        r#""""#,
+        r#""archi_check ""#,
+    ] {
+        let node: Result<StepNode, _> = serde_json::from_str(raw);
+        assert!(node.is_err(), "StepNode 词集外的 {raw} 必须 Err");
+        let kind: Result<RunStepKind, _> = serde_json::from_str(raw);
+        assert!(kind.is_err(), "RunStepKind 词集外的 {raw} 必须 Err");
+    }
+    assert_eq!(StepNode::ArchiCheck.as_str(), "archi_check");
+    assert_eq!(RunStepKind::ArchiCheck.as_str(), "archi_check");
+}

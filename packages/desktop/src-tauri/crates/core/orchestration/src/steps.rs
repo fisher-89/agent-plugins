@@ -10,8 +10,9 @@ use workflow::state::{
 use workflow::write::{phase_table, SessionAnchors};
 
 use crate::port::{
-    ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture, MutationRunner, StaticCheckRunner,
-    TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest,
+    ArchiCheckMode, ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture, MutationRunner,
+    StaticCheckRunner, TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort,
+    ToolStepRequest,
 };
 use crate::state::ArchivePreflight;
 
@@ -272,15 +273,22 @@ async fn execute(
             );
             output
         }
-        ToolCommand::ArchiCheck { change_id } => {
+        ToolCommand::ArchiCheck { change_id, mode } => {
             // 磁盘面 port 收 name（报告目录派生为 name 化）：消费点经 id → 记录 →
             // name 解析（未建档显式 Err，与既有三 runner 同式）
             let name = resolve_change_name(store.as_ref(), &change_id, "架构漂移门禁")?;
-            // 变更集唯一入口（vcs 缝取数注入 runner——infra 侧零 git；取数失败显式
-            // 传播为步失败，MUST NOT 降级空清单——空清单会静默变成 noChanges
-            // = 假通过）
-            let changed = vcs.change_edit_set(Path::new(&step.root), "HEAD")?;
-            let output = archi.run(&step.root, &name, changed, cancel).await;
+            // 观察口径由消费面声明（initialize 全量 / implement 增量）：
+            // 全量臂零 vcs 触碰——取数只会引入与基线架构无关的失败面（git 不可达
+            // 时基线架构检查照样执行）；增量臂的变更集唯一入口（vcs 缝取数注入
+            // runner——infra 侧零 git；取数失败显式传播为步失败，MUST NOT 降级空
+            // 清单——空清单会静默变成 noChanges = 假通过）
+            let changed = match mode {
+                ArchiCheckMode::Full => Vec::new(),
+                ArchiCheckMode::Incremental => {
+                    vcs.change_edit_set(Path::new(&step.root), "HEAD")?
+                }
+            };
+            let output = archi.run(&step.root, &name, mode, changed, cancel).await;
             audit_outcome(
                 store.as_ref(),
                 &run_id,

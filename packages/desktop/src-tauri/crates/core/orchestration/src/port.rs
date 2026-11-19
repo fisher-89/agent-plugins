@@ -124,9 +124,14 @@ pub enum ToolCommand {
     /// mutation-test 门禁（确定性突变执行链；清单 / 补丁经 vcs 缝取数注入，
     /// 报告目录派生经记录 name 解析）
     MutationTest { change_id: String },
-    /// archi-check 门禁（架构漂移判定；报告槽位恒 `ReportSlot::Archi` 由 runner
-    /// 单点取用——不设 slot 字段，避免出现恒一值的形参；变更集经 vcs 缝取数注入）
-    ArchiCheck { change_id: String },
+    /// archi-check 门禁（架构漂移判定，两挂载点：initialize 全量 / implement
+    /// 增量；报告槽位恒 `ReportSlot::Archi` 由 runner 单点取用——不设 slot 字段，
+    /// 避免出现恒一值的形参；两挂载点同树落 `reports/archi`。增量臂的变更集经
+    /// vcs 缝取数注入，全量臂零 vcs 触碰）
+    ArchiCheck {
+        change_id: String,
+        mode: ArchiCheckMode,
+    },
     /// 归档前置只读载荷（store 读 + vcs 探测；请求 root 恒主 workspace root
     /// ——layout 解析与主仓分支探测锚）
     ArchivePreflight { change_id: String },
@@ -387,6 +392,28 @@ pub struct MutationTestOutcome {
     pub exec_id: String,
 }
 
+/// archi-check 门禁的观察口径（封闭两值；**纯进程内 port 词汇**——零
+/// `Serialize` / 零 `specta::Type`，不进 IPC）。模式由消费面声明（initialize
+/// 基线检查 = `Full` / implement 门禁 = `Incremental`），runner MUST NOT 自行
+/// 推断；port 词 → 判定域 `ArchiDriftMode` 的映射只在 `crates/infra/archi` 一处。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArchiCheckMode {
+    /// 全量模式：扫整个观察根（零变更集、零 vcs 触碰）
+    Full,
+    /// 增量模式：只扫 change 编辑集
+    Incremental,
+}
+
+impl ArchiCheckMode {
+    /// 线格式小写词（与 `ArchiDriftMode::as_str` 同词面）。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Incremental => "incremental",
+        }
+    }
+}
+
 /// ToolStep 契约（进程内缝）：相位机四步由编排侧 [`crate::steps::LocalToolSteps`]
 /// 直调写面，static-check 委托注入的 [`StaticCheckRunner`]。
 /// archi-check 门禁产出（`passed` 由 runner 侧从报告派生：`errors` 与
@@ -492,11 +519,14 @@ pub trait MutationRunner: Send + Sync {
 /// archi-check 门禁缝（infra 实现，`crates/infra/archi`；检查域家族第四成员，
 /// 与 [`MutationRunner`] 同式——**本 runner 零进程**，判定全部复用 `archi` 的
 /// 漂移判定纯函数）。产出契约同 `ToolStepOutput` 封闭集
-///（`ToolStepOutput::ArchiCheck`）。**四参显式化**：`root` = exec root
+///（`ToolStepOutput::ArchiCheck`）。**五参显式化**：`root` = exec root
 ///（worktree / 主仓根——模型与源码同根）、`name` = change 磁盘名（报告目录
-/// `change_reports(root, name, ReportSlot::Archi)` 派生）、`changed` = 变更集
-/// （经 [`ArchiveVcsPort::change_edit_set`] 由 `steps.rs` 注入，infra 侧零 git）、
-/// 末位取消信号。报告槽位不设形参（恒 `ReportSlot::Archi`，runner 内部取用）。
+/// `change_reports(root, name, ReportSlot::Archi)` 派生）、`mode` = 观察口径
+/// （[`ArchiCheckMode`]——模式由消费面声明，runner MUST NOT 自行推断）、
+/// `changed` = 变更集（经 [`ArchiveVcsPort::change_edit_set`] 由 `steps.rs`
+/// 注入，infra 侧零 git）、末位取消信号。报告槽位不设形参（恒
+/// `ReportSlot::Archi`，runner 内部取用）——两挂载点（initialize 基线检查 /
+/// implement 门禁）同树落 `reports/archi`，靠报告体自述区分。
 pub trait ArchiCheckRunner: Send + Sync {
     /// 取消信号经扫描循环观测（遍历 / 解析内轮询）——置位 → 产出以
     /// `fault = Some(RunFault::Stopped)` 正常返回（MUST NOT 以 `Err` 表达取消）。
@@ -505,6 +535,7 @@ pub trait ArchiCheckRunner: Send + Sync {
         &self,
         root: &str,
         name: &str,
+        mode: ArchiCheckMode,
         changed: Vec<String>,
         cancel: CancelFlag,
     ) -> BoxToolFuture;

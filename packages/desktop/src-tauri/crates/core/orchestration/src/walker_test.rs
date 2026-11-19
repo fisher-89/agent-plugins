@@ -9,9 +9,9 @@ use foundation::cancel::CancelFlag;
 
 use crate::control::{emit_node, ChangeFlowControl, RunGuard, StepSettle};
 use crate::port::{
-    ArchiCheckOutcome, ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture, BoxTurnFuture,
-    MutationCounts, MutationSkipReason, MutationTestConclusion, MutationTestOutcome, OutputRefSink,
-    RebaseOutcome, RunFault, RunHistoryPort, StaticCheckOutcome, StaticCheckRunner,
+    ArchiCheckMode, ArchiCheckOutcome, ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture,
+    BoxTurnFuture, MutationCounts, MutationSkipReason, MutationTestConclusion, MutationTestOutcome,
+    OutputRefSink, RebaseOutcome, RunFault, RunHistoryPort, StaticCheckOutcome, StaticCheckRunner,
     TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolCommand,
     ToolStepOutput, ToolStepPort, ToolStepRequest, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
     WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
@@ -5056,6 +5056,7 @@ impl ArchiCheckRunner for NullArchiRunner {
         &self,
         root: &str,
         name: &str,
+        _mode: ArchiCheckMode,
         _changed: Vec<String>,
         _cancel: CancelFlag,
     ) -> BoxToolFuture {
@@ -10330,8 +10331,8 @@ fn json_usize(value: u64) -> serde_json::Value {
 
 // ---------------------------------------------------------------------------
 // initialize 一次性表头全链（check-before-flow-start / AC-1 ~ AC-7）：worktree
-// 分支五步序全绿 / step_clean 排除面与 Err 收敛 / 两检查步 Terminal 三态文案 /
-// 一次性重试链 / legacy 整相位短路 / 持久跳过（Mock策略：FakeVcs 扩
+// 分支四步序全绿 / step_clean 排除面与 Err 收敛 / 三检查步 Terminal 与 archi
+// 基线红文案 / 一次性重试链 / legacy 整相位短路 / 持久跳过（Mock策略：FakeVcs 扩
 // restore_baseline 捕获 + FakeTools 预录产出 + RecordingHistory 落包捕获 +
 // StubSnapshot——db 真件组合断言沿既有 TestDb 装置）
 // ---------------------------------------------------------------------------
@@ -10349,6 +10350,20 @@ fn baseline_check(passed: bool) -> StaticCheckOutcome {
         },
         output_ref: Some("exec-baseline-static".to_owned()),
         report_dir: format!("/ws/openspec/changes/{NAME}/reports/baseline"),
+    }
+}
+
+/// 基线架构检查产出 fixture（initialize archi 步载荷供给——报告目录携
+/// `reports/archi` 槽位锚点，与 failed 文案 `{dir}` 供给面同形）。
+fn baseline_archi(passed: bool, diagnostics: &str) -> ArchiCheckOutcome {
+    ArchiCheckOutcome {
+        fault: None,
+        passed,
+        diagnostics: diagnostics.to_owned(),
+        report_dir: format!("/ws/openspec/changes/{NAME}/reports/archi"),
+        report_ref: Some(format!(
+            "/ws/openspec/changes/{NAME}/reports/archi/20261020T083112Z.json"
+        )),
     }
 }
 
@@ -10371,15 +10386,16 @@ fn baseline_execution(conclusion: TestExecutionConclusion) -> TestExecutionOutco
     }
 }
 
-/// worktree 分支 initialize 全绿链（正向，AC-1 / AC-4 / AC-5 Ok 半边）：五步序
-/// emit 逐位一致（phase_start → clean → static_check → test_execution →
-/// phase_log，串行 forward 边）；restore 排除面 = 名单六名 + `".*"` + openspec
-/// （D6 组装面）；两检查步 ToolCommand 携 `slot=Baseline`（构造点分派单源）；
-/// 检查步 root 恒 exec root（worktree）；PhaseLog 机械 checklist 三条目落账
-///（mutation 恒 None 第 3 条如实留痕、report 携 conclusion 计数 + baseline
-/// 报告目录、三会话槽位恒 None）；PhaseRecord 落 pass（skipped=false）。
+/// worktree 分支 initialize 全绿链（正向，AC-1 / AC-4 / AC-5 / AC-7 Ok 半边）：
+/// 四步序 emit 逐位一致（clean → static_check → archi_check → test_execution，
+/// 串行 forward 边三条）；restore 排除面 = 名单六名 + `".*"` + openspec（D6 组装
+/// 面）；static / test 两检查步 ToolCommand 携 `slot=Baseline`、archi 步携
+/// `mode=Full` 且无 slot 字段（构造点分派单源）；检查步 root 恒 exec root
+///（worktree）；PhaseLog 机械 checklist 三条目落账（mutation 恒 None 第 3 条如实
+/// 留痕、report 携 conclusion 计数 + baseline 报告目录、三会话槽位恒 None）；
+/// PhaseRecord 落 pass（skipped=false）。
 #[tokio::test]
-async fn initialize三步序全绿链_排除面与baseline槽位与机械checklist() {
+async fn initialize四步序全绿链_排除面与baseline槽位与机械checklist() {
     let root = TempRoot::new("init-green");
     root.change(NAME);
     let worktree = root.0.join("openspec/changes").join(NAME);
@@ -10391,6 +10407,10 @@ async fn initialize三步序全绿链_排除面与baseline槽位与机械checkli
     let (tools, commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![route_outcome("initialize", &[]), done_outcome()])
         .with_static_check(vec![baseline_check(true)])
+        .with_archi_check(vec![baseline_archi(
+            true,
+            "mode=full status=clean scannedFiles=0 errors=0 warnings=0",
+        )])
         .with_test_execution(vec![baseline_execution(TestExecutionConclusion::Pass)])
         .assemble();
     let vcs = Arc::new(FakeVcs::clean());
@@ -10422,19 +10442,19 @@ async fn initialize三步序全绿链_排除面与baseline槽位与机械checkli
         "initialize 零 agent 会话注入"
     );
 
-    // 三步序 emit 逐位（落包节点序 = emit 序；词面 + forward 边逐位）
+    // 四步序 emit 逐位（落包节点序 = emit 序；词面 + forward 边逐位）
     let finish = history.finish().expect("收口落包捕获");
     let words: Vec<&str> = finish.nodes.iter().map(|node| node.step.as_str()).collect();
     assert_eq!(
         words,
-        ["clean", "static_check", "test_execution"],
-        "initialize 三节点 emit 序逐位（三步序；开相 / 落账零节点）"
+        ["clean", "static_check", "archi_check", "test_execution"],
+        "initialize 四节点 emit 序逐位（四步序；开相 / 落账零节点）"
     );
     assert!(
         finish.nodes.iter().all(|node| node.phase == "initialize"),
-        "三节点 phase 恒 initialize"
+        "四节点 phase 恒 initialize"
     );
-    assert_eq!(finish.edges.len(), 2, "串行 forward 边两条（节点数 − 1）");
+    assert_eq!(finish.edges.len(), 3, "串行 forward 边三条（节点数 − 1）");
     for (index, edge) in finish.edges.iter().enumerate() {
         assert_eq!(
             edge.edge_kind,
@@ -10450,8 +10470,8 @@ async fn initialize三步序全绿链_排除面与baseline槽位与机械checkli
             format!("initialize:1:{}:0", words[index + 1])
         );
     }
-    // clean / static_check / test_execution 节点恒 passed
-    for word in ["clean", "static_check", "test_execution"] {
+    // clean / static_check / archi_check / test_execution 节点恒 passed
+    for word in ["clean", "static_check", "archi_check", "test_execution"] {
         let node = finish
             .nodes
             .iter()
@@ -10459,6 +10479,19 @@ async fn initialize三步序全绿链_排除面与baseline槽位与机械checkli
             .expect("节点应在案");
         assert_eq!(node.status, RunStepStatus::Passed, "{word} passed");
     }
+
+    // clean 路径 detail 逐字透出诊断串（`diagnose_brief` 对短串不做截断）
+    let archi_node = finish
+        .nodes
+        .iter()
+        .find(|node| node.step == workflow::state::RunStepKind::ArchiCheck)
+        .expect("archi 节点在案");
+    assert_eq!(
+        archi_node.detail.as_deref(),
+        Some("mode=full status=clean scannedFiles=0 errors=0 warnings=0"),
+        "detail 为 diagnose_brief 压缩后的诊断串"
+    );
+    assert_eq!(archi_node.output_ref, None, "架构报告不经 outputRef");
 
     // 排除面组装（D6）：restore 载荷 = 名单六名 + ".*" + openspec（worktree 锚）
     let restores = vcs.restore_calls();
@@ -10489,17 +10522,29 @@ async fn initialize三步序全绿链_排除面与baseline槽位与机械checkli
         vcs.calls()
     );
 
-    // ToolCommand 构造点：两检查步 slot=Baseline + root 恒 exec root
-    let slots: Vec<(&str, foundation::layout::ReportSlot)> = {
+    // ToolCommand 构造点：static / test 两检查步 slot=Baseline + archi 步
+    // mode=Full（无 slot 字段——报告槽位恒 Archi 由 runner 内部取用）
+    let (slots, archi_modes): (
+        Vec<(&str, foundation::layout::ReportSlot)>,
+        Vec<ArchiCheckMode>,
+    ) = {
         let commands = commands.lock().expect("命令捕获锁");
-        commands
+        let slots = commands
             .iter()
             .filter_map(|command| match command {
                 ToolCommand::StaticCheck { slot, .. } => Some(("static-check", *slot)),
                 ToolCommand::TestExecution { slot, .. } => Some(("test-execution", *slot)),
                 _ => None,
             })
-            .collect()
+            .collect();
+        let archi_modes = commands
+            .iter()
+            .filter_map(|command| match command {
+                ToolCommand::ArchiCheck { mode, .. } => Some(*mode),
+                _ => None,
+            })
+            .collect();
+        (slots, archi_modes)
     };
     assert_eq!(
         slots,
@@ -10507,7 +10552,12 @@ async fn initialize三步序全绿链_排除面与baseline槽位与机械checkli
             ("static-check", foundation::layout::ReportSlot::Baseline),
             ("test-execution", foundation::layout::ReportSlot::Baseline),
         ],
-        "initialize 两检查步构造 slot=Baseline（构造点分派单源）"
+        "initialize static / test 两步构造 slot=Baseline（构造点分派单源）"
+    );
+    assert_eq!(
+        archi_modes,
+        [ArchiCheckMode::Full],
+        "archi 基线检查携 mode=Full（全量口径，零 vcs 触碰）"
     );
 
     // PhaseLog 机械 checklist 落账载荷（FakeTools 命令捕获——写面载荷直检）
@@ -10614,7 +10664,7 @@ async fn step_clean_err收敛_failed节点与terminal且检查步零执行() {
     assert!(
         !finish.nodes.iter().any(|node| matches!(
             node.step.as_str(),
-            "static_check" | "test_execution" | "phase_log"
+            "static_check" | "archi_check" | "test_execution" | "phase_log"
         )),
         "Err 后检查步零执行（Terminal 停链）"
     );
@@ -10625,7 +10675,9 @@ async fn step_clean_err收敛_failed节点与terminal且检查步零执行() {
             .iter()
             .all(|command| !matches!(
                 command,
-                ToolCommand::StaticCheck { .. } | ToolCommand::TestExecution { .. }
+                ToolCommand::StaticCheck { .. }
+                    | ToolCommand::ArchiCheck { .. }
+                    | ToolCommand::TestExecution { .. }
             )),
         "检查步零 spawn"
     );
@@ -10834,6 +10886,7 @@ async fn terminal收敛后二次发起_仍路由initialize且干净重试() {
         let (tools, _commands) = FakeTools::new(&timeline)
             .with_phase_next(vec![route_outcome("initialize", &[]), done_outcome()])
             .with_static_check(vec![baseline_check(true)])
+            .with_archi_check(vec![baseline_archi(true, "mode=full status=clean")])
             .with_test_execution(vec![baseline_execution(TestExecutionConclusion::Pass)])
             .assemble();
         let vcs = Arc::new(FakeVcs::clean());
@@ -10931,9 +10984,11 @@ async fn legacy短路_零节点与零检查spawn() {
             .iter()
             .all(|command| !matches!(
                 command,
-                ToolCommand::StaticCheck { .. } | ToolCommand::TestExecution { .. }
+                ToolCommand::StaticCheck { .. }
+                    | ToolCommand::ArchiCheck { .. }
+                    | ToolCommand::TestExecution { .. }
             )),
-        "Clean / StaticCheck / TestExecution 三步零 spawn"
+        "Clean / StaticCheck / ArchiCheck / TestExecution 四步零 spawn"
     );
 
     // PhaseLog skipped 落账载荷：skipped=true + 空 checklist + 跳过因
@@ -13980,16 +14035,21 @@ async fn archi_check反馈边同会话注入修复() {
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(status, ChangeRunStatus::Completed, "修复后通过即走完相位");
 
-    // 门禁调用两次（失败 + 修复后复查）
+    // 门禁调用两次（失败 + 修复后复查）；反馈边挂载点恒携 `Incremental`
+    //（模式由消费面声明——initialize 全量臂走另一执行体，两挂载点共用同一 runner）
+    let archi_modes: Vec<ArchiCheckMode> = commands
+        .lock()
+        .expect("命令锁")
+        .iter()
+        .filter_map(|command| match command {
+            ToolCommand::ArchiCheck { mode, .. } => Some(*mode),
+            _ => None,
+        })
+        .collect();
     assert_eq!(
-        commands
-            .lock()
-            .expect("命令锁")
-            .iter()
-            .filter(|command| matches!(command, ToolCommand::ArchiCheck { .. }))
-            .count(),
-        2,
-        "失败一次 + 复查一次"
+        archi_modes,
+        [ArchiCheckMode::Incremental, ArchiCheckMode::Incremental],
+        "失败一次 + 复查一次，且反馈边挂载点命令载荷恒增量"
     );
 
     // 反馈 prompt 注入同一 executor 会话（续注，非新会话）
@@ -14520,6 +14580,7 @@ impl ArchiCheckRunner for CountingArchiRunner {
         &self,
         root: &str,
         name: &str,
+        _mode: ArchiCheckMode,
         _changed: Vec<String>,
         _cancel: CancelFlag,
     ) -> BoxToolFuture {
@@ -21499,5 +21560,915 @@ async fn 决策输入边界四组合下单轮收口语义不变() {
                 "{attempt_shape}/{checklist_shape}: 决策会话恒单轮"
             );
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// initialize 表头 archi 基线检查（init-check-archi / AC-3 / AC-5 / AC-6 / AC-7 /
+// AC-10）：`on_fail` 三分派 / 单发终态收口（三态 + fault 两态）/ 零会话零反馈边
+// 零改写 / 一次性重试 / 四条基线文案互不相同 / 口径串源自证
+//
+// Mock 策略（见 test-design 本节 Mock策略表）：`FakeTools`（预录 `ArchiCheckOutcome`
+// 序列 + 命令捕获 + `fail_on` 注入）、`FakeWorker`（会话计数）、`FakeVcs`（零 vcs
+// 判据）、`TestDb` 真件、`StubSnapshot`；`phase_table` / `steps_of` 真件（四步序经
+// 真表驱动，手写步序副本会让 AC-1 / AC-7 空转）。
+// ---------------------------------------------------------------------------
+
+/// 一次 initialize 全链驱动（archi 产出可编程；返回终态 / 落包 / 命令 / 请求
+/// 四观察面）。`fail_on` 为假写面 Err 注入标签（`archi-check` 即 run_tool Err 面）。
+async fn drive_initialize_archi(
+    tag: &str,
+    archi_outcomes: Vec<ArchiCheckOutcome>,
+    fail_on: Option<&str>,
+) -> (
+    ChangeRunStatus,
+    RunFinishCommand,
+    Vec<ToolCommand>,
+    Vec<WorkerTurnRequest>,
+) {
+    let root = TempRoot::new(tag);
+    root.change(NAME);
+    let worktree = root.0.join("openspec/changes").join(NAME);
+    let db = TestDb::open(tag);
+    seed_change_with_worktree(db.store.as_ref(), &worktree);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let builder = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("initialize", &[]), done_outcome()])
+        .with_static_check(vec![baseline_check(true)])
+        .with_archi_check(archi_outcomes)
+        .with_test_execution(vec![baseline_execution(TestExecutionConclusion::Pass)]);
+    let builder = match fail_on {
+        Some(label) => builder.fail_on(label),
+        None => builder,
+    };
+    let (tools, commands) = builder.assemble();
+    let vcs = Arc::new(FakeVcs::clean());
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        vcs.clone(),
+        snapshot,
+        &control,
+        false,
+        &worktree.to_string_lossy(),
+        &root.root_str(),
+        None,
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    let finish = history.finish().expect("收口落包捕获");
+    let captured_commands = commands.lock().expect("命令锁").clone();
+    let captured_requests = requests.lock().expect("请求锁").clone();
+    (status, finish, captured_commands, captured_requests)
+}
+
+/// 命令序列中 `ArchiCheck` 的模式清单（构造点分派观察面）。
+fn archi_modes_of(commands: &[ToolCommand]) -> Vec<ArchiCheckMode> {
+    commands
+        .iter()
+        .filter_map(|command| match command {
+            ToolCommand::ArchiCheck { mode, .. } => Some(*mode),
+            _ => None,
+        })
+        .collect()
+}
+
+/// archi 节点清单（步词面 `archi_check`）。
+fn archi_nodes_of(finish: &RunFinishCommand) -> Vec<&RunNodeEntry> {
+    finish
+        .nodes
+        .iter()
+        .filter(|node| node.step == workflow::state::RunStepKind::ArchiCheck)
+        .collect()
+}
+
+/// 异常（R-8 守卫）：`archi_check` 步误声明 `Escalate` / 缺声明 `None` → 计划图
+/// 漂移 `Err`（文案含相位名与「缺 `OnFail::Terminal` / `FeedbackLoop` 声明」）；
+/// runner 零调用、零 `archi_check` 节点、零反馈边（不静默 Proceed、不退化任一臂）。
+#[tokio::test]
+async fn archi_check分派escalate与缺声明均漂移() {
+    for on_fail in [Some(OnFail::Escalate), None] {
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let mut route = route_outcome("implement", &["proposal", "implement"]);
+        route.steps = vec![StepDefinition {
+            node: StepNode::ArchiCheck,
+            prompt_ref: None,
+            on_fail,
+        }];
+        let (tools, commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![route, done_outcome()])
+            .with_archi_check(vec![failing_archi("架构漂移")])
+            .assemble();
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+        let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+        let _confirmer = spawn_confirmer(&control, true);
+        let status = task.await.expect("run 任务正常结束");
+        assert_eq!(
+            status,
+            ChangeRunStatus::Failed,
+            "on_fail={on_fail:?} 误声明显式漂移失败"
+        );
+
+        let finish = history.finish().expect("收口落包捕获");
+        let reason = finish.reason.as_deref().unwrap_or_default();
+        assert!(
+            reason.contains("计划图漂移") && reason.contains("archi-check"),
+            "on_fail={on_fail:?} 漂移记因: {reason}"
+        );
+        assert!(
+            reason.contains("OnFail::Terminal / FeedbackLoop"),
+            "on_fail={on_fail:?} 文案点名两合法声明: {reason}"
+        );
+        assert!(
+            commands
+                .lock()
+                .expect("命令锁")
+                .iter()
+                .all(|command| !matches!(command, ToolCommand::ArchiCheck { .. })),
+            "on_fail={on_fail:?} 漂移路径零架检 spawn（不静默 Proceed）"
+        );
+        assert!(
+            archi_nodes_of(&finish).is_empty(),
+            "on_fail={on_fail:?} 零 archi_check 节点"
+        );
+        assert!(
+            !finish
+                .edges
+                .iter()
+                .any(|edge| edge.edge_kind.as_str() == "feedback"),
+            "on_fail={on_fail:?} 零反馈边"
+        );
+        assert!(
+            requests.lock().expect("请求锁").is_empty(),
+            "on_fail={on_fail:?} 漂移路径零 agent 会话"
+        );
+    }
+}
+
+/// 正向（分派）：`Terminal` 声明 → 单发终态体——一次 `run_tool`、单节点
+///（`instance_no = 0`）、零反馈边、零 `WorkerAgent` 会话；失败即 `Terminal::failed`
+/// 携基线架构红文案（含「基线的债不属于本次变更」+ `reports/archi` 目录）。
+#[tokio::test]
+async fn archi_check分派terminal单发终态零会话零反馈边() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let mut route = route_outcome("implement", &["proposal", "implement"]);
+    route.steps = vec![StepDefinition {
+        node: StepNode::ArchiCheck,
+        prompt_ref: None,
+        on_fail: Some(OnFail::Terminal),
+    }];
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route, done_outcome()])
+        .with_archi_check(vec![failing_archi("Billing → Auth 未声明依赖（1 处命中）")])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "Terminal 失败即停");
+
+    let finish = history.finish().expect("收口落包捕获");
+    let reason = finish.reason.as_deref().unwrap_or_default();
+    for needle in [
+        "基线架构检查未通过",
+        "基线的债不属于本次变更",
+        "reports/archi",
+    ] {
+        assert!(reason.contains(needle), "终态文案应含 {needle:?}: {reason}");
+    }
+    assert!(!reason.contains("{dir}"), "占位已展开: {reason}");
+
+    let nodes = archi_nodes_of(&finish);
+    assert_eq!(nodes.len(), 1, "单发一次 ⇒ 单节点");
+    assert_eq!(nodes[0].instance_no, 0, "首节点 instance_no = 0");
+    assert_eq!(nodes[0].status, RunStepStatus::Failed, "失败节点");
+    assert_eq!(
+        nodes[0].output_ref, None,
+        "架构报告非 exec-outputs：output_ref 恒 None"
+    );
+    assert!(
+        nodes[0]
+            .detail
+            .as_deref()
+            .unwrap_or_default()
+            .contains("未声明依赖"),
+        "detail 携诊断: {:?}",
+        nodes[0].detail
+    );
+    assert_eq!(
+        archi_modes_of(&commands.lock().expect("命令锁")),
+        [ArchiCheckMode::Full],
+        "Terminal 臂 = 全量口径（单发基线检查，零 vcs 触碰）"
+    );
+    assert!(
+        requests.lock().expect("请求锁").is_empty(),
+        "Terminal 臂零 agent 会话"
+    );
+    assert!(
+        !finish
+            .edges
+            .iter()
+            .any(|edge| edge.edge_kind.as_str() == "feedback"),
+        "Terminal 臂零反馈边"
+    );
+}
+
+/// 正向（终态体 `Proceed` 半边）：`warnings`（`passed = true`）→ 节点 `passed`、
+/// `detail` 携诊断串、`output_ref` 恒 `None`，后续 `test_execution` 步照常执行且
+/// 收口 completed——基线不另立更严判据（与 implement 门禁同一 `passed` 定义）。
+#[tokio::test]
+async fn initialize_archi_warnings通过且后续检查步照跑() {
+    let (status, finish, commands, requests) = drive_initialize_archi(
+        "init-archi-warnings-proceed",
+        vec![baseline_archi(
+            true,
+            "mode=full status=warnings，1 条提示，扫描 7 文件",
+        )],
+        None,
+    )
+    .await;
+
+    assert_eq!(status, ChangeRunStatus::Completed, "warnings 不阻断收口");
+    let nodes = archi_nodes_of(&finish);
+    assert_eq!(nodes.len(), 1, "单发一次 ⇒ 单节点");
+    assert_eq!(nodes[0].status, RunStepStatus::Passed, "warnings ⇒ passed");
+    assert!(
+        nodes[0]
+            .detail
+            .as_deref()
+            .unwrap_or_default()
+            .contains("status=warnings"),
+        "detail 携诊断串: {:?}",
+        nodes[0].detail
+    );
+    assert_eq!(nodes[0].output_ref, None, "架构报告不经 outputRef");
+    assert!(
+        finish
+            .nodes
+            .iter()
+            .any(|node| node.step == workflow::state::RunStepKind::TestExecution),
+        "Proceed ⇒ test_execution 节点在案"
+    );
+    assert_eq!(
+        commands
+            .iter()
+            .filter(|command| matches!(command, ToolCommand::TestExecution { .. }))
+            .count(),
+        1,
+        "test-execution 恰一次（全绿路径零短路）"
+    );
+    assert!(requests.is_empty(), "零 agent 会话注入");
+}
+
+/// 边界（分派）：`FeedbackLoop { limit: 0 }` → 首败即升格相位 fail（不无限循环、
+/// 零修复会话）；升格代写 fail `phase_log`（`item = "架构检查"`）。
+#[tokio::test]
+async fn archi_check分派feedback_limit零首败即升格() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let mut route = route_outcome("implement", &["proposal", "implement"]);
+    route.steps = vec![StepDefinition {
+        node: StepNode::ArchiCheck,
+        prompt_ref: None,
+        on_fail: Some(OnFail::FeedbackLoop { limit: 0 }),
+    }];
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route, done_outcome()])
+        .with_archi_check(vec![failing_archi("架构漂移")])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "升格后路由收口");
+
+    let commands = commands.lock().expect("命令锁");
+    assert_eq!(
+        commands
+            .iter()
+            .filter(|command| matches!(command, ToolCommand::ArchiCheck { .. }))
+            .count(),
+        1,
+        "limit 0 ⇒ 首败即升格（零复查）"
+    );
+    let upgrade = commands.iter().find_map(|command| match command {
+        ToolCommand::PhaseLog { input, .. } if input.report.contains("升格") => {
+            Some(input.clone())
+        }
+        _ => None,
+    });
+    let upgrade = upgrade.expect("超限升格落账面");
+    let item = upgrade
+        .checklist
+        .iter()
+        .find(|item| item.item == "架构检查")
+        .expect("升格代写一条「架构检查」fail 条目");
+    assert!(!item.pass, "升格条目为 fail");
+    drop(commands);
+    assert!(
+        requests.lock().expect("请求锁").is_empty(),
+        "零修复会话（升格前不再跑 executor）"
+    );
+}
+
+/// 边界（分派）：`FeedbackLoop { limit: u32::MAX }` → 首败进反馈边（计数
+/// `1/u32::MAX` 不溢出、不 panic），修复后复查通过收口。
+#[tokio::test]
+async fn archi_check分派feedback_limit上限不溢出() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let mut route = route_outcome("implement", &["proposal", "implement"]);
+    route.steps = vec![StepDefinition {
+        node: StepNode::ArchiCheck,
+        prompt_ref: None,
+        on_fail: Some(OnFail::FeedbackLoop { limit: u32::MAX }),
+    }];
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route, done_outcome()])
+        .with_archi_check(vec![failing_archi("违例一"), passing_archi("架构检查通过")])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "修复后复查通过收口");
+
+    assert_eq!(
+        archi_modes_of(&commands.lock().expect("命令锁")),
+        [ArchiCheckMode::Incremental, ArchiCheckMode::Incremental],
+        "失败 + 复查两次均 Incremental 口径"
+    );
+    let requests = requests.lock().expect("请求锁");
+    let fix_prompt = requests
+        .iter()
+        .filter(|request| request.role == WorkerRole::Executor)
+        .map(|request| request.prompt.as_str())
+        .find(|prompt| prompt.contains("架构漂移门禁未通过"))
+        .expect("一次修复会话");
+    assert!(
+        fix_prompt.contains("第 1/4294967295 次反馈修复"),
+        "反馈计数不溢出（1/u32::MAX）：{fix_prompt}"
+    );
+    drop(requests);
+
+    let finish = history.finish().expect("收口落包捕获");
+    assert!(
+        finish
+            .edges
+            .iter()
+            .any(|edge| edge.edge_kind.as_str() == "feedback"),
+        "反馈边一条"
+    );
+}
+
+/// 异常（AC-5 红链）：initialize archi 红 → failed 节点 + `Terminal::failed`
+/// 基线文案；后续 `test_execution` 零执行；零会话 / 零反馈边 / 零落账（一次性语义）。
+#[tokio::test]
+async fn initialize_archi红链_零会话零反馈边且后续检查零执行() {
+    let (status, finish, commands, requests) = drive_initialize_archi(
+        "init-archi-red",
+        vec![baseline_archi(
+            false,
+            "Billing → Auth 未声明依赖（1 处命中）",
+        )],
+        None,
+    )
+    .await;
+
+    assert_eq!(status, ChangeRunStatus::Failed, "archi 红 → run failed");
+    assert_eq!(finish.status, RunStatus::Failed, "落包终态 failed");
+    let reason = finish.reason.as_deref().unwrap_or_default();
+    for needle in [
+        "基线架构检查未通过",
+        "请在基线上修复模型或代码后重新发起",
+        "基线的债不属于本次变更",
+        "reports/archi",
+    ] {
+        assert!(reason.contains(needle), "终态文案应含 {needle:?}: {reason}");
+    }
+    assert!(!reason.contains("{dir}"), "占位已展开: {reason}");
+
+    let nodes = archi_nodes_of(&finish);
+    assert_eq!(nodes.len(), 1, "单节点在案");
+    assert_eq!(nodes[0].instance_no, 0, "单发节点 instance_no = 0");
+    assert_eq!(nodes[0].status, RunStepStatus::Failed, "节点 failed");
+    assert_eq!(nodes[0].output_ref, None, "架构报告不经 outputRef");
+
+    // 后续 test-execution 零执行（步序短路）
+    assert!(
+        !finish
+            .nodes
+            .iter()
+            .any(|node| node.step == workflow::state::RunStepKind::TestExecution),
+        "archi 红后 test_execution 零节点"
+    );
+    assert!(
+        commands
+            .iter()
+            .all(|command| !matches!(command, ToolCommand::TestExecution { .. })),
+        "archi 红后 test-execution 零 spawn"
+    );
+    // 零会话 / 零反馈边 / 零落账（Terminal 零 PhaseRecord 条目的本层等价面）
+    assert!(
+        requests.is_empty(),
+        "executor / evaluator / decision 三槽全空"
+    );
+    assert!(
+        !finish
+            .edges
+            .iter()
+            .any(|edge| edge.edge_kind.as_str() == "feedback"),
+        "零反馈边"
+    );
+    assert!(
+        commands
+            .iter()
+            .all(|command| !matches!(command, ToolCommand::PhaseLog { .. })),
+        "Terminal 收敛零落账命令（PhaseRecord 零 initialize 条目）"
+    );
+}
+
+/// 边界（AC-5 skip 两态）：`skipped`（无模型）/ `noChanges`（零可判文件）→
+/// 节点 passed、detail **逐字**透出（MUST NOT 写成「检查通过」）、Proceed——后
+/// 续 test-execution 照常执行、run 收口 completed。
+#[tokio::test]
+async fn initialize_archi_skip两态逐字透出且不冒充通过() {
+    for (tag, diagnostics) in [
+        ("init-archi-skipped", "未检查（无模型）"),
+        ("init-archi-nochanges", "未检查（无可判文件）"),
+    ] {
+        let (status, finish, commands, _requests) =
+            drive_initialize_archi(tag, vec![baseline_archi(true, diagnostics)], None).await;
+
+        assert_eq!(status, ChangeRunStatus::Completed, "{tag}：Proceed 后收口");
+        let nodes = archi_nodes_of(&finish);
+        assert_eq!(nodes.len(), 1, "{tag} 单节点");
+        assert_eq!(nodes[0].status, RunStepStatus::Passed, "{tag} 节点 passed");
+        assert_eq!(
+            nodes[0].detail.as_deref(),
+            Some(diagnostics),
+            "{tag} detail 逐字透出（不附路径 / 不改写）"
+        );
+        assert!(
+            !nodes[0]
+                .detail
+                .as_deref()
+                .unwrap_or_default()
+                .contains("检查通过"),
+            "{tag} MUST NOT 冒充「检查通过」"
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|command| matches!(command, ToolCommand::TestExecution { .. })),
+            "{tag} 后续 test-execution 照常执行"
+        );
+        assert!(
+            !finish
+                .reason
+                .as_deref()
+                .unwrap_or_default()
+                .contains("基线架构检查未通过"),
+            "{tag} 无基线红文案"
+        );
+    }
+}
+
+/// 异常（fault 先行，AC-5）：`Stopped` → 节点 stopped + run stopped（不落基线
+/// 红文案、零升格、零反馈边）；`Environment(..)` → 节点 failed 且 detail 与 run
+/// reason 均为 fault 原文（`template = None`，零新增环境文案常量）。
+#[tokio::test]
+async fn initialize_archi_fault两态先于结论() {
+    // 形态一：取消
+    let mut stopped = baseline_archi(false, "诊断不参与分派");
+    stopped.fault = Some(RunFault::Stopped);
+    let (status, finish, commands, _requests) =
+        drive_initialize_archi("init-archi-stopped", vec![stopped], None).await;
+    assert_eq!(status, ChangeRunStatus::Stopped, "取消 → run stopped");
+    let nodes = archi_nodes_of(&finish);
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].status, RunStepStatus::Stopped, "节点 stopped");
+    let reason = finish.reason.as_deref().unwrap_or_default();
+    assert!(reason.contains("用户请求停止"), "停止记因: {reason}");
+    assert!(
+        !reason.contains("基线架构检查未通过"),
+        "取消不落基线红文案: {reason}"
+    );
+    assert!(
+        commands
+            .iter()
+            .all(|command| !matches!(command, ToolCommand::PhaseLog { .. })),
+        "取消零升格落账"
+    );
+
+    // 形态二：环境错误（消息即 fault 原文）
+    let env_text = "占用进程：HipsDaemon.exe (pid 1234)\n被锁文件：D:\\w\\target\\liba.rlib";
+    let mut environment = baseline_archi(false, "诊断不参与分派");
+    environment.fault = Some(RunFault::Environment(env_text.to_owned()));
+    let (status, finish, _commands, _requests) =
+        drive_initialize_archi("init-archi-env", vec![environment], None).await;
+    assert_eq!(status, ChangeRunStatus::Failed, "环境错误 → run failed");
+    let nodes = archi_nodes_of(&finish);
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].status, RunStepStatus::Failed, "节点 failed");
+    let collapsed = env_text.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert_eq!(
+        nodes[0].detail.as_deref(),
+        Some(collapsed.as_str()),
+        "detail 为 fault 原文压空白（diagnose_brief 单点，零环境文案常量）"
+    );
+    assert_eq!(
+        finish.reason.as_deref(),
+        Some(env_text),
+        "reason 即 fault 原文（不落基线红文案）"
+    );
+}
+
+/// 边界（占位供给面）：`report_dir = ""` + `report_ref = None` → failed 文案仍
+/// 成型（`{dir}` 替换为空串、不留字面占位、不 panic），结论不受写盘降级影响。
+#[tokio::test]
+async fn initialize_archi空报告目录与落盘降级仍成型() {
+    let mut outcome = baseline_archi(false, "2 条违例");
+    outcome.report_dir = String::new();
+    outcome.report_ref = None;
+    let (status, finish, _commands, _requests) =
+        drive_initialize_archi("init-archi-empty-dir", vec![outcome], None).await;
+
+    assert_eq!(status, ChangeRunStatus::Failed, "结论保留（降级不改判）");
+    let reason = finish.reason.as_deref().unwrap_or_default();
+    assert!(reason.contains("基线架构检查未通过"), "文案成型: {reason}");
+    assert!(reason.contains("报告目录"), "占位段仍在: {reason}");
+    assert!(!reason.contains("{dir}"), "占位不残留: {reason}");
+    let nodes = archi_nodes_of(&finish);
+    assert_eq!(nodes[0].status, RunStepStatus::Failed);
+    assert!(
+        nodes[0]
+            .detail
+            .as_deref()
+            .unwrap_or_default()
+            .contains("2 条违例"),
+        "诊断明细仍入节点 detail"
+    );
+}
+
+/// 边界（detail 有界）：超长诊断（> 1000 chars）→ 节点 detail ≤ 201 字符且以
+/// `…` 收尾（`diagnose_brief` 单点），终态文案**不含**诊断正文；特殊字符
+///（`\n` / `\t` / `\0` / emoji）压空白为单行（不截断短串）。
+#[tokio::test]
+async fn initialize_archi诊断有界且特殊字符压平() {
+    // 形态一：超长诊断
+    let long = "违".repeat(1200);
+    let (status, finish, _commands, _requests) =
+        drive_initialize_archi("init-archi-long", vec![baseline_archi(false, &long)], None).await;
+    assert_eq!(status, ChangeRunStatus::Failed);
+    let nodes = archi_nodes_of(&finish);
+    let detail = nodes[0].detail.as_deref().unwrap_or_default();
+    assert!(
+        detail.chars().count() <= 201,
+        "detail 有界（≤ 200 + 省略号），实得 {}",
+        detail.chars().count()
+    );
+    assert!(detail.ends_with('…'), "截断留痕尾符: {detail}");
+    assert!(
+        !finish.reason.as_deref().unwrap_or_default().contains(&long),
+        "终态文案只含固定引导 + 报告目录（不含诊断正文）"
+    );
+
+    // 形态二：特殊字符（换行 / 制表 / NUL / emoji）压平为单行
+    let messy = "a\nb\tc d\0e 🚀";
+    let (status, finish, _commands, _requests) =
+        drive_initialize_archi("init-archi-messy", vec![baseline_archi(false, messy)], None).await;
+    assert_eq!(status, ChangeRunStatus::Failed);
+    let detail = archi_nodes_of(&finish)[0]
+        .detail
+        .clone()
+        .expect("短串不截断，detail 在场");
+    assert!(
+        !detail.contains('\n') && !detail.contains('\t'),
+        "压空白单行: {detail:?}"
+    );
+    assert!(detail.contains('\0'), "非空白字符原样保留（只压空白）");
+    assert!(detail.contains("🚀"), "emoji 原样保留");
+}
+
+/// 异常（R-6）：`run_tool` 返回 `Err`（扫描硬失败）→ 直达 `Terminal`，reason 前缀
+/// 「archi-check 失败: <内层文案>」，不落基线红文案、不代写 fail checklist。
+#[tokio::test]
+async fn initialize_archi_tool错误直达terminal() {
+    let (status, finish, commands, requests) = drive_initialize_archi(
+        "init-archi-tool-err",
+        vec![baseline_archi(true, "不会被消费")],
+        Some("archi-check"),
+    )
+    .await;
+
+    assert_eq!(status, ChangeRunStatus::Failed, "run_tool Err → Terminal");
+    let reason = finish.reason.as_deref().unwrap_or_default();
+    assert!(
+        reason.starts_with("archi-check 失败:"),
+        "Err 文案前缀归因: {reason}"
+    );
+    assert!(
+        !reason.contains("基线架构检查未通过"),
+        "不落基线红文案: {reason}"
+    );
+    assert!(
+        !finish
+            .nodes
+            .iter()
+            .any(|node| node.step == workflow::state::RunStepKind::TestExecution),
+        "Err 后 test_execution 零执行"
+    );
+    assert!(
+        commands
+            .iter()
+            .all(|command| !matches!(command, ToolCommand::PhaseLog { .. })),
+        "零落账命令（不代写 fail checklist）"
+    );
+    assert!(
+        archi_nodes_of(&finish)
+            .iter()
+            .all(|node| node.status != RunStepStatus::Failed),
+        "Err 面不留 failed 节点（与另两检查步 Err 臂同形）"
+    );
+    assert!(requests.is_empty(), "零 agent 会话");
+}
+
+/// 边界（AC-6 一次性 + 重试）：archi 红 `Terminal` 收敛后再发起 → 仍路由
+/// initialize，`Clean` 先恢复基线、archi 复查一次后转绿收口（不继承前次失败）。
+#[tokio::test]
+async fn initialize_archi红后二次发起干净重试() {
+    let root = TempRoot::new("init-archi-retry");
+    root.change(NAME);
+    let worktree = root.0.join("openspec/changes").join(NAME);
+    let db = TestDb::open("init-archi-retry");
+    seed_change_with_worktree(db.store.as_ref(), &worktree);
+
+    // 首 run：archi 红 → Terminal failed
+    {
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let (tools, _commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![route_outcome("initialize", &[])])
+            .with_static_check(vec![baseline_check(true)])
+            .with_archi_check(vec![baseline_archi(false, "架构漂移：1 条违例")])
+            .assemble();
+        let vcs = Arc::new(FakeVcs::clean());
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+        let (task, _rx, _history) = spawn_run_with_vcs(
+            worker,
+            tools,
+            vcs,
+            snapshot,
+            &control,
+            false,
+            &worktree.to_string_lossy(),
+            &root.root_str(),
+            None,
+        );
+        let _confirmer = spawn_confirmer(&control, true);
+        assert_eq!(
+            task.await.expect("run 任务正常结束"),
+            ChangeRunStatus::Failed,
+            "首 run archi 红 Terminal"
+        );
+    }
+
+    // 二次发起：archi 转绿 → 全链干净重试
+    {
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let (tools, commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![route_outcome("initialize", &[]), done_outcome()])
+            .with_static_check(vec![baseline_check(true)])
+            .with_archi_check(vec![baseline_archi(true, "mode=full status=clean")])
+            .with_test_execution(vec![baseline_execution(TestExecutionConclusion::Pass)])
+            .assemble();
+        let vcs = Arc::new(FakeVcs::clean());
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+        let (task, _rx, history) = spawn_run_with_vcs(
+            worker,
+            tools,
+            vcs.clone(),
+            snapshot,
+            &control,
+            false,
+            &worktree.to_string_lossy(),
+            &root.root_str(),
+            None,
+        );
+        let _confirmer = spawn_confirmer(&control, true);
+        assert_eq!(
+            task.await.expect("run 任务正常结束"),
+            ChangeRunStatus::Completed,
+            "二次发起干净重试收敛 completed"
+        );
+        assert_eq!(vcs.restore_calls().len(), 1, "Clean 先恢复基线恰一次");
+        assert_eq!(
+            archi_modes_of(&commands.lock().expect("命令锁")),
+            [ArchiCheckMode::Full],
+            "重试后 archi 复查一次（不继承前次失败）"
+        );
+        let finish = history.finish().expect("收口落包捕获");
+        let words: Vec<&str> = finish.nodes.iter().map(|node| node.step.as_str()).collect();
+        assert_eq!(
+            words,
+            ["clean", "static_check", "archi_check", "test_execution"],
+            "干净重试走满四步序"
+        );
+    }
+}
+
+/// 边界（AC-6 零自动改写）：initialize 侧三态（clean / warnings / errors）各跑一
+/// 次后，worktree 源码与模型文件字节快照逐字相等（门禁只读盘判定）。
+#[tokio::test]
+async fn initialize_archi三态跑动后源码字节零变化() {
+    fn snapshot(root: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+        fn walk(base: &std::path::Path, dir: &std::path::Path, out: &mut Vec<(String, Vec<u8>)>) {
+            let Ok(read) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in read.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(base, &path, out);
+                    continue;
+                }
+                let relative = path
+                    .strip_prefix(base)
+                    .expect("相对路径")
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                out.push((relative, std::fs::read(&path).expect("读文件失败")));
+            }
+        }
+        let mut entries = Vec::new();
+        walk(root, root, &mut entries);
+        entries.sort();
+        entries
+    }
+
+    for (tag, outcome) in [
+        (
+            "init-archi-clean",
+            baseline_archi(true, "mode=full status=clean"),
+        ),
+        (
+            "init-archi-warnings",
+            baseline_archi(true, "mode=full status=warnings，1 条提示"),
+        ),
+        (
+            "init-archi-errors",
+            baseline_archi(false, "mode=full status=errors，1 条违例"),
+        ),
+    ] {
+        let root = TempRoot::new(tag);
+        root.change(NAME);
+        let worktree = root.0.join("openspec/changes").join(NAME);
+        std::fs::create_dir_all(worktree.join("src")).expect("建源码目录");
+        std::fs::write(worktree.join("src/app.ts"), "export const token = 1;\n")
+            .expect("写源码夹具");
+        std::fs::create_dir_all(worktree.join(".dev-team/architecture/models"))
+            .expect("建模型目录");
+        std::fs::write(
+            worktree.join(".dev-team/architecture/models/01-test.toml"),
+            "[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n",
+        )
+        .expect("写模型夹具");
+        let before = snapshot(&worktree);
+
+        let db = TestDb::open(tag);
+        seed_change_with_worktree(db.store.as_ref(), &worktree);
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let (tools, _commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![route_outcome("initialize", &[]), done_outcome()])
+            .with_static_check(vec![baseline_check(true)])
+            .with_archi_check(vec![outcome])
+            .with_test_execution(vec![baseline_execution(TestExecutionConclusion::Pass)])
+            .assemble();
+        let vcs = Arc::new(FakeVcs::clean());
+        let snapshot_port: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+        let (task, _rx, _history) = spawn_run_with_vcs(
+            worker,
+            tools,
+            vcs,
+            snapshot_port,
+            &control,
+            false,
+            &worktree.to_string_lossy(),
+            &root.root_str(),
+            None,
+        );
+        let _confirmer = spawn_confirmer(&control, true);
+        let _ = task.await.expect("run 任务正常结束");
+
+        assert_eq!(
+            snapshot(&worktree),
+            before,
+            "{tag}：三态跑动后源码与模型字节零变化"
+        );
+    }
+}
+
+/// 读 `walker.rs` 产品源原文（口径串判据的读面，不剔注释）。
+fn walker_source() -> String {
+    std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/walker.rs"))
+        .expect("读取 walker.rs")
+}
+
+/// 从源码取 `TXT_BASELINE_*` 常量的字符串字面值（单行字面量装置：四文案对拍
+/// 的唯一读面——常量私有，行为面只透出替换后的终态文本）。
+fn baseline_text(source: &str, name: &str) -> String {
+    let at = source
+        .find(&format!("const {name}"))
+        .unwrap_or_else(|| panic!("{name} 常量应在源内"));
+    let rest = &source[at..];
+    let start = rest.find('"').expect("字面量起始引号") + 1;
+    let rest = &rest[start..];
+    let end = rest.find('"').expect("字面量结束引号");
+    rest[..end].to_owned()
+}
+
+/// 正向（AC-10）：四条基线失败文案互不相同（两两 `!=`，同一 `{dir}` 替换后仍
+/// 互异）；archi 文案三要素齐（「基线架构检查未通过」/「基线的债不属于本次变更」/
+/// `{dir}`），无 `{fault}` 占位；常量定义面恰四条。
+#[test]
+fn 基线四条失败文案互不相同且archi三要素齐() {
+    let source = walker_source();
+    assert_eq!(
+        source.matches("const TXT_BASELINE_").count(),
+        4,
+        "基线失败文案常量恰四条"
+    );
+
+    let names = [
+        "TXT_BASELINE_STATIC_FAILED",
+        "TXT_BASELINE_ARCHI_FAILED",
+        "TXT_BASELINE_TEST_ERROR",
+        "TXT_BASELINE_TEST_FAILED",
+    ];
+    let dir = "/ws/openspec/changes/demo/reports/archi";
+    let texts: Vec<(String, String)> = names
+        .iter()
+        .map(|name| {
+            let raw = baseline_text(&source, name);
+            ((*name).to_owned(), raw.replace("{dir}", dir))
+        })
+        .collect();
+    for (index, (left_name, left)) in texts.iter().enumerate() {
+        for (right_name, right) in &texts[index + 1..] {
+            assert_ne!(
+                left, right,
+                "{left_name} 与 {right_name} 替换后仍须互不相同"
+            );
+        }
+    }
+
+    let archi = baseline_text(&source, "TXT_BASELINE_ARCHI_FAILED");
+    for needle in ["基线架构检查未通过", "基线的债不属于本次变更", "{dir}"] {
+        assert!(archi.contains(needle), "archi 文案应含 {needle:?}: {archi}");
+    }
+    assert!(!archi.contains("{fault}"), "archi 文案零 {{fault}} 占位");
+    assert!(!archi.replace("{dir}", dir).contains("{dir}"), "占位可展开");
+}
+
+/// 正向（AC-10 口径）：`walker.rs` 词汇区注释已改述为「baseline 四条失败文案」
+/// 且不再自称「三态」；相位内计划步执行体区段注释含四步序与「三检查步」表述。
+#[test]
+fn walker口径串四条与四步序在场() {
+    let source = walker_source();
+    for needle in [
+        "baseline 四条失败文案",
+        "Clean → StaticCheck → ArchiCheck → TestExecution",
+        "三检查步 `on_fail=Terminal`",
+    ] {
+        assert!(source.contains(needle), "walker.rs 应含口径串 {needle:?}");
+    }
+}
+
+/// 异常（AC-10 口径零残留）：`walker.rs` 内旧「两检查步」/「三态失败文案」零
+/// 命中（改述后不得新旧并存）。
+#[test]
+fn walker旧口径串零残留() {
+    let source = walker_source();
+    for stale in ["两检查步", "baseline 三态失败文案"] {
+        assert!(
+            !source.contains(stale),
+            "walker.rs 不得残留旧口径串 {stale:?}"
+        );
     }
 }

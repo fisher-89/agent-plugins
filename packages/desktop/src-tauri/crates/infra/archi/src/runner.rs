@@ -14,7 +14,7 @@ use archi::drift::{check, ArchiCheckStatus, ArchiDriftMode, ArchiDriftReport, Ch
 use foundation::cancel::CancelFlag;
 use foundation::layout::{change_reports, ReportSlot};
 use orchestration::port::{
-    ArchiCheckOutcome, ArchiCheckRunner, BoxToolFuture, RunFault, ToolStepOutput,
+    ArchiCheckMode, ArchiCheckOutcome, ArchiCheckRunner, BoxToolFuture, RunFault, ToolStepOutput,
 };
 use orchestration::verdict::MAX_REPORT_CHARS;
 
@@ -27,6 +27,15 @@ const FIX_HINT: &str = "先按模型改代码；若真实设计如此，应回�
 
 /// 截断留痕尾注。
 const TRUNCATED: &str = "…（已截断，全量见报告文件）";
+
+/// port 词 → 判定域词的唯一映射点（port 面零 `archi` 词汇泄漏，判定面零 port
+/// 词汇）。
+fn drift_mode(mode: ArchiCheckMode) -> ArchiDriftMode {
+    match mode {
+        ArchiCheckMode::Full => ArchiDriftMode::Full,
+        ArchiCheckMode::Incremental => ArchiDriftMode::Incremental,
+    }
+}
 
 impl LocalArchiCheck {
     /// 时间戳 → 文件名主干：只保留 ASCII 数字与 `T` / `Z`（`2026-10-20T08:31:12Z` →
@@ -57,6 +66,7 @@ impl ArchiCheckRunner for LocalArchiCheck {
         &self,
         root: &str,
         name: &str,
+        mode: ArchiCheckMode,
         changed: Vec<String>,
         cancel: CancelFlag,
     ) -> BoxToolFuture {
@@ -67,9 +77,11 @@ impl ArchiCheckRunner for LocalArchiCheck {
             let report_dir = change_reports(root_path, &name, ReportSlot::Archi)
                 .to_string_lossy()
                 .into_owned();
+            // 模式是入参不是派生量：全量忽略变更集是判定域的既有语义，runner 侧
+            // 不再判空（否则构成第二套模式判定）
             let outcome = check(archi::drift::CheckInput {
                 root: root_path,
-                mode: ArchiDriftMode::Incremental,
+                mode: drift_mode(mode),
                 changed: &changed,
                 change: Some(&name),
                 cancel,

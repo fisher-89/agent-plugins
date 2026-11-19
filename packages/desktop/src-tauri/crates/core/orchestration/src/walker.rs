@@ -15,7 +15,7 @@ use crate::control::{emit_node, now_millis, ChangeFlowControl, RunGuard, StepSet
 use crate::decision::{ensure_backtrack_allowed, CandidateReport, DecisionAction, DecisionInput};
 use crate::finish::FinishPayload;
 use crate::port::{
-    ArchiCheckOutcome, ArchiveVcsPort, MutationSkipReason, MutationTestConclusion,
+    ArchiCheckMode, ArchiCheckOutcome, ArchiveVcsPort, MutationSkipReason, MutationTestConclusion,
     MutationTestOutcome, OutputRefSink, RebaseOutcome, RunFault, RunHistoryPort,
     StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome, ToolCommand, ToolStepOutput,
     ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest,
@@ -49,11 +49,14 @@ const TXT_SKIP_ABSENT: &str = "worktree 已不在场，跳过清理";
 const TXT_SKIP_FINALIZED: &str = "已落盘";
 const TXT_NO_CONFLICT: &str = "无冲突";
 
-/// initialize 相位词汇（legacy 跳过因 + baseline 三态失败文案——三态不共用文
-/// 案，均 Terminal 停给用户；`{dir}` 为 baseline 报告目录占位）。
+/// initialize 相位词汇（legacy 跳过因 + baseline 四条失败文案——static / archi /
+/// test Error / test Fail，四条互不共用文案，均 Terminal 停给用户；`{dir}` 为
+/// 各步报告目录占位）。
 const TXT_SKIP_LEGACY_INITIALIZE: &str = "legacy 主仓执行无 worktree 基线，跳过基线检查";
 const TXT_BASELINE_STATIC_FAILED: &str =
     "基线静态检查未通过，请在基线上修复后重新发起（基线的债不属于本次变更）；报告目录 {dir}";
+const TXT_BASELINE_ARCHI_FAILED: &str =
+    "基线架构检查未通过，请在基线上修复模型或代码后重新发起（基线的债不属于本次变更）；报告目录 {dir}";
 const TXT_BASELINE_TEST_ERROR: &str =
     "基线测试执行出错（环境 / 配置问题），请检查配置与环境后重新发起；报告目录 {dir}";
 const TXT_BASELINE_TEST_FAILED: &str =
@@ -469,9 +472,9 @@ fn emit_edge(guard: &RunGuard, from: NodeKey, to: NodeKey, kind: EdgeKind) {
 // ---------------------------------------------------------------------------
 // 相位内计划步执行体（`next.steps` 只含真实业务步——开相归 `enter_phase`、落账归
 // `settle_phase`，两者是相位机固定动作而非计划步；initialize 表头一次性基线检查
-// 相位步序为 Clean → StaticCheck → TestExecution——Clean 为 vcs 直调基线恢复步，
-// 两检查步 `on_fail=Terminal` 无反馈边例外、失败即停给用户；其余相位沿各表
-// steps 声明执行，机械 checklist 由相位收口复写）
+// 相位步序为 Clean → StaticCheck → ArchiCheck → TestExecution——Clean 为 vcs 直调
+// 基线恢复步，三检查步 `on_fail=Terminal` 无反馈边例外、失败即停给用户；其余相位
+// 沿各表 steps 声明执行，机械 checklist 由相位收口复写）
 // ---------------------------------------------------------------------------
 
 /// 计划步执行携出物。
@@ -1478,15 +1481,123 @@ async fn step_mutation_test_escalate(
     Ok(StepFlow::Upgraded)
 }
 
-/// archi-check 门禁步执行体（`on_fail=FeedbackLoop{3}`）：与 `step_static_check`
-/// 逐段同型——fault 先行 / `passed` 收口 / `failed` 进定向反馈边（诊断注入**同一
-/// executor 会话**，修复节点为 `instance_no` 递增的独立新节点）/ 超限代写 fail
-/// 落账并升格相位 fail。
+/// archi-check 门禁步分派（步声明单点）：`on_fail` 三分派——
+/// - `FeedbackLoop`（implement 反馈边）→ [`step_archi_check_feedback`]；
+/// - `Terminal`（initialize 基线绿门）→ [`step_archi_check_terminal`]；
+/// - `Escalate` / `None` → 计划图漂移 Err（不静默 Proceed、不退化任一臂）。
+async fn step_archi_check(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+    step: &StepDefinition,
+) -> Result<StepFlow, Terminal> {
+    match step.on_fail {
+        Some(OnFail::Terminal) => step_archi_check_terminal(ctx, trace, cursor).await,
+        Some(OnFail::FeedbackLoop { .. }) => {
+            step_archi_check_feedback(ctx, trace, cursor, step).await
+        }
+        Some(OnFail::Escalate) | None => Err(Terminal::failed(format!(
+            "计划图漂移：phase \"{}\" 的 archi-check 步缺 OnFail::Terminal / FeedbackLoop 声明",
+            ctx.phase
+        ))),
+    }
+}
+
+/// initialize 相位 archi-check 单发执行体（`on_fail=Terminal` 分派臂）：与
+/// [`step_static_check_terminal`] 逐段同型——单节点 running → 全量判定（携
+/// `ArchiCheckMode::Full`，零 vcs 触碰）→ pass / fail 收口。pass：`passed` + 诊断
+/// 摘要后 Proceed（runner 侧文本携 `mode=full` / 状态词 / 扫描文件数；`skipped` /
+/// `noChanges` 两态逐字原样透出，MUST NOT 写成「检查通过」）；fail：failed 节点
+/// + `Terminal::failed`（archi 基线红文案携 `reports/archi` 目录——`{dir}` 占位
+/// 由 `outcome.report_dir` 供给）。
+///
+/// **单发一次、零会话、零反馈边、零 fail checklist 代写**（`Terminal` 语义天然
+/// 保证 PhaseRecord 零 initialize 条目）。**fault 先于结论**：本 runner 零进程 ⇒
+/// 生产路径 `fault` 恒 `None`，本臂只作同形保留（`template = None`：消息即 fault
+/// 原文，零新增环境文案常量）；`Stopped` → 节点 stopped + run stopped。
+///
+/// 报告路径随步 detail 呈现，**MUST NOT** 走节点 `output_ref`（该字段是
+/// exec-outputs 回查通道，架构报告是 JSON 文件）。
+async fn step_archi_check_terminal(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<StepFlow, Terminal> {
+    let instance_no = begin_node(
+        ctx.guard,
+        trace,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::ArchiCheck,
+        EdgeKind::Forward,
+    );
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::ArchiCheck,
+        instance_no,
+        StepSettle::running(),
+    );
+    let outcome: ArchiCheckOutcome = run_tool(
+        ctx.tools,
+        ctx.guard,
+        &ctx.request.root,
+        ToolCommand::ArchiCheck {
+            change_id: ctx.request.change_id.clone(),
+            mode: ArchiCheckMode::Full,
+        },
+        "archi-check",
+        None,
+    )
+    .await?;
+    if let Some(fault) = outcome.fault.as_ref() {
+        return Err(settle_fault(
+            ctx.guard,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::ArchiCheck,
+            instance_no,
+            fault,
+            None,
+            &outcome.report_dir,
+            None,
+        ));
+    }
+    if outcome.passed {
+        emit_node(
+            ctx.guard,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::ArchiCheck,
+            instance_no,
+            StepSettle::passed(Some(diagnose_brief(&outcome.diagnostics))),
+        );
+        return Ok(StepFlow::Proceed);
+    }
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::ArchiCheck,
+        instance_no,
+        StepSettle::failed(Some(diagnose_brief(&outcome.diagnostics))),
+    );
+    Err(Terminal::failed(
+        TXT_BASELINE_ARCHI_FAILED.replace("{dir}", &outcome.report_dir),
+    ))
+}
+
+/// archi-check 反馈边执行体（implement 相位 `on_fail=FeedbackLoop{3}`）：与
+/// `step_static_check` 逐段同型——fault 先行 / `passed` 收口 / `failed` 进定向
+/// 反馈边（诊断注入**同一 executor 会话**，修复节点为 `instance_no` 递增的独立新
+/// 节点）/ 超限代写 fail 落账并升格相位 fail。增量口径（`Incremental`）是本相位
+/// 唯一口径：变更集经 `steps.rs` 的 vcs 缝取数注入。
 ///
 /// **零进程零自动修复**：本 runner 不 spawn、不写源码 / 模型；改代码是 executor
 /// 的活，改模型要回 dev-design。报告路径随步 detail 呈现，**MUST NOT** 走节点
 /// `output_ref`（该字段是 exec-outputs 回查通道，架构报告是 JSON 文件）。
-async fn step_archi_check(
+async fn step_archi_check_feedback(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
     cursor: &mut PhaseCursor,
@@ -1517,6 +1628,7 @@ async fn step_archi_check(
             &ctx.request.root,
             ToolCommand::ArchiCheck {
                 change_id: ctx.request.change_id.clone(),
+                mode: ArchiCheckMode::Incremental,
             },
             "archi-check",
             None,

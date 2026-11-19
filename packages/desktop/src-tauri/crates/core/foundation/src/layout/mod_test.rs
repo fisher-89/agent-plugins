@@ -2051,3 +2051,145 @@ fn 退役零兼容壳() {
         "派生族内零 decisions / adr 项：{derived:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// initialize 表头 archi 基线检查（init-check-archi / AC-5 / AC-10）：`ReportSlot`
+// 类型 doc 两挂载点共用表述 + `Baseline` 变体 doc 收敛 + 三值映射语义回归
+// ---------------------------------------------------------------------------
+
+/// 枚举声明之前的连续 `///` doc 段（多行 doc 的完整邻域）。
+fn doc_before(source: &str, decl: &str) -> String {
+    let at = source
+        .find(decl)
+        .unwrap_or_else(|| panic!("{decl} 应在源内"));
+    let mut lines: Vec<&str> = source[..at].lines().collect();
+    let mut collected: Vec<&str> = Vec::new();
+    while let Some(last) = lines.last() {
+        let trimmed = last.trim_start();
+        if trimmed.starts_with("///") {
+            collected.push(lines.pop().expect("末行在场"));
+            continue;
+        }
+        if trimmed.starts_with("#[") {
+            lines.pop();
+            continue;
+        }
+        break;
+    }
+    collected.reverse();
+    collected.join("\n")
+}
+
+/// 正向（源自证）：`ReportSlot` 类型 doc 含「两挂载点共用」表述（initialize 基线
+/// 检查 + implement 门禁）与 `Archi` 槽位语义；`crates/infra/checks` 的
+/// 「MUST NOT 接受该槽位」纪律句仍在场。
+#[test]
+fn report_slot类型doc两挂载点共用与纪律句在场() {
+    let source = include_str!("mod.rs");
+    let doc = doc_before(source, "pub enum ReportSlot {");
+    for needle in [
+        "两挂载点共用",
+        "initialize 基线检查",
+        "implement 门禁",
+        "`Archi`",
+        "MUST NOT 接受该槽位",
+    ] {
+        assert!(
+            doc.contains(needle),
+            "ReportSlot doc 应含 {needle:?}：{doc}"
+        );
+    }
+}
+
+/// 异常（源自证）：旧口径「initialize 相位两检查步」在 `mod.rs` 零命中；
+/// `Baseline` 变体 doc 不再把 archi 基线检查挂到 `baseline` 槽位（含 `Archi`
+/// 槽位指引）。
+#[test]
+fn report_slot_baseline变体doc旧口径零残留() {
+    let source = include_str!("mod.rs");
+    assert!(
+        !source.contains("initialize 相位两检查步"),
+        "mod.rs 不得残留「initialize 相位两检查步」"
+    );
+    let enum_at = source.find("pub enum ReportSlot {").expect("枚举在场");
+    let body = &source[enum_at..];
+    let baseline_at = body.find("\n    Baseline,").expect("Baseline 变体在场");
+    let mut lines: Vec<&str> = body[..baseline_at].lines().collect();
+    let mut doc: Vec<&str> = Vec::new();
+    while let Some(last) = lines.last() {
+        if last.trim_start().starts_with("///") {
+            doc.push(lines.pop().expect("末行在场"));
+        } else {
+            break;
+        }
+    }
+    let doc = doc.join("\n");
+    assert!(
+        doc.contains("`Archi` 槽位"),
+        "Baseline doc 应指向 Archi 槽位：{doc}"
+    );
+    assert!(
+        !doc.contains("两检查步"),
+        "Baseline doc 不得自称两检查步：{doc}"
+    );
+}
+
+/// 正向（语义回归，参数化三值）：三值封闭集与映射零改动——`Test` / `Baseline` /
+/// `Archi` 分别映射 `"test"` / `"baseline"` / `"archi"`，`change_reports` 三段
+/// 路径互不相等且尾段单段。
+#[test]
+fn report_slot三值映射零改动() {
+    use super::{change_reports, report_dir_name, ReportSlot};
+
+    let root = Path::new("/ws");
+    let cases = [
+        (ReportSlot::Test, "test"),
+        (ReportSlot::Baseline, "baseline"),
+        (ReportSlot::Archi, "archi"),
+    ];
+    let values: Vec<PathBuf> = cases
+        .iter()
+        .map(|(slot, word)| {
+            assert_eq!(report_dir_name(*slot), *word, "{slot:?} 目录名逐字");
+            change_reports(root, "demo", *slot)
+        })
+        .collect();
+    for (label, value) in ["test", "baseline", "archi"].iter().zip(&values) {
+        let tail = value
+            .file_name()
+            .expect("尾段")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(&tail, label, "尾段为槽位名单段");
+    }
+    for (index, left) in values.iter().enumerate() {
+        for right in &values[index + 1..] {
+            assert_ne!(left, right, "三段路径互不相等");
+        }
+    }
+}
+
+/// 边界（doc-only 侧证）：`report_dir_name` 的映射分支仍三臂穷尽（零新增第四
+/// 臂），且 `ReportSlot::` 在其函数体内的出现次数恰三——注释改动不改逻辑。
+#[test]
+fn report_slot映射分支数不变() {
+    let source = include_str!("mod.rs");
+    let fn_at = source
+        .find("fn report_dir_name(slot: ReportSlot)")
+        .expect("report_dir_name 在场");
+    let body = &source[fn_at..];
+    let end = body.find("\n}").expect("函数体闭合");
+    let body = &body[..end];
+    assert_eq!(
+        body.matches("ReportSlot::").count(),
+        3,
+        "映射恰三臂（三值穷尽，零新增第四臂）"
+    );
+    for word in [
+        "TEST_REPORTS_DIR_NAME",
+        "BASELINE_REPORTS_DIR_NAME",
+        "ARCHI_REPORTS_DIR_NAME",
+    ] {
+        assert!(body.contains(word), "映射臂消费常量 {word}");
+    }
+}

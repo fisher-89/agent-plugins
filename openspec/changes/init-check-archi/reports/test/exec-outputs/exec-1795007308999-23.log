@@ -1,0 +1,399 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\foundation\src\layout\mod_test.rs:1775:
+         "`Archi`",
+         "MUST NOT 接受该槽位",
+     ] {
+[31m-        assert!(doc.contains(needle), "ReportSlot doc 应含 {needle:?}：{doc}");
+[0m[32m+        assert!(
+[0m[32m+            doc.contains(needle),
+[0m[32m+            "ReportSlot doc 应含 {needle:?}：{doc}"
+[0m[32m+        );
+[0m     }
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\port_test.rs:3528:
+     assert_eq!(ArchiCheckMode::Full.as_str(), "full");
+     assert_eq!(ArchiCheckMode::Incremental.as_str(), "incremental");
+ 
+[31m-    let words = [ArchiCheckMode::Full.as_str(), ArchiCheckMode::Incremental.as_str()];
+[0m[32m+    let words = [
+[0m[32m+        ArchiCheckMode::Full.as_str(),
+[0m[32m+        ArchiCheckMode::Incremental.as_str(),
+[0m[32m+    ];
+[0m     let mut sorted = words.to_vec();
+     sorted.sort_unstable();
+     assert_eq!(sorted, ["full", "incremental"], "取值集合恰两词面");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\port_test.rs:3560:
+     );
+ 
+     for mode in [ArchiCheckMode::Full, ArchiCheckMode::Incremental] {
+[31m-        assert_eq!(mode.as_str(), mode.as_str(), "as_str 幂等（同值连调两次等值）");
+[0m[32m+        assert_eq!(
+[0m[32m+            mode.as_str(),
+[0m[32m+            mode.as_str(),
+[0m[32m+            "as_str 幂等（同值连调两次等值）"
+[0m[32m+        );
+[0m         let passed_by_value = mode;
+         assert_eq!(
+             passed_by_value.as_str(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\port_test.rs:3596:
+         .filter(|line| line.ends_with(','))
+         .collect();
+     assert_eq!(variants, ["Full,", "Incremental,"], "变体恰两枚且序固定");
+[31m-    assert!(!region.contains("ALL"), "port 面零枚举遍历消费者（零 ALL 常量）");
+[0m[32m+    assert!(
+[0m[32m+        !region.contains("ALL"),
+[0m[32m+        "port 面零枚举遍历消费者（零 ALL 常量）"
+[0m[32m+    );
+[0m     for forbidden in [
+         "Serialize",
+         "Deserialize",
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\steps_test.rs:4661:
+     let db = TestDb::open("archi-full-zero-vcs");
+     seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+     let archi = Arc::new(RecordingArchiRunner::with(archi_outcome(true, "ok")));
+[31m-    let vcs = Arc::new(FakeVcs::clean().with_edit(
+[0m[31m-        vec!["src/should-not-be-read.ts".to_owned()],
+[0m[31m-        "",
+[0m[31m-    ));
+[0m[32m+    let vcs =
+[0m[32m+        Arc::new(FakeVcs::clean().with_edit(vec!["src/should-not-be-read.ts".to_owned()], ""));
+[0m     let steps = assemble_with_archi(db.store_arc(), "run-full", Arc::clone(&archi), vcs.clone());
+ 
+     let output = run_step(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\steps_test.rs:4829:
+             .list_change_steps(CHANGE_ID, Some("run-drift"))
+             .expect("读审计行应成功");
+         assert_eq!(rows.len(), 1, "{mode:?} 失败留痕（审计行仍落库）");
+[31m-        assert_eq!(rows[0].step_kind, StepKind::ArchiCheck, "{mode:?} kind 归键");
+[0m[32m+        assert_eq!(
+[0m[32m+            rows[0].step_kind,
+[0m[32m+            StepKind::ArchiCheck,
+[0m[32m+            "{mode:?} kind 归键"
+[0m[32m+        );
+[0m         assert_ne!(rows[0].status, "ok", "{mode:?} 审计行非 ok 态");
+         assert!(
+             rows[0].summary.contains("漂移"),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:21609:
+     tag: &str,
+     archi_outcomes: Vec<ArchiCheckOutcome>,
+     fail_on: Option<&str>,
+[31m-) -> (ChangeRunStatus, RunFinishCommand, Vec<ToolCommand>, Vec<WorkerTurnRequest>) {
+[0m[32m+) -> (
+[0m[32m+    ChangeRunStatus,
+[0m[32m+    RunFinishCommand,
+[0m[32m+    Vec<ToolCommand>,
+[0m[32m+    Vec<WorkerTurnRequest>,
+[0m[32m+) {
+[0m     let root = TempRoot::new(tag);
+     root.change(NAME);
+     let worktree = root.0.join("openspec/changes").join(NAME);
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:21838:
+         "limit 0 ⇒ 首败即升格（零复查）"
+     );
+     let upgrade = commands.iter().find_map(|command| match command {
+[31m-        ToolCommand::PhaseLog { input, .. } if input.report.contains("升格") => Some(input.clone()),
+[0m[32m+        ToolCommand::PhaseLog { input, .. } if input.report.contains("升格") => {
+[0m[32m+            Some(input.clone())
+[0m[32m+        }
+[0m         _ => None,
+     });
+     let upgrade = upgrade.expect("超限升格落账面");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:21880:
+ 
+     assert_eq!(
+         archi_modes_of(&commands.lock().expect("命令锁")),
+[31m-        [
+[0m[31m-            ArchiCheckMode::Incremental,
+[0m[31m-            ArchiCheckMode::Incremental
+[0m[31m-        ],
+[0m[32m+        [ArchiCheckMode::Incremental, ArchiCheckMode::Incremental],
+[0m         "失败 + 复查两次均 Incremental 口径"
+     );
+     let requests = requests.lock().expect("请求锁");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:21957:
+         "archi 红后 test-execution 零 spawn"
+     );
+     // 零会话 / 零反馈边 / 零落账（Terminal 零 PhaseRecord 条目的本层等价面）
+[31m-    assert!(requests.is_empty(), "executor / evaluator / decision 三槽全空");
+[0m     assert!(
+[32m+        requests.is_empty(),
+[0m[32m+        "executor / evaluator / decision 三槽全空"
+[0m[32m+    );
+[0m[32m+    assert!(
+[0m         !finish
+             .edges
+             .iter()
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:22103:
+ async fn initialize_archi诊断有界且特殊字符压平() {
+     // 形态一：超长诊断
+     let long = "违".repeat(1200);
+[31m-    let (status, finish, _commands, _requests) = drive_initialize_archi(
+[0m[31m-        "init-archi-long",
+[0m[31m-        vec![baseline_archi(false, &long)],
+[0m[31m-        None,
+[0m[31m-    )
+[0m[31m-    .await;
+[0m[32m+    let (status, finish, _commands, _requests) =
+[0m[32m+        drive_initialize_archi("init-archi-long", vec![baseline_archi(false, &long)], None).await;
+[0m     assert_eq!(status, ChangeRunStatus::Failed);
+     let nodes = archi_nodes_of(&finish);
+     let detail = nodes[0].detail.as_deref().unwrap_or_default();
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:22119:
+     );
+     assert!(detail.ends_with('…'), "截断留痕尾符: {detail}");
+     assert!(
+[31m-        !finish
+[0m[31m-            .reason
+[0m[31m-            .as_deref()
+[0m[31m-            .unwrap_or_default()
+[0m[31m-            .contains(&long),
+[0m[32m+        !finish.reason.as_deref().unwrap_or_default().contains(&long),
+[0m         "终态文案只含固定引导 + 报告目录（不含诊断正文）"
+     );
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:22130:
+     // 形态二：特殊字符（换行 / 制表 / NUL / emoji）压平为单行
+     let messy = "a\nb\tc d\0e 🚀";
+[31m-    let (status, finish, _commands, _requests) = drive_initialize_archi(
+[0m[31m-        "init-archi-messy",
+[0m[31m-        vec![baseline_archi(false, messy)],
+[0m[31m-        None,
+[0m[31m-    )
+[0m[31m-    .await;
+[0m[32m+    let (status, finish, _commands, _requests) =
+[0m[32m+        drive_initialize_archi("init-archi-messy", vec![baseline_archi(false, messy)], None).await;
+[0m     assert_eq!(status, ChangeRunStatus::Failed);
+     let detail = archi_nodes_of(&finish)[0]
+         .detail
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:22141:
+         .clone()
+         .expect("短串不截断，detail 在场");
+[31m-    assert!(!detail.contains('\n') && !detail.contains('\t'), "压空白单行: {detail:?}");
+[0m[32m+    assert!(
+[0m[32m+        !detail.contains('\n') && !detail.contains('\t'),
+[0m[32m+        "压空白单行: {detail:?}"
+[0m[32m+    );
+[0m     assert!(detail.contains('\0'), "非空白字符原样保留（只压空白）");
+     assert!(detail.contains("🚀"), "emoji 原样保留");
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:22305:
+     }
+ 
+     for (tag, outcome) in [
+[31m-        ("init-archi-clean", baseline_archi(true, "mode=full status=clean")),
+[0m         (
+[32m+            "init-archi-clean",
+[0m[32m+            baseline_archi(true, "mode=full status=clean"),
+[0m[32m+        ),
+[0m[32m+        (
+[0m             "init-archi-warnings",
+             baseline_archi(true, "mode=full status=warnings，1 条提示"),
+         ),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:22367:
+ 
+ /// 读 `walker.rs` 产品源原文（口径串判据的读面，不剔注释）。
+ fn walker_source() -> String {
+[31m-    std::fs::read_to_string(
+[0m[31m-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/walker.rs"),
+[0m[31m-    )
+[0m[31m-    .expect("读取 walker.rs")
+[0m[32m+    std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/walker.rs"))
+[0m[32m+        .expect("读取 walker.rs")
+[0m }
+ 
+ /// 从源码取 `TXT_BASELINE_*` 常量的字符串字面值（单行字面量装置：四文案对拍
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:22422:
+     }
+ 
+     let archi = baseline_text(&source, "TXT_BASELINE_ARCHI_FAILED");
+[31m-    for needle in [
+[0m[31m-        "基线架构检查未通过",
+[0m[31m-        "基线的债不属于本次变更",
+[0m[31m-        "{dir}",
+[0m[31m-    ] {
+[0m[32m+    for needle in ["基线架构检查未通过", "基线的债不属于本次变更", "{dir}"] {
+[0m         assert!(archi.contains(needle), "archi 文案应含 {needle:?}: {archi}");
+     }
+     assert!(!archi.contains("{fault}"), "archi 文案零 {{fault}} 占位");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\workflow\src\state_test.rs:2200:
+         }
+     }
+     collected.reverse();
+[31m-    collected.join("
+[0m[31m-")
+[0m[32m+    collected.join(
+[0m[32m+        "
+[0m[32m+",
+[0m[32m+    )
+[0m }
+ 
+ /// `OnFail::Terminal` doc 三检查步齐（正向，源自证）：`Terminal` 变体邻域点名
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\workflow\src\state_test.rs:2210:
+ #[test]
+ fn terminal_doc三检查步齐且语义句在场() {
+     let source = state_source();
+[31m-    let block = variant_doc(&source, "pub enum OnFail {", "
+[0m[31m-    Terminal,");
+[0m[32m+    let block = variant_doc(
+[0m[32m+        &source,
+[0m[32m+        "pub enum OnFail {",
+[0m[32m+        "
+[0m[32m+    Terminal,",
+[0m[32m+    );
+[0m     for needle in [
+         "StaticCheck",
+         "ArchiCheck",
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\workflow\src\state_test.rs:2220:
+         "零 agent",
+         "会话可注入",
+     ] {
+[31m-        assert!(block.contains(needle), "Terminal doc 应含 {needle:?}：{block}");
+[0m[32m+        assert!(
+[0m[32m+            block.contains(needle),
+[0m[32m+            "Terminal doc 应含 {needle:?}：{block}"
+[0m[32m+        );
+[0m     }
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\workflow\src\state_test.rs:2234:
+         !source.contains("两检查步"),
+         "state.rs 不得残留「两检查步」旧口径"
+     );
+[31m-    let block = variant_doc(&source, "pub enum OnFail {", "
+[0m[31m-    Terminal,");
+[0m[32m+    let block = variant_doc(
+[0m[32m+        &source,
+[0m[32m+        "pub enum OnFail {",
+[0m[32m+        "
+[0m[32m+    Terminal,",
+[0m[32m+    );
+[0m     assert!(
+         !block.contains("StaticCheck / TestExecution"),
+         "Terminal doc 不得把消费点写成两步：{block}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\workflow\src\state_test.rs:2248:
+ #[test]
+ fn step_node_archi_check_doc两态语义在场() {
+     let source = state_source();
+[31m-    let block = variant_doc(&source, "pub enum StepNode {", "
+[0m[31m-    ArchiCheck,");
+[0m[32m+    let block = variant_doc(
+[0m[32m+        &source,
+[0m[32m+        "pub enum StepNode {",
+[0m[32m+        "
+[0m[32m+    ArchiCheck,",
+[0m[32m+    );
+[0m     for needle in ["FeedbackLoop", "Terminal", "零进程"] {
+         assert!(
+             block.contains(needle),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\workflow\src\state_test.rs:2269:
+ fn 相邻变体定向反馈边表述零误伤() {
+     let source = state_source();
+     for (enum_decl, anchor) in [
+[31m-        ("pub enum StepNode {", "
+[0m[31m-    StaticCheck,"),
+[0m[31m-        ("pub enum OnFail {", "
+[0m[31m-    FeedbackLoop {"),
+[0m[32m+        (
+[0m[32m+            "pub enum StepNode {",
+[0m[32m+            "
+[0m[32m+    StaticCheck,",
+[0m[32m+        ),
+[0m[32m+        (
+[0m[32m+            "pub enum OnFail {",
+[0m[32m+            "
+[0m[32m+    FeedbackLoop {",
+[0m[32m+        ),
+[0m     ] {
+         let doc = variant_doc(&source, enum_decl, anchor);
+         assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\workflow\src\state_test.rs:2308:
+         "归 Exec 分组（检查步族）"
+     );
+     assert_eq!(StepNode::ArchiCheck.role(), None, "非 agent 步");
+[31m-    let kind: RunStepKind = serde_json::from_value(json!("archi_check"))
+[0m[31m-        .expect("线词应可反序列化为 RunStepKind");
+[0m[32m+    let kind: RunStepKind =
+[0m[32m+        serde_json::from_value(json!("archi_check")).expect("线词应可反序列化为 RunStepKind");
+[0m     assert_eq!(kind.as_str(), StepNode::ArchiCheck.as_str(), "两枚举同源");
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\core\workflow\src\state_test.rs:2317:
+ /// 语义」两形态并列（`StepNode` / `RunStepKind` 双枚举）。
+ #[test]
+ fn archi_check封闭集防线零改动() {
+[31m-    for raw in [r#""archi-check""#, r#""ArchiCheck""#, r#""""#, r#""archi_check ""#] {
+[0m[32m+    for raw in [
+[0m[32m+        r#""archi-check""#,
+[0m[32m+        r#""ArchiCheck""#,
+[0m[32m+        r#""""#,
+[0m[32m+        r#""archi_check ""#,
+[0m[32m+    ] {
+[0m         let node: Result<StepNode, _> = serde_json::from_str(raw);
+         assert!(node.is_err(), "StepNode 词集外的 {raw} 必须 Err");
+         let kind: Result<RunStepKind, _> = serde_json::from_str(raw);
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\infra\archi\src\runner_test.rs:1306:
+     cancel: CancelFlag,
+ ) -> Result<ArchiCheckOutcome, String> {
+     let runner = LocalArchiCheck::new();
+[31m-    let output = block_on(runner.run(
+[0m[31m-        &root.to_string_lossy(),
+[0m[31m-        name,
+[0m[31m-        mode,
+[0m[31m-        changed,
+[0m[31m-        cancel,
+[0m[31m-    ))?;
+[0m[32m+    let output = block_on(runner.run(&root.to_string_lossy(), name, mode, changed, cancel))?;
+[0m     match output {
+         ToolStepOutput::ArchiCheck(outcome) => Ok(outcome),
+         other => panic!("产出类型漂移（期望 ArchiCheck）：{other:?}"),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\infra\archi\src\runner_test.rs:1619:
+                     .to_string_lossy()
+                     .into_owned();
+                 assert!(
+[31m-                    stem.chars().all(|ch| ch.is_ascii_digit() || ch == 'T' || ch == 'Z')
+[0m[32m+                    stem.chars()
+[0m[32m+                        .all(|ch| ch.is_ascii_digit() || ch == 'T' || ch == 'Z')
+[0m                         && !stem.is_empty(),
+                     "文件名主干取时间戳（name 长度 {}）：{stem}",
+                     name.chars().count()
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\infra\archi\src\runner_test.rs:1729:
+         let reference = outcome.report_ref.expect("落盘");
+         let report = read_report(&reference);
+         assert_eq!(report.version, 3, "{mode:?} 报告版本不变");
+[31m-        let raw: serde_json::Value = serde_json::from_slice(
+[0m[31m-            &fs::read(&reference).expect("读报告原文"),
+[0m[31m-        )
+[0m[31m-        .expect("报告为 JSON");
+[0m[32m+        let raw: serde_json::Value =
+[0m[32m+            serde_json::from_slice(&fs::read(&reference).expect("读报告原文"))
+[0m[32m+                .expect("报告为 JSON");
+[0m         let object = raw.as_object().expect("报告为对象");
+         for field in [
+             "version",
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\infra\archi\src\runner_test.rs:1751:
+             "status",
+             "apiFindings",
+         ] {
+[31m-            assert!(
+[0m[31m-                object.contains_key(field),
+[0m[31m-                "{mode:?} 报告缺字段 {field}"
+[0m[31m-            );
+[0m[32m+            assert!(object.contains_key(field), "{mode:?} 报告缺字段 {field}");
+[0m         }
+     }
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\init-check-archi\packages\desktop\src-tauri\crates\infra\archi\src\runner_test.rs:1776:
+         "映射调用恰一处"
+     );
+ 
+[31m-    let run_at = source.find("impl ArchiCheckRunner for LocalArchiCheck {").expect("run 实现在场");
+[0m[32m+    let run_at = source
+[0m[32m+        .find("impl ArchiCheckRunner for LocalArchiCheck {")
+[0m[32m+        .expect("run 实现在场");
+[0m     let run_body = &source[run_at..];
+     let end = run_body.find("\n}\n").expect("impl 闭合");
+     let run_body = &run_body[..end];
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

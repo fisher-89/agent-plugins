@@ -37,12 +37,13 @@ const TEST_ONLY_PHASE_ORDER: [&str; 7] = [
 ];
 
 /// initialize 相位步序（两表表头共用同一 static；一次性基线检查相位——
-/// `Clean → StaticCheck → TestExecution` 三步序，两检查步 `on_fail=Terminal`
-/// ——check-before-flow-start D5/D7）。开相与相位收口不在 `steps` 内
-/// （`enter_phase` / `settle_phase` 承载相位机固定动作）。
-const INITIALIZE_STEP_ORDER: [StepNode; 3] = [
+/// `Clean → StaticCheck → ArchiCheck → TestExecution` 四步序，三检查步
+/// `on_fail=Terminal`——check-before-flow-start D5/D7）。开相与相位收口不在
+/// `steps` 内（`enter_phase` / `settle_phase` 承载相位机固定动作）。
+const INITIALIZE_STEP_ORDER: [StepNode; 4] = [
     StepNode::Clean,
     StepNode::StaticCheck,
+    StepNode::ArchiCheck,
     StepNode::TestExecution,
 ];
 
@@ -1057,7 +1058,7 @@ const AUXILIARY_STEP_WORDS: [StepNode; 3] = [
 ];
 
 /// 计划步序列期望表（design 数据模型表逐相位声明；`OnFail` 三态按步绑定；
-/// initialize 表头三步序——`Clean` 基线恢复步 + 两检查步 Terminal；开相与相位
+/// initialize 表头四步序——`Clean` 基线恢复步 + 三检查步 Terminal；开相与相位
 /// 收口不在 `steps` 内）。
 fn expected_steps(phase: &str) -> Vec<StepNode> {
     match phase {
@@ -1085,14 +1086,17 @@ fn expected_steps(phase: &str) -> Vec<StepNode> {
 
 /// 相位 → `on_fail` 声明期望（static-check 步 FeedbackLoop{5}——implement /
 /// test-gen；test-execution 相位两确定性门禁步（TestExecution / MutationTest）
-/// 为 Escalate——首败升格交决策、零 agent 修复；initialize 表头两检查步
-/// （StaticCheck / TestExecution）为 Terminal——基线绿门失败即停零反馈边
-/// （check-before-flow-start D7）；archi-check 步 FeedbackLoop{3}（仅 implement）；
+/// 为 Escalate——首败升格交决策、零 agent 修复；initialize 表头三检查步
+/// （StaticCheck / ArchiCheck / TestExecution）为 Terminal——基线绿门失败即停零
+/// 反馈边（check-before-flow-start D7）；archi-check 步 FeedbackLoop{3}（仅
+/// implement）；
 /// 其余 None。辅助步退场后 `VerdictGate` 的 FeedbackLoop / Terminal 声明不再存
 /// 在——本表零 `VerdictGate` 臂）。
 fn expected_on_fail(phase_id: &str, node: StepNode) -> Option<OnFail> {
     match node {
-        StepNode::StaticCheck | StepNode::TestExecution if phase_id == "initialize" => {
+        StepNode::StaticCheck | StepNode::ArchiCheck | StepNode::TestExecution
+            if phase_id == "initialize" =>
+        {
             Some(OnFail::Terminal)
         }
         StepNode::TestExecution | StepNode::MutationTest if phase_id == "test-execution" => {
@@ -1106,7 +1110,7 @@ fn expected_on_fail(phase_id: &str, node: StepNode) -> Option<OnFail> {
 
 /// 计划图单源 steps 声明：`phase_table("requirement")` 返回 10 相位（initialize
 /// 一次性表头 + 8 路由相位 + archive 确定性相位），逐相位 `steps` 序列与设计数据
-/// 模型表一致（门禁步由 step 声明、相位限定，AC-1 / AC-2；initialize 表头三步序
+/// 模型表一致（门禁步由 step 声明、相位限定，AC-1 / AC-2；initialize 表头四步序
 /// 含 Clean——check-before-flow-start）。首末步均为**真实步**（辅助步已退场：
 /// 开相 / 落账是相位机固定动作，不是计划步）。
 #[test]
@@ -1169,10 +1173,12 @@ fn 计划图steps边界_门禁相位限定() {
             .count();
         // 检查步与 executor / 评估面角色的绑定：initialize 表头（基线检查）与
         // implement / test-gen / test-execution 含门禁检查步
-        let has_check = def
-            .steps
-            .iter()
-            .any(|step| matches!(step.node, StepNode::StaticCheck | StepNode::TestExecution));
+        let has_check = def.steps.iter().any(|step| {
+            matches!(
+                step.node,
+                StepNode::StaticCheck | StepNode::ArchiCheck | StepNode::TestExecution
+            )
+        });
         let expect_check = matches!(
             def.id,
             "initialize" | "implement" | "test-gen" | "test-execution"
@@ -1195,9 +1201,10 @@ fn 计划图steps边界_门禁相位限定() {
             "评估-only 相位 {id} 不含 Executor 步"
         );
         assert!(
-            !def.steps
-                .iter()
-                .any(|step| matches!(step.node, StepNode::StaticCheck | StepNode::TestExecution)),
+            !def.steps.iter().any(|step| matches!(
+                step.node,
+                StepNode::StaticCheck | StepNode::ArchiCheck | StepNode::TestExecution
+            )),
             "评估-only 相位 {id} 不含检查门禁步"
         );
     }
@@ -2449,8 +2456,8 @@ fn test_execution拆步序列边界_末位真实步且mutation恰一次() {
 // ---------------------------------------------------------------------------
 
 /// initialize 表项确定性声明全字段锚（正向，单次）：`description == "基线检查"`、
-/// steps 三步序（Clean → StaticCheck → TestExecution；Clean 为 `on_fail=None`，
-/// StaticCheck / TestExecution 均 `on_fail=Some(OnFail::Terminal)`，全
+/// steps 四步序（Clean → StaticCheck → ArchiCheck → TestExecution；Clean 为
+/// `on_fail=None`，三检查步均 `on_fail=Some(OnFail::Terminal)`，全
 /// `prompt_ref=None`）、artifact_manifest 空、prerequisites=[]、executor=None、
 /// evaluator=None、backtrackable=false。开相与相位收口不在 `steps` 内。
 #[test]
@@ -2465,17 +2472,17 @@ fn initialize表项确定性声明全字段锚() {
             "{workflow_type} initialize description 逐字（人读标签源）"
         );
 
-        // steps 三步序逐位
+        // steps 四步序逐位
         let nodes: Vec<StepNode> = initialize.steps.iter().map(|step| step.node).collect();
         assert_eq!(
             nodes,
             INITIALIZE_STEP_ORDER.to_vec(),
-            "{workflow_type} initialize 三步序逐位（Clean → StaticCheck → TestExecution）"
+            "{workflow_type} initialize 四步序逐位（Clean → StaticCheck → ArchiCheck → TestExecution）"
         );
         assert_eq!(
             initialize.steps.len(),
-            3,
-            "{workflow_type} initialize 步数恰三（五步 → 三步，开相 / 落账移出）"
+            4,
+            "{workflow_type} initialize 步数恰四（archi 基线检查插在 static 与 test 之间，恰 +1）"
         );
 
         // 步声明逐字段（on_fail 三态按步绑定、prompt_ref 恒 None）
@@ -2486,13 +2493,15 @@ fn initialize表项确定性声明全字段锚() {
                 step.node
             );
             let expect_on_fail = match step.node {
-                StepNode::StaticCheck | StepNode::TestExecution => Some(OnFail::Terminal),
+                StepNode::StaticCheck | StepNode::ArchiCheck | StepNode::TestExecution => {
+                    Some(OnFail::Terminal)
+                }
                 StepNode::Clean => None,
                 other => panic!("initialize 不含步 {other:?}"),
             };
             assert_eq!(
                 step.on_fail, expect_on_fail,
-                "{workflow_type} initialize 步 {:?} on_fail 声明（两检查步 Terminal——基线绿门失败即停）",
+                "{workflow_type} initialize 步 {:?} on_fail 声明（三检查步 Terminal——基线绿门失败即停）",
                 step.node
             );
         }
@@ -2959,7 +2968,7 @@ fn escalate归属守卫全表遍历() {
     }
 }
 
-/// `on_fail` 回归锚（AC-9，边界，表驱动 4 组）：initialize 两检查步仍
+/// `on_fail` 回归锚（AC-9，边界，表驱动 4 组）：initialize 三检查步仍
 /// `Terminal`；implement / test-gen 的 StaticCheck 仍 `FeedbackLoop { 5 }`；
 /// archive 9 步全 `None`（零 `Escalate` / 零 `FeedbackLoop`）；`FEEDBACK_LOOP_LIMIT
 /// == 5`。
@@ -2969,9 +2978,13 @@ fn on_fail回归锚_ac10() {
 
     let table = phase_table("requirement").expect("相位表应可达");
 
-    // 组一：initialize 基线两检查步仍 Terminal
+    // 组一：initialize 基线三检查步仍 Terminal
     let initialize = phase_of(table, "initialize");
-    for node in [StepNode::StaticCheck, StepNode::TestExecution] {
+    for node in [
+        StepNode::StaticCheck,
+        StepNode::ArchiCheck,
+        StepNode::TestExecution,
+    ] {
         let step = initialize
             .steps
             .iter()
@@ -3013,6 +3026,122 @@ fn on_fail回归锚_ac10() {
     }
 
     assert_eq!(FEEDBACK_LOOP_LIMIT, 5, "反馈循环常量锚定 5");
+}
+
+/// `Terminal` 白名单守卫（异常，全表遍历）：`Some(OnFail::Terminal)` 只允许落在
+/// initialize 表头的三检查步（`StaticCheck` / `ArchiCheck` / `TestExecution`）——
+/// 其它相位任一步携 `Terminal` 即红；agent 步零 `Terminal`、零 `Escalate`（终端
+/// 停 / 升格截断都依赖步序，agent 步误声明会静默吞掉相位评估链）。
+#[test]
+fn terminal白名单守卫全表遍历() {
+    const TERMINAL_ALLOWED: [StepNode; 3] = [
+        StepNode::StaticCheck,
+        StepNode::ArchiCheck,
+        StepNode::TestExecution,
+    ];
+
+    for workflow_type in ["requirement", "test-only"] {
+        let table = phase_table(workflow_type).expect("相位表应可达");
+        for def in table {
+            for step in def.steps {
+                if step.on_fail == Some(OnFail::Terminal) {
+                    assert_eq!(
+                        def.id, "initialize",
+                        "{workflow_type} Terminal 仅允许 initialize 相位，实际相位 {}",
+                        def.id
+                    );
+                    assert!(
+                        TERMINAL_ALLOWED.contains(&step.node),
+                        "{workflow_type} Terminal 仅允许三检查步，实际 {:?}",
+                        step.node
+                    );
+                }
+                if step.node.role().is_some() {
+                    assert_ne!(
+                        step.on_fail,
+                        Some(OnFail::Terminal),
+                        "{workflow_type} agent 步 {:?} 不得携 Terminal",
+                        step.node
+                    );
+                    assert_ne!(
+                        step.on_fail,
+                        Some(OnFail::Escalate),
+                        "{workflow_type} agent 步 {:?} 不得携 Escalate",
+                        step.node
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// `archi_check` 反馈上限与 static-check 互不占用（正向 / 异常并列）：implement 的
+/// `ArchiCheck` 仍 `FeedbackLoop { limit: ARCHI_FEEDBACK_LIMIT }` 且该常量为 3（与
+/// `FEEDBACK_LOOP_LIMIT == 5` 可辨）；三档非法上限（0 / 5 / `u32::MAX`）一律不等于
+/// 实际声明（零上限反馈无意义、5 与 static 混档、`u32::MAX` 永不升格）。
+#[test]
+fn archi_check反馈上限与static互不占用() {
+    use super::phase_table::{ARCHI_FEEDBACK_LIMIT, FEEDBACK_LOOP_LIMIT};
+
+    let table = phase_table("requirement").expect("相位表应可达");
+    let implement = phase_of(table, "implement");
+    let archi = implement
+        .steps
+        .iter()
+        .find(|step| step.node == StepNode::ArchiCheck)
+        .expect("implement 应有 ArchiCheck 步");
+
+    assert_eq!(ARCHI_FEEDBACK_LIMIT, 3, "架构反馈上限锚定 3");
+    assert_eq!(FEEDBACK_LOOP_LIMIT, 5, "static 反馈上限锚定 5");
+    assert_ne!(
+        ARCHI_FEEDBACK_LIMIT, FEEDBACK_LOOP_LIMIT,
+        "两档上限互不占用（同一 limit 值即判据互串）"
+    );
+    assert_eq!(
+        archi.on_fail,
+        Some(OnFail::FeedbackLoop {
+            limit: ARCHI_FEEDBACK_LIMIT
+        }),
+        "implement archi-check 反馈边上限 = ARCHI_FEEDBACK_LIMIT"
+    );
+
+    for illegal in [0u32, ARCHI_FEEDBACK_LIMIT + 2, u32::MAX] {
+        assert_ne!(
+            archi.on_fail,
+            Some(OnFail::FeedbackLoop { limit: illegal }),
+            "archi-check 上限不得为 {illegal}"
+        );
+    }
+}
+
+/// initialize 之外的 `ArchiCheck` 恒非 `Terminal`（边界，反向断言）：全表遍历
+/// `phase_id != "initialize"` 的 archi 步，期望值恒 `FeedbackLoop { 3 }`——防把
+/// `Terminal` 白名单放松成全相位。
+#[test]
+fn initialize外archi_check恒反馈边() {
+    for workflow_type in ["requirement", "test-only"] {
+        let table = phase_table(workflow_type).expect("相位表应可达");
+        for def in table.iter().filter(|def| def.id != "initialize") {
+            for step in def
+                .steps
+                .iter()
+                .filter(|step| step.node == StepNode::ArchiCheck)
+            {
+                assert_eq!(
+                    step.on_fail,
+                    expected_on_fail(def.id, step.node),
+                    "{workflow_type} 相位 {} 的 archi 步期望值",
+                    def.id
+                );
+                assert_ne!(
+                    step.on_fail,
+                    Some(OnFail::Terminal),
+                    "{workflow_type} 相位 {} 的 archi 步不得为 Terminal（终端停只属 initialize）",
+                    def.id
+                );
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3576,13 +3705,13 @@ fn phase_table_source() -> String {
         .unwrap_or_else(|error| panic!("读取 {} 失败: {error}", path.display()))
 }
 
-/// 步数逐表（正向 / AC-1）：requirement 表 10 相位步数 = `[3,2,2,2,4,3,2,1,1,9]`
-/// （合计 29）；test-only 表 7 相位 = `[3,2,2,2,3,2,9]`（合计 23）；两表
-/// initialize 共用同一 static（三步）。
+/// 步数逐表（正向 / AC-1）：requirement 表 10 相位步数 = `[4,2,2,2,4,3,2,1,1,9]`
+/// （合计 30）；test-only 表 7 相位 = `[4,2,2,2,3,2,9]`（合计 24）；两表
+/// initialize 共用同一 static（四步）。
 #[test]
 fn 辅助步退场_两表步数逐项收敛() {
-    const REQUIREMENT_STEP_COUNTS: [usize; 10] = [3, 2, 2, 2, 4, 3, 2, 1, 1, 9];
-    const TEST_ONLY_STEP_COUNTS: [usize; 7] = [3, 2, 2, 2, 3, 2, 9];
+    const REQUIREMENT_STEP_COUNTS: [usize; 10] = [4, 2, 2, 2, 4, 3, 2, 1, 1, 9];
+    const TEST_ONLY_STEP_COUNTS: [usize; 7] = [4, 2, 2, 2, 3, 2, 9];
 
     let requirement = phase_table("requirement").expect("requirement 应返回 Some");
     let test_only = phase_table("test-only").expect("test-only 应返回 Some");
@@ -3594,8 +3723,8 @@ fn 辅助步退场_两表步数逐项收敛() {
     );
     assert_eq!(
         requirement_counts.iter().sum::<usize>(),
-        29,
-        "requirement 表步数合计 29（原 40 减 11 辅助步）"
+        30,
+        "requirement 表步数合计 30（29 + initialize 的 archi 基线检查一步）"
     );
 
     let test_only_counts: Vec<usize> = test_only.iter().map(|def| def.steps.len()).collect();
@@ -3605,18 +3734,18 @@ fn 辅助步退场_两表步数逐项收敛() {
     );
     assert_eq!(
         test_only_counts.iter().sum::<usize>(),
-        23,
-        "test-only 表步数合计 23（原 32 减 9 辅助步）"
+        24,
+        "test-only 表步数合计 24（23 + initialize 的 archi 基线检查一步）"
     );
 
-    // initialize 两表共用同一 static（3 步）：指针等值即证
+    // initialize 两表共用同一 static（4 步）：指针等值即证
     let lhs = phase_of(requirement, "initialize");
     let rhs = phase_of(test_only, "initialize");
     assert!(
         std::ptr::eq(lhs.steps.as_ptr(), rhs.steps.as_ptr()),
-        "两表 initialize 共用同一 static（3 步）"
+        "两表 initialize 共用同一 static（4 步）"
     );
-    assert_eq!(lhs.steps.len(), 3);
+    assert_eq!(lhs.steps.len(), 4);
 }
 
 /// doc 注释步序串在场（正向 / AC-1 第二判据面）：`INITIALIZE_STEPS` 注释含
@@ -3667,6 +3796,51 @@ fn doc注释旧步序口径零残留() {
         "五步序",
         "四步序",
         "PhaseStart / Clean",
+    ] {
+        assert!(
+            !source.contains(stale),
+            "phase_table.rs 注释不得残留旧口径串 {stale:?}"
+        );
+    }
+}
+
+/// doc 注释四步序与新口径在场（正向，AC-10 源自证）：`phase_table.rs` 原文含四步
+/// 序串、三检查步 `on_fail=Terminal` 表述、插入理由（代价升序）与「四步两表共享」；
+/// 「开相与相位收口不在 `steps` 内」及 `enter_phase` / `settle_phase` 仍在场。
+#[test]
+fn doc注释四步序与新口径在场() {
+    let source = phase_table_source();
+
+    for (needle, label) in [
+        (
+            "`Clean → StaticCheck → ArchiCheck → TestExecution`",
+            "initialize 四步序串",
+        ),
+        ("三检查步 `on_fail=Terminal`", "三检查步 Terminal 表述"),
+        ("代价升序", "插在 static 与 test 之间的理由（代价升序）"),
+        ("`INITIALIZE_STEPS` 四步两表共享", "两步表共享的四步口径"),
+        ("开相与相位收口不在 `steps` 内", "开相 / 收口归属表述"),
+    ] {
+        assert!(source.contains(needle), "phase_table.rs 原文应含{label}");
+    }
+    assert!(
+        source.contains("`enter_phase` / `settle_phase`"),
+        "开相 / 收口函数仍在场"
+    );
+}
+
+/// doc 注释旧三节点口径零残留（异常，AC-10 源自证）：三检查步式旧串（三节点
+/// 步序 / 两检查步 / `Clean → StaticCheck → TestExecution`）在 `phase_table.rs`
+/// 内零命中——新旧口径不得并存。
+#[test]
+fn doc注释旧三节点口径零残留() {
+    let source = phase_table_source();
+
+    for stale in [
+        "三步序",
+        "两检查步",
+        "`Clean → StaticCheck → TestExecution`",
+        "`INITIALIZE_STEPS` 三步",
     ] {
         assert!(
             !source.contains(stale),

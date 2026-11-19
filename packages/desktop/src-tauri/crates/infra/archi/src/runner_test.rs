@@ -1,7 +1,8 @@
-//! `runner`（架构漂移门禁执行体）的单元测试：`check`（增量、`change = Some(name)`）
-//! → `write_report` → `{ passed, diagnostics, fault, report_dir, report_ref }`；
-//! 三态分派、`skipped` / `noChanges` 逐字文案、写盘失败降级、取消落 `fault`、反馈
-//! 文本有界，以及「零第二套判定 / 零进程」的源码自证。
+//! `runner`（架构漂移门禁执行体）的单元测试：`check`（模式由入参声明——全量 /
+//! 增量，`change = Some(name)`）→ `write_report` → `{ passed, diagnostics, fault,
+//! report_dir, report_ref }`；三态分派、`skipped` / `noChanges` 逐字文案、写盘失败
+//! 降级、取消落 `fault`、反馈文本有界、两模式同树共居，以及「零第二套判定 / 零
+//! 进程」的源码自证。
 //!
 //! 零 mock：真实 `archi::drift::check`（同源即被测语义，AC-10）+ 真实写盘 + 真实
 //! `tempfile::TempDir`；失败面以「目录位置普通文件占位」注入（进程边界真实、零桩）。
@@ -14,7 +15,9 @@ use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use archi::drift::{ArchiCheckStatus, ArchiDriftMode, ArchiDriftReport};
 use foundation::cancel::CancelFlag;
 use foundation::layout::{change_reports, ReportSlot};
-use orchestration::port::{ArchiCheckOutcome, ArchiCheckRunner, RunFault, ToolStepOutput};
+use orchestration::port::{
+    ArchiCheckMode, ArchiCheckOutcome, ArchiCheckRunner, RunFault, ToolStepOutput,
+};
 use orchestration::verdict::MAX_REPORT_CHARS;
 use tempfile::TempDir;
 
@@ -46,7 +49,7 @@ fn block_on<F: Future>(future: F) -> F::Output {
 // 夹具
 // ---------------------------------------------------------------------------
 
-/// 跑一次 runner（`Err` 面原样返回，产出类型漂移即断言失败）。
+/// 跑一次 runner（缺省增量形态的简写；`Err` 面原样返回，产出类型漂移即断言失败）。
 fn run(
     root: &Path,
     name: &str,
@@ -54,7 +57,13 @@ fn run(
     cancel: CancelFlag,
 ) -> Result<ArchiCheckOutcome, String> {
     let runner = LocalArchiCheck::new();
-    let output = block_on(runner.run(&root.to_string_lossy(), name, changed, cancel))?;
+    let output = block_on(runner.run(
+        &root.to_string_lossy(),
+        name,
+        ArchiCheckMode::Incremental,
+        changed,
+        cancel,
+    ))?;
     match output {
         ToolStepOutput::ArchiCheck(outcome) => Ok(outcome),
         other => panic!("产出类型漂移（期望 ArchiCheck）：{other:?}"),
@@ -334,7 +343,11 @@ fn 报告与判定同源() {
     .expect("直出判定应成功");
 
     assert_eq!(written.change.as_deref(), Some("demo"), "change 为磁盘名");
-    assert_eq!(written.mode, ArchiDriftMode::Incremental, "恒增量模式");
+    assert_eq!(
+        written.mode,
+        ArchiDriftMode::Incremental,
+        "模式由入参声明（增量形态；runner 不自行推断）"
+    );
     assert_eq!(written.base.as_deref(), Some("HEAD"), "增量基准恒 HEAD");
 
     written.timestamp = direct.timestamp.clone();
@@ -631,6 +644,7 @@ fn 构造面等价() {
     let by_new = block_on(LocalArchiCheck::new().run(
         &temp.path().to_string_lossy(),
         "demo",
+        ArchiCheckMode::Incremental,
         vec!["src/billing/x.ts".to_owned()],
         CancelFlag::never(),
     ))
@@ -638,6 +652,7 @@ fn 构造面等价() {
     let by_default = block_on(<LocalArchiCheck as Default>::default().run(
         &temp.path().to_string_lossy(),
         "demo",
+        ArchiCheckMode::Incremental,
         vec!["src/billing/x.ts".to_owned()],
         CancelFlag::never(),
     ))
@@ -1414,4 +1429,546 @@ path = []
         "`docMissing` 永不纳管 ⇒ status 停在 clean"
     );
     assert!(outcome.passed, "存量入口文档债不阻断归档");
+}
+
+// ---------------------------------------------------------------------------
+// 全量观察口径（init-check-archi / AC-4）：`mode: Full` 的落盘 / 判定同源 /
+// 变更集忽略 / 两态降级 / 两模式共存 / 映射单点（源自证）
+// ---------------------------------------------------------------------------
+
+/// 跑一次 runner（显式模式；`Err` 面原样返回，产出类型漂移即断言失败）。
+fn run_mode(
+    root: &Path,
+    name: &str,
+    mode: ArchiCheckMode,
+    changed: Vec<String>,
+    cancel: CancelFlag,
+) -> Result<ArchiCheckOutcome, String> {
+    let runner = LocalArchiCheck::new();
+    let output = block_on(runner.run(&root.to_string_lossy(), name, mode, changed, cancel))?;
+    match output {
+        ToolStepOutput::ArchiCheck(outcome) => Ok(outcome),
+        other => panic!("产出类型漂移（期望 ArchiCheck）：{other:?}"),
+    }
+}
+
+/// 正向（AC-4 主判据）：真实模型 + `changed = []` + `Full` → 报告落
+/// `reports/archi/<stem>.json`（`report_ref` 在盘）、报告 `mode = full`、
+/// `base = None`、`change = Some(name)`、`scan.changed_files = 0`、
+/// `scan.scanned_files` = 全根可判文件数（> 0）。
+#[test]
+fn 全量模式落盘与报告字段() {
+    let temp = TempDir::new().expect("建临时目录失败");
+    write_model(
+        temp.path(),
+        "[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n",
+    );
+    write(temp.path(), "src/a.ts", "export const a = 1;\n");
+    write(temp.path(), "src/b.ts", "export const b = 2;\n");
+
+    let outcome = run_mode(
+        temp.path(),
+        "demo",
+        ArchiCheckMode::Full,
+        Vec::new(),
+        CancelFlag::never(),
+    )
+    .expect("runner 不 Err");
+    assert!(outcome.passed, "clean ⇒ passed");
+    assert_eq!(outcome.fault, None, "生产路径 fault 恒 None");
+    assert_eq!(
+        outcome.report_dir,
+        report_dir(temp.path(), "demo").to_string_lossy(),
+        "report_dir 经 layout 槽位单点派生（两挂载点同树）"
+    );
+    let reference = outcome.report_ref.expect("全量也落盘");
+    assert!(Path::new(&reference).is_file(), "报告文件应真实存在");
+
+    let report = read_report(&reference);
+    assert_eq!(report.mode, ArchiDriftMode::Full, "报告自述 mode = full");
+    assert_eq!(report.base, None, "全量无基准（base = None）");
+    assert_eq!(report.change.as_deref(), Some("demo"), "change = change 名");
+    assert_eq!(report.scan.changed_files, 0, "全量 changed_files 恒 0");
+    assert_eq!(report.scan.scanned_files, 2, "扫描全根可判文件数");
+    assert_eq!(report.status, ArchiCheckStatus::Clean, "全量 clean");
+}
+
+/// 正向（AC-4 passed 派生）：全量三态 × `passed`——`clean` / `warnings` 通过，
+/// `errors`（strict 违例）失败（与增量同一 `passed` 派生面）。
+#[test]
+fn 全量模式三态passed派生() {
+    // clean
+    let clean = TempDir::new().expect("建临时目录失败");
+    write_model(
+        clean.path(),
+        "[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n",
+    );
+    write(clean.path(), "src/a.ts", "export const a = 1;\n");
+    let outcome = run_mode(
+        clean.path(),
+        "demo",
+        ArchiCheckMode::Full,
+        Vec::new(),
+        CancelFlag::never(),
+    )
+    .expect("clean 不 Err");
+    assert!(outcome.passed, "clean ⇒ passed");
+    assert_eq!(
+        read_report(&outcome.report_ref.expect("落盘")).status,
+        ArchiCheckStatus::Clean
+    );
+
+    // warnings
+    let warnings = TempDir::new().expect("建临时目录失败");
+    write_model(
+        warnings.path(),
+        "[element.\"Auth\"]\nkind = \"module\"\ngate = \"off\"\npath = [\"./src/auth/\"]\n\n[element.\"Billing\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"./src/billing/\"]\n",
+    );
+    write(
+        warnings.path(),
+        "src/auth/token.ts",
+        "export const token = 1;\n",
+    );
+    write(
+        warnings.path(),
+        "src/billing/x.ts",
+        "import { token } from '../auth/token';\n",
+    );
+    let outcome = run_mode(
+        warnings.path(),
+        "demo",
+        ArchiCheckMode::Full,
+        Vec::new(),
+        CancelFlag::never(),
+    )
+    .expect("warnings 不 Err");
+    assert!(outcome.passed, "warnings ⇒ passed = true");
+    assert_eq!(
+        read_report(&outcome.report_ref.expect("落盘")).status,
+        ArchiCheckStatus::Warnings
+    );
+
+    // errors
+    let errors = TempDir::new().expect("建临时目录失败");
+    strict_fixture(errors.path());
+    let outcome = run_mode(
+        errors.path(),
+        "demo",
+        ArchiCheckMode::Full,
+        Vec::new(),
+        CancelFlag::never(),
+    )
+    .expect("errors 不 Err");
+    assert!(!outcome.passed, "errors ⇒ passed = false");
+    assert!(outcome.diagnostics.contains("Billing → Auth"));
+    assert_eq!(
+        read_report(&outcome.report_ref.expect("落盘")).status,
+        ArchiCheckStatus::Errors
+    );
+}
+
+/// 正向（AC-4 判定单源）：落盘的全量报告与同输入 `drift::check(CheckInput {
+/// mode: Full, … })` 直出逐字段相等（仅 `timestamp` 允许不同）——全量不引入第二
+/// 套判定。
+#[test]
+fn 全量报告与判定同源() {
+    let temp = TempDir::new().expect("建临时目录失败");
+    strict_fixture(temp.path());
+
+    let outcome = run_mode(
+        temp.path(),
+        "demo",
+        ArchiCheckMode::Full,
+        Vec::new(),
+        CancelFlag::never(),
+    )
+    .expect("runner 不 Err");
+    let reference = outcome.report_ref.expect("报告应落盘");
+    let mut written = read_report(&reference);
+
+    let direct = archi::drift::check(archi::drift::CheckInput {
+        root: temp.path(),
+        mode: ArchiDriftMode::Full,
+        changed: &[],
+        change: Some("demo"),
+        cancel: CancelFlag::never(),
+    })
+    .expect("直出判定应成功");
+    assert_eq!(direct.mode, ArchiDriftMode::Full, "直出亦全量");
+
+    written.timestamp = direct.timestamp.clone();
+    assert_eq!(
+        written, direct,
+        "除 timestamp 外逐字段相等（全量 = 同一判定 + 另一口径）"
+    );
+}
+
+/// 异常（AC-4 反向钉住）：`Full` + 非空 `changed` → 变更集被忽略——`changed_files
+/// = 0`、扫描全根、变更集内外的违例照报（全量不看编辑集）。
+#[test]
+fn 全量模式忽略变更集() {
+    let temp = TempDir::new().expect("建临时目录失败");
+    strict_fixture(temp.path());
+
+    let outcome = run_mode(
+        temp.path(),
+        "demo",
+        ArchiCheckMode::Full,
+        vec!["src/auth/token.ts".to_owned()],
+        CancelFlag::never(),
+    )
+    .expect("runner 不 Err");
+    assert!(!outcome.passed, "变更集外的违例照报（全量扫描全根）");
+    assert!(outcome.diagnostics.contains("Billing → Auth"));
+
+    let report = read_report(&outcome.report_ref.expect("落盘"));
+    assert_eq!(report.scan.changed_files, 0, "全量 changed_files 恒 0");
+    assert_eq!(report.scan.scanned_files, 2, "扫描全根两文件（忽略变更集）");
+    assert_eq!(report.errors.len(), 1, "违例照报");
+}
+
+/// 异常（AC-4 两态）：`Full` + 无模型 → `skipped`（passed、逐字「未检查（无
+/// 模型）」、报告 `status = skipped` 且 `mode = full`）；`Full` + 有模型但零可判
+/// 文件 → `noChanges`（逐字「未检查（无可判文件）」、`scanned_files = 0`）。
+#[test]
+fn 全量模式skip两态() {
+    let skipped = TempDir::new().expect("建临时目录失败");
+    write(skipped.path(), "src/a.ts", "export const a = 1;\n");
+    let outcome = run_mode(
+        skipped.path(),
+        "demo",
+        ArchiCheckMode::Full,
+        Vec::new(),
+        CancelFlag::never(),
+    )
+    .expect("不 Err");
+    assert!(outcome.passed, "skipped 不失败");
+    assert_eq!(outcome.diagnostics, "未检查（无模型）", "逐字文案");
+    let report = read_report(&outcome.report_ref.expect("skipped 也落报告"));
+    assert_eq!(report.status, ArchiCheckStatus::Skipped);
+    assert_eq!(report.mode, ArchiDriftMode::Full, "全量下同样可能 skipped");
+
+    let no_changes = TempDir::new().expect("建临时目录失败");
+    write_model(
+        no_changes.path(),
+        "[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n",
+    );
+    let outcome = run_mode(
+        no_changes.path(),
+        "demo",
+        ArchiCheckMode::Full,
+        Vec::new(),
+        CancelFlag::never(),
+    )
+    .expect("不 Err");
+    assert!(outcome.passed, "noChanges 不失败");
+    assert_eq!(outcome.diagnostics, "未检查（无可判文件）", "逐字文案");
+    let report = read_report(&outcome.report_ref.expect("noChanges 也落报告"));
+    assert_eq!(report.status, ArchiCheckStatus::NoChanges);
+    assert_eq!(report.scan.scanned_files, 0, "零可判文件");
+}
+
+/// 异常（AC-4 取消 / 降级两态）：`Full` + `cancel` 预置 → `Ok` 且
+/// `fault = Some(Stopped)`、`report_ref = None`；`reports/archi` 位置被普通文件
+/// 占位 → `report_ref = None`、`passed` 结论保留、detail 含违例明细。
+#[test]
+fn 全量模式取消与写盘降级() {
+    let cancel = TempDir::new().expect("建临时目录失败");
+    write_model(
+        cancel.path(),
+        "[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n",
+    );
+    write(cancel.path(), "src/a.ts", "export const a = 1;\n");
+    let flag = CancelFlag::never();
+    flag.handle().set();
+    let outcome = run_mode(
+        cancel.path(),
+        "demo",
+        ArchiCheckMode::Full,
+        Vec::new(),
+        flag,
+    )
+    .expect("取消不以 Err 表达");
+    assert_eq!(outcome.fault, Some(RunFault::Stopped), "取消落 fault");
+    assert_eq!(outcome.report_ref, None, "取消不产报告");
+    assert!(!outcome.passed, "取消不冒充通过");
+
+    let degraded = TempDir::new().expect("建临时目录失败");
+    strict_fixture(degraded.path());
+    let blocking = report_dir(degraded.path(), "demo");
+    fs::create_dir_all(blocking.parent().expect("父目录")).expect("建父目录失败");
+    fs::write(&blocking, "占位普通文件\n").expect("写占位文件失败");
+    let outcome = run_mode(
+        degraded.path(),
+        "demo",
+        ArchiCheckMode::Full,
+        Vec::new(),
+        CancelFlag::never(),
+    )
+    .expect("降级不返回 Err");
+    assert!(!outcome.passed, "结论保留");
+    assert!(outcome.diagnostics.contains("Billing → Auth"), "明细保留");
+    assert_eq!(outcome.report_ref, None, "写盘失败 ⇒ report_ref = None");
+    assert_eq!(
+        outcome.report_dir,
+        blocking.to_string_lossy(),
+        "report_dir 照常"
+    );
+}
+
+/// 边界（AC-4 name 边界）：`""` / 超长（> 1000 chars）/ 特殊字符（换行 + emoji）
+/// → 报告目录仍在 root 内、文件名主干取时间戳（与增量同规则）、不 panic。
+#[test]
+fn 全量模式name边界不panic() {
+    let temp = TempDir::new().expect("建临时目录失败");
+    write_model(
+        temp.path(),
+        "[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n",
+    );
+    write(temp.path(), "src/a.ts", "export const a = 1;\n");
+
+    let long_name = "长".repeat(1200);
+    for name in ["", long_name.as_str(), "a\nb🚀"] {
+        let outcome = run_mode(
+            temp.path(),
+            name,
+            ArchiCheckMode::Full,
+            Vec::new(),
+            CancelFlag::never(),
+        )
+        .unwrap_or_else(|error| panic!("name {name:?} 不应 Err：{error}"));
+        assert!(
+            outcome
+                .report_dir
+                .starts_with(&*temp.path().to_string_lossy()),
+            "报告目录仍在 root 内（name {name:?}）：{}",
+            outcome.report_dir
+        );
+        match outcome.report_ref {
+            Some(reference) => {
+                let stem = Path::new(&reference)
+                    .file_stem()
+                    .expect("文件名主干")
+                    .to_string_lossy()
+                    .into_owned();
+                assert!(
+                    stem.chars()
+                        .all(|ch| ch.is_ascii_digit() || ch == 'T' || ch == 'Z')
+                        && !stem.is_empty(),
+                    "文件名主干取时间戳（name 长度 {}）：{stem}",
+                    name.chars().count()
+                );
+            }
+            None => assert!(
+                !outcome.diagnostics.is_empty(),
+                "写盘降级仍产诊断（name 长度 {}）",
+                name.chars().count()
+            ),
+        }
+    }
+}
+
+/// 边界（AC-4 槽位隔离）：一次全量跑动后 `reports/test` / `reports/baseline` 零
+/// 创建（`reports/archi` 恰一个文件）。
+#[test]
+fn 全量模式槽位隔离() {
+    let temp = TempDir::new().expect("建临时目录失败");
+    strict_fixture(temp.path());
+    let _ = run_mode(
+        temp.path(),
+        "demo",
+        ArchiCheckMode::Full,
+        Vec::new(),
+        CancelFlag::never(),
+    )
+    .expect("runner 不 Err");
+
+    assert!(
+        !change_reports(temp.path(), "demo", ReportSlot::Test).exists(),
+        "reports/test 零创建"
+    );
+    assert!(
+        !change_reports(temp.path(), "demo", ReportSlot::Baseline).exists(),
+        "reports/baseline 零创建"
+    );
+    let reports: Vec<_> = fs::read_dir(report_dir(temp.path(), "demo"))
+        .expect("读 reports/archi")
+        .flatten()
+        .collect();
+    assert_eq!(reports.len(), 1, "reports/archi 恰一个报告文件");
+}
+
+/// 边界（R-3 同树共居）：同 root 同 name 先 `Full` 后 `Incremental` → 两个报告
+/// 文件并存于同一 `reports/archi` 目录，各自身自述 `mode`（不互相覆盖 / 不串档）。
+#[test]
+fn 全量与增量同树共居各自述模式() {
+    let temp = TempDir::new().expect("建临时目录失败");
+    strict_fixture(temp.path());
+
+    let full = run_mode(
+        temp.path(),
+        "demo",
+        ArchiCheckMode::Full,
+        Vec::new(),
+        CancelFlag::never(),
+    )
+    .expect("全量不 Err");
+    let full_ref = full.report_ref.expect("全量落盘");
+    // 报告名主干为秒级时间戳：跨秒再跑，确保两文件并存（不覆盖）
+    std::thread::sleep(std::time::Duration::from_millis(1_100));
+    let incremental = run_mode(
+        temp.path(),
+        "demo",
+        ArchiCheckMode::Incremental,
+        vec!["src/billing/x.ts".to_owned()],
+        CancelFlag::never(),
+    )
+    .expect("增量不 Err");
+    let incremental_ref = incremental.report_ref.expect("增量落盘");
+    assert_ne!(full_ref, incremental_ref, "两报告文件不同名");
+
+    let files: Vec<_> = fs::read_dir(report_dir(temp.path(), "demo"))
+        .expect("读 reports/archi")
+        .flatten()
+        .collect();
+    assert_eq!(files.len(), 2, "同目录并存两份报告");
+    assert_eq!(
+        read_report(&full_ref).mode,
+        ArchiDriftMode::Full,
+        "全量报告自述 full"
+    );
+    assert_eq!(
+        read_report(&incremental_ref).mode,
+        ArchiDriftMode::Incremental,
+        "增量报告自述 incremental"
+    );
+}
+
+/// 边界（报告字段面零改动）：两模式报告同形状——`version == 3`、`api_findings`
+/// 槽位齐备（序列化字段在场）。
+#[test]
+fn 两模式报告字段面同形状() {
+    let temp = TempDir::new().expect("建临时目录失败");
+    strict_fixture(temp.path());
+
+    for mode in [ArchiCheckMode::Full, ArchiCheckMode::Incremental] {
+        let outcome = run_mode(
+            temp.path(),
+            "demo",
+            mode,
+            vec!["src/billing/x.ts".to_owned()],
+            CancelFlag::never(),
+        )
+        .expect("runner 不 Err");
+        let reference = outcome.report_ref.expect("落盘");
+        let report = read_report(&reference);
+        assert_eq!(report.version, 3, "{mode:?} 报告版本不变");
+        let raw: serde_json::Value =
+            serde_json::from_slice(&fs::read(&reference).expect("读报告原文"))
+                .expect("报告为 JSON");
+        let object = raw.as_object().expect("报告为对象");
+        for field in [
+            "version",
+            "timestamp",
+            "mode",
+            "root",
+            "change",
+            "base",
+            "modelHash",
+            "model",
+            "scan",
+            "errors",
+            "warnings",
+            "suppressed",
+            "observations",
+            "status",
+            "apiFindings",
+        ] {
+            assert!(object.contains_key(field), "{mode:?} 报告缺字段 {field}");
+        }
+    }
+}
+
+/// 异常（AC-4 Err 面，两模式同形）：看护配置非法（未知键）与扫描硬失败（非法
+/// `exclude` glob）→ `Err(<内层文案>)`——错误面两模式逐字相同（模式不进错误面）、
+/// 不产部分结论、不落报告（零 `reports/archi` 目录）。
+#[test]
+fn 全量模式错误面两模式同形() {
+    for (tag, config, needle) in [
+        ("bad-config", "{ \"rules\": [] }", "unknown field"),
+        (
+            "bad-glob",
+            "{ \"exclude\": [\"src/[legacy\"] }",
+            "src/[legacy",
+        ),
+    ] {
+        // 同一 root 复用（Err 面零写盘）：错误文案含配置路径，同一 root 才能逐字对拍
+        let temp = TempDir::new().expect("建临时目录失败");
+        write_model(
+            temp.path(),
+            "[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n",
+        );
+        write(temp.path(), "src/a.ts", "export const a = 1;\n");
+        let config_path = foundation::layout::archi_config_path(temp.path());
+        fs::create_dir_all(config_path.parent().expect("配置父目录")).expect("建架构域根失败");
+        fs::write(&config_path, config).expect("写看护配置失败");
+
+        let mut messages: Vec<String> = Vec::new();
+        for mode in [ArchiCheckMode::Full, ArchiCheckMode::Incremental] {
+            let error = match run_mode(temp.path(), "demo", mode, Vec::new(), CancelFlag::never()) {
+                Err(error) => error,
+                Ok(outcome) => panic!("{mode:?} 面应 Err（{tag}），实际产出结论：{outcome:?}"),
+            };
+            assert!(
+                error.contains(needle),
+                "{mode:?} 错误文案透传内层（{tag}）：{error}"
+            );
+            assert!(
+                !report_dir(temp.path(), "demo").exists(),
+                "{mode:?} 不产部分结论 ⇒ 零报告目录（{tag}）"
+            );
+            messages.push(error);
+        }
+        assert_eq!(
+            messages.len(),
+            2,
+            "{tag} 两模式各一条错误面（Full / Incremental）"
+        );
+        assert_eq!(messages[0], messages[1], "{tag} 两模式错误面逐字同形");
+    }
+}
+
+/// 边界（D10 映射单点，源自证）：`runner.rs` 内 `fn drift_mode(` 恰一处、
+/// `mode: drift_mode(mode),` 调用恰一处、`run` 体内零 `ArchiDriftMode::`；
+/// `changed.is_empty()` / `if changed` 类分支零命中（runner 不做第二套模式判定）。
+#[test]
+fn drift_mode映射单点且零第二套模式判定() {
+    let source = include_str!("runner.rs");
+    assert_eq!(
+        source.matches("fn drift_mode(").count(),
+        1,
+        "映射函数定义恰一处"
+    );
+    assert_eq!(
+        source.matches("mode: drift_mode(mode),").count(),
+        1,
+        "映射调用恰一处"
+    );
+
+    let run_at = source
+        .find("impl ArchiCheckRunner for LocalArchiCheck {")
+        .expect("run 实现在场");
+    let run_body = &source[run_at..];
+    let end = run_body.find("\n}\n").expect("impl 闭合");
+    let run_body = &run_body[..end];
+    assert!(
+        !run_body.contains("ArchiDriftMode::"),
+        "run 体内零判定域词汇（映射只在 drift_mode 单点）"
+    );
+    for forbidden in ["changed.is_empty()", "if changed"] {
+        assert!(
+            !source.contains(forbidden),
+            "runner 不得按变更集判模式（{forbidden}）"
+        );
+    }
 }

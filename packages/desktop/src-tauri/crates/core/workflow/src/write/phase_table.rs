@@ -106,10 +106,12 @@ const CODE_ANALYZE_DESCRIPTION: &str = "分析代码生成详细设计";
 // 门禁步由 step 声明而非 walker 常量注入）---------------------------------
 
 /// initialize 相位步序列（两表表头共用同一 static；一次性基线检查相位——
-/// `Clean → StaticCheck → TestExecution`：Clean 为 vcs 直调基线恢复步，两检查步
-/// `on_fail=Terminal`（失败即停——无反馈边、零 agent 会话注入，基线的债不属于
-/// 本次变更）。开相与相位收口不在 `steps` 内（`enter_phase` / `settle_phase`
-/// 承载相位机的固定动作）。
+/// `Clean → StaticCheck → ArchiCheck → TestExecution`：Clean 为 vcs 直调基线恢复
+/// 步，三检查步 `on_fail=Terminal`（失败即停——无反馈边、零 agent 会话注入，
+/// 基线的债不属于本次变更）。archi-check 插在 static-check 与 test-execution
+/// 之间（代价升序：秒级 lint → 毫秒级进程内架构判定 → 分钟级测试；失败即停让
+/// 基线架构红在一次长测试跑之前露头）。开相与相位收口不在 `steps` 内
+/// （`enter_phase` / `settle_phase` 承载相位机的固定动作）。
 static INITIALIZE_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::Clean,
@@ -118,6 +120,11 @@ static INITIALIZE_STEPS: &[StepDefinition] = &[
     },
     StepDefinition {
         node: StepNode::StaticCheck,
+        prompt_ref: None,
+        on_fail: Some(OnFail::Terminal),
+    },
+    StepDefinition {
+        node: StepNode::ArchiCheck,
         prompt_ref: None,
         on_fail: Some(OnFail::Terminal),
     },
@@ -374,7 +381,7 @@ static TEST_EXECUTION_MANIFEST: &[ArtifactSpec] = &[ArtifactSpec {
 /// requirement 相位表
 static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
     // initialize：两表表头一次性基线检查相位（确定性相位——executor /
-    // evaluator 双缺席、零 artifact_manifest；`INITIALIZE_STEPS` 三步两表共享；
+    // evaluator 双缺席、零 artifact_manifest；`INITIALIZE_STEPS` 四步两表共享；
     // backtrackable=false——基线检查不可回溯重做）。
     PhaseDefinition {
         id: INITIALIZE_PHASE_ID,

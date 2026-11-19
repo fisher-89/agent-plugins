@@ -936,7 +936,7 @@ fn block_on<F: std::future::Future>(future: F) -> F::Output {
 #[test]
 #[allow(non_snake_case)]
 fn archi_drift与门禁runner同源() {
-    use orchestration::port::{ArchiCheckRunner, ToolStepOutput};
+    use orchestration::port::{ArchiCheckMode, ArchiCheckRunner, ToolStepOutput};
 
     let temp = drift_fixture("drift-same-source");
     let vcs = FakeVcs::with(&["src/billing/x.ts"]);
@@ -947,6 +947,7 @@ fn archi_drift与门禁runner同源() {
     let future = runner.run(
         &temp.root(),
         "demo",
+        ArchiCheckMode::Incremental,
         vec!["src/billing/x.ts".to_owned()],
         foundation::cancel::CancelFlag::never(),
     );

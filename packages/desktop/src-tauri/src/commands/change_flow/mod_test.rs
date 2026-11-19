@@ -2337,8 +2337,8 @@ async fn 基线绿走_initialize先于proposal_报告落baseline树() {
         .collect();
     assert_eq!(
         initialize_words,
-        ["clean", "static_check", "test_execution"],
-        "initialize 三节点齐备且词面逐位（开相 / 落账零节点）"
+        ["clean", "static_check", "archi_check", "test_execution"],
+        "initialize 四节点齐备且词面逐位（archi 基线检查在 static 与 test 之间）"
     );
     let first_phase = nodes
         .first()
@@ -2372,6 +2372,26 @@ async fn 基线绿走_initialize先于proposal_报告落baseline树() {
                 > 0,
         "exec-outputs 落 baseline 树（static-check 输出记录）"
     );
+
+    // 全量架构判定报告落 worktree reports/archi（与 baseline 树分树隔离；报告体
+    // 自述 mode = full、base = null、change = change 名——AC-4 真件全链）
+    let archi_dir = worktree
+        .join("openspec/changes")
+        .join(CHANGE)
+        .join("reports/archi");
+    let reports: Vec<std::path::PathBuf> = fs::read_dir(&archi_dir)
+        .expect("读 reports/archi 应成功")
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    assert_eq!(reports.len(), 1, "全量判定恰落一份报告");
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(&reports[0]).expect("读报告")).expect("报告为 JSON");
+    assert_eq!(report["mode"], "full", "报告自述 mode = full");
+    assert_eq!(report["base"], serde_json::Value::Null, "全量无基准");
+    assert_eq!(report["change"], CHANGE, "change = change 名");
+    assert_eq!(report["scan"]["changedFiles"], 0, "全量 changed_files = 0");
 
     // PhaseRecord：initialize pass 在案（先于 proposal）
     let entries = store.list_phase_records(CHANGE).expect("读相位条目应成功");
@@ -2666,6 +2686,7 @@ impl orchestration::port::ArchiCheckRunner for RecordingArchiRunner {
         &self,
         root: &str,
         name: &str,
+        _mode: orchestration::port::ArchiCheckMode,
         changed: Vec<String>,
         _cancel: foundation::cancel::CancelFlag,
     ) -> orchestration::port::BoxToolFuture {
@@ -2834,6 +2855,7 @@ async fn 组合根装配_archicheck命令由第五形参承接且报告目录为
             cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::ArchiCheck {
                 change_id: CHANGE.to_owned(),
+                mode: orchestration::port::ArchiCheckMode::Incremental,
             },
             on_output_ref: None,
         })
@@ -2971,6 +2993,7 @@ async fn 注入runner失败面_不降级假通过且其余三runner零误调用(
             cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::ArchiCheck {
                 change_id: CHANGE.to_owned(),
+                mode: orchestration::port::ArchiCheckMode::Incremental,
             },
             on_output_ref: None,
         })
@@ -3068,6 +3091,7 @@ async fn run启动路径_implement恰一步archicheck且注入runner恰一次调
             cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::ArchiCheck {
                 change_id: CHANGE.to_owned(),
+                mode: orchestration::port::ArchiCheckMode::Incremental,
             },
             on_output_ref: None,
         })

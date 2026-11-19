@@ -46,12 +46,14 @@ const GRAPH_DIR_NAME: &str = "graph";
 /// `Baseline` 为 initialize 基线检查槽位（`reports/baseline`——两报告树分树
 /// 隔离，零混居），`Archi` 为架构漂移门禁槽位（`reports/archi`——漂移报告
 /// JSON 与 checks 报告 schema 分树隔离，消费者为 `desktop-archi-gate` 的
-/// runner；`crates/infra/checks` 两 runner MUST NOT 接受该槽位）。
+/// runner；`Archi` 由 initialize 基线检查与 implement 门禁两挂载点共用，
+/// `crates/infra/checks` 两 runner MUST NOT 接受该槽位）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReportSlot {
     /// 缺省槽位：`reports/test`（既有语义）
     Test,
-    /// 基线检查槽位：`reports/baseline`（initialize 相位两检查步）
+    /// 基线检查槽位：`reports/baseline`（initialize 相位 static-check /
+    /// test-execution 两步；archi 基线检查走 `Archi` 槽位）
     Baseline,
     /// 架构漂移门禁槽位：`reports/archi`（架构漂移门禁 runner 单点取用）
     Archi,
