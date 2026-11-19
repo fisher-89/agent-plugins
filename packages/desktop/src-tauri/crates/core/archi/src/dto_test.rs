@@ -1510,7 +1510,7 @@ fn archi_api_ref超长与特殊字符路径() {
         assert_eq!(back.fqn, fqn, "emoji / NUL / 超长 FQN 逐字往返");
     }
 
-    // 尾点 / 空段的 FQN 形态非法 ⇒ 路径派生 `None`（不 panic、`<Domain>` 不落空串）
+    // 尾点 / 空段的 FQN 形态非法 ⇒ 路径派生 `None`（不 panic、目录段不落空串）
     for fqn in ["App.".to_owned(), "App..X".to_owned(), "App.".repeat(300)] {
         assert_eq!(
             crate::api::paths::contract_path(Path::new("/ws"), &fqn),

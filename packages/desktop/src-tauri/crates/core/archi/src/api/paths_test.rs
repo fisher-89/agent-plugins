@@ -1,6 +1,6 @@
 //! `api::paths` 的单元测试：`<root>` 归一两步法（不去扩展名）、四类路径派生
 //! （契约 / schema / 生成物 / 索引）、入口解析链三态与四条判据、`#[path]` 值退化为
-//! 生成物文件名、跨域 `$ref` 前缀、`<Domain>` 与语言判定。
+//! 生成物文件名、跨目录 `$ref` 前缀、分层目录段与语言判定。
 //!
 //! 零 mock：`entry_state` / `generated_path` 的存在性探测用真实临时目录落空文件
 //! （零内容即足以驱动分支），其余函数零 IO；`foundation::layout` 的真实派生值是
@@ -83,7 +83,7 @@ impl TempDir {
         );
     }
 
-    /// 落契约（`<archi_models_dir>/<Domain>/<FQN>.md`）。
+    /// 落契约（`<archi_models_dir>/<分层目录…>/<FQN>.md`）。
     fn write_contract(&self, fqn: &str, content: &str) {
         let path = contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
         if let Some(parent) = path.parent() {
@@ -2178,7 +2178,7 @@ fn module_refs的rust分支筛选() {
 #[test]
 fn render的from经ts_string_literal() {
     let fqn = "App.Backend.Infra.ArchiRuntime";
-    let file = ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md";
+    let file = ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.md";
     let source = format!(
         "# {fqn}\n\n```json api-reexport\n{{\"Archived\": \"{fqn}\"}}\n```\n\n\
          ## 透传\n\n- Archived → {fqn}\n"

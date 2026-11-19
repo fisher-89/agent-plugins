@@ -17,7 +17,7 @@ use crate::api::emit::{self, EmitTarget};
 use crate::api::paths::{EntryForm, GeneratedKind};
 
 /// 契约文件（repo 相对 POSIX；错误文案的 `file:` 前缀来源）。
-const FILE: &str = ".dev-team/architecture/models/Demo/App.Demo.Item.md";
+const FILE: &str = ".dev-team/architecture/models/App.Demo.Item.md";
 
 /// 元素 FQN（= H1 标题 = 文件名去 `.md`）。
 const FQN: &str = "App.Demo.Item";

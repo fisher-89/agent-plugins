@@ -21,7 +21,7 @@ use crate::api::schema::build_schema;
 use crate::api::ApiMeta;
 
 /// 契约文件（repo 相对 POSIX）。
-const FILE: &str = ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md";
+const FILE: &str = ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.md";
 
 /// 元素 FQN。
 const FQN: &str = "App.Backend.Infra.ArchiRuntime";

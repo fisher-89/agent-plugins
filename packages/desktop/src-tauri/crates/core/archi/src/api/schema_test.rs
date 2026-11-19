@@ -19,7 +19,7 @@ use super::schema::{build_index, build_schema, degraded_marks, verify_defs, DEGR
 use super::{ApiError, ApiFormStatus, ApiMeta, IndexEntry};
 
 /// 契约文件（repo 相对 POSIX）。
-const FILE: &str = ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md";
+const FILE: &str = ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.md";
 
 /// 元素 FQN（= H1 = 文件名去 `.md`）。
 const FQN: &str = "App.Backend.Infra.ArchiRuntime";
@@ -250,7 +250,7 @@ fn build_schema的defs键序保序幂等() {
 }
 
 /// 正向（AC-11）：透传条目为纯 `$ref`，前缀取自 `paths::ref_relative`（同域 `./`、
-/// 跨域 `../<Domain>/`）。
+/// 跨目录逐段相对路径）。
 #[test]
 fn build_schema的透传条目纯ref() {
     for (target, expected_prefix) in [

@@ -562,15 +562,17 @@ fn api_finding() -> ArchiApiFinding {
         message: "元素 App.Backend.Infra.ArchiRuntime 的契约签名与代码不一致".to_owned(),
         occurrences: vec![
             ArchiDriftOccurrence {
-                file: ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md"
-                    .to_owned(),
+                file:
+                    ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.md"
+                        .to_owned(),
                 line: 31,
                 specifier: Some("file_stem".to_owned()),
                 type_only: false,
             },
             ArchiDriftOccurrence {
-                file: ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md"
-                    .to_owned(),
+                file:
+                    ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.md"
+                        .to_owned(),
                 line: 32,
                 specifier: Some("file_stem".to_owned()),
                 type_only: false,

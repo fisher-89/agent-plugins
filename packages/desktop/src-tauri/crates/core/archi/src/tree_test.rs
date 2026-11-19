@@ -1387,7 +1387,7 @@ fn 超大语料的规模与确定性() {
 // 契约资产 / 契约索引的枚举面（`module-entry-docs-semantics` / AC-1）
 //
 // 判据仍是扩展名收面（`scan::is_source_file` 的五扩展名）+ `ExcludeSet`：契约资产
-// （`models/<Domain>/<FQN>.md` / `.schema.json`）与契约索引（`graph/INDEX.toml`）因此
+// （`models/<分层目录…>/<FQN>.md` / `.schema.json`）与契约索引（`graph/INDEX.toml`）因此
 // 不进 `entries`——本变更为零源码改动的机械事实补证。
 // ===========================================================================
 
@@ -1397,11 +1397,11 @@ fn 契约资产与契约索引不进树() {
     let temp = TempDir::new("contract-assets-out");
     temp.write_model(&[("App", "package", &[]), ("App.Core", "domain", &[])]);
     temp.write(
-        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md",
+        ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.md",
         "# App.Backend.Infra.ArchiRuntime\n",
     );
     temp.write(
-        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.schema.json",
+        ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.schema.json",
         "{\"$defs\": {}}\n",
     );
     temp.write(".dev-team/architecture/graph/INDEX.toml", "# 索引\n");
@@ -1412,11 +1412,11 @@ fn 契约资产与契约索引不进树() {
     assert_absent(&tree, ".dev-team");
     assert_absent(
         &tree,
-        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md",
+        ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.md",
     );
     assert_absent(
         &tree,
-        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.schema.json",
+        ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.schema.json",
     );
     assert_absent(&tree, ".dev-team/architecture/graph/INDEX.toml");
     assert_entry(

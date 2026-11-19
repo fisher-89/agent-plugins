@@ -1275,7 +1275,7 @@ fn 错误面文案三值() {
 
 use foundation::layout::archi_models_dir;
 
-/// 落一份契约 md（`<archi_models_dir>/<Domain>/<FQN>.md`；目录段取父 FQN 末段）。
+/// 落一份契约 md（`<archi_models_dir>/<分层目录…>/<FQN>.md`；目录取父 FQN 段链去根段）。
 fn write_contract(temp: &TempDir, fqn: &str, content: &str) {
     let path = crate::api::paths::contract_path(temp.root(), fqn).expect("合法 FQN");
     let relative = path

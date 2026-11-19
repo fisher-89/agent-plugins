@@ -81,7 +81,7 @@ impl TempDir {
         );
     }
 
-    /// 落契约（`<archi_models_dir>/<Domain>/<FQN>.md`）。
+    /// 落契约（`<archi_models_dir>/<分层目录…>/<FQN>.md`）。
     fn write_contract(&self, fqn: &str, content: &str) {
         let path = paths::contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
         if let Some(parent) = path.parent() {
@@ -233,7 +233,7 @@ fn enabled按载体fence判定() {
 }
 
 /// 边界：目录缺席 / 空目录 / 非载体 md 均不构成启用证据——`models/` 一级的笔记与
-/// `<Domain>/notes.md` 都不是任何元素的载体。
+/// `Backend/notes.md` 都不是任何元素的载体。
 #[test]
 fn enabled杂项md不误启用() {
     let bare = TempDir::new("enabled-bare");
@@ -255,7 +255,7 @@ fn enabled杂项md不误启用() {
         "```json api-op\n{\"params\": [], \"returns\": {\"type\": \"string\"}}\n```\n",
     );
     notes.write(
-        ".dev-team/architecture/models/Infra/notes.md",
+        ".dev-team/architecture/models/Backend/notes.md",
         "# 笔记\n\n```json api-op\n{}\n```\n",
     );
     assert!(
@@ -5102,7 +5102,7 @@ fn enabled模型文件不是启用证据() {
         );
     }
     temp.write(
-        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.schema.json",
+        ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.schema.json",
         "{\"$defs\": {}}\n",
     );
     temp.write(".dev-team/architecture/graph/INDEX.toml", "# 空索引\n");
@@ -5173,7 +5173,7 @@ fn enabled判定单点自证() {
     );
 }
 
-/// 正向（AC-4 读数守恒）：契约 md 与模型 toml 同住 `models/`（md 在 `<Domain>/` 子目录）
+/// 正向（AC-4 读数守恒）：契约 md 与模型 toml 同住 `models/`（md 在 `<分层目录…>/` 子目录）
 /// 时启用，`load_contracts` 正常出三表——模型文件混居零结构诊断。
 #[test]
 fn load_contracts双身份混居仍出三表() {
@@ -5192,7 +5192,7 @@ fn load_contracts双身份混居仍出三表() {
     let elements = [element(fqn, &["crates/infra/archi/"])];
     assert!(
         enabled(temp.root(), &elements),
-        "md 落 `models/<Domain>/` 子目录仍启用"
+        "md 落 `models/<分层目录…>/` 子目录仍启用"
     );
     let snapshot = load_contracts(temp.root(), &elements).expect("混居不产出结构诊断");
     assert_eq!(snapshot.contracts.len(), 1, "contracts 就位");

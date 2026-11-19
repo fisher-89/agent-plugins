@@ -36,7 +36,7 @@ const ARCHI_ROOT_DIR_NAME: &str = ".dev-team";
 const ARCHITECTURE_DIR_NAME: &str = "architecture";
 
 /// 契约资产子目录名（相对架构域根锚定）——模型声明在 [`MODEL_DIR_NAME`] 侧，
-/// 本目录只住 `<Domain>/<FQN>.md` 与同目录 `.schema.json`
+/// 本目录只住 `<分层目录…>/<FQN>.md` 与同目录 `.schema.json`
 const MODELS_DIR_NAME: &str = "models";
 
 /// 契约索引子目录名（相对架构域根锚定）——`INDEX.toml` 的路径段唯一持有者
@@ -150,7 +150,7 @@ pub fn archi_dir(root: &Path) -> PathBuf {
 
 /// 架构契约资产目录派生（`<架构域根>/models`；全从 [`archi_dir`] 派生，架构域段名
 /// 不二次出现）。模型声明在 [`archi_graph_model_dir`]；本目录只住契约资产
-/// （`<Domain>/<FQN>.md` 与同目录 `.schema.json`）。
+/// （`<分层目录…>/<FQN>.md` 与同目录 `.schema.json`）。
 pub fn archi_models_dir(root: &Path) -> PathBuf {
     archi_dir(root).join(MODELS_DIR_NAME)
 }
