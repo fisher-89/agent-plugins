@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Desktop 前端标准组件层（`packages/desktop/src/components/standard/`）契约：`useOpen` 受控 / 非受控开合归一 hook，`StandardDialog` / `StandardDrawer` / `StandardSelect` 标准组件契约（trigger / footer / 值透出 / 透传双态），`StandardPagination` 标准分页器契约（页码 / 上下页 / 摘要行），以及本层 colocated 单元测试纪律（role / 可及名 / 文本 / data-* 查询挂钩、零样式类名查询、产品源码零因测改动）。
+Desktop 前端标准组件层（`packages/desktop/src/components/standard/`）契约：`useOpen` 受控 / 非受控开合归一 hook，`StandardDialog` / `StandardDrawer` / `StandardSelect` / `StandardCombobox` 标准组件契约（trigger / footer / 值透出 / 透传双态 / 可选可填），`StandardPagination` 标准分页器契约（页码 / 上下页 / 摘要行），以及本层 colocated 单元测试纪律（role / 可及名 / 文本 / data-* 查询挂钩、零样式类名查询、产品源码零因测改动）。
 
 ## Requirements
 
@@ -87,14 +87,50 @@ Desktop 前端标准组件层（`packages/desktop/src/components/standard/`）�
 - **WHEN** 以 `disabled=true` 挂载并尝试打开选择器
 - **THEN** 底层 Select 处于禁用态，弹层不打开且 `onChange` 零调用
 
+### Requirement: StandardCombobox 标准组合框契约
+
+`StandardCombobox` SHALL 提供「可选可填」的单值输入控件，落在 `packages/desktop/src/components/standard/combobox.tsx`，底座 SHALL 为 `packages/desktop/src/components/ui/combobox.tsx`（`@base-ui/react/combobox` 的原语层包装），与 `StandardSelect` / `StandardDialog` 同层同风格：
+
+- **取值语义**：`value: string`；`onChange: (value: string) => void`。输入框**任意键入** SHALL 逐键回调输入原文（受控），MUST NOT 因取值不在 `items` 中而拦截或回退——「建议」与「约束」在本组件内必须分开。
+- **建议清单**：`items: string[]` SHALL 逐项渲染为可选条目；选中条目 SHALL 把该原文写入输入框并回调该值。`items` 为空数组时 SHALL 退化为**纯输入框**形态（不渲染建议弹层、不报错、不占位提示建议）——这是「目录取数失败即无建议」的降级落点。
+- **留空语义**：清空输入 SHALL 以 `onChange('')` 回调（**空串 = 留空**，与 store 侧「`efforts` 空串 = 留空 = 不发」同型）；MUST NOT 用 `null` 承载留空（`null` 在 `StandardSelect` 表「未选择」，两控件的空态语义 MUST NOT 混用）。
+- **值透出**：`data-testid` 与 `data-value={value}` SHALL 落在输入框元素上（`value` 为当前输入原文，`''` 时 `data-value` 呈空串而非缺席——留空本身是合法状态）；`id` / `className` / `placeholder` SHALL 透传输入框；`placeholder` 缺省「可输入或选择」。
+- **禁用**：`disabled` SHALL 同时禁用输入框与建议弹层（不可键入、不可展开、`onChange` 零调用）。
+- **弹层开合**：建议弹层的开合条件（聚焦 / 输入触发）由底座决定，本层 MUST NOT 另持一份开关状态；测试断言 SHALL 以 role / 文本 / `data-testid` 承载，弹层开合 SHALL 以异步收敛断言承载（`findByRole('listbox')` / `waitFor`），MUST NOT 以样式类名为查询条件。
+
+#### Scenario: 自由输入与值透出
+
+- **WHEN** 以 `items = ["deepseek-reasoner", "deepseek-chat"]` 挂载并逐字符键入 `my-custom-model`（不在清单内）
+- **THEN** `onChange` 依次收到键入原文、最终为 `my-custom-model`（零拦截零回退）；输入框 `data-value` 等于当前原文，`data-testid` 落在输入框上
+
+#### Scenario: 选中条目回填
+
+- **WHEN** 展开建议清单并选中 `deepseek-reasoner`
+- **THEN** 输入框呈该原文且 `onChange` 收到 `deepseek-reasoner`；再次展开时清单项与 `items` 逐项一致
+
+#### Scenario: 清空即留空
+
+- **WHEN** 输入框原有值 `low`，用户清空输入
+- **THEN** `onChange` 收到空串（`data-value` 为空串），组件不报错、不自动回退到某项建议
+
+#### Scenario: 空清单退化为纯输入框
+
+- **WHEN** 以 `items = []` 挂载并聚焦 / 键入
+- **THEN** 无建议弹层渲染（`listbox` 不在文档中），输入与回调照常工作
+
+#### Scenario: disabled 全量禁用
+
+- **WHEN** 以 `disabled=true` 挂载并尝试键入、聚焦展开建议
+- **THEN** 输入框禁用、弹层不展开、`onChange` 零调用
+
 ### Requirement: standard 组件单元测试纪律
 
-`packages/desktop/src/components/standard/` SHALL 以 colocated 单元测试直接锁定本层契约（`dailog.test.tsx` / `drawer.test.tsx` / `select.test.tsx` / `pagination.test.tsx` / `hooks/use-open.test.ts` 与源文件同目录落位），MUST NOT 仅依赖消费方测试间接覆盖。测试 SHALL 覆盖各契约分支（useOpen 受控 / 非受控 / 回调缺省；StandardDialog trigger 双态 / footer 双态 / 显式关窗；StandardDrawer trigger 双态 / 透传 / 受控开合；StandardSelect 值双态 / 选择回调 / disabled；StandardPagination 页码渲染 / 翻页回调 / 越界与 disabled 边界 / 摘要行双态）。查询挂钩 SHALL 为 role / 可及名 / 文本 / `data-testid`（及语义 data-* 属性），MUST NOT 以样式类名作为查询条件（类名仅可作透传断言的被检属性）；base-ui 弹层开合 SHALL 以异步收敛断言（如 `findByRole('listbox')` / `waitFor`）承载。本层零进程边界，测试 MUST NOT mock 被测组件或 `src/components/ui/**` 底座；产品源码（五个被测文件）MUST NOT 因测试可测性改动。
+`packages/desktop/src/components/standard/` SHALL 以 colocated 单元测试直接锁定本层契约（`dailog.test.tsx` / `drawer.test.tsx` / `select.test.tsx` / `pagination.test.tsx` / `combobox.test.tsx` / `hooks/use-open.test.ts` 与源文件同目录落位），MUST NOT 仅依赖消费方测试间接覆盖。测试 SHALL 覆盖各契约分支（useOpen 受控 / 非受控 / 回调缺省；StandardDialog trigger 双态 / footer 双态 / 显式关窗；StandardDrawer trigger 双态 / 透传 / 受控开合；StandardSelect 值双态 / 选择回调 / disabled；StandardCombobox 自由输入 / 选中条目回填 / 清空即留空 / 空清单退化 / disabled；StandardPagination 页码渲染 / 翻页回调 / 越界与 disabled 边界 / 摘要行双态）。查询挂钩 SHALL 为 role / 可及名 / 文本 / `data-testid`（及语义 data-* 属性），MUST NOT 以样式类名作为查询条件（类名仅可作透传断言的被检属性）；base-ui 弹层开合 SHALL 以异步收敛断言（如 `findByRole('listbox')` / `waitFor`）承载。本层零进程边界，测试 MUST NOT mock 被测组件或 `src/components/ui/**` 底座；产品源码（六个被测文件）MUST NOT 因测试可测性改动。
 
 #### Scenario: colocated 测试直达契约分支
 
 - **WHEN** 检索 `packages/desktop/src/components/standard/` 目录测试文件
-- **THEN** 四个测试文件在场（dailog / drawer / select / hooks/use-open 各一），受控与非受控开合、trigger 有无、footer 双态、value null 与非 null 分支均有直接断言
+- **THEN** 六个测试文件在场（dailog / drawer / select / pagination / combobox / hooks/use-open 各一），受控与非受控开合、trigger 有无、footer 双态、value null 与非 null 分支、组合框的自由输入 / 选中条目 / 清空 / 空清单 / disabled 分支均有直接断言
 
 #### Scenario: 无样式类名查询挂钩
 
@@ -104,7 +140,7 @@ Desktop 前端标准组件层（`packages/desktop/src/components/standard/`）�
 #### Scenario: 弹层异步收敛且产品源码零改动
 
 - **WHEN** 运行该目录测试（`vp test`，含 `--sequence.shuffle`）并审查本变更 diff
-- **THEN** 测试全绿且无重试依赖（Select 弹层以 `findByRole('listbox')` 收敛、Dialog / Drawer 关窗以 `waitFor` 收敛）；`dailog.tsx` / `drawer.tsx` / `select.tsx` / `hooks/use-open.ts` 四文件零改动
+- **THEN** 测试全绿且无重试依赖（Select / Combobox 弹层以 `findByRole('listbox')` 收敛、Dialog / Drawer 关窗以 `waitFor` 收敛）；`dailog.tsx` / `drawer.tsx` / `select.tsx` / `pagination.tsx` / `hooks/use-open.ts` 五个既有被测文件零改动（新增文件只有 `combobox.tsx` 与 `combobox.test.tsx`）
 
 ## Module Contract
 
@@ -145,5 +181,18 @@ Desktop 前端标准组件层（`packages/desktop/src/components/standard/`）�
 | `dailog.test.tsx` | StandardDialog 契约单测 | trigger 双态 / footer 双态 / `onSubmit(close)` 显式关窗 / 取消与关闭零 onSubmit；role + 文本挂钩 |
 | `drawer.test.tsx` | StandardDrawer 契约单测 | trigger 开合 / 恒「关闭」footer / `containerClassName` 透传（类名作被检属性）/ 受控 `open` / `onOpenChange` |
 | `select.test.tsx` | StandardSelect 契约单测 | 选项渲染 / 选择回调 / `data-value` 与 placeholder 双态 / disabled 禁开；`findByRole('listbox')` 异步收敛 |
+| `combobox.test.tsx` | StandardCombobox 契约单测 | 任意键入逐键回调（零拦截）/ 选中条目回填 / 清空回调空串 / `items` 空退化纯输入框（无 `listbox`）/ disabled 全量禁用 / `data-testid` 与 `data-value` 落输入框；`findByRole('listbox')` 异步收敛 |
 | `pagination.test.tsx` | StandardPagination 契约单测 | 上一页 / 页码 / 下一页渲染与回调携目标页；`aria-current` 当前页；首页 / 末页越界回调不发；`disabled` 全量拦点击；`total` 在场呈摘要行、缺席不呈；`totalPages=1` 仍渲染；页多时窗口缩为 `1 … p±1 … N` |
 | `hooks/use-open.test.ts` | useOpen 契约单测 | 非受控初始态 / 开合回调 / 受控 prop 同步 / 回调缺省安全（`renderHook` 承载） |
+
+### Component: `packages/desktop/src/components/standard/combobox.tsx`（新）
+
+| 项 | Props | 描述 |
+|------|------|----------|
+| `StandardCombobox` | `value: string`；`onChange: (value: string) => void`；`items: string[]`；`placeholder?: string`（缺省「可输入或选择」）；`disabled?: boolean`；`data-testid?` / `id?` / `className?` | 「可选可填」单值控件：任意键入逐键回调原文（建议不构成约束）；选中条目把原文写入并回调；清空回调空串（**空串 = 留空**，不用 `null`）；`items` 空 ⇒ 退化纯输入框；`data-testid` / `data-value` 落输入框，`id` / `className` / `placeholder` 透传；`disabled` 同时禁输入与弹层；弹层开合由底座管理，本层零第二份开关状态 |
+
+### Component: `packages/desktop/src/components/ui/combobox.tsx`（新）
+
+| 项 | 形态 | 描述 |
+|------|------|----------|
+| 原语层包装 | `@base-ui/react/combobox`（`Root` / `Trigger` / `Input` / `Popup` / `Item` 等）薄包装 | 与 `ui/select.tsx` 同层同风格：只组装原语与样式，承载零业务语义（无建议来源、无留空策略）；供标准层 `StandardCombobox` 单独消费，产品视图 MUST NOT 直引本文件 |
