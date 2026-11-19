@@ -47,7 +47,7 @@
 
 三条策略各管一段且 MUST NOT 互相替代：**读取**照常加载并返回结构化诊断（绝不 panic）；**渲染**停摆（绝不画畸形图）；**门禁**判结构错（归 `desktop-archi-gate`）。
 
-无结构错时 SHALL 渲染完整图，`docNotFound` 一类文档警告 MUST NOT 触发停摆。
+无结构错时 SHALL 渲染完整图，入口文档面的判据（`apiFindings` 内的 `docMissing` / `docNotFound` / `apiDocMissing`）MUST NOT 触发停摆。
 
 #### Scenario: 有结构错即停摆
 
@@ -56,7 +56,7 @@
 
 #### Scenario: 无结构错渲染完整图
 
-- **WHEN** 模型零结构错（可含 `docNotFound` 警告）
+- **WHEN** 模型零结构错（可含 `apiFindings` 内的入口文档判据）
 - **THEN** 返回完整图数据，左栏树与画布正常渲染，警告不改变渲染态
 
 #### Scenario: 停摆态不给部分形状
@@ -112,7 +112,7 @@
 
 | 能力 | `full`（workspace 级） | `incremental`（change 级） |
 |---|---|---|
-| 结构校验 / 图渲染 / 文档关联 | ✅ | ✅ |
+| 结构校验 / 图渲染 / 入口文档段 | ✅ | ✅ |
 | 改 `gate` 档 | ❌ 只读视图，呈现「改档需要开一个 change」提示 | ✅ 写 `detail.worktree` 内模型，随该 change 归档合回 |
 | 生成契约生成物（写盘） | ❌ 只显示三类差异 + 呈现「生成需开 change（或让左侧会话执行 `pnpm api:export`）」提示 | ✅ 二次确认后写 `detail.worktree` 内的生成物，随该 change 归档合回 |
 
@@ -150,24 +150,35 @@
 
 ### Requirement: 抽屉内容与本期边界
 
-元素抽屉 SHALL 呈现四类信息：① 元素概览（`kind` / `path` / `gate` / `modelFile:line`，位置可读且可直接用于 `edit`）；② `docs` 关联列表（三源条目，按强度序）；③ ADR 条目列表（`kind = "adr"` 的关联项，点击按需取正文并渲染 markdown，正文取数只接受关联集内路径）；④ `incremental` 模式下 `gate` 的编辑入口。
+元素抽屉 SHALL 呈现四类信息：① 元素概览（`kind` / `path` / `gate` / `modelFile:line`，位置可读且可直接用于 `edit`）；② **入口文档单条**（仅 `api = none` 元素且 `doc` 非空时呈现，值为 `ArchiModuleDetail.doc` 的路径串，经 `FileViewer` + 通用 `read_file` 打开；`api = declared` 元素不渲本段——其入口文档由契约段的 `ContractPathRow("契约", api.contractPath)` 承担，**MUST NOT 出现两条入口文档**）；③ 契约段（`api.status` + 三路径 + 本元素判据，见 `desktop-archi-contract-panel`「抽屉契约段」）；④ `incremental` 模式下 `gate` 的编辑入口。
 
 以下内容 MUST NOT 在本能力出现（防"半成品字段"；漂移判定的消费面止于边 / 节点标记，抽屉不承载报告细节）：
 
 - 「相邻报告」区块（最近一次检查的 errors / warnings）——本期抽屉零该区块、零占位框；
-- 漂移统计 / 门禁结论 / 豁免 reason 编辑入口。
+- 漂移统计 / 门禁结论 / 豁免 reason 编辑入口；
+- **`docs` 关联列表与其中的 ADR 条目**——`docs` 三源关联（含 `kind = "adr"` 的 `text` 源）已随 `desktop-archi-module-docs` 整体退役；抽屉 MUST NOT 保留文档列表位、MUST NOT 保留「按强度序」排序语义、MUST NOT 保留 ADR 正文按需展开的交互（ADR 改经入口文档内链接 / 左栏文件树 / 通用文件搜索抵达）。
 
-正文取数命令 SHALL 只接受**关联集内**的文档路径（越界显式 `Err`），MUST NOT 成为任意文件读取通道。
+`doc` 的路径取数 SHALL 与契约路径同一通路（通用 `read_file`，绝对路径入参）：本能力 MUST NOT 新增专用文档读取命令、MUST NOT 使该通路成为任意文件读取面的**新**风险点——`read_file` 本来就是通用绝对路径读面，本变更只是把「点开一个模型声明的路径」这一个动作接到它上面。
 
 #### Scenario: 概览含可定位声明位置
 
 - **WHEN** 打开某元素抽屉
 - **THEN** 呈现 `kind` / `path` / `gate` 与 `modelFile:line`（该文件该行为该元素表头），agent 与人可据此直接定位声明
 
-#### Scenario: ADR 正文按需取
+#### Scenario: api = none 元素的入口文档单条
 
-- **WHEN** 抽屉内 ADR 条目被展开
-- **THEN** 以该条目 `path` 取正文并渲染 markdown；取数路径不在关联集内时命令返回 `Err`，前端呈现行内错误
+- **WHEN** 聚焦一个 `api = none` 且 `doc` 非空的元素打开抽屉
+- **THEN** 抽屉内呈一条「入口文档」行，点「查看」经 `read_file` 打开该路径；同一抽屉内零文档列表、零 ADR 条目
+
+#### Scenario: declared 元素只有契约段一条入口文档
+
+- **WHEN** 聚焦契约在案的元素（如 `App.Backend.Infra.ArchiRuntime`）打开抽屉
+- **THEN** 入口文档只出现在契约段的 `ContractPathRow("契约")` 一行；抽屉内 MUST NOT 出现第二条入口文档行（`doc` 为 `null`）；段序为「概览 → 契约 → 入口文档 → 豁免」，`declared` 与 `api = none` 未声明 `doc` 时「入口文档」段整段不渲染
+
+#### Scenario: 空态可辨
+
+- **WHEN** 聚焦 `api = none` 且未声明 `doc` 的元素
+- **THEN** 「入口文档」段呈一条空态文案（「无入口文档」，testid 随字段面更名）；不报错、不显示失效路径、不产生额外 invoke
 
 #### Scenario: 本期无相邻报告区块
 
@@ -185,10 +196,10 @@
 | `src/views/architecture/components/file-tree.tsx` | 左栏文件树（缺省视图） | 数据面 / 标记 / 点击语义 / 双向联动见 `desktop-archi-file-tree`；本能力只要求「缺省渲它、点击走同一次 `onFocus`」 |
 | `src/views/architecture/hooks/use-archi-file-tree.ts` | 文件树取数 | 三触发（挂载 / `root` 变化 / 上层 `key` 重挂）、零 watch 零轮询；失败只落左栏行内错误、MUST NOT 阻断画布 |
 | `src/views/architecture/components/structure-error-panel.tsx` | 停摆态 | 逐条诊断（`kind` + `message` + `file:line`）+「修好后再看」；零图数据、零降级样式 |
-| `src/views/architecture/components/element-drawer.tsx` | 右抽屉 | 概览（`kind` / `path` / `gate` / `modelFile:line`）+ `docs` 列表 + ADR 条目与按需正文；`incremental` 下 `gate` 编辑入口；本期零「相邻报告」区块 |
+| `src/views/architecture/components/element-drawer.tsx` | 右抽屉 | 概览（`kind` / `path` / `gate` / `modelFile:line`）+ 契约段 + **入口文档单条**（仅 `api = none` 且 `doc` 非空；空态文案随字段面更名）+ `incremental` 下 `gate` 编辑入口；`DocsSection` / `DocRow` 删除；本期零「相邻报告」区块 |
 | `src/views/architecture/lib/marks.ts` | 标记 → 样式映射（边） | 边标记四值（`none` 实线 / `unfulfilled` 灰虚线 / `crossKind` 橙虚线 / `exempt` 灰实线）；未知值退化为中性；封闭词汇（节点标记不做视觉映射）；标记生产由 `drift-marks.ts` 承担，本件 MUST NOT 参与判定 |
 | `src/views/architecture/hooks/use-archi-graph.ts` | 画布取数 | 挂载 / `root` 变化 / 手动刷新三触发；零 watch 零轮询；停摆态与正常态两形状透出 |
-| `src/views/architecture/hooks/use-archi-module.ts` | 抽屉取数 | 元素详情（`archi_module`）；文档正文由 `components/file` 的 `FileViewer` 经通用 `read_file` 自取 |
+| `src/views/architecture/hooks/use-archi-module.ts` | 抽屉取数 | 仍单次 `archi_module`；载荷的 `docs` / `warnings` 位次由 `doc` 取代（取数逻辑与触发条件零改动）；入口文档正文由 `components/file` 的 `FileViewer` 经通用 `read_file` 自取 |
 | `src/views/architecture/architecture-view.tsx` | 挂载点 A | `/architecture` 全量只读；显式刷新入口 |
 | `src/views/changes/change-detail-view.tsx`（架构页签） | 挂载点 B | 以 `detail.worktree` 为根、归档回落主仓根；`incremental` 可改档；页签切换不重复取数 |
 | `src/routes.tsx` + `src/components/app-sidebar.tsx` | 入口 | `/architecture` 路由 + 页面组「架构」项（`data-testid="nav-architecture"`，active 由 URL 派生） |
@@ -207,3 +218,13 @@
 |---|---|
 | `structure-error-panel.tsx` / `element-tree.tsx` / `file-tree.tsx`（行渲染与标记面） | 行渲染、标记呈现与点击语义逐字不变；`file-tree.tsx` 的入参由 `entries` 改为 `root`（组件内联 `useArchiFileTree` 自取数），`TreeModeSwitch` 退役（分段控件移至本能力的 `Tabs`） |
 | `hooks/use-archi-graph.ts` / `use-archi-drift.ts` / `use-archi-module.ts` / `use-archi-file-tree.ts` | 三触发纪律与返回形状零改动 |
+
+### 模块增量：抽屉入口文档单条换面（module-doc-field-docs-retirement）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约 |
+|------|------|------|
+| `packages/desktop/src/views/architecture/lib/drift-marks.ts` | 报告 → 边标记纯函数 | 零改动（只读 `observations` / `suppressed`；`apiFindings` 仍不参与节点 / 边标记） |
+| `packages/desktop/src/views/architecture/components/architecture-canvas.tsx` | 共享画布 | 零改动（三段布局、左栏三视图、抽屉接线、`mode` 语义逐字不变） |
+| `packages/desktop/src/views/architecture/components/element-drawer.test.tsx` | 抽屉语料 | `docsFixture` 删；`docs: []` fixture → `doc: null`；`archi-docs-empty` 用例改「入口文档空态」；新增两条否定断言（`declared` 元素零入口文档行 / 抽屉内零 `docs` 列表） |

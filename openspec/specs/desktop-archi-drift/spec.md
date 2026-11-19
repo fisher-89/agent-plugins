@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义架构漂移的**判定域**：扫哪些文件（默认排除与测试 scope 正交、配置可追加）、怎么归属（元素 `path` 最长前缀单点，同长不任选）、什么算漂移（声明未兑现 / 未声明依赖 / path 失效三类，定级只看引入方）、什么时候豁免（两层、元素对粒度封闭、留痕可审计）、两模式观察根（全量不落盘 / 增量落盘，变更集经唯一入口）、报告唯一形状（`status` 五值、`occurrences` 聚合、`observations` 与 `warnings` 分界、`modelHash`）、架构域看护配置（`<archi_dir>/config.json`，缺失即空、未知键拒绝）、判定单源（命令面与门禁面同一纯函数）与运行期预算（release p95 ≤ 3 s、语料对拍、依赖成本回退序）。判定只读盘：零写盘、零 spawn、零 Tauri、零 store、零 `workflow`、零 `config`；`desktop-archi-model` 的模型语义（`kind` / `gate` / `path` 形状）由该能力定义，本能力只**消费** `ModelGraph`。
+定义架构漂移的**判定域**：扫哪些文件（默认排除与测试 scope 正交、配置可追加）、怎么归属（元素 `path` 最长前缀单点，同长不任选）、什么算漂移（声明未兑现 / 未声明依赖 / path 失效三类，定级只看引入方）、什么时候豁免（两层、元素对粒度封闭、留痕可审计）、两模式观察根（全量不落盘 / 增量落盘，变更集经唯一入口）、报告唯一形状（`status` 五值、`occurrences` 聚合、`observations` 与 `warnings` 分界、`modelHash`、并列槽位 `apiFindings` 的纳管子集与 `error` 档进 `passed`）、架构域看护配置（`<archi_dir>/config.json`，缺失即空、未知键拒绝）、判定单源（命令面与门禁面同一纯函数）与运行期预算（release p95 ≤ 3 s、语料对拍、依赖成本回退序）。判定只读盘：零写盘、零 spawn、零 Tauri、零 store、零 `workflow`、零 `config`；`desktop-archi-model` 的模型语义（`kind` / `gate` / `path` 形状）由该能力定义，本能力只**消费** `ModelGraph`。
 
 ## Requirements
 
@@ -216,7 +216,7 @@
     "elements": 24, "relations": 31,
     "byGate": { "strict": 8, "warn": 5, "off": 11 },
     "structuralErrors": [ … ],        // 读存量模型遇错也照录
-    "warnings": [ … ]                 // pathNotFound / noPath / docNotFound
+    "warnings": [ … ]                 // pathNotFound / noPath / ambiguousOwner
   },
   "scan": { "mode": …, "changedFiles": 17, "scannedFiles": 12,
             "excluded": [ … ], "unmatchedFiles": [ … ], "matched": [ … ],
@@ -225,21 +225,22 @@
   "warnings": [ … ],
   "suppressed": [ { "from": …, "to": …, "via": "config|inline", "reason": …, "file": …, "line": … } ],
   "observations": [ { "kind": "unfulfilledDeclaration", "from": …, "to": …, "message": … } ],
-  "apiFindings": [ { "kind": "apiEntryMissing", "category": "entry", "element": …, "target": null,
-                     "message": …, "occurrences": [ … ] } ],   // 契约判据（并列槽位；经纳管子集影响 status，不进 passed）
+  "apiFindings": [ { "kind": "docMissing", "category": "doc", "element": …, "target": null,
+                     "message": …, "occurrences": [ … ] } ],   // 契约判据（并列槽位；纳管子集按档位抬 status，error 档进 passed）
   "status": "errors"                  // clean | errors | warnings | noChanges | skipped
 }
 ```
 
-- **`status` 五值封闭**：`clean`（有扫描、零 errors 零 warnings 且纳管的契约判据为空）、`errors`（`errors` 非空）、`warnings`（零 errors，且 `warnings` 非空**或**契约在案元素的判据非空）、`noChanges`（无文件可判）、`skipped`（无模型）。`skipped` 与 `noChanges` MUST NOT 被呈现或消费为「通过」——UI 与门禁日志 SHALL 显式区分，否则「没检查」被误读成「检查过了没问题」。
+- **`status` 五值封闭**：`clean`（有扫描、零 errors 零 warnings 且纳管的契约判据为空）、`errors`（`errors` 非空**或纳管子集含任一 `error` 档判据**）、`warnings`（零 errors，且 `warnings` 非空**或**纳管子集非空且其中无 `error` 档）、`noChanges`（无文件可判）、`skipped`（无模型）。`skipped` 与 `noChanges` MUST NOT 被呈现或消费为「通过」——UI 与门禁日志 SHALL 显式区分，否则「没检查」被误读成「检查过了没问题」。
 - **`observations` 与 `warnings` 分界**：`warnings` 是「有问题的依赖」（方向 / 目标 / 可解析性 / 归属不确定），随 `status` 影响提示强度；`observations` 是「设计态陈述」（声明未兑现 / 长期未使用），永不影响 `status`、永不进 `passed`。
 - **`occurrences` 聚合**：同元素对的全部命中点聚合在一条记录内（按 `(from, to)` 聚合，逐条带 `file` / `line` / `specifier` / `typeOnly`），不按行铺开。
 - **`suppressed` 必留痕**：豁免不等于不存在——保留被抑制条目 + 理由 + 来源，豁免了什么才可审计。
-- **`modelHash`**：`models/*.toml` 聚合哈希，供消费方判断「手上报告是否对应当前模型」与历史报告追溯；MUST NOT 被用作缓存失效依据（本期零缓存）。
-- **词汇封闭且单点**：报告自带**四组**封闭词汇——`status`（五值）、漂移条目 `kind`（`undeclaredDependency` / `pathNotFound` / `ambiguousOwner` / `noPath`）、观察项 `kind`（`unfulfilledDeclaration` / `unusedDeclaration`）、**契约判据 `kind`**（`ArchiApiFindingKind` 十值，定义与语义见 `desktop-archi-api-check`「契约判据词汇封闭十值与开放分类」）；每组 SHALL 在报告结构模块单点定义并附 `ALL` 常量，语料对拍断言「新增变体未同步即红」。报告词汇 MUST NOT 复用既有 DTO 词汇：`desktop-archi-model` 的 `DiagnosticKind`（结构诊断九类）、`EdgeMark` / `NodeMark`（画布标记）与 `WarningKind`（文档警告，单值 `docNotFound`）语义面各不相同——混用会让「结构错」「文档警告」「漂移违例」三类在类型上不可辨。
-- **`version`**：报告结构版本号，字段演进 SHALL 递增并走显式兼容说明（`version = 1` 无 `apiFindings` 字段；`version = 2` 有该字段但 `status` 推导不读契约判据；本变更把纳管口径引入推导，故递增为 3，消费方按版本分支）。
-- **`apiFindings` 为并列槽位**：契约判据结果 SHALL 落本字段（空数组 = 无契约问题），MUST NOT 与 `errors` / `warnings` / `observations` 混装——三者事实源与定级语义各不相同（模型关系图 / 可解析性与归属 / 设计态陈述 vs 契约文件）。本字段 MUST NOT 影响 `passed`（与 `observations` 同款纪律）；对 `status` 的影响 SHALL 限于**契约在案元素的判据**（纳管子集，口径、判据与单点实现归 `desktop-archi-api-check`「报告并列槽位 apiFindings」），MUST NOT 让存量 backlog 把状态词常规化为永久 `warnings`。条目形状 `{ kind, category, element, target, message, occurrences }`：`occurrences` 复用既有聚合形状，`category` 为开放值集字符串（无 `ALL`，渲染层据此分组）。
-- **推导序不变**：`skipped` → `errors`（结构错 / `errors[]` 非空）→ `noChanges`（可判文件为 0）→ `warnings`（`warnings[]` 非空 或 纳管子集非空）→ `clean`；按此序 `status == errors ⟺ passed == false` SHALL 恒成立（纳管只可能把结果从 `clean` 抬到 `warnings`，永不产生 `errors`）。
+- **`modelHash`**：`models/*.toml` 聚合哈希，供消费方判断「手上报告是否对应当前模型」与历史报告追溯；MUST NOT 被用作缓存失效依据（本期零缓存）。模型字节变化即哈希变化（本变更删 `01-app.toml` 一行 `docs` ⇒ 本仓 `modelHash` 必然变，元素 / 关系计数不变）。
+- **词汇封闭且单点**：报告自带**四组**封闭词汇——`status`（五值）、漂移条目 `kind`（`undeclaredDependency` / `pathNotFound` / `ambiguousOwner` / `noPath`）、观察项 `kind`（`unfulfilledDeclaration` / `unusedDeclaration`）、**契约判据 `kind`**（`ArchiApiFindingKind` **十三值**，定义与语义见 `desktop-archi-api-check`「契约判据词汇封闭十三值与开放分类」）；每组 SHALL 在报告结构模块单点定义并附 `ALL` 常量，语料对拍断言「新增变体未同步即红」。报告词汇 MUST NOT 复用既有 DTO 词汇：`desktop-archi-model` 的 `DiagnosticKind`（结构诊断九类）与 `EdgeMark` / `NodeMark`（画布标记）语义面各不相同——混用会让「结构错」「漂移违例」两类在类型上不可辨。**`WarningKind`（旧文档警告，单值 `docNotFound`）已随 `docs` 三源退役删除**：入口文档面的读数改由契约判据的 `docMissing` / `docNotFound` / `apiDocMissing` 承载（`category = doc`），MUST NOT 在报告里恢复「文档警告」这一类别。
+- **`version`**：报告结构版本号 SHALL 走显式兼容说明（`version = 1` 无 `apiFindings` 字段；`version = 2` 有该字段但 `status` 推导不读契约判据；`version = 3` 纳管口径进 `status`）。**本变更不递增**：字段面无增删，变的只是判据取值、档位与纳管口径——`version` 仍为 **3**，MUST NOT 因语义收紧而无字段变化地递增（否则消费方按版本分支会读到「形状未变的伪新版本」）。
+- **`apiFindings` 为并列槽位**：契约判据结果 SHALL 落本字段（空数组 = 无契约问题），MUST NOT 与 `errors` / `warnings` / `observations` 混装——三者事实源与定级语义各不相同（模型关系图 / 可解析性与归属 / 设计态陈述 vs 契约文件）。对 `status` 的影响 SHALL 限于**纳管子集**（口径、判据与单点实现归 `desktop-archi-api-check`「报告并列槽位 apiFindings」）——本变更把该子集的口径由「契约在案元素」改写为「**入口文档承诺已成立**」（`api = declared` 且派生契约 md 在盘 / `api = none` 且 `doc` 已声明），并允许子集内 `error` 档条目把结果抬到 `errors`。`docMissing` 永不纳管 ⇒ 存量入口文档债 MUST NOT 把状态词常规化为永久 `warnings`。条目形状 `{ kind, category, element, target, message, occurrences }`：`occurrences` 复用既有聚合形状，`category` 为开放值集字符串（无 `ALL`，渲染层据此分组）。
+- **`passed` 与 `apiFindings` 的关系（本变更改写）**：门禁布尔 `passed` 的判据 SHALL 为 `errors` 空 ∧ `model.structuralErrors` 空 ∧ **`error` 档 `apiFindings` 为空**——原纪律「`apiFindings` MUST NOT 影响 `passed`」**作废**，MUST NOT 在任何 spec / 代码注释里残留（它只在「判据级档位最高到 `warn`」的前提下成立）。
+- **推导序不变**：`skipped` → `errors`（结构错 / `errors[]` 非空 / 纳管子集含 `error` 档）→ `noChanges`（可判文件为 0）→ `warnings`（`warnings[]` 非空 或 纳管子集非空且无 `error` 档）→ `clean`；按此序 `status == errors ⟺ passed == false` SHALL 恒成立（`error` 档判据的触发条件都蕴含纳管成立，故不存在「打断 `passed` 却不进 `status`」的旁路）。
 
 #### Scenario: 五值可辨
 
@@ -253,28 +254,33 @@
 
 #### Scenario: 报告词汇与 DTO 词汇互不混用
 
-- **WHEN** 审查报告 `kind` 词汇与 `desktop-archi-model` 的 `DiagnosticKind` / `WarningKind` / `EdgeMark` / `NodeMark`
-- **THEN** 各词汇组各自单点定义、互不复用；报告结构模块为 `status`、漂移条目、观察项与**契约判据**各持一份 `ALL` 常量（`ArchiCheckStatus` / `ArchiDriftKind` / `ArchiObservationKind` / `ArchiApiFindingKind`），语料对拍覆盖全部取值（新增值未同步即红）
+- **WHEN** 审查报告 `kind` 词汇与 `desktop-archi-model` 的 `DiagnosticKind` / `EdgeMark` / `NodeMark`
+- **THEN** 各词汇组各自单点定义、互不复用；报告结构模块为 `status`、漂移条目、观察项与**契约判据**各持一份 `ALL` 常量（`ArchiCheckStatus` / `ArchiDriftKind` / `ArchiObservationKind` / `ArchiApiFindingKind`），语料对拍覆盖全部取值；`WarningKind` 不在任何一组内（已删除）
 
 #### Scenario: modelHash 随模型变化
 
-- **WHEN** 修改任一 `models/*.toml` 字节后重跑
+- **WHEN** 修改任一 `models/*.toml` 字节后重跑（本变更删 `01-app.toml` 的 `docs` 一行即属此列）
 - **THEN** `modelHash` 变化；未修改模型时两次运行的 `modelHash` 相同
 
 #### Scenario: apiFindings 并列而不混装
 
-- **WHEN** 报告同时含 1 条 `warnings` 与 28 条 `apiFindings`（全部 `apiEntryMissing`，且这些元素的契约文件均不在案）
-- **THEN** `warnings` 仍只 1 条、`status = warnings`（成因是 `warnings` 非空而非契约判据）、`passed` 不受 `apiFindings` 影响；两类条目不互相出现
+- **WHEN** 报告同时含 1 条 `warnings` 与 43 条 `apiFindings`（全部 `docMissing`，且这些元素均未写入口文档）
+- **THEN** `warnings` 仍只 1 条、`status = warnings`（成因是 `warnings` 非空而非契约判据）、`passed` 不受这 43 条影响；两类条目不互相出现
 
-#### Scenario: 契约在案判据把 status 抬到 warnings
+#### Scenario: 入口文档在案的判据按档位抬 status
 
-- **WHEN** 报告 `errors` 为空、`warnings` 为空，且 `apiFindings` 含一条属于契约在案元素的 `apiSignatureMismatch`
-- **THEN** `status = warnings`（纳管子集非空）；该元素契约文件移走后同一场景 `status = clean`；两次 `passed` 均为 `true`
+- **WHEN** 报告 `errors` 为空、`warnings` 为空，`apiFindings` 含一条属于「契约 md 在案」元素的 `apiSignatureMismatch`（`error` 档）
+- **THEN** `status = errors`、`passed = false`；而同元素只含一条 `apiDocMissing`（`warn` 档）时 `status = warnings`、`passed = true`；把该元素的契约 md 移走后两者都退化为 `docMissing` ⇒ `status = clean`、`passed = true`
 
-#### Scenario: 版本递增与旧报告兼容
+#### Scenario: 存量入口文档债不进状态词
 
-- **WHEN** 分别读取 `version = 3` 的新报告、`version = 2` 与 `version = 1` 的历史报告
-- **THEN** `version = 3` 含 `apiFindings` 且 `status` 已含纳管结论；`version = 2` 含该字段但 `status` 不含契约判据的影响；`version = 1` 无该字段；消费方按 `version` 分支，MUST NOT 对旧报告补默认值
+- **WHEN** 报告含 43 条 `docMissing`（本仓第六段读数）、零 `errors`、零 `warnings`
+- **THEN** 纳管子集为空 ⇒ `status = clean`、`passed = true`；MUST NOT 因这 43 条把状态词抬成 `warnings`
+
+#### Scenario: 版本未递增而口径已变
+
+- **WHEN** 分别读取 `version = 3` 的新报告与 `version = 3` 的历史报告
+- **THEN** 两者字段面相同；差异只在 `apiFindings` 的取值 / 档位与 `status` 推导结论（历史报告由旧口径产生，不回写、不重算）；消费方 MUST NOT 期望靠 `version` 区分两种口径——本次口径变化由 `desktop-archi-api-check` 的 spec 与 change 留痕承载
 
 ### Requirement: 架构域看护配置（豁免与扫描排除）
 
@@ -346,6 +352,31 @@
 - **WHEN** 运行语料回归（含未声明依赖三档 / 聚合 occurrences / type-only / 内联与配置豁免 / 解析失败 / 结构错 / 空模型 / 无变更 / 全量与增量一致性）
 - **THEN** 每 case 的报告结构（`status` / 计数 / 关键条目）与其 `expected/<case>.json` 一致；golden 变更经显式重写留痕
 
+### Requirement: 看护与门禁不读 specs（迁移边界）
+
+架构看护（结构校验 / 图诊断）与门禁结论 SHALL NOT 读取 `openspec/specs/`，SHALL NOT 依赖 `spec ↔ element` 映射：
+
+| # | 边界 | 理由 |
+|---|---|---|
+| 1 | 结构校验 / 图诊断不读 `specs` | 否则「模块入口文档替代 `specs`」完成那天，看护逻辑要整体改写 |
+| 2 | 门禁结论（`passed` / `status`）不依赖 `specs ↔ element` 映射 | 该映射将来由「入口文档 ↔ element」承担，不由 `specs` 承担 |
+| 3 | `specs` 不参与扫描语料与判据语料 | 扫描面由 `ExcludeSet` 与源扩展名界定，判据语料只取模型 + 盘上载体 |
+
+- **零读取路径**：产品源码 MUST NOT 出现 `openspec` 路径拼接（路径一律经 `foundation::layout`），看护链 MUST NOT 新增 `specs` 读取、解析或哈希。
+- **零映射预铺**：MUST NOT 引入 `spec ↔ element` 映射、MUST NOT 让 `specs` 参与 `apiFindings` / `errors` / `warnings` 的任一条。
+- **零替代**：本能力 MUST NOT 为 `specs` 提供第四条读取来源以「顺便保住检索」——ADR 与文档面的替代路径见 `desktop-archi-agent`「检索面纪律与迁移边界」。
+- **迁移归独立变更**：「模块入口文档替代 `specs`」的迁移（含 acceptance 可断言结构与归档 `SpecSync` 增量合并语义的对应物缺失问题）需独立变更裁决，本能力零预铺。
+
+#### Scenario: 扫描与判据语料不含 specs
+
+- **WHEN** 以本仓根跑全量检查并审查 `scan.matched` / `scan.unmatchedFiles` / `apiFindings`
+- **THEN** `openspec/` 前缀的条目只出现在 `scan.excluded[]`（`rule = "openspec/**"`，见 `repo-archi-model` 的架构域看护配置）；`apiFindings` 内零条目的成因是 `specs` 内容
+
+#### Scenario: 门禁结论与 specs 无关
+
+- **WHEN** 增 / 删 / 改 `openspec/specs/` 下任意文件后重跑
+- **THEN** `modelHash` / `errors` / `warnings` / `apiFindings` / `status` / `passed` 逐字段不变（除 `timestamp`）
+
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
@@ -357,11 +388,11 @@
 | `crates/core/archi/src/scan/mod.rs` | 扫描编排（零判据改动） | `scan(root, mode, changed, config) -> ScanOutcome`：遍历 + 排除 + 归属 + 逐文件依赖收集；纯读盘、零写盘、零 spawn。两处 `owner_of` 调用点（源文件归属、`target_rel` 目标归属）自动获得并集判据，`gate = off` 分支语义逐字不变；`walk_source_files` / `is_source_file` 提为 `pub(crate)` 供文件树复用 |
 | `crates/core/archi/src/scan/owner_test.rs` | 判据断言面（修正） | 三候选各正例（`crates/infra/archi/src/lib.i.rs` / `views/welcome-view.i.ts` / `components/agent/index.i.ts` / `src/dir.i.ts` 对 `src/dir.ts` 根）；`src/a.ts` 与 `src/a.tsx` 同场 ⇒ `Ambiguous`；白名单外后缀四条反例与 `src/dir.i.ts` 并集定档用例保持绿 |
 | `.dev-team/architecture/config.json`（新增，见 `repo-archi-model`） | 扫描排除配置 | `{ "exclude": ["openspec/**"] }`（不带 `$schema`）；生效后 `openspec/` 下源文件由 `unmatchedFiles[]` 移入 `scan.excluded[]`，判定规则零变化 |
-| `crates/core/archi/src/drift/mod.rs` | 判定单点 + 报告装配单点 | `check(CheckInput) -> Report`：事实 vs 声明对账、三档定级、豁免抑制、`status` 推导；`check()` 内调 `api::check` 装配 `api_findings`（与模型面并列）并经 `api::gating_findings` 取纳管子集参与 `status` 推导（可抬到 `warnings`）；`passed` 派生面 MUST NOT 读 `api_findings`；命令面与门禁面唯一入口 |
-| `crates/core/archi/src/drift/report.rs` | 报告结构与四组词汇单点 | `ArchiDriftReport` 既有 14 字段零改动 + 新增 `api_findings: Vec<ArchiApiFinding>`（线格式 `apiFindings`）；`REPORT_VERSION` 2 → 3（纳管口径入 `status` 推导）；四组 `ALL`（`ArchiCheckStatus` / `ArchiDriftKind` / `ArchiObservationKind` / `ArchiApiFindingKind`）；`ArchiApiFindingKind`（十值 + `ALL` + `as_str` + `severity()`）、`ArchiApiFinding { kind, category, element, target, message, occurrences }`；`serde_json` 序列化 + `ArchiCheckStatus` 五值封闭 |
+| `crates/core/archi/src/drift/mod.rs` | 判定单点 + 报告装配单点 | `check(CheckInput) -> Report`：事实 vs 声明对账、三档定级、豁免抑制、`status` 推导；`check()` 内调 `api::check` 装配 `api_findings`（与模型面并列）并经 `api::gating_findings` 取纳管子集参与 `status` 推导（口径：入口文档承诺已成立；子集内任一 `Error` 档 ⇒ `errors`，否则至少 `warnings`）；`passed` 判据追加「error 档 `apiFindings` 空」；命令面与门禁面唯一入口 |
+| `crates/core/archi/src/drift/report.rs` | 报告结构与四组词汇单点 | `ArchiDriftReport` 既有 14 字段零改动 + 新增 `api_findings: Vec<ArchiApiFinding>`（线格式 `apiFindings`）；`REPORT_VERSION` = 3（1 无字段 / 2 有字段但 `status` 不读判据 / 3 纳管口径入 `status` 推导；本变更不递增）；四组 `ALL`（`ArchiCheckStatus` / `ArchiDriftKind` / `ArchiObservationKind` / `ArchiApiFindingKind`）；`ArchiApiFindingKind`（**十三值** + `ALL` + `as_str` + `severity()`）、`ApiFindingSeverity`（三值 `Off` / `Warn` / `Error`）、`ArchiApiFinding { kind, category, element, target, message, occurrences }`；`serde_json` 序列化 + `ArchiCheckStatus` 五值封闭；`WarningKind` 相关表述删除 |
 | `crates/core/archi/src/drift/config.rs` | 看护配置 | `load_config(root) -> Result<CheckConfig, String>`：读 `<archi_dir>/config.json`（经 `foundation::layout` 派生）；缺失即空；`deny_unknown_fields`；`ignore` 元素对 + reason 必填 + FQN 存在性校验 |
-| `crates/core/archi/src/drift/report_test.rs` | 报告面测试 | `apiFindings` 空 / 非空两态、`version = 3`、纳管子集两条臂（契约在案 ⇒ `warnings` / 不在案 ⇒ 结论不变）、既有 14 字段逐字不变、JSON 往返、稳定序 |
-| `crates/core/archi/tests/corpus/drift/expected/*.json` | 既有金样 | 仅追加 `"apiFindings": []`（其余字节不变）+ 至少一个非空 `apiFindings` 金样；沿 `DESKTOP_GOLDEN_REWRITE=1` 显式重写 |
+| `crates/core/archi/src/drift/report_test.rs` | 报告面测试 | `apiFindings` 空 / 非空两态、`version = 3`、纳管子集三条臂（契约在案 `error` 档 ⇒ `errors` / 契约在案 `warn` 档 ⇒ `warnings` / 承诺未成立 ⇒ 结论不变）、既有 14 字段逐字不变、JSON 往返、稳定序 |
+| `crates/core/archi/tests/corpus/drift/expected/*.json` | 既有金样 | 十六份随「首错短路 + 纳管分档」显式重录并逐份留痕成因；`api-mismatch` case 保持非空 `apiFindings`；沿 `DESKTOP_GOLDEN_REWRITE=1` 显式重写 |
 | `crates/core/archi/Cargo.toml` | 依赖扩展 | 新增外部依赖 `oxc_parser` / `oxc_allocator` / `oxc_resolver` / `syn`（+ `globset` 提为直接依赖）；仍零 Tauri / 零 store / 零 spawn / 零 `workflow` / 零 `config` 依赖 |
 | `src-tauri/src/commands/archi/mod.rs`（`archi_drift`） | 命令面薄包装 | `archi_drift(root: String, mode: ArchiDriftMode) -> Result<ArchiDriftReport, String>`（`ArchiDriftMode` = `full` \| `incremental`，serde 小写词、specta `Type` 出线）：增量模式经 vcs 缝取 `change_edit_set(root, "HEAD")` 后调判定纯函数；全量模式直接调；命令层零判定规则 |
 | `crates/core/archi/tests/` | 语料与预算 | `corpus/<case>/` + `expected/<case>.json` + `golden_test.rs` + Rust 模块树语料集 + `perf.rs`（release p95）；`tests/README.md` 记实测表 |
@@ -370,9 +401,9 @@
 
 | 项 | 变化 | 描述 |
 |---|---|---|
-| `REPORT_VERSION` | 2 → 3 | 兼容说明三点（1 无字段 / 2 有字段但 `status` 不读判据 / 3 纳管进 `status`） |
-| `derive_status` | 改 | 新增纳管子集入参；`warnings` 分支扩一个「或」条件；其余四值序与 `passed` 派生面零改动 |
-| `drift::check` | 改 | `api_findings` 与纳管子集各自装配；报告字段 / 排序 / 语料面零改动 |
+| `REPORT_VERSION` | 保持 3 | 本变更不递增：字段面无增删，变的只是判据取值 / 档位 / 纳管口径；兼容说明三点（1 无字段 / 2 有字段但 `status` 不读判据 / 3 纳管进 `status`）逐字保留 |
+| `derive_status` | 改 | 纳管子集入参保留；新增 `errors` 分支（子集含 `error` 档）；`warnings` 分支收为「子集非空且无 `error` 档」；`passed` 派生面追加「error 档 `apiFindings` 空」；其余四值序不变 |
+| `drift::check` | 改 | `api_findings` 与纳管子集各自装配，子集口径换为「入口文档承诺已成立」；报告字段 / 排序 / 语料面零改动 |
 | 扫描 / 归属 / 定级 / 豁免 / 配置 / 单源 / 预算 | 零改动 | 七条既有 requirement 逐字不变 |
 
 ### CLI / 语料
@@ -381,3 +412,15 @@
 |---|---|---|
 | `tests/corpus/drift/expected/*.json` | 16 份重写 | `version` 2 → 3；`api-mismatch.full.json` 的 `status` 由 `clean` 变 `warnings`（契约在案判据纳管），其余 15 份除 `version` 外逐字不变 |
 | `tests/corpus/drift/api-mismatch/models/01-app.toml` | 注释随动 | 文件头「契约面 MUST NOT 进 `status` 推导 …… `status = clean`」改为纳管口径（`status = warnings`） |
+
+### 模块增量：纳管口径换面（module-doc-field-docs-retirement）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约 |
+|------|------|------|
+| `crates/core/archi/src/drift/report.rs` | 报告结构与词汇 | `ArchiApiFindingKind` **十三值** + `ALL` + `as_str` + `severity()`（三值档位）；`ArchiDriftReport.api_findings`；`REPORT_VERSION = 3` 不递增；`WarningKind` 相关表述删除 |
+| `crates/core/archi/src/drift/mod.rs` | 状态推导 | `check()` 装配 `api_findings` 并取纳管子集；`derive_status` 增加 `errors` 分支（纳管子集含 `error` 档）；`warnings` 分支条件调整为「纳管子集非空且无 `error` 档」；`passed` 判据追加「error 档 `apiFindings` 空」 |
+| `crates/infra/archi/src/runner.rs`（`LocalArchiCheck`） | 门禁执行体 | 结论只取报告既有字段；`passed` 的口径变化经 `drift::check` 单点传导，执行体 MUST NOT 自行改写（本文件零逻辑改动，只随同源语义变化） |
+| `crates/core/archi/src/drift/config.rs` | 看护配置 | 零改动：`ignore` / `exclude` 两键封闭 + `deny_unknown_fields`；求值顺序写死在 `check.rs`，MUST NOT 引入配置键 |
+| `crates/core/archi/tests/golden_test.rs` + `corpus/drift/**` | 报告面语料 | 十六份金样随「首错短路 + 纳管分档」显式重录并逐份留痕成因；`DESKTOP_GOLDEN_REWRITE=1` 显式重写 |

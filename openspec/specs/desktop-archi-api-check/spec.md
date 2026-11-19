@@ -2,146 +2,216 @@
 
 ## Purpose
 
-定义契约判据面：`ArchiApiFindingKind` 十值封闭词汇与开放 `category`、十条判据的定义与互斥求值顺序、判据级档位与元素 `gate` 解耦、报告并列槽位 `apiFindings`（契约在案元素的判据进 `status`、不进 `passed`），以及判据的验证语料与报告数基线。
+定义契约判据面：`ArchiApiFindingKind` 十三值封闭词汇与开放 `category`（七值含 `doc`）、按 `api` 状态分两支的十三判据首错求值顺序、判据级三值档位与元素 `gate` 解耦、报告并列槽位 `apiFindings`（入口文档承诺已成立元素的判据进 `status`，其中 `error` 档进 `passed`），以及判据的验证语料与报告数基线（第六段 `0 / 43`）。
 
 ## Requirements
 
-### Requirement: 契约判据词汇封闭十值与开放分类
+### Requirement: 契约判据词汇封闭十三值与开放分类
 
-契约判据 SHALL 归入**新平行封闭枚举** `ArchiApiFindingKind`（十值，线格式 camelCase），MUST NOT 并入既有 `ArchiDriftKind`（四值）：
+契约判据 SHALL 归入**新平行封闭枚举** `ArchiApiFindingKind`（**十三值**，线格式 camelCase），MUST NOT 并入既有 `ArchiDriftKind`（四值）：
 
 | 枚举值 | 线格式词 | 语义 |
 |---|---|---|
 | `ApiEntryMissing` | `apiEntryMissing` | **该元素没有可用入口**：无候选（未声明 `entry` 且无语言约定默认）**或**候选被判不可用（形态非法 / 落在元素 `path` 之外 / 文件不在盘上 / 与另一元素同一入口）。解析链与四条判据见 `desktop-archi-api`「生成物落点与入口查找」 |
-| `ApiMissing` | `apiMissing` | 契约 → 代码缺失：`api = declared` 而契约文件缺失，或契约声明的 op / 类型在代码里不存在。两类缺口 SHALL 用**同一条判据、同一次求值**（存在性判定，签名归 `apiSignatureMismatch`）；共同的排除面三条 = 构造器双向排除 / 透传纯 `$ref` alias 排除 / `x-class` 与 `enum` 计入类型面；结构前提 SHALL 含 `#[path = "..."] mod` 的模块定位与 `pub use <mod>::*` 的通配升格，缺任一条则本判据在自有生成物的元素上恒假阳 |
+| `ApiMissing` | `apiMissing` | **有约定无兑现**（**语义已收窄**）：契约声明的 op / 类型在代码里不存在。原「`api = declared` 而契约文件缺失」形态**已改名** `docMissing`（同一事实不占两个名字） |
 | `ApiUndeclared` | `apiUndeclared` | 代码有 `external` 面但契约未声明（**唯一完备性判据**） |
 | `ApiSignatureMismatch` | `apiSignatureMismatch` | 契约签名与代码签名（归一后）不一致 |
-| `ApiUnexpected` | `apiUnexpected` | 留白与其反面矛盾：`api = none` 而契约文件存在 |
+| `ApiUnexpected` | `apiUnexpected` | 两事实矛盾。两形态：① `api = none` 而派生契约路径上存在契约文件；② `api = declared` 而元素写了 `doc`（入口文档由派生落点给出，`doc` 是第二个事实） |
 | `ApiShadowing` | `apiShadowing` | 父 `$defs` 与子元素 `$defs` 类型名交集非空 |
 | `ApiRefMissing` | `apiRefMissing` | 跨模块 `$ref` 目标缺失 / 未 `declared` / 非直接子元素 |
 | `ApiNestedCrossCrate` | `apiNestedCrossCrate` | 嵌套元素父子分属不同 crate |
 | `ApiReexportDrift` | `apiReexportDrift` | markdown 散文列表与 `api-reexport` fence 键集不等 |
 | `ApiConstructorDeclared` | `apiConstructorDeclared` | 契约 `### 操作` 声明了构造器（应由生成器产出） |
+| `DocMissing` | `docMissing` | **入口文档未就位**（统一两种成因）：`api = declared` 而派生契约 md 不在盘 / `api = none` 而 `doc` 未声明 |
+| `DocNotFound` | `docNotFound` | **声明指不到**（仅声明类有此形态）：`api = none` 元素的 `doc` 指向不存在的文件。**名字复用而非能力延续**——退役的 `WarningKind::DocNotFound` 读 `docs` 数组、只报不拦；本值读 `doc` 单值、`error` 档、纳管 `status` |
+| `ApiDocMissing` | `apiDocMissing` | **有文档无约定**：`api = declared` 的派生契约 md 在盘，但正文无 api fence 语言标（契约尚未展开） |
 
-- **`apiEntryMissing` 的四种不可用理由 SHALL 挤进同一个值**：入口的形态 / 落位 / 存在 / 跨元素唯一四条判据的违反一律报本值，文案 SHALL 点名具体理由（越界目标 / 缺失文件 / 冲突方 FQN / 形态非法），MUST NOT 只写通用「无入口」。**MUST NOT 新增第 11 个值**（如 `apiEntryInvalid`）：四条判据与本值同族同档同 `category = entry`，新增变体会牵动 `ALL` 长度、四面词汇对拍与金样，收益不足；「无可用入口」这一措辞本身已覆盖四种成因。
+- **`apiEntryMissing` 的四种不可用理由 SHALL 挤进同一个值**：入口的形态 / 落位 / 存在 / 跨元素唯一四条判据的违反一律报本值，文案 SHALL 点名具体理由（越界目标 / 缺失文件 / 冲突方 FQN / 形态非法），MUST NOT 只写通用「无入口」。**MUST NOT 新增第 14 个值**（如 `apiEntryInvalid`）：四条判据与本值同族同档同 `category = entry`，新增变体会牵动 `ALL` 长度、四面词汇对拍与金样，收益不足；「无可用入口」这一措辞本身已覆盖四种成因。
+- **三值各只有一种成因**：`docMissing` = 「还没写」，`docNotFound` = 「声明写错」，`apiDocMissing` = 「承诺未展开」——同一个值 MUST NOT 承载两种缺口（这正是 `apiMissing` 拆分的理由）。
 - **`.i` 生成物的存在 MUST NOT 作为入口的替代证据**（旧口径「既无生成物也无入口」的两条件判定已退役）：生成物路径是入口的函数，无入口即无生成物路径可派生。
-- **`api = none` 不豁免本值**：「无入口」与「无公共 API」是两个不同事实（前者是缺门、后者是明说无 API），故 `api = none` 的元素照常可报 `apiEntryMissing`。
+- **`api = none` 元素退出入口判据**（本变更的语义变化，显式留痕）：入口解析的消费者是「契约面的代码取数」（`element_symbols` 需 `entry_state = Resolved`），而 `api = none` 元素的契约面整体不参与；故 `api = none` 的求值链只有 `apiUnexpected` / `docMissing` / `docNotFound` 三步，**MUST NOT** 再报 `apiEntryMissing`。原「`api = none` 不豁免本值」一句随之作废。
 - **分立的理由**：`ArchiDriftKind` 是「模型 vs 代码」的漂移，本枚举是「契约 vs 代码」的漂移——事实源不同（relation 图 vs 契约文件）、定级语义不同（元素 `gate` vs 判据自带 `severity()`）、扩展节奏不同。并入会让既有 `match` 臂被迫处理不相关变体，并牵动既有 corpus 金样与前端 `driftMarks`。
-- **`ALL` 与 `as_str` 双向对拍**：`ArchiApiFindingKind::ALL: [Self; 10]` SHALL 与 `as_str` 逐值对拍；新增变体未补入 `ALL`（长度断言）即测试红。
-- **`category` SHALL 为开放值集字符串**（MUST NOT 设枚举、MUST NOT 设 `ALL`）：用于报告渲染分组；新增分类只改打标处，不动枚举、不动 `ALL`、不动金样词汇对拍。初始取值集 SHALL 为 `entry`（`apiEntryMissing` / `apiUnexpected`）/ `contract`（`apiMissing` / `apiUndeclared`）/ `signature`（`apiSignatureMismatch`）/ `reexport`（`apiReexportDrift` / `apiShadowing` / `apiRefMissing`）/ `nesting`（`apiNestedCrossCrate`）/ `constructor`（`apiConstructorDeclared`）；拼错的防护靠「单点打标 + 契约测试覆盖已知分类」，MUST NOT 靠类型系统。
+- **`ALL` 与 `as_str` / `severity` 三方对拍**：`ArchiApiFindingKind::ALL: [Self; 13]` SHALL 与 `as_str` 逐值对拍、与 `severity()` 的取值面逐值对拍；新增变体未补入 `ALL`（长度断言）即测试红。
+- **`category` SHALL 为开放值集字符串**（MUST NOT 设枚举、MUST NOT 设 `ALL`）：用于报告渲染分组；新增分类只改打标处，不动枚举、不动 `ALL`、不动金样词汇对拍。初始取值集 SHALL 为 **七值**——`entry`（`apiEntryMissing` / `apiUnexpected`）/ `contract`（`apiMissing` / `apiUndeclared`）/ `signature`（`apiSignatureMismatch`）/ `reexport`（`apiReexportDrift` / `apiShadowing` / `apiRefMissing`）/ `nesting`（`apiNestedCrossCrate`）/ `constructor`（`apiConstructorDeclared`）/ **`doc`（`docMissing` / `docNotFound` / `apiDocMissing`）**；拼错的防护靠「单点打标 + 契约测试覆盖已知分类」，MUST NOT 靠类型系统。
 - **条目形状**：`ArchiApiFinding { kind, category, element: Option<String>, target: Option<String>, message: String, occurrences: Vec<ArchiDriftOccurrence> }`——`element` 对应既有条目的「引入方」语义、`target` 对应「被引入方」语义，`occurrences` SHALL 复用既有 `ArchiDriftOccurrence` 形状（不另立第二份命中点类型）。
 
-#### Scenario: 十值词汇双向对拍
+#### Scenario: 十三值词汇三方对拍
 
-- **WHEN** 遍历 `ArchiApiFindingKind::ALL` 与 `as_str`
-- **THEN** 十项一一对应、线格式词唯一且与语料词一致；从 `ALL` 删掉一项或新增变体未补 `ALL` 时测试红；入口四条判据的违反不新增第 11 值（`ALL` 长度仍为 10）
+- **WHEN** 遍历 `ArchiApiFindingKind::ALL`、`as_str` 与 `severity()`
+- **THEN** 十三项一一对应、线格式词唯一且与语料词一致；从 `ALL` 删掉一项、新增变体未补 `ALL`、或 `severity()` 漏一个变体时测试红；入口四条判据的违反不新增第 14 值（`ALL` 长度仍为 13）
+
+#### Scenario: category 七值含 doc
+
+- **WHEN** 遍历十三个判据值并取 `category_of`
+- **THEN** 三个新值（`docMissing` / `docNotFound` / `apiDocMissing`）一律落 `doc`；`apiUnexpected` 仍落 `entry`；七值为 `entry` / `contract` / `signature` / `reexport` / `nesting` / `constructor` / `doc`，无第八值、无空串
 
 #### Scenario: 与既有漂移词汇互不混用
 
 - **WHEN** 审查 `ArchiApiFindingKind` 与 `ArchiDriftKind` / `ArchiCheckStatus` / `ArchiObservationKind` 的定义与 `match` 使用点
-- **THEN** 四组词汇各自单点定义、互不复用；`ArchiDriftKind` 的 `ALL` 仍为四值、`match` 臂零改动
+- **THEN** 四组词汇各自单点定义、互不复用；`ArchiDriftKind` 的 `ALL` 仍为四值、`match` 臂零改动；`WarningKind`（旧文档警告单值）已随 `docs` 三源退役而删除，MUST NOT 以「词汇组」身份出现
+
+#### Scenario: 名字复用不等于能力延续
+
+- **WHEN** 对比退役的 `WarningKind::DocNotFound` 与新的 `ArchiApiFindingKind::DocNotFound`
+- **THEN** 前者读 `docs` 数组、只报不拦、不进 `status`（已删除）；后者读 `doc` 单值、`error` 档、纳管 `status`、参与 `passed`——spec 与代码注释 SHALL 写明「名字复用」，MUST NOT 写成「语义未变」
 
 #### Scenario: 新分类不改枚举
 
-- **WHEN** 给 `apiUnexpected` 换一个 `category` 值（如新增 `config` 分类）
+- **WHEN** 给某值换一个 `category` 值（如把 `docNotFound` 归 `entry`）
 - **THEN** 只改打标处，枚举、`ALL`、词汇对拍与金样零改动；渲染层按新分组聚合
+
+#### Scenario: api = none 元素不再报入口缺失
+
+- **WHEN** 构造一个 `api = none` 且无可用入口（无 `entry`、目录型根无 `index.ts(x)`）的元素
+- **THEN** 该元素零 `apiEntryMissing`；若其 `doc` 未声明则仅一条 `docMissing`；若 `doc` 指向不存在文件则仅一条 `docNotFound`
 
 #### Scenario: 四种入口不可用理由各报一条且指名理由
 
-- **WHEN** 分别构造入口形态非法、落在元素 `path` 之外、文件不在盘上、与另一元素同一入口四个元素
-- **THEN** 四者各产一条 `apiEntryMissing`（`category = entry`、`warn`），文案分别点名「形态非法」「越界目标」「缺失文件」「冲突方 FQN」；`api = none` 的元素也不因留白被豁免
+- **WHEN** 分别构造入口形态非法、落在元素 `path` 之外、文件不在盘上、与另一元素同一入口四个 `api = declared` 元素
+- **THEN** 四者各产一条 `apiEntryMissing`（`category = entry`、`warn`），文案分别点名「形态非法」「越界目标」「缺失文件」「冲突方 FQN」
 
-### Requirement: 十条判据的定义与求值互斥顺序
+### Requirement: 十三判据的定义与求值互斥顺序
 
-检查 SHALL 对每个 **`path` 非空**的元素求值十条判据（容器元素 `path` 恒空即天然无契约；持 barrel 的目录型 `module` `App.Frontend.Components.Agent` 有 `path`，故纳入——判据只读 `path` 是否非空，不读 `kind`），求值顺序 SHALL 固定且**互斥**：
+检查 SHALL 对每个 **`path` 非空**的元素求值，求值顺序 SHALL 固定、**按 `api` 状态分成两条互斥支链**，每支内部**首错短路**（一个元素锚点命中第一条即 `break`，不再求后续判据）：
 
+```text
+api = none 支（3 步；不依赖入口）
+  ① apiUnexpected   派生契约路径在盘 ⇒ 留白被违反（与 doc 无关，必须先判）
+  ② docMissing      `doc` 未声明（无入口文档）
+  ③ docNotFound     `doc` 声明在案但指不到盘
+
+api = declared 支（6 步）
+  ④ docMissing      派生契约 md 不在盘（原 apiMissing 形态①，改名不改事实）
+  ⑤ apiDocMissing   契约 md 在盘但正文无 api fence 语言标
+  ⑥ apiUnexpected   元素写了 `doc`（入口文档已由派生落点给出 ⇒ 两事实矛盾）
+  ⑦ apiEntryMissing entry_state = Absent / Invalid（code 面的结构前提）
+  ⑧ apiMissing      契约声明 op / `$defs` 类型而代码导出集里没有
+  ⑨ 一致性判据      apiSignatureMismatch / apiReexportDrift / apiConstructorDeclared
+
+pair 锚点（不进元素循环，与元素锚点并列、互不挤占）
+  ⓐ apiNestedCrossCrate → ⓑ apiRefMissing → ⓒ apiShadowing
 ```
-① apiEntryMissing（结构前提：该元素是否解析出可用入口）
-   └─ 命中 → 该元素不再求 ② ③ ④（结构上不可判），仅继续求 ⑤
-② apiMissing        契约 → 代码（含「declared 但契约文件缺失」与「契约声明的 op / 类型在代码里没有」）
-③ apiUndeclared     代码导出集 → 契约声明集（档位 off，见下条 requirement）
-④ apiSignatureMismatch  双向（契约签名与代码签名归一后比对）
-⑤ apiUnexpected     留白 ↔ 契约文件存在性（与 ① 独立）
-嵌套与透传面（独立于上述，逐元素求值）：
-⑥ apiShadowing / ⑦ apiRefMissing / ⑧ apiNestedCrossCrate / ⑨ apiReexportDrift / ⑩ apiConstructorDeclared
-```
 
-- **① 的判定 SHALL 单点取自 `paths::entry_state`**：`Resolved` ⇒ 继续 ②③④；`Absent`（无候选 / 约定默认全不落盘）与 `Invalid(<problem>)`（形态 / 落位 / 存在 / 唯一任一违反）⇒ 一条 `apiEntryMissing`。判据面 MUST NOT 自行判文件存在性、MUST NOT 保留第二份入口探测（旧 `has_generated` 双条件判定已随落点变更退役）。
+- **分界不是排版而是依赖**：①–⑥ 只读模型 + 盘（`element.doc` 存活性、`contract_path` 存活性、fence 有无），**零导出集依赖**；⑦ 起经 `element_symbols` 需 `entry_state = Resolved`——入口非 `Resolved` 时导出集为空，`apiMissing` / `apiUndeclared` / `apiSignatureMismatch` 全部无对象可判，故 ⑦ 短路 code 面不是抢名额，是 code 面无对象。
+- **两支互斥，跨支不比较**（同一元素只走一支）；支内序号即求值序，**顺序写死在 `check.rs` 函数体**，MUST NOT 由配置驱动（`drift/config.rs` 保持 `ignore` / `exclude` 两键封闭 + `deny_unknown_fields`，MUST NOT 引入配置键、MUST NOT 留空壳键或 TODO）。
+- **`api = none` 支把 `apiUnexpected` 排第一的理由**：该判据与 `doc` 无关（判的是「派生路径上冒出了契约」），而 `docMissing` 是 `warn` 且不纳管——若让 `docMissing` 先短路，一条 `api = none` 的元素只要没写 README，就能把它那份放错位置的契约遮住。
+- **首错短路的合法性依据**：①–⑥ 命中后，⑦–⑨ 的对象（`fence` / fence 声明的 op）尚不存在；故短路的不是真问题而是**尚不存在的对象**。
 - **互斥的理由**：`apiEntryMissing` 比 `apiMissing` 更基础——**在契约生成之前就失效**。若两条判据对同一元素同时报，报告数无法单调对拍（消一条减一），且反馈会把 executor 引向「去写代码实现一个不存在的模块入口」。
+- **⑦ 的判定 SHALL 单点取自 `paths::entry_state`**：`Resolved` ⇒ 继续 ⑧⑨；`Absent`（无候选 / 约定默认全不落盘）与 `Invalid(<problem>)`（形态 / 落位 / 存在 / 唯一任一违反）⇒ 一条 `apiEntryMissing`。判据面 MUST NOT 自行判文件存在性、MUST NOT 保留第二份入口探测（旧 `has_generated` 双条件判定已随落点变更退役）。
+- **pair 锚点的形状**：三条跨元素判据 SHALL 产出 `(element, target)` 对，稳定排序键 `(kind, element, target)` 与之逐字一致。pair 锚点 MUST NOT 引用 `Model.relations`——父子在模型里没有边（层级由 FQN 最长前缀推导，`[[relation]]` 只承载依赖），`$ref` 目标可能根本不在模型内（写成 relation 会被 `graph.rs` 的 `unknownReference` / `dependsOnAncestor` 先判结构错）。pair 内序的理由：nested 是结构前提（跨包不可表达）→ ref 是目标可达性（够不够得着）→ shadowing 是命名冲突（够着了但重名）。
 - **`apiMissing` 的声明集 / 导出集口径**：声明集 = 契约 `### 操作` 的 id 集（**构造器双向都不参与比对**——既不在契约声明集，也不计入导出集）；导出集 = 元素的 `external` 代码导出（Rust 经 `pub mod` 链或 `pub use` 白名单可达的 `pub fn`；TS 经**入口导出闭包**可达的导出——入口自身声明 + 沿 `export … from` 递归并入且目标归属在本元素 FQN 子树内的导出，定义见 `desktop-archi-api`「TS 导出闭包的取数面」，本能力 MUST NOT 另立第二份 TS 导出集口径）。签名比对 SHALL 在**归一后**进行（AST 归一单行、参数名与空白不参与）。
-- **`apiUndeclared` 只读 `<FQN>.schema.json` 的 `$defs` 键集**，MUST NOT 并读 markdown。安全性由前序门禁保证：`$defs` 键集 = `api-types` ∪ `api-reexport`，而 `apiReexportDrift` 保证 fence 与散文一致、零 diff 门保证 schema 零手改自由度。
-- **`apiUnexpected` 单向**：只判「`api = none` 而契约文件存在」（多出来的契约）。反方向（`api = declared` 而契约文件缺失）归 `apiMissing` —— 两条判据 MUST NOT 对同一事实双报，否则报告数无法单调对拍。
-- **`apiMissing` 覆盖契约 → 代码的两类缺口**：① 元素 `api = declared` 而其契约文件不存在；② 契约文件在、但其声明的 op / `$defs` 类型在代码导出集里不存在。① 是迁移期主形态（绝大多数元素尚无契约），② 是契约与代码的真实漂移。两类缺口 SHALL 用**同一条判据、同一次求值**（存在性判定，签名归 `apiSignatureMismatch`）；共同的排除面三条 = 构造器双向排除 / 透传纯 `$ref` alias 排除 / `x-class` 与 `enum` 计入类型面；结构前提 SHALL 含 `#[path = "..."] mod` 的模块定位与 `pub use <mod>::*` 的通配升格，缺任一条则本判据在自有生成物的元素上恒假阳。
+- **`apiUndeclared` 只读 `<FQN>.schema.json` 的 `$defs` 键集**，MUST NOT 并读 markdown；其**声明集前提**依赖 fence 存在（未过 ④ ⑤ 的元素没有声明集可对拍，故档位虽 `off`、语义上也无对象）。安全性由前序门禁保证：`$defs` 键集 = `api-types` ∪ `api-reexport`，而 `apiReexportDrift` 保证 fence 与散文一致、零 diff 门保证 schema 零手改自由度。
+- **`apiDocMissing` 的判定口径必须廉价**：判据只需要**一个布尔**（契约正文有无 api fence），故 MUST NOT 接 `contract::parse`（那会连带 `schema::build_schema` + `contract::verify` + `schema::verify_defs`，且坏契约走 `Err` 而非判据，语义错位）。事实由 **load 阶段一次性装配**进 `ApiCheckInput.doc_facts: BTreeMap<Fqn, DocFact>`（`Absent` / `Missing` / `Present { has_api_fence }`），`check` 侧保持「纯读 `input`（零读盘、零写盘、零 spawn）」边界。fence 语言标 SHALL 单点复用 `contract::FENCE_OP` / `FENCE_TYPES`（本变更提升可见性），**MUST NOT 抄第二份字面量、MUST NOT 在检查侧补写半个 markdown 解析器**。已知精度上限（可接受）：只判「有无 fence 语言标」，不判 fence 是否合法 / `### <op-id>` 是否齐 / `api-types` 是否重复——那些是 `contract::parse` 的 `Err` 面（既有诊断），不归本判据。
+- **`apiUnexpected` 双形态各自单向**：① 只判 `api = none` 而派生契约路径存在；② 只判 `api = declared` 而 `doc` 被写了。反方向（`api = declared` 而契约缺失）归 `docMissing`——两条判据 MUST NOT 对同一事实双报，否则报告数无法单调对拍。
+- **`apiMissing` 只剩形态②（本变更收窄）**：契约在、但其声明的 op / `$defs` 类型在代码导出集里不存在；形态①（`api = declared` 而契约文件缺失）**已改名** `docMissing`（同一事实不占两个名字，见上条 requirement 的词汇表）；共同的排除面三条 = 构造器双向排除 / 透传纯 `$ref` alias 排除 / `x-class` 与 `enum` 计入类型面；结构前提 SHALL 含 `#[path = "..."] mod` 的模块定位与 `pub use <mod>::*` 的通配升格，缺任一条则本判据在自有生成物的元素上恒假阳。
 - **`apiMissing` 天然支持渐进**：契约里只写已确定的 op 即可，未写的 op 归 `apiUndeclared`（关档），不落在 `apiMissing`。
 - **`apiConstructorDeclared` 是「契约自身矛盾」的判据**（合法新增判据的范围）：构造器由生成器自动产出，写进契约必然导致 `apiMissing` 误报——试点纸面验证已实测该误报。
 - **`apiRefMissing` 的悬空引用在 schema 层由外部校验器编译期捕获**（ajv 对 schema 层的 `$ref` 报 `can't resolve reference`），但 `x-function` 内的 `$ref` **不被解析**（`x-function` 是未知关键字，校验器不下沉）——故函数签名里的跨模块引用只能由本判据与生成器保证。该边界 SHALL 在信心中如实体现：`schema.json` 的定位是「类型层的可校验投影」。
-- **零第二份判定**：十条判据 SHALL 只有一处实现（`crates/core/archi/src/api/check.rs`），命令面与门禁面 MUST NOT 各写一份。
-- **契约面启用条件（冷启动纪律）**：`<archi_models_dir>` 缺席或其中**递归**零份 `*.md` ⇒ 契约面判为**未启用**，`apiFindings` SHALL 为空数组且不产出任何一条契约判据。被监测的目录是本变更的换根点（原 `<archi_api_dir>` 已退役），**判据形态零变化**：仍是「递归含 ≥1 份 `*.md`」，`api::enabled` 单点判定。**模型文件 MUST NOT 构成启用证据**：`models/` 已同时住模型与契约资产，故一级 `NN-<域>.toml` 的在场不等于契约面启用——「有模型、零契约 md」必须是 `enabled = false`。理由与「无模型即 `skipped`」同款：迁移期仓库与全部既有漂移语料都没有契约资产，若把「`api = declared` 缺契约文件」在此刻全量展开，既有语料的 `apiFindings: []` 与「金样仅追加空槽位」的兼容承诺同时失效。MUST NOT 把该条件做成逃生口：目录一旦存在且含契约 md（在案，试点契约在内），**全部 `path` 非空元素**（本仓 44 个）重新纳入判据，`declared` 缺文件即 `apiMissing` / 无入口即 `apiEntryMissing`——不存在「部分元素豁免」的中间态，也不设白名单或开关。
+- **零第二份判定**：十三条判据 SHALL 只有一处实现（`crates/core/archi/src/api/check.rs`），命令面与门禁面 MUST NOT 各写一份。
+- **契约面启用条件（冷启动纪律，本变更收紧）**：`api::enabled` 的判据 SHALL 为「**存在任一 `path` 非空元素的入口文档载体在盘且正文含 api fence 语言标**」——即 `doc_facts` 中至少一个 `Present { has_api_fence: true }`，与判据面同源。判据 MUST NOT 退化为「`<archi_models_dir>` 递归任意 `*.md`」：`models/` 里放一份笔记 / 一份非载体 md MUST NOT 误判为启用（E-1 的 `enabled` 判据形态在此收紧，属行为变化）。启用后**全部 `path` 非空元素**（本仓 44 个）纳入判据，不存在「部分元素豁免」的中间态，也不设白名单或开关。
 
-#### Scenario: entry 优先互斥
+#### Scenario: declared 支首错短路
 
-- **WHEN** 某元素既无可用入口（`Absent`，或候选被判 `Invalid`）、`api = declared` 且其契约声明了 2 个 op
-- **THEN** 只报一条 `apiEntryMissing`；同元素不出现 `apiMissing` / `apiUndeclared` / `apiSignatureMismatch`（含「契约文件缺失」这一 `apiMissing` 形态）；`apiUnexpected` 仍可独立报
+- **WHEN** 某 `api = declared` 元素的派生契约 md 不在盘
+- **THEN** 只报一条 `docMissing`；同元素不出现 `apiDocMissing` / `apiUnexpected` / `apiEntryMissing` / `apiMissing` / `apiSignatureMismatch`（对象不存在，短路的不是真问题）
+
+#### Scenario: none 支三步与 apiUnexpected 前置
+
+- **WHEN** 构造三个 `api = none` 元素：一为派生契约路径有契约文件且 `doc` 未声明；一为派生路径干净且 `doc` 未声明；一为派生路径干净、`doc` 指向不存在文件
+- **THEN** 三者分别恰报 `apiUnexpected`（且 MUST NOT 同时报 `docMissing`） / `docMissing` / `docNotFound`；三者均零 `apiEntryMissing`
+
+#### Scenario: 有文档无约定是诚实的中间态
+
+- **WHEN** `api = declared` 元素的派生契约 md 在盘但正文无 `api-op` / `api-types` fence
+- **THEN** 只报一条 `apiDocMissing`（`category = doc`、`warn`、纳管 `status`）；同一元素不再报 `apiMissing`（无声明集可对拍）；该元素 `status` 至少 `warnings`
 
 #### Scenario: 契约声明 op 而代码无
 
-- **WHEN** 元素入口存在、契约声明 `parse` 与 `all_conclusions` 两个 op，代码只有 `parse`
-- **THEN** 报一条 `apiMissing`，点名 `all_conclusions`；`apiUndeclared`（`off`）不产出条目
+- **WHEN** 元素契约在案且有 fence、入口存在，契约声明 `parse` 与 `all_conclusions` 两个 op，代码只有 `parse`
+- **THEN** 报一条 `apiMissing`，点名 `all_conclusions`；`apiUndeclared`（`off`）不产出条目；同元素不再出第二条判据（首错）
 
-#### Scenario: TS 导出集取闭包且判据语义不变
+#### Scenario: declared 写了 doc 即报矛盾
 
-- **WHEN** 某 TS 元素的入口是纯 re-export barrel（7 个导出名全部经 `export … from` 从本元素子树内的文件汇入），契约声明了其中 2 个 op 与 2 个类型
-- **THEN** ② `apiMissing` 对这 4 个声明零命中（导出集含闭包内符号），`apiUndeclared` 仍 `off` ⇒ 闭包扩容不产出任何新条目，④ 仍逐符号比对归一签名；判据种类（十值）、互斥求值序、判据级档位与报告形状逐字不变——**导出集变宽只可能减少 `apiMissing`，MUST NOT 出现「闭包扩张导致新增 finding」的路径**
+- **WHEN** 某 `api = declared`（或省略 `api`）元素的模型里写了 `doc = "./README.md"`，且其派生契约 md 在盘含 fence、入口可解析、契约与代码一致
+- **THEN** 只报一条 `apiUnexpected`（文案指明「入口文档由派生落点给出，`doc` 是第二个事实」）；该值 MUST NOT 参与任何其它判定
 
 #### Scenario: 签名归一后比对
 
 - **WHEN** 契约声明 `parse_cargo_test(input: string) -> SummaryReport`，代码把签名排成多行且参数名不同但类型序列相同
 - **THEN** 归一后判定一致、零 `apiSignatureMismatch`；把返回类型改为 `Vec<SummaryReport>` 时报一条 `apiSignatureMismatch` 并给出两侧归一签名
 
-#### Scenario: 留白与缺文件各归一条判据
-
-- **WHEN** 分别构造「`api = none` 但契约文件存在」与「`api = declared` 但契约文件缺失」
-- **THEN** 前者报 `apiUnexpected`（文案指明多出的契约文件路径）；后者报 `apiMissing`（文案指明缺失的契约文件路径）；同一元素 MUST NOT 同时出两条
-
 #### Scenario: 构造器声明即契约自身矛盾
 
 - **WHEN** 契约声明 `### new` 而代码的 `new()` 由生成器产出
-- **THEN** 报一条 `apiConstructorDeclared` 且**不**同时报 `apiMissing`（构造器不进声明集比对）
+- **THEN** 报一条 `apiConstructorDeclared`，**不**同时报 `apiMissing`（构造器不进声明集比对）
+
+#### Scenario: pair 锚点不引用 relations
+
+- **WHEN** 构造「父 `$defs` 与子元素 `$defs` 类型名交集非空」且父子在模型里没有 `[[relation]]` 边
+- **THEN** 仍报一条 `apiShadowing`（`element` = 父、`target` = 子）；模型零结构诊断（MUST NOT 因判据要求而出现边）
+
+#### Scenario: 启用判据与载体同源
+
+- **WHEN** 观察根下 `models/` 一级有六个 `NN-<域>.toml`，另有 `models/notes.md`（非任何元素的载体）与 `<Domain>/notes.md`（无 fence）
+- **THEN** `enabled = false` 且 `apiFindings = []`；随后在某元素派生契约路径放入一份带 `api-op` fence 的 md ⇒ `enabled = true`、全部 `path` 非空元素纳入判据。两例共用同一判定函数（`doc_facts` 上的 `has_api_fence`），MUST NOT 在命令层另判一套
+
+#### Scenario: entry 优先互斥
+
+- **WHEN** 某 `api = declared` 元素既无可用入口（`Absent`，或候选被判 `Invalid`）、契约在案且声明了 2 个 op
+- **THEN** 只报一条 `apiEntryMissing`（declared 支的 ⑦）；同元素不出现 `apiMissing` / `apiUndeclared` / `apiSignatureMismatch`（⑧⑨ 无对象可判）；契约文件缺失形态归 `docMissing`（④，在 ⑦ 之前）；`apiUnexpected` 仍可独立报
+
+#### Scenario: TS 导出集取闭包且判据语义不变
+
+- **WHEN** 某 TS 元素的入口是纯 re-export barrel（7 个导出名全部经 `export … from` 从本元素子树内的文件汇入），契约声明了其中 2 个 op 与 2 个类型
+- **THEN** ⑧ `apiMissing` 对这 4 个声明零命中（导出集含闭包内符号），`apiUndeclared` 仍 `off` ⇒ 闭包扩容不产出任何新条目，⑨ 仍逐符号比对归一签名；判据种类（十三值）、两支首错求值序、判据级档位与报告形状逐字不变——**导出集变宽只可能减少 `apiMissing`，MUST NOT 出现「闭包扩张导致新增 finding」的路径**
+
+#### Scenario: 留白与缺文件各归一条判据
+
+- **WHEN** 分别构造「`api = none` 但派生契约路径存在契约文件」与「`api = declared` 但派生契约 md 缺失」
+- **THEN** 前者报 `apiUnexpected`（文案指明多出的契约文件路径）；后者报 `docMissing`（文案指明缺失的契约文件路径）；同一元素 MUST NOT 同时出两条
 
 #### Scenario: 生成物在盘不豁免入口缺失
 
-- **WHEN** 某元素无可用入口（未声明 `entry`、根为目录型且无 `index.ts` / `index.tsx`），而盘上仍残留一份旧位 `.i.ts`
+- **WHEN** 某 `api = declared` 元素无可用入口（未声明 `entry`、根为目录型且无 `index.ts` / `index.tsx`），而盘上仍残留一份旧位 `.i.ts`
 - **THEN** 仍报一条 `apiEntryMissing`（`.i` 的存在不再是入口的替代证据）；该残留文件同时由 `api:check` 的 `orphaned` 列报出
-
-#### Scenario: 启用判据的换根与「模型文件不是启用证据」
-
-- **WHEN** 观察根下 `models/` 存在且恰有六个 `NN-<域>.toml`、零份 `*.md`；随后在 `models/<Domain>/` 放入一份契约 md 再跑一次
-- **THEN** 前者 `enabled = false` 且 `apiFindings = []`（六个 toml 在场 MUST NOT 被读成启用）；后者 `enabled = true`、全部 `path` 非空元素纳入判据；两例的判定函数相同（`<archi_models_dir>` 递归含 ≥1 份 `*.md`），MUST NOT 在命令层另判一套
 
 ### Requirement: 判据级档位与元素 gate 解耦
 
-十条判据的档位 SHALL 由判据自身承载（`ArchiApiFindingKind::severity()`，**判据级档位**），MUST NOT 读元素 `gate`：
+十三条判据的档位 SHALL 由判据自身承载（`ArchiApiFindingKind::severity()`，**判据级档位**，**封闭三值** `off` / `warn` / `error`），MUST NOT 读元素 `gate`：
 
-| 类别 | 判据 | 判据级档位 |
+| 类别 | 判据 | 档位 |
 |---|---|---|
-| **一致性判据**（契约说 A、代码是 B） | `apiEntryMissing` / `apiMissing` / `apiSignatureMismatch` / `apiUnexpected` / `apiShadowing` / `apiRefMissing` / `apiNestedCrossCrate` / `apiReexportDrift` / `apiConstructorDeclared` | **`warn`** |
+| **入口文档未给出**（warn，不纳管） | `docMissing` | `warn` |
+| **声明指不到**（纯笔误，无中间态可辩） | `docNotFound` | **`error`** |
+| **有文档无约定**（补契约的合法中间态） | `apiDocMissing` | `warn` |
+| **有约定无兑现 / 实现漂移** | `apiMissing` / `apiSignatureMismatch` | **`error`** |
+| **判不了 / 两事实矛盾 / 结构债** | `apiEntryMissing` / `apiUnexpected` / `apiShadowing` / `apiRefMissing` / `apiNestedCrossCrate` / `apiReexportDrift` / `apiConstructorDeclared` | `warn` |
 | **完备性判据**（代码有的契约都得有） | `apiUndeclared` | **`off`** |
 
 - **分界线写死**：一致性判据报的是「债」（可枚举、可消除，可即开 `warn` 验证检查器是否工作）；完备性判据报的是「海」（迁移期必然爆炸，必须后置）。`apiUndeclared` 是唯一后者。
-- **与元素 `gate` 解耦的理由**：`ArchiDriftKind` 的定级看引入方元素的 `gate`；契约判据若也接 `gate`，收紧契约就要改模型，两套语料同时动、收紧节奏无法独立。故元素 `gate` 全 `off` 与本能力判据全 `warn` SHALL 同时成立——**「统一目录」与「判据全 off」不能同时成立**：相邻 + off 尚有软提醒，统一 + off 是零提醒零校验 → 契约静默腐烂。
-- **未来收紧路径**：收紧由 `severity()` 单值改动驱动（一个元素或一类判据一个 change 收紧），MUST NOT 引入运行时开关、MUST NOT 引入配置键。
-- **`warn` 报告即迁移 backlog**：`warn` 模式下的报告输出天然成为迁移待办表（`apiEntryMissing` 每一条都是待定论的任务：补入口声明 / 补约定入口 / 判 `api = none`——三条都是真话，MUST NOT 一律按「去建入口」理解；本仓该桶现已归零，故 ② 面的 41 条 `apiMissing` 是当前唯一 backlog），比手写 todo 更可靠（直接来自代码事实）。每消一条，报告数减一，可单调验证。
-- **MUST NOT 为消债而重构**：本能力 MUST NOT 要求建入口文件、改元素根路径去扩展名、挪子→父类型依赖或上移壳元素根路径（存量债务只作检查器的验证语料）。唯一例外是**为让契约有效而暴露已存在的私有逻辑**（改可见性 + 挪进 `impl`，不动实现逻辑）——判据不同：前者是「格式追代码」，后者是「代码追上契约应有内容」。入口面同理：`entry` 字段与解析链只让「本来存在的入口」可被表达；12 个前端目录的 `index.ts(x)` 由独立变更 `frontend-barrel-entry-migration` 落地（那是**代码侧结构选择**，不在本能力内推进），本能力 MUST NOT 在判据面要求补入口，也 MUST NOT 因「12 条 ① 已归零」把 ② 面的 41 条重新包装成「待补入口」。
+- **分档动机是接入成本**：初始只补部分模块文档（doc 面 `warn` 可渐进），补了文档之后代码漂移应尽快修（api 面 `error`）；`docNotFound` 因为「声明指不到」没有任何可辩解的中间态，故直接 `error`（放任它就是「把 `doc` 指向不存在文件」的消红后门）。
+- **结构性安全网（不靠白名单）**：`error` 档只可能落在「入口文档已就位」的元素上（`apiDocMissing` / `apiMissing` / `apiSignatureMismatch` 都需要契约在盘且含 fence；`docNotFound` 需要 `doc` 已声明）⇒ **存量项目没补文档就永远不会红**。
+- **唯一的刻意缺口**：`apiDocMissing` 是 `warn` 且占首错名额 ⇒ 它是 `apiMissing` 的**可达性上界**——「写了 doc 但没写 fence」的元素始终到不了 `error` 面。补偿是它纳管 `status`（该元素至少 `warnings`，不会静默 `clean`），使「没写 doc」与「写了 doc 没写契约」在状态词上可区分。
+- **`apiEntryMissing` MUST NOT 收紧**：它报的是「**判不了**」而不是「**判错了**」——有对象、结论为否才该红。
+- **与元素 `gate` 解耦的理由**：`ArchiDriftKind` 的定级看引入方元素的 `gate`；契约判据若也接 `gate`，收紧契约就要改模型，两套语料同时动、收紧节奏无法独立。故元素 `gate` 全 `off` 与本能力判据的档位表 SHALL 同时成立——判据级档位是契约面的独立收紧轴。
+- **收紧路径**：收紧由 `severity()` 单值改动驱动（一类判据一个 change 收紧），MUST NOT 引入运行时开关、MUST NOT 引入配置键。
+- **`warn` 报告即迁移 backlog**：`warn` 模式下的报告输出天然成为迁移待办表（当前唯一 backlog 是 `docMissing` 的 43 条：补入口文档或判 `api = declared`——三条都是真话，MUST NOT 一律按「去建入口文档」理解），比手写 todo 更可靠（直接来自代码事实）。每消一条，报告数减一，可单调验证。
+- **MUST NOT 为消债而重构**：本能力 MUST NOT 要求建入口文件、改元素根路径去扩展名、挪子→父类型依赖或上移壳元素根路径，也 MUST NOT 为消 `docMissing` 而批量新建契约 md——存量债务只作检查器的验证语料；补文档的节奏归数据面变更。唯一例外是**为让契约有效而暴露已存在的私有逻辑**（改可见性 + 挪进 `impl`，不动实现逻辑）——判据不同：前者是「格式追代码」，后者是「代码追上契约应有内容」。入口面同理：`entry` 字段与解析链只让「本来存在的入口」可被表达，本能力 MUST NOT 在判据面要求补入口。
 
 #### Scenario: 元素 gate 全 off 而判据仍报
 
-- **WHEN** 模型内全部元素 `gate = off`（本仓现状）且合成语料中存在若干无可用入口元素（本仓现基线为 **0**；判据面语料自足、不依赖本仓现状）
+- **WHEN** 模型内全部元素 `gate = off`（本仓现状）且合成语料中存在若干无可用入口元素
 - **THEN** 每个无可用入口元素各产一条 `apiEntryMissing`（判据级 `warn`），与元素 `gate` 无关；把某元素 `gate` 改成 `strict` 后该数量与内容零变化
 
 #### Scenario: 完备性判据保持 off
 
 - **WHEN** 代码有 `external` 导出而契约未声明
-- **THEN** `apiUndeclared` 档位为 `off`，报告不产出该条目（`apiFindings` 内零 `apiUndeclared`）；把档位改为 `warn` 属独立裁决（MUST NOT 在本变更内顺手打开）
+- **THEN** `apiUndeclared` 档位为 `off`，报告不产出该条目（`apiFindings` 内零 `apiUndeclared`）；把档位改为 `warn` 属独立裁决
+
+#### Scenario: 三档各自的代表值
+
+- **WHEN** 遍历 `severity()` 的取值面
+- **THEN** `error` 恰为 `docNotFound` / `apiMissing` / `apiSignatureMismatch` 三项；`off` 恰为 `apiUndeclared` 一项；其余九项 `warn`——新增变体落哪一档必须显式决定（`match` 无通配兜底、或兜底处留注释）
 
 #### Scenario: 零运行时开关
 
@@ -150,35 +220,55 @@
 
 ### Requirement: 报告并列槽位 apiFindings
 
-`ArchiDriftReport` SHALL 新增**并列**字段 `api_findings: Vec<ArchiApiFinding>`（线格式 `apiFindings`），MUST NOT 改造既有 `errors` / `warnings` / `suppressed` / `observations` / `status`：
+`ArchiDriftReport` SHALL 保留**并列**字段 `api_findings: Vec<ArchiApiFinding>`（线格式 `apiFindings`），MUST NOT 改造既有 `errors` / `warnings` / `suppressed` / `observations` / `status`：
 
-- **既有字段零改动**：`ArchiDriftReport` 既有 14 字段 SHALL 逐字不变（字段名 / 类型 / 序列化形态 / 语义）；新增字段插在报告末尾。既有 corpus 金样的 `errors` / `warnings` / `suppressed` / `observations` SHALL 逐字不变，金样只需**追加** `"apiFindings": []`。
-- **`version` 递增**：`REPORT_VERSION` SHALL 由 2 递增为 3，并留显式兼容说明（消费方按版本分支的语义：`version = 1` 无本字段；`version = 2` 有本字段但 `status` 推导**不**读契约判据）。
-- **契约在案即纳管 `status`**：`apiFindings` 对 `status` 的影响 SHALL 限于**纳管子集**——只取「`element` 属于**契约文件在案元素集合**」的条目参与推导（该集合 = 契约 md 存在且可读的 `api = declared` 元素；判据与 `ArchiApiRef` 的 `declared` 判定同源）。纳管子集非空 ⇒ `status` 至少为 `warnings`；纳管子集为空 ⇒ `status` 与不引入本字段时逐字相同。
-  - **口径理由（契约即承诺）**：没写契约的元素，其 `apiEntryMissing` / `apiMissing` 是迁移 backlog（既有 requirement 明写「MUST NOT 为消债而重构」）；写了契约的元素，判据就是「自己刚承诺的东西没兑现」——只有后者该进状态词。该口径天然自激活：契约逐份落地，纳管面自动扩大，**MUST NOT 引入白名单、开关或配置键**。
-  - **判据单点**：纳管子集的筛选 SHALL 在 `crates/core/archi` 的单点函数内完成（「契约文件在案」的 `is_file` 判定在该函数内一次性发生），`drift` 侧 MUST NOT 自行判文件存在性、MUST NOT 在前端或命令层二次筛选。
-  - **`element` 为空的条目不纳管**：无归属元素的判据不参与 `status`（纳管以「某元素自己承诺」为前提）。
-- **`passed` 仍不受影响**：`apiFindings` MUST NOT 影响门禁布尔 `passed`——`passed` 仍只看 `errors` 与 `model.structuralErrors`（与 `observations` 的既有先例同款）。理由：判据级 `severity()` 当前最高只到 `warn`，且「契约面一启用即红门」与「存量债务不消解」的前提直接冲突。
-- **将来收紧**：`apiFindings` 的影响面由判据级 `severity()` 决定（见上条 requirement）；把某类判据改 `error` 档与改 `passed` 判据 SHALL 同批进行，属独立变更，本能力 MUST NOT 预铺。
+- **既有字段零改动**：`ArchiDriftReport` 既有 14 字段 SHALL 逐字不变（字段名 / 类型 / 序列化形态 / 语义）；`REPORT_VERSION` **保持 3**（字段面无增删——本变更只换判据取值、档位与 `status` 推导口径，不足以为版本递增提供理由）。
+- **纳管子集口径（本变更改写）**：`apiFindings` 对 `status` 的影响 SHALL 限于**纳管子集**，条目入选判据 SHALL 为——
+
+  ```text
+  纳管(entry) ⟺ entry.element 非空 ∧ (
+        api = declared : 派生契约 md 在盘
+      ∨ api = none     : `doc` 字段已声明          ← 声明本身即承诺（docNotFound 判的正是它）
+  )
+  ```
+
+  纳管子集非空 ⇒ `status` 至少为 `warnings`，其中任一 `Error` 档条目 ⇒ `status = errors`。`docMissing` 在两侧都不成立（它是「承诺尚未给出」）⇒ **永不纳管**（否则 43 条读数会把 `status` 常规化为永久 `warnings`，状态词失去区分度）；`element = None` 的条目落选。
+  - **口径理由（承诺即纳管）**：没写入口文档的元素，其 `docMissing` 是迁移 backlog（既有 requirement 明写「MUST NOT 为消债而重构」）；承诺已给出的元素，判据就是「自己刚承诺的东西没兑现」——只有后者该进状态词。
+  - **为什么 none 支取「已声明」而 not「在盘」**：`docNotFound` 的成因恰是「声明在案、文件不在盘」——按「在盘」定义它永远落选，与本能力「`docNotFound` 是 `error` 且纳管」的档位表互斥。取「已声明」使档位表与纳管表同时成立。
+  - **判据单点**：纳管子集筛选 SHALL 在 `crates/core/archi` 的单点函数（`api::gating_findings`）内完成，「载体在盘 / `doc` 已声明」的判定在该函数内一次性发生；`drift` 侧 MUST NOT 自行判文件存在性、MUST NOT 在前端或命令层二次筛选。
+- **`passed` 判据（本变更改写，唯一跨进门禁面处）**：
+
+  ```text
+  passed = errors 空 ∧ model.structuralErrors 空 ∧ error 档 apiFindings 空
+  ```
+
+  `error` 档判据（`docNotFound` / `apiMissing` / `apiSignatureMismatch`）从此能阻断归档。这是既有 spec 自己规定的同批动作（「把某类判据改 `error` 档与改 `passed` 判据 SHALL 同批进行」）；其反向纪律「`apiFindings` MUST NOT 影响 `passed`」**随之作废**，MUST NOT 在任何 spec / 注释里残留。
+  - **不变量**：`status == errors ⟺ passed == false` SHALL 恒成立——`error` 档判据的触发条件都蕴含纳管成立（见上），故不存在「打断了 `passed` 却不进 `status`」的旁路。
+- **`derive_status` 分档**：`warnings` 分支条件扩为「`warnings[]` 非空 **或** 纳管子集非空（且其中无 `Error`）」，新增 `errors` 分支「纳管子集含任一 `Error`」；`skipped` / `errors`（结构错 / `errors[]`）/ `noChanges` 的先后序与语义逐字不变。
 - **聚合与稳定序**：`apiFindings` SHALL 按 `(kind, element, target)` 稳定排序（同 `kind` 内按元素 FQN 字典序），使报告可逐字 diff；命中点复用 `occurrences` 聚合（同元素对多处命中聚在一条内，不按行铺开）。
-- **词汇组扩为四组**：报告自带封闭词汇由三组（`status` / 漂移条目 `kind` / 观察项 `kind`）扩为**四组**（新增契约判据 `ArchiApiFindingKind` 十值）；四组各自单点定义并附 `ALL`，语料对拍断言「新增变体未同步即红」。
-- **判定单源**：`archi_findings` 的装配 SHALL 在 `crates/core/archi/src/drift/mod.rs` 的 `check()` 内单点完成（调 `api::check`）；命令面（`archi_drift`）与门禁面（`LocalArchiCheck`）产出 SHALL 逐字段相等（除 `timestamp` / `change` 与落盘路径）。
+- **词汇组表述校准**：报告自带封闭词汇由四组（`status` / 漂移条目 `kind` / 观察项 `kind` / 契约判据 `kind`）维持四组，但 `ArchiApiFindingKind` 由十值扩**十三值**；`WarningKind`（旧文档警告单值）已删除，MUST NOT 再出现在「互不混用」的对照清单里。
+- **判定单源**：`api_findings` 的装配 SHALL 在 `crates/core/archi/src/drift/mod.rs` 的 `check()` 内单点完成（调 `api::check`）；命令面（`archi_drift`）与门禁面（`LocalArchiCheck`）产出 SHALL 逐字段相等（除 `timestamp` / `change` 与落盘路径）。
 - **呈现面**：`apiFindings` SHALL 经架构页左栏「契约」视图与元素抽屉「契约」段呈现（`desktop-archi-contract-panel`），两处 MUST NOT 重算判据、MUST NOT 对同一报告二次 invoke。
-
-#### Scenario: 既有字段与金样零改动
-
-- **WHEN** 对既有漂移语料（契约面未启用、或契约在案元素零判据）跑检查
-- **THEN** `errors` / `warnings` / `suppressed` / `observations` / `model` / `scan` 与本变更前逐字相同、`status` 不变；金样差异仅 `"version": 3`（16 份逐份重写并人工确认）。唯一例外是**契约在案且判据非空**的语料 `api-mismatch`：其 `status` 由 `clean` 变 `warnings`（纳管口径的直接结果，MUST 在金样与语料注释两处留痕）
-
-#### Scenario: 契约在案判据进 status 而 passed 不动
-
-- **WHEN** 报告含 1 条 `apiSignatureMismatch`（该元素契约文件在案）、`errors` 为空且无结构错
-- **THEN** `status = warnings`，门禁步 `passed = true`；同报告若把该元素的契约文件移走（契约不在案）⇒ 该条判据落选纳管子集、`status` 回落到 `clean`
 
 #### Scenario: 存量 backlog 不拉黄灯
 
-- **WHEN** 报告含 41 条 `apiMissing`（本仓第五段读数：12 条由 ① 面平移而来 + 29 条原有；全部来自**契约不在案**的元素）
-- **THEN** 纳管子集为空、`status` 与引入 `apiFindings` 前逐字相同（本仓现状：唯一契约在案元素判据 0 条 ⇒ `status` 不变）；MUST NOT 因这 41 条把状态词常规化为 `warnings`（这些元素都是 backlog 而非承诺未兑现，**「12 条从 ① 面搬到 ② 面」不改变纳管结论**）
+- **WHEN** 报告含 **43** 条 `docMissing`（本仓第六段读数：41 条改名自 `apiMissing` 形态① + 2 条 `api = none` 未声明），`errors` 为空且无结构错
+- **THEN** 纳管子集为空 ⇒ `status = clean`、`passed = true`；MUST NOT 因这 43 条把状态词常规化为 `warnings`
+
+#### Scenario: 入口文档在案的 error 判据进 status 与 passed
+
+- **WHEN** 报告含 1 条 `apiMissing`（该元素契约 md 在案且有 fence）、`errors` 为空且无结构错
+- **THEN** `status = errors`、门禁步 `passed = false`（两条同批成立，不变量保持）；把该元素的契约 md 移走后同一场景退化为 `docMissing` ⇒ `status = clean`、`passed = true`
+
+#### Scenario: docNotFound 纳管而上游 docMissing 不纳管
+
+- **WHEN** 分别构造「`api = none` 且 `doc` 指向不存在文件」与「`api = none` 且 `doc` 未声明」
+- **THEN** 前者 `status = errors`、`passed = false`（`doc` 已声明 ⇒ 纳管，且 `docNotFound` 是 `error`）；后者 `status = clean`、`passed = true`（`docMissing` 不纳管、且是 `warn`）
+
+#### Scenario: 既有字段与金样零改动（除首错改写）
+
+- **WHEN** 对既有漂移语料跑检查
+- **THEN** `errors` / `warnings` / `suppressed` / `observations` / `model` / `scan` 与 `"version": 3` 逐字不变；十六份金样的变化只允许来自「首错改写使同元素多报降为一条」与「纳管分档」，逐份变化 SHALL 在 change 留痕中说明成因
 
 #### Scenario: 稳定序与聚合
 
@@ -188,54 +278,60 @@
 #### Scenario: 命令面与门禁面同源
 
 - **WHEN** 以同一 root 分别经 `archi_drift` 命令与门禁 runner 触发检查
-- **THEN** 两份报告的 `apiFindings` 与 `status` 逐字段相等（含排序、`category` 与纳管结论）
+- **THEN** 两份报告的 `apiFindings` / `status` / `passed` 逐字段相等（含排序、`category` 与纳管结论）
 
 ### Requirement: 契约判据的验证语料与报告数基线
 
 契约判据的正确性 SHALL 以**报告数逐项对拍**验证（存量债务即验证语料），并 SHALL 有语料守护：
 
-- **基线表（本仓现状，实测复核；分母 = `path` 非空的 44 个元素）**：`apiEntryMissing` **0**（12 个前端目录根已由 `desktop-frontend-module-entry` 的 `index.ts` / `index.tsx` 经 ③ 命中 ⇒ ① 不再成立）、`apiMissing` **41**（14 个 crate 元素 − 1 个试点 = 13，+ 多文件根 `App.Frontend.Shell` + **14** 个前端单文件根元素 = 28，+ 壳 `App.Backend.Shell`，**+ 12 个前端目录根元素**——它们由 ① 面平移而来：入口可解析 ⇒ ① 不成立，而 `api = declared` 且契约文件缺失 ⇒ ② 成立）、其余七条一致性判据各 **0**、`apiUndeclared` 不适用（`off`）——两者即字面的 **0 / 41**、总 **41**。
-- **两条切分口径**：① `apiEntryMissing` 只由「无可用入口」产生——`Absent`（未声明且无约定默认）与 `Invalid`（形态 / 落位 / 存在 / 唯一任一违反）同归此项；② 入口一旦可解析，该元素就不再享有 `apiEntryMissing` 的静默，改为承担「有门无契约」的 `apiMissing`（`api = none` 的元素除外：无库 API ⇒ ② 不适用，故 ① 退场即零判据）。故**总条目数 0 + 41 = 41** 全由这两条口径导出，且与历史读数连成同一规则的**五段**：`28 + 13 = 41`（A 之前，入口靠探测）→ `15 + 26 = 41`（A 落地，13 个前端文件型根由「猜不到入口」转为「有门无契约」，壳与两工具 crate 仍在 ① 面）→ `12 + 27 = 39`（A 的数据面换段：壳由 ① 平移至 ②，净 0；两工具 crate 各退出 ①，净 −2）→ `12 + 29 = 41`（`SessionPanel` / `Tooltip` 两个共享组件文件补建元素后，「有入口、无契约」使 ② +2，① 仍 12）→ `0 + 41 = 41`（12 个前端目录根补入口后整桶平移，① 归零、② 由 29 涨到 41）。五段 MUST NOT 被读成「债务增减」——它是**分桶**与**元素面扩容**的移动；**末段尤其必须读准：净 0、全平移**，MUST NOT 被写成「入口债已清」。
-- **目录换根不改读数（本变更）**：契约资产由 `<archi_api_dir>` 搬至 `<archi_models_dir>/<Domain>/`、索引搬至 `<archi_graph_dir>` 之后，基线表 SHALL **逐项不变**——判据读的是「契约文件是否在案」（按 FQN 派生的新路径），搬目录既不新增也不消除任何一条；故本变更的结论 SHALL 记为「**同样的 0 / 41，换的只是契约文件的绝对位置**」，MUST NOT 被读成一次新的换段，MUST NOT 被写进五段历史链。
-- **基线单段（数据不分批）**：三处显式 `entry`（壳 + 两个工具 crate）与 12 个目录模块入口（走 ③，零 `entry` 行）SHALL 随模型数据与盘上文件在案（`repo-archi-model`「基线落位与模型文件划分」、`desktop-frontend-module-entry`），故基线只有一段 **0 / 41（总 41）**；`12 / 29（总 41）`、`12 / 27（总 39）`、`15 / 26`、`28 + 13` 均为历史段读数，MUST NOT 再按其验收，MUST NOT 保留「后续变更再换段」的例外，也 MUST NOT 把该例外改写为「按某一历史段验收」的残留。
-- **判定口径**：**报告数与基线表逐项相等**即「检查能正确提示」。多于基线 = 判据误报（假阳），少于基线 = 判据漏报（假阴），两者都是检查器缺陷——MUST NOT 以「报告少就是代码干净」自我解释；本段的总数未变（41），故「总数对得上」**不构成**段内分桶正确的证据，`kind` 分布 MUST 逐项对。
-- **换段后读数不变的「本 change 可判面」（源码两面 + 离线推导）**：契约面读数 SHALL 由三条本 change 内可机械复核的面守：① `api::paths::directory(root)` 的实现体 == `archi_models_dir(root)`（契约目录与模型目录同址；索引另由 `archi_graph_dir` 派生，MUST NOT 由 `directory` join 得到）；② `api::enabled` 的实现体逐字为 `has_markdown(&paths::directory(root), 0)`——判据形态（递归含 ≥1 份 `*.md`、深度上限、符号链接不跟随）零改动，换根经 `directory` 单点传导，MUST NOT 在命令层另判一套；③ 离线可推：`path` 非空元素 **44** − `api = "none"` **2** − 契约在案 **1** = `apiMissing` **41**，与 `apiEntryMissing` **0** 合成 **0 / 41（总 41）**、`status = clean`，与基线表逐项一致。
-- **反向判据（模型文件不是启用证据）**：观察根下 `models/` 一级保留六个 `NN-<域>.toml` 而 `models/**` 递归零份 `*.md` ⇒ `enabled = false`、`apiFindings = []`；在 `models/<Domain>/` 放入一份契约 md ⇒ `enabled = true`、全部 `path` 非空元素重新纳入。两例共用同一判定函数（`<archi_models_dir>` 递归含 ≥1 份 `*.md`）。
-- **留痕报告是移交前置，不是本变更的交付物**：`<change>/reports/archi/<timestamp>.json` 由门禁进程写出，而承载判据的宿主门禁二进制是**变更前构建**（其 `paths` 仍指已退役的 `<archi_api_dir>` ⇒ `enabled = false` ⇒ 只能写出 `apiFindings: []`），**任何相位都无权重建 / 重启它**。故 `apiFindings` 长度 **41**（`kind` 分桶同基线表）、`status = clean` 的报告 SHALL 由宿主以**换段后源码重建后**的门禁 / verify 相位重跑生成（移交前置）。本变更侧 MUST NOT 以 `apiFindings: []` 的报告、空目录或 `reports/archi/` 的目录存在性充当「判过 41 条」的证据；`reports/archi/` SHALL 视为**门禁运行时产物**——不入库、不计入交付面、不作判红面（`git status` 出现 `??` 属预期），MUST NOT 为其设置隐藏 ACL / 权限护栏（不入库即可）。
-- **基线须显式留痕**：基线数字写入 change 报告（`reports/`）与实现期实测对照；数字变更（新增 crate 使 entry-missing +1、前端补 barrel 使 `apiEntryMissing` 归零且 `apiMissing` +12、补三处显式 `entry` 使壳换桶且两工具 crate 退出、补建共享组件元素使 `apiMissing` +2）SHALL 在报告内说明成因，MUST NOT 直接在代码里改期望数。基线表本身**不写进断言**（易随元素增减漂移），断言只锚定「实现期留痕的实测表与报告逐项相等」。
-- **语料守护（分两层，各有 owner）**：① **判定面逐判据用例**由 `crates/core/archi/src/api/**` 的十一份 sidecar 用例承担——契约解析（双向 gate 三条）/ `$defs` 规则五条 / 十判据各自正反例 / entry 互斥（含入口四理由）/ 签名归一 / 嵌套与透传（选择性 / 纯 `$ref` / 交集 / 直接子元素 / 跨 crate）/ 生成物渲染两侧键集一致；MUST NOT 另建 `tests/corpus/api/` 一类第二套判定语料（既有 crate 级语料只有 `corpus/dsl/` 与 `corpus/drift/` 两套，多一套即第二个驱动面）。② **crate 级报告面语料**沿既有 `crates/core/archi/tests/corpus/drift/` + `tests/golden_test.rs` 的 `DRIFT_CASES` 登记面驱动，快照为 `expected/<case>.<mode>.json`：既有 `api-mismatch` case（`contracts/App/App.Mod.md` + `models/01-app.toml` + `repo/src/mod/mod.rs`）SHALL 保持非空 `apiFindings`（其目录型根的 `src/mod/mod.rs` 由约定默认 `<root>/mod.rs` 命中，故 `modelHash` 与金样逐字不变）；新增 case 未登记进 `DRIFT_CASES` 即红、登记了但 case 目录不存在亦红。golden 更新 SHALL 沿既有 `DESKTOP_GOLDEN_REWRITE=1` 显式重写并人工确认（快照不参与判定）。**本变更零 `check.rs` 改动 ⇒ 十六份金样中十五份逐字节不变**；唯一例外是 `api-mismatch.full.json` 的**一行**：其 `occurrences[0].file` 是 repo 相对契约路径（`.dev-team/architecture/api/App/App.Mod.md` → `.dev-team/architecture/models/App/App.Mod.md`），由契约夹具暂存根随 `archi_models_rel_dir()` 派生而必然换段；该份的 `modelHash` / `kind` / `category` / `message` / `line` / `specifier` / `typeOnly` 与其余字段 SHALL 逐字不变。**MUST NOT 把本条写成「十六份金样逐字不变」**（与 `occurrences[].file` 存 repo 相对路径这一事实互斥），也 MUST NOT 因该行差异而回退夹具落点。语料里的契约夹具随新落点摆放（`models/<Domain>/`），除该行外不改任何读数。
-- **MUST NOT 把本仓模型与契约塞进 crate 语料**：本仓 `models/**`（含契约子树）与 `graph/**` 是仓库数据资产，纳入 crate 测试语料会破坏「语料自足、可移植」；本仓核对以命令 + 留痕执行（落 change `reports/`）。
-- **生成器正确性由自身单测守护**：`verify`（零 diff + 编译器）覆盖不到生成器自身的 bug——渲染、装配、抽取三面各有逐字段断言，MUST NOT 只靠端到端零 diff。
+- **基线表（第六段，本仓现状；分母 = `path` 非空的 44 个元素）**：`apiEntryMissing` **0**、`apiMissing` **0**（形态① 已改名 `docMissing`，只剩形态②，本仓零契约实现漂移）、**`docMissing` 43**（41 = `api = declared` 且派生契约 md 不在盘；2 = `api = none` 且 `doc` 未声明）、其余十值各 **0**、`apiUndeclared` 不适用（`off`）；`status = clean`、`passed = true`（43 条全 `warn` 且 `docMissing` 不纳管）。
+- **第六段的性质必须与原话一起写**：这不是「新增 43 条债」，而是——① **改名**：`apiMissing` 的 41 条原形态①（契约 md 未写）改名为 `docMissing`，事实同一；② **参与面 +2**：两个 `api = none` 元素首次进入判据面（过去契约面把它们整体排除，现在它们必须给出「本模块无 API + 入口文档在哪」）；③ 形态①移出后 `apiMissing` 只剩形态②，读数归 0。所以 `41 → 43` 的差额恰好是那 2 个 `api = none` 元素，分母 44 不变。
+- **两条分桶口径（第六段）**：① `apiEntryMissing` 只由「无可用入口」产生，`api = none` 元素退出该判据 ⇒ 本仓该桶为 0；② 入口可解析的 `api = declared` 元素承担「有门无入口文档」的 `docMissing`（形态①），而 `api = none` 元素在 `doc` 未声明时同样落 `docMissing`——故 43 = 41（declared）+ 2（none），`apiMissing` 只剩「契约声明了而代码没有」一桶且本仓为 0。
+- **与第五段的口径衔接（勿混用）**：第五段 `0 / 41` 是「只有 declared 元素参与 api 判据」的读数；第六段 `43 = 41（declared 契约未写）+ 2（none 未声明）`。两者不是两次债，是**同一批 41 份契约换了个桶名，加上 2 个新入面的元素**——任一处把「41」与「43」并排写成「债务增长」都读错。
+- **历史链（六段）**：`28 + 13 = 41`（A 之前，入口靠探测）→ `15 + 26 = 41`（A 落地）→ `12 + 27 = 39`（A 数据面换段）→ `12 + 29 = 41`（共享组件补建元素）→ `0 + 41 = 41`（12 个前端目录根补入口，整桶平移）→ **`0 + 43 = 43`（本变更：形态①改名 + `api = none` 两元素入面）**。末段 MUST NOT 被写成「入口债已清」或「契约债清零」。
+- **判定口径**：**报告数与基线表逐项相等**即「检查能正确提示」。多于基线 = 假阳，少于基线 = 假阴，两者都是检查器缺陷——MUST NOT 以「报告少就是代码干净」自我解释；本段总数变了（41 → 43），故必须**逐 `kind` 对**，不能只看总数。
+- **末行归零的前提（必须说准）**：「全 0」的前提是**按现有实现写契约**——契约里只声明已有的 op / 类型，未写的归 `apiUndeclared`（`off`，不产出）。若反过来「先写契约再补实现」，`apiMissing`（`error`）会立刻红——这正是 `error` 档的用途。
+- **基线须显式留痕**：基线数字写入 change 报告（`reports/`）与实现期实测对照；数字变更 SHALL 在报告内说明成因，MUST NOT 直接在代码里改期望数。基线表本身**不写进断言**（易随元素增减漂移），断言只锚定「实现期留痕的实测表与报告逐项相等」。
+- **语料守护（分两层，各有 owner，本变更**不新增文件**）**：① **判定面逐判据用例**由 `crates/core/archi/src/api/**` 的 **13 份** sidecar 用例承担——十三值各自正反例、两支互斥与首错、pair 锚点三条、`doc_facts` 三态、签名归一、嵌套与透传、生成物渲染两侧键集一致；三值新判据的用例 MUST 落在既有 sidecar（如 `check_test.rs` / `mod_test.rs`）内，**MUST NOT 新增 `api/**` 文件**——`golden_test.rs` 断言「`api/**` sidecar 恰 13 份」，新增文件即撞红。② **crate 级报告面语料**沿既有 `crates/core/archi/tests/corpus/drift/` + `tests/golden_test.rs` 的 `DRIFT_CASES` 登记面驱动，快照为 `expected/<case>.<mode>.json`；既有 `api-mismatch` case SHALL 保持非空 `apiFindings`；新增 case 未登记进 `DRIFT_CASES` 即红、登记了但 case 目录不存在亦红。golden 更新 SHALL 沿既有 `DESKTOP_GOLDEN_REWRITE=1` 显式重写并人工确认（快照不参与判定）。
+- **首错改写会改动金样读数**：一个元素命中第一条即 `break` ⇒ 「同元素多报」的 case（如 `apiMissing` + `apiReexportDrift`、`apiMissing` + `apiConstructorDeclared`）条目数下降乃**预期**；每条变化 SHALL 在 change 留痕中说明「哪一条因首错被短路」。代码注释里「与 ① 独立、MUST NOT 与 ② 双报」一类纪律句 MUST 同批改写，否则后人会按旧口径写回归用例。
+- **语料覆盖的已知缺口（就地留痕）**：三条新判据**不新增 sidecar 文件**（撞上 13 份计数断言），其正反例落在既有文件内；因此「十三判据各自正反例」一句 MUST NOT 被读成「十三判据各有独立语料文件」。兜底只剩两层——crate 级 `corpus/drift/` 金样（不经本仓模型）与本仓实测留痕。
+- **MUST NOT 把本仓模型与契约塞进 crate 语料**：本仓 `models/**`（含契约子树）与 `graph/**` 是仓库数据资产，纳入 crate 测试语料会破坏「语料自足、可移植」；本仓核对以命令 + 留痕执行（落 change `reports/`）。`reports/archi/` 是**门禁运行时产物**——不入库、不计入交付面、不作判红面（`git status` 出现 `??` 属预期）。
+- **生成器正确性由自身单测守护**：`verify`（零 diff + 编译器）覆盖不到生成器自身的 bug——渲染、装配、抽取三面各有逐字段断言。
 
 #### Scenario: 契约面未启用时零判据
 
-- **WHEN** 观察根下 `<archi_models_dir>` 不存在（或存在但递归零份 `*.md`，例如只有六个 `NN-<域>.toml`）时跑一次全量检查
-- **THEN** `apiFindings = []`（零条任何契约判据），`errors` / `warnings` / `status` 与不加契约面时逐字相同；MUST NOT 产 `apiMissing` / `apiEntryMissing`
+- **WHEN** 观察根下 `models/` 存在且一级为六个 `NN-<域>.toml`，但没有任何 `path` 非空元素的载体在盘带 fence 时跑一次全量检查
+- **THEN** `apiFindings = []`（零条任何契约判据），`errors` / `warnings` / `status` 与不加契约面时逐字相同；MUST NOT 产 `docMissing` / `apiEntryMissing`
 
 #### Scenario: 试点契约落地后全量纳入
 
-- **WHEN** 同一根下加入试点契约（`<archi_models_dir>/Infra/App.Backend.Infra.ArchiRuntime.md`）后重跑
-- **THEN** 契约面转为启用，全部 `path` 非空元素（44 个）参与判据：产出基线表所述 **0** 条 `apiEntryMissing` 与 **41** 条 `apiMissing`（试点元素自身零命中）；试点元素不因「有契约」而被豁免于其它判据
+- **WHEN** 同一根下加入试点契约（`<archi_models_dir>/Infra/App.Backend.Infra.ArchiRuntime.md`，含 `api-op` / `api-types` fence）后重跑
+- **THEN** 契约面转为启用（载体带 fence），全部 `path` 非空元素（44 个）参与判据：产出基线表所述 **0** 条 `apiEntryMissing` 与 **43** 条 `docMissing`（试点元素自身零命中）；试点元素不因「有契约」而被豁免于其它判据
 
-#### Scenario: 报告数与基线逐项相等
+#### Scenario: 报告数与第六段逐项相等
 
 - **WHEN** 以本仓根跑一次全量检查并统计 `apiFindings` 按 `kind` 的分布
-- **THEN** `apiEntryMissing = 0`、`apiMissing = 41`（13 个 crate + `App.Frontend.Shell` + **14** 个前端单文件根 + `App.Backend.Shell` + **12** 个前端目录根（`Components.Ui` + 8 个视图目录根 + 3 个视图内子域），逐条为「declared 但契约文件缺失」；两个较早补建的元素 `Components.Agent.SessionPanel` / `Components.Standard.Tooltip` 仍各居其中一条）、其余七条各 0、`apiUndeclared = 0`；壳 MUST NOT 同时出现在两个桶里（① 命中即跳过 ②）；两个工具 crate 两桶皆零（`entry` 命中 + `api = none`）；**12 个前端目录元素两桶合计恰一条**；`status` 仍为 `clean`（纳管子集为空）
+- **THEN** `docMissing = 43`（41 条为 `declared` 且派生契约 md 缺失、2 条为 `api = none` 且 `doc` 未声明）、`apiEntryMissing = 0`、`apiMissing = 0`、其余十值各 0；试点元素（`App.Backend.Infra.ArchiRuntime`，契约在盘含 fence）零判据；`status = clean`、`passed = true`
 
-#### Scenario: 换段验收不依赖门禁在线读数
+#### Scenario: 41 与 43 不得并排误读
 
-- **WHEN** 本变更在宿主门禁**未重建**的工作树上验收（二进制仍按已退役的 `<archi_api_dir>` 派生路径，故它写出的报告只能是 `apiFindings: []`）
-- **THEN** 契约面的换根结论 SHALL 只以源码面（`paths::directory` 指 `<archi_models_dir>`、`enabled` 实现逐字未动）与离线推导（`44 − 2 − 1 = 41`）判定；`reports/archi/` 内的 `apiFindings: []` 报告、空目录或该目录的存在性 MUST NOT 被读作「判过 41 条」；41 条 `apiFindings` 与 `status = clean` 的报告由宿主以换段后源码重建后的门禁 / verify 相位补留痕（移交前置）
+- **WHEN** 审查 spec 与 change 报告内关于第五段 / 第六段的表述
+- **THEN** 第六段 SHALL 写明「41 条是改名、2 条是新入面、分母不变」；不出现「债务由 41 增长到 43」一类表述；`apiMissing` 的归零 SHALL 被解释为「形态①移出」而非「实现漂移清零」
 
 #### Scenario: 假阳与假阴都可辨
 
-- **WHEN** 人为让某入口可解析的元素也被判 `apiEntryMissing`（假阳），或让某 `declared` 缺契约文件的元素漏报 `apiMissing`（假阴）
-- **THEN** 前者使 `apiEntryMissing` 由 0 变 1（多于基线）；后者使 `apiMissing` 由 41 变 40（少于基线）；两种偏离都判为检查器缺陷，MUST NOT 更新基线表放行
+- **WHEN** 人为让某「派生契约 md 缺失」的 `declared` 元素漏报 `docMissing`（假阴），或让某契约在盘含 fence 的元素也被判 `docMissing`（假阳）
+- **THEN** 前者使 `docMissing` 由 43 变 42（少于基线）；后者使该桶变 44（多于基线）；两种偏离都判为检查器缺陷，MUST NOT 更新基线表放行
+
+#### Scenario: sidecar 计数不变
+
+- **WHEN** 运行 `golden_test.rs` 的「零第二套判据语料目录」用例
+- **THEN** `crates/core/archi/src/api/**` 的 sidecar 仍恰 **13** 份（三值新判据的用例全在既有文件内），且 `tests/corpus/api/` 仍零存在
 
 #### Scenario: 判定面用例与报告面语料各司其职
 
 - **WHEN** 运行 `crates/core/archi/src/api/**` 的 sidecar 用例与 `crates/core/archi/tests/golden_test.rs` 的 `DRIFT_CASES` 驱动面
-- **THEN** 前者逐判据覆盖正反例（判据产出由 `check::check` 直驱断言，不依赖快照）；后者逐 case 驱动 `scan → drift::check → 报告`，每 case 的 `apiFindings` 与 `expected/<case>.<mode>.json` 逐字段一致（含 `kind` / `category` / `element` / `target` / `occurrences` 计数）；`api-mismatch` case 产非空 `apiFindings`（`apiSignatureMismatch`），其余既有金样 `apiFindings` 为空且其余字节不变；MUST NOT 存在第三套判定语料目录
+- **THEN** 前者逐判据覆盖正反例（判据产出由 `check::check` 直驱断言，不依赖快照）；后者逐 case 驱动 `scan → drift::check → 报告`，每 case 的 `apiFindings` 与 `expected/<case>.<mode>.json` 逐字段一致（含 `kind` / `category` / `element` / `target` / `occurrences` 计数）；`api-mismatch` case 产非空 `apiFindings`；MUST NOT 存在第三套判定语料目录
 
 #### Scenario: 新 case 未登记即红
 
@@ -246,22 +342,25 @@
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/core/archi/src/drift/report.rs` | 判据词汇与报告槽位 | `ArchiApiFindingKind`（十值 + `ALL` + `as_str` + `severity()`）、`ArchiApiFinding { kind, category, element, target, message, occurrences }`、`ArchiDriftReport.api_findings`、`REPORT_VERSION = 3`（纳管口径入 `status` 推导）；`ApiEntryMissing` 的 doc 语义为「无可用入口」（四理由同值，MUST NOT 加第 11 值） |
-| `crates/core/archi/src/api/mod.rs::enabled` | 启用判据换根 | `enabled(root)` 的判据形态（递归含 ≥1 份 `*.md`、深度上限、符号链接不跟随）逐字不变，只把被监测目录由 `<archi_api_dir>` 换成 `<archi_models_dir>`；本能力**不另判一套**（`desktop-archi-contract-panel` 的 `enabled` 字段直接取它） |
-| `crates/core/archi/src/api/check.rs` | 十条判据单点求值（本变更**零改动**：词汇 / 互斥求值序 / 声明集与导出集口径 / 档位 / 纳管子集逐字不变，出现 diff 即误动） | `check(ApiCheckInput) -> Vec<ArchiApiFinding>`：① 经 `paths::entry_state`（`Absent` / `Invalid(_)` ⇒ 一条 `apiEntryMissing`，文案按 `EntryProblem` 分列；`Resolved` ⇒ 继续 ②③④）→ 声明集（op **与 `$defs` 类型**）vs 导出集 → 签名归一比对 → 留白矛盾 → 嵌套透传五项；**已删** `has_generated`（`.i` 存在不再充当入口证据）；`$defs` 只读 `schema.json`；零第二份判定；**导出集单点**：导出集由 `extract::extract_element` 给出（TS 侧即入口导出闭包）⇒ ② 只减不增、③ 仍 `off`、④ 仍逐符号归一比对；判据面 MUST NOT 自行解析 re-export、MUST NOT 内联 owner 归属判断（那是取数面的单点） |
-| `crates/core/archi/src/drift/mod.rs` | 报告装配单点 | `check()` 内调 `api::check` 装配 `api_findings`（与模型面并列）；`apiFindings` 经纳管子集参与 `status` 推导（`gating_findings`），`passed` 不受影响 |
-| `crates/core/archi/src/api/check_test.rs` | 判据语料（本变更：夹具落点换段） | 契约夹具由 `<archi_api_dir>/<Domain>/` 换到 `<archi_models_dir>/<Domain>/`，每条判据的正反例与断言值逐字不变； 十判据正反例 / entry 互斥（含 `Absent` 与四种 `Invalid` 理由各一条）/ 「`.i` 在盘但无入口仍报 ①」/ `api = none` + `entry` 有值零判据 / 签名归一 / 留白双向 / 交集 / 非直接子元素 / 跨 crate / 透传漂移 / `severity()` 与 `ALL` 逐值对拍；`function()` / `type_symbol()` 夹具补 `ApiSymbol.file`（形状适配，断言值零变化，不新增判据用例） |
-| `crates/core/archi/tests/corpus/drift/**` + `tests/golden_test.rs` | 判定面语料与 golden（本变更：夹具路径换段、零读数改动） | 十六份金样中十五份逐字节不变；唯一例外是 `api-mismatch.full.json` 的**一行**（`occurrences[0].file` 系 repo 相对契约路径，随 `archi_models_rel_dir()` 派生换段），其 `modelHash` / `kind` / `category` / `message` / `line` / `specifier` / `typeOnly` 逐字不变； `corpus/drift/<case>/{contracts,models,repo}` + `expected/<case>.<mode>.json`；`DRIFT_CASES` 登记面即驱动表（未登记 / 目录不存在 / 缺 `apiFindings` 键三种失配皆红）；既有 16 份金样逐字不变（`api-mismatch` 的 `apiSignatureMismatch` 与 `status = warnings` 在案；其目录型根 `src/mod/mod.rs` 由约定默认命中 ⇒ `modelHash` 不变）；golden 沿 `DESKTOP_GOLDEN_REWRITE=1` 显式重写 |
-| `crates/core/archi/tests/vocabulary_test.rs` | 四面词汇对拍 | `ArchiApiFindingKind::ALL` 与 `as_str` 逐值（长度仍 10）；知识文本须含 `api` 状态词 |
-| `<change>/reports/archi/<timestamp>.json`（门禁留痕） | **移交前置（非本变更交付物）** | 报告由门禁进程写出，而宿主门禁二进制是变更前构建（`paths` 仍指已退役的 `<archi_api_dir>` ⇒ 只能写 `apiFindings: []`），任何相位无权重建 / 重启它；`apiFindings` 长度 **41**、`status = clean` 的报告 SHALL 由宿主以换段后源码重建后的门禁 / verify 相位重跑生成；`reports/archi/` 为运行时产物（不入库、不计入交付面、不作判红面，`??` 属预期） |
+| `crates/core/archi/src/drift/report.rs` | 判据词汇与报告槽位 | `ArchiApiFindingKind`（**十三值** + `ALL` + `as_str` + `severity()`）、`ApiFindingSeverity`（**三值** `Off` / `Warn` / `Error` + `ALL` + `as_str`）、`ArchiApiFinding { kind, category, element, target, message, occurrences }`、`ArchiDriftReport.api_findings`、`REPORT_VERSION = 3`（不递增，纳管口径入 `status` 推导）；`ApiMissing` 的 doc 语义收窄为「有约定无兑现」，`DocMissing` / `DocNotFound` / `ApiDocMissing` 的 doc 语义各自单成因（`ApiEntryMissing` 的四理由同值，MUST NOT 加第 14 值） |
+| `crates/core/archi/src/api/mod.rs::enabled` | 启用判据（**收紧，行为变化**） | `enabled(root, elements) -> bool` = 任一 `path` 非空元素的入口文档载体在盘且 `DocFact::Present { has_api_fence: true }`；MUST NOT 退化为「递归任意 `*.md`」；判据与判据面同源（同一 `doc_facts` / 同一 fence 语言标常量），本能力**不另判一套**（`desktop-archi-contract-panel` 的 `enabled` 字段直接取它） |
+| `crates/core/archi/src/api/mod.rs::gating_findings` | 纳管子集筛选单点 | 入选 = `element` 非空 ∧（declared：派生契约 md 在盘 / none：`doc` 已声明）；`docMissing` 两侧都不成立 ⇒ 永不纳管；`drift` 侧 MUST NOT 自行判文件存在性 |
+| `crates/core/archi/src/api/mod.rs::load_contracts` | load 阶段事实装配 | `ApiSnapshot` 增 `doc_facts: BTreeMap<Fqn, DocFact>`（`Absent` / `Missing` / `Present { has_api_fence }`），每份 doc 只读一次即弃（不缓存全文）；`ApiCheckInput` 同批携入 |
+| `crates/core/archi/src/api/contract.rs` | fence 语言标单点 | `FENCE_OP` / `FENCE_TYPES` 提 `pub(crate)`，供 `apiDocMissing` 与 `enabled` 复用；MUST NOT 抄第二份字面量 |
+| `crates/core/archi/src/api/check.rs` | 十三判据单点求值 | `check(ApiCheckInput) -> Vec<ArchiApiFinding>`：**两支首错短路**（none 支 `apiUnexpected` → `docMissing` → `docNotFound`；declared 支 `docMissing` → `apiDocMissing` → `apiUnexpected` → `apiEntryMissing` → `apiMissing` → 一致性）+ **pair 锚点**（`nested → ref → shadowing`，MUST NOT 引用 `relations`）；`category_of` **七值**（+ `doc`）；`missing_contracts` 只剩形态②；`apiDocMissing` 只读 `input.doc_facts`（零读盘、零 `contract::parse`）；声明集（op **与 `$defs` 类型**）vs 导出集、签名归一比对、嵌套透传五项语义逐字不变；**已删** `has_generated`（`.i` 存在不再充当入口证据）；`$defs` 只读 `schema.json`；零第二份判定；**导出集单点**：导出集由 `extract::extract_element` 给出（TS 侧即入口导出闭包）⇒ `apiMissing` 只减不增、`apiUndeclared` 仍 `off`、`apiSignatureMismatch` 仍逐符号归一比对；判据面 MUST NOT 自行解析 re-export、MUST NOT 内联 owner 归属判断（那是取数面的单点） |
+| `crates/core/archi/src/drift/mod.rs` | 报告装配单点 | `check()` 内调 `api::check` 装配 `api_findings`（与模型面并列）并取纳管子集传 `derive_status`；`derive_status` 在纳管子集上**分档**（任一 `Error` ⇒ `errors`）；`passed` 判据追加「error 档 `apiFindings` 空」；`status == errors ⟺ passed == false` 不变量保持 |
+| `crates/core/archi/src/api/check_test.rs` | 判据语料（本变更：夹具落点换段） | 契约夹具由 `<archi_api_dir>/<Domain>/` 换到 `<archi_models_dir>/<Domain>/`，每条判据的正反例与断言值逐字不变； 十三判据正反例（三值新判据的用例全在既有 sidecar 内）/ entry 互斥（含 `Absent` 与四种 `Invalid` 理由各一条）/ 「`.i` 在盘但无入口仍报 ①」/ `api = none` + `entry` 有值零判据 / 签名归一 / 留白双向 / 交集 / 非直接子元素 / 跨 crate / 透传漂移 / `severity()` 与 `ALL` 逐值对拍；`function()` / `type_symbol()` 夹具补 `ApiSymbol.file`（形状适配，断言值零变化，不新增判据用例） |
+| `crates/core/archi/tests/corpus/drift/**` + `tests/golden_test.rs` | 报告面语料 | 十六份金样随「首错短路 + 纳管分档」显式重录并逐份留痕成因；`corpus/drift/<case>/{contracts,models,repo}` + `expected/<case>.<mode>.json`；`DRIFT_CASES` 登记面即驱动表（未登记 / 目录不存在 / 缺 `apiFindings` 键三种失配皆红）；`api-mismatch` case 保持非空 `apiFindings`；golden 沿 `DESKTOP_GOLDEN_REWRITE=1` 显式重写 |
+| `crates/core/archi/tests/vocabulary_test.rs` | 词汇对拍 | `ArchiApiFindingKind::ALL` 长度 **13** 与 `as_str` / `severity()` 逐值对拍；`WarningKind` / `DocKind` / `DocSource` 三组对拍删除；`SearchScope` 三值词面换 `doc` |
+| `<change>/reports/archi/<timestamp>.json`（门禁留痕） | 运行时产物 | 报告由门禁进程写出并作移交留痕（`apiFindings` 长度 **43**、`status = clean`）；`reports/archi/` 不入库、不计入交付面、不作判红面（`??` 属预期） |
 
 ### API: `crates/core/archi/src/drift/mod.rs` + `src/api/mod.rs`
 
 | 项 | 变化 | 描述 |
 |---|---|---|
-| `api::gating_findings` | 新增 | `(root, &[ArchiElement], &[ArchiApiFinding]) -> Vec<ArchiApiFinding>`：纳管子集筛选单点（「契约文件在案」判据与 `api_ref` 同源；`element = None` 落选） |
+| `api::gating_findings` | 改 | `(root, &[ArchiElement], &[ArchiApiFinding]) -> Vec<ArchiApiFinding>`：纳管子集筛选单点（口径由「契约文件在案」改为「入口文档承诺已成立」；`element = None` 落选） |
 | `drift::check` | 改 | `api_findings` 装配后取纳管子集传给 `derive_status`；其余装配序与字段逐字不变 |
-| `derive_status` | 改 | 新增纳管子集入参；`warnings` 分支条件扩为「`warnings[]` 非空 **或** 纳管子集非空」；`skipped` / `errors` / `noChanges` 的先后序与语义逐字不变 |
+| `derive_status` | 改 | 纳管子集入参保留；新增 `errors` 分支（纳管子集含 `error` 档）；`warnings` 分支条件收为「纳管子集非空且其中无 `error` 档」；`skipped` / `noChanges` 的先后序与语义逐字不变 |
 | `drift/report.rs` | 改 | `REPORT_VERSION` 2 → 3 与兼容说明；14 字段形状零改动 |
 
 ### Component: 呈现面（归 `desktop-archi-contract-panel`）
