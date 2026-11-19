@@ -128,7 +128,7 @@ const WORKSPACE_CONFIG: WorkspaceConfigReport = {
     context: null,
     rules: { proposal: ['提案规则'], tasks: null },
     staticAnalysis: 'clippy',
-    projects: [{ root: 'packages/desktop' }],
+    projects: [{ root: 'packages/desktop', language: null, dependsOn: null }],
     tests: [
       {
         root: 'packages/desktop',

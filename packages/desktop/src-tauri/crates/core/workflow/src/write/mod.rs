@@ -14,7 +14,7 @@ mod worktree;
 pub use archive::{archive, ArchiveOutcome};
 pub use backtrack::{backtrack, BacktrackInput, BacktrackOutcome};
 pub(crate) use create::utc_date;
-pub use create::{create, CreateOutcome};
+pub use create::{create, BootstrapProject, CreateOutcome};
 pub use decision_log::{decision_log, DecisionLogOutcome};
 pub use delete::{delete, DeleteOutcome};
 pub use phase_log::{phase_log, PhaseLogInput, PhaseLogOutcome};

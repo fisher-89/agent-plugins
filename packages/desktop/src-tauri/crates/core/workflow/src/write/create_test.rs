@@ -6,6 +6,7 @@ use foundation::layout::resolve;
 use time::OffsetDateTime;
 
 use super::create;
+use super::BootstrapProject;
 use super::CreateOutcome;
 use super::{InstallRun, RepoProbe, WorktreePort};
 use crate::queries::list_changes;
@@ -19,6 +20,14 @@ use crate::state::{
 // 装置：真实 tempdir 双根（主仓根 + worktree 落位父锚）+ 进程内假件
 // store / vcs
 // ---------------------------------------------------------------------------
+
+/// 项目锚点简写（无依赖声明）。
+fn proj(root: &str) -> BootstrapProject {
+    BootstrapProject {
+        root: root.to_owned(),
+        depends_on: Vec::new(),
+    }
+}
 
 struct Env {
     root: PathBuf,
@@ -88,13 +97,13 @@ impl Env {
         &self,
         name: &str,
         goal: &str,
-        project_roots: &[String],
+        projects: &[BootstrapProject],
     ) -> Result<CreateOutcome, String> {
         create(
             &self.root,
             &self.store,
             &self.vcs,
-            project_roots,
+            projects,
             name,
             goal,
             name,
@@ -1442,7 +1451,7 @@ fn projects逐个扫描按项目根执行安装_多安装按序() {
     let env = Env::new("projects-multi");
     seed_main_path(&env, "web/pnpm-lock.yaml", "# pnpm");
     seed_main_path(&env, "service/Cargo.lock", "# cargo");
-    let roots = ["web".to_owned(), "service".to_owned()];
+    let roots = [proj("web"), proj("service")];
 
     let outcome = env
         .create_with_projects("fix-bug", "多项目 goal", &roots)
@@ -1475,7 +1484,7 @@ fn projects内首匹配单安装且后续项目继续() {
     seed_main_path(&env, "web/package-lock.json", "# npm");
     seed_main_path(&env, "web/pnpm-lock.yaml", "# pnpm");
     seed_main_path(&env, "api/pnpm-lock.yaml", "# pnpm");
-    let roots = ["web".to_owned(), "api".to_owned()];
+    let roots = [proj("web"), proj("api")];
 
     let outcome = env
         .create_with_projects("fix-bug", "首匹配 goal", &roots)
@@ -1503,7 +1512,7 @@ fn projects内首匹配单安装且后续项目继续() {
 #[test]
 fn projects根不存在警告且零安装() {
     let env = Env::new("projects-missing");
-    let roots = ["missing".to_owned()];
+    let roots = [proj("missing")];
 
     let outcome = env
         .create_with_projects("fix-bug", "缺失根 goal", &roots)
@@ -1522,7 +1531,7 @@ fn projects无lockfile与cargo无lock逐项目注记() {
     let env = Env::new("projects-notes");
     seed_main_path(&env, "plain/.keep", "");
     seed_main_path(&env, "rs/Cargo.toml", "[package]");
-    let roots = ["plain".to_owned(), "rs".to_owned()];
+    let roots = [proj("plain"), proj("rs")];
 
     let outcome = env
         .create_with_projects("fix-bug", "注记 goal", &roots)
@@ -1544,7 +1553,7 @@ fn projects非空抑制worktree根扫描() {
     let env = Env::new("projects-suppress");
     seed_main_file(&env, "pnpm-lock.yaml", "# root pnpm");
     seed_main_path(&env, "web/.keep", "");
-    let roots = ["web".to_owned()];
+    let roots = [proj("web")];
 
     let outcome = env
         .create_with_projects("fix-bug", "抑制根扫描 goal", &roots)
@@ -1588,7 +1597,7 @@ fn projects单项目安装失败继续后续且不回滚() {
     seed_main_path(&env, "web/pnpm-lock.yaml", "# pnpm");
     seed_main_path(&env, "api/package-lock.json", "# npm");
     env.vcs.set_install_failure("ERR_PNPM");
-    let roots = ["web".to_owned(), "api".to_owned()];
+    let roots = [proj("web"), proj("api")];
 
     let outcome = env
         .create_with_projects("fix-bug", "失败继续 goal", &roots)
@@ -1617,7 +1626,7 @@ fn projects单项目安装失败继续后续且不回滚() {
 fn 脏仓警告先于项目警告() {
     let env = Env::new("projects-dirty");
     env.vcs.set_dirty();
-    let roots = ["missing".to_owned()];
+    let roots = [proj("missing")];
 
     let outcome = env
         .create_with_projects("fix-bug", "脏仓 goal", &roots)
@@ -1636,7 +1645,7 @@ fn 脏仓警告先于项目警告() {
 fn projects点号根按worktree根扫描安装() {
     let env = Env::new("projects-dot");
     seed_main_file(&env, "pnpm-lock.yaml", "# pnpm");
-    let roots = [".".to_owned()];
+    let roots = [proj(".")];
 
     let outcome = env
         .create_with_projects("fix-bug", "点号根 goal", &roots)
@@ -1651,6 +1660,393 @@ fn projects点号根按worktree根扫描安装() {
         "`.` 解析为 worktree 根"
     );
     assert!(outcome.warnings.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// 项目模式：depends_on 拓扑序安装（依赖先于依赖方，同层声明序）
+// ---------------------------------------------------------------------------
+
+/// 带依赖声明的项目锚点（`depends_on` 逐字取自入参，保序）。
+fn proj_with(root: &str, depends_on: &[&str]) -> BootstrapProject {
+    BootstrapProject {
+        root: root.to_owned(),
+        depends_on: depends_on
+            .iter()
+            .map(|dependency| (*dependency).to_owned())
+            .collect(),
+    }
+}
+
+/// 安装序观察面：各次安装 cwd 相对 worktree 根的路径（`.` 以 `"."` 表示）——
+/// `install_order` 为私有纯函数（兄弟测试模块不可达），产出序列经假件 vcs 的
+/// 捕获面间接断言。
+fn install_roots(env: &Env, name: &str) -> Vec<String> {
+    let worktree = env.worktree_root.join(name);
+    env.vcs
+        .installs()
+        .into_iter()
+        .map(|(cwd, _)| {
+            let relative = cwd
+                .strip_prefix(&worktree)
+                .expect("安装 cwd 应在 worktree 内")
+                .to_string_lossy()
+                .into_owned();
+            if relative.is_empty() {
+                ".".to_owned()
+            } else {
+                relative
+            }
+        })
+        .collect()
+}
+
+/// 拓扑序（正向）：声明序 `[src-tauri(dep→desktop), desktop]` → 安装序反转
+///（依赖先于依赖方），cwd 各为 `<worktree>/<root>`，零警告。
+#[test]
+fn 拓扑序_依赖先于依赖方且cwd为项目根() {
+    let env = Env::new("topo-basic");
+    seed_main_path(&env, "packages/desktop/src-tauri/Cargo.lock", "# cargo");
+    seed_main_path(&env, "packages/desktop/pnpm-lock.yaml", "# pnpm");
+    let projects = [
+        proj_with("packages/desktop/src-tauri", &["packages/desktop"]),
+        proj("packages/desktop"),
+    ];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "拓扑序 goal", &projects)
+        .expect("建域应 Ok");
+
+    let worktree = env.worktree_root.join("fix-bug");
+    assert_eq!(
+        env.vcs.installs(),
+        vec![
+            (
+                worktree.join("packages/desktop"),
+                "pnpm install --frozen-lockfile".to_owned()
+            ),
+            (
+                worktree.join("packages/desktop/src-tauri"),
+                "cargo fetch --locked".to_owned()
+            ),
+        ],
+        "依赖项目先安装，cwd = 各自项目根"
+    );
+    assert!(
+        outcome.warnings.is_empty(),
+        "顺利安装零警告，实际 {:?}",
+        outcome.warnings
+    );
+}
+
+/// 无依赖退化（正向）：全无 `depends_on` → 安装序逐字等于声明序（tie-break
+/// 为声明序，非字典序）。
+#[test]
+fn 无依赖退化_安装序等于声明序非字典序() {
+    let env = Env::new("topo-flat");
+    seed_main_path(&env, "zeta/pnpm-lock.yaml", "# pnpm");
+    seed_main_path(&env, "alpha/package-lock.json", "# npm");
+    seed_main_path(&env, "mid/Cargo.lock", "# cargo");
+    let projects = [proj("zeta"), proj("alpha"), proj("mid")];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "退化 goal", &projects)
+        .expect("建域应 Ok");
+
+    assert_eq!(
+        install_roots(&env, "fix-bug"),
+        ["zeta", "alpha", "mid"],
+        "无依赖时安装序 = 声明序（非字典序）"
+    );
+    assert!(outcome.warnings.is_empty());
+}
+
+/// 多层链（正向）：`web(dep→api)` / `api(dep→db)` / `db` → 安装序 `db, api, web`
+///（后序 DFS 逐层下沉）。
+#[test]
+fn 多层链依赖_后序dfs逐层下沉() {
+    let env = Env::new("topo-chain");
+    seed_main_path(&env, "web/pnpm-lock.yaml", "# pnpm");
+    seed_main_path(&env, "api/package-lock.json", "# npm");
+    seed_main_path(&env, "db/Cargo.lock", "# cargo");
+    let projects = [
+        proj_with("web", &["api"]),
+        proj_with("api", &["db"]),
+        proj("db"),
+    ];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "多层链 goal", &projects)
+        .expect("建域应 Ok");
+
+    assert_eq!(
+        install_roots(&env, "fix-bug"),
+        ["db", "api", "web"],
+        "三层依赖链按后序 DFS 逐层下沉"
+    );
+    assert!(outcome.warnings.is_empty());
+}
+
+/// 入口再导出可见性：入参类型经 `write::` 出口取型（`super::BootstrapProject`
+/// 而非 `create::` 私有路径）构造并传入 `create()` → 编译通过且拓扑序生效。
+#[test]
+fn 出口再导出取型_经write出口构造入参且拓扑序生效() {
+    let env = Env::new("topo-reexport");
+    seed_main_path(&env, "web/pnpm-lock.yaml", "# pnpm");
+    seed_main_path(&env, "api/package-lock.json", "# npm");
+    let projects: Vec<super::BootstrapProject> = vec![
+        super::BootstrapProject {
+            root: "web".to_owned(),
+            depends_on: vec!["api".to_owned()],
+        },
+        super::BootstrapProject {
+            root: "api".to_owned(),
+            depends_on: Vec::new(),
+        },
+    ];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "再导出 goal", &projects)
+        .expect("建域应 Ok");
+
+    assert_eq!(
+        install_roots(&env, "fix-bug"),
+        ["api", "web"],
+        "写面不区分「未设」与「空」：空 Vec 与显式空数组同处置"
+    );
+    assert!(outcome.warnings.is_empty());
+}
+
+/// 重复 `root`（边界）：同一根出现两次 → 以首次出现为准，第二条元素整体丢弃
+///（其 `depends_on` 一并失效）→ `web` 恰安装一次，安装序 `web, api`。
+#[test]
+fn 重复root_首次出现为准且恰安装一次() {
+    let env = Env::new("topo-dup-root");
+    seed_main_path(&env, "web/pnpm-lock.yaml", "# pnpm");
+    seed_main_path(&env, "api/package-lock.json", "# npm");
+    let projects = [proj("web"), proj_with("web", &["api"]), proj("api")];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "重复根 goal", &projects)
+        .expect("脏数据零 Err");
+
+    assert_eq!(
+        install_roots(&env, "fix-bug"),
+        ["web", "api"],
+        "重复 root 折叠为首次出现（第二条的 depends_on 一并丢弃）"
+    );
+    assert!(
+        outcome.warnings.is_empty(),
+        "重复 root 不产生新增警告，实际 {:?}",
+        outcome.warnings
+    );
+}
+
+/// 依赖项重复与空串（边界）：`depends_on: ["api", "api", ""]` → visited 幂等
+/// 收口（`api` 恰一次），空串按悬空跳过，零 `Err`。
+#[test]
+fn 依赖项重复与空串_幂等收口且空串按悬空跳过() {
+    let env = Env::new("topo-dup-dep");
+    seed_main_path(&env, "web/pnpm-lock.yaml", "# pnpm");
+    seed_main_path(&env, "api/package-lock.json", "# npm");
+    let projects = [proj_with("web", &["api", "api", ""]), proj("api")];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "重复依赖 goal", &projects)
+        .expect("脏依赖零 Err");
+
+    assert_eq!(
+        install_roots(&env, "fix-bug"),
+        ["api", "web"],
+        "重复依赖项幂等收口，空串按悬空跳过"
+    );
+    assert_eq!(env.vcs.installs().len(), 2, "每项目恰安装一次");
+    assert!(outcome.warnings.is_empty());
+}
+
+/// 超大输入（边界）：200 个无依赖项目 + 20 层依赖链 → 线性完成、序确定、
+/// 无栈溢出 / 死循环，安装次数 = 项目数。
+#[test]
+fn 超大输入_200项目加20层链线性完成且序确定() {
+    let env = Env::new("topo-large");
+    let chain_len = 20;
+    let flat_len = 200;
+    let mut projects: Vec<BootstrapProject> = (0..chain_len)
+        .map(|index| BootstrapProject {
+            root: format!("c{index}"),
+            depends_on: if index + 1 < chain_len {
+                vec![format!("c{}", index + 1)]
+            } else {
+                Vec::new()
+            },
+        })
+        .collect();
+    for index in 0..chain_len {
+        seed_main_path(&env, &format!("c{index}/package-lock.json"), "# npm");
+    }
+    for index in 0..flat_len {
+        let root = format!("p{index}");
+        seed_main_path(&env, &format!("{root}/package-lock.json"), "# npm");
+        projects.push(proj(&root));
+    }
+
+    let outcome = env
+        .create_with_projects("fix-bug", "超大输入 goal", &projects)
+        .expect("建域应 Ok");
+
+    let mut expected: Vec<String> = (0..chain_len)
+        .rev()
+        .map(|index| format!("c{index}"))
+        .collect();
+    expected.extend((0..flat_len).map(|index| format!("p{index}")));
+    assert_eq!(
+        install_roots(&env, "fix-bug"),
+        expected,
+        "链倒序下沉 + 平铺项目保持声明序"
+    );
+    assert_eq!(
+        env.vcs.installs().len(),
+        chain_len + flat_len,
+        "每项目恰安装一次，无重复 / 无遗漏"
+    );
+    assert!(outcome.warnings.is_empty());
+}
+
+/// 点号根 + 依赖（边界）：`.` 解析为 worktree 根，安装序仍按拓扑序（保持既有
+/// 「点号根」语义）。
+#[test]
+fn 点号根携带依赖_解析worktree根且序仍为拓扑序() {
+    let env = Env::new("topo-dot");
+    seed_main_file(&env, "pnpm-lock.yaml", "# root pnpm");
+    seed_main_path(&env, "web/package-lock.json", "# npm");
+    let projects = [proj_with("web", &["."]), proj(".")];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "点号根 goal", &projects)
+        .expect("建域应 Ok");
+
+    assert_eq!(
+        install_roots(&env, "fix-bug"),
+        [".", "web"],
+        "`.` 解析为 worktree 根且依赖先于依赖方"
+    );
+    assert!(outcome.warnings.is_empty());
+}
+
+/// 悬空依赖（异常）：`web(dep→ghost)` + `api` → 零 `Err`、两项照常安装、警告
+/// 集合与无 `depends_on` 时同形（无「未知依赖」类新增警告）。
+#[test]
+fn 悬空依赖_零err零新增警告且两项照常安装() {
+    let env = Env::new("topo-dangling");
+    seed_main_path(&env, "web/pnpm-lock.yaml", "# pnpm");
+    seed_main_path(&env, "api/package-lock.json", "# npm");
+    let projects = [proj_with("web", &["ghost"]), proj("api")];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "悬空依赖 goal", &projects)
+        .expect("悬空依赖零 Err");
+
+    assert_eq!(
+        install_roots(&env, "fix-bug"),
+        ["web", "api"],
+        "悬空依赖跳过，其余按声明序安装"
+    );
+    assert!(
+        outcome.warnings.is_empty(),
+        "悬空依赖不产生新增警告，实际 {:?}",
+        outcome.warnings
+    );
+}
+
+/// 自引用（异常）：`web(dep→web)` → 零 `Err`、`web` 恰安装一次、无死循环。
+#[test]
+fn 自引用_零err且恰安装一次无死循环() {
+    let env = Env::new("topo-self");
+    seed_main_path(&env, "web/pnpm-lock.yaml", "# pnpm");
+    let projects = [proj_with("web", &["web"])];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "自引用 goal", &projects)
+        .expect("自引用零 Err");
+
+    assert_eq!(install_roots(&env, "fix-bug"), ["web"], "自引用恰安装一次");
+    assert_eq!(env.vcs.installs().len(), 1);
+    assert!(outcome.warnings.is_empty());
+}
+
+/// 成环（异常）：声明序 `[web(dep→api), api(dep→web)]` → 零 `Err`、各安装恰
+/// 一次、产出确定序 `[api, web]`。
+#[test]
+fn 成环_零err各一次且产出确定序() {
+    let env = Env::new("topo-cycle");
+    seed_main_path(&env, "web/pnpm-lock.yaml", "# pnpm");
+    seed_main_path(&env, "api/package-lock.json", "# npm");
+    let projects = [proj_with("web", &["api"]), proj_with("api", &["web"])];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "成环 goal", &projects)
+        .expect("成环零 Err");
+
+    assert_eq!(
+        install_roots(&env, "fix-bug"),
+        ["api", "web"],
+        "成环由 visited 收口，产出确定序（依赖侧先落地）"
+    );
+    assert_eq!(env.vcs.installs().len(), 2, "各项目恰安装一次");
+    assert!(outcome.warnings.is_empty());
+}
+
+/// 拓扑序 + 安装失败（异常）：`web(dep→api)` 两项均失败 → 警告按**安装序**
+/// 累积（`api` 的失败警告先于 `web`）、仍返回 `Ok`、建档与 worktree 均保留。
+#[test]
+fn 拓扑序安装失败_警告按安装序累积且不回滚() {
+    let env = Env::new("topo-fail");
+    seed_main_path(&env, "web/pnpm-lock.yaml", "# pnpm");
+    seed_main_path(&env, "api/package-lock.json", "# npm");
+    env.vcs.set_install_failure("ERR_BOOT");
+    let projects = [proj_with("web", &["api"]), proj("api")];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "失败 goal", &projects)
+        .expect("bootstrap 失败不回滚");
+
+    assert_eq!(
+        outcome.warnings,
+        vec![
+            "项目根 \"api\"：依赖引导失败（npm ci）: ERR_BOOT".to_owned(),
+            "项目根 \"web\"：依赖引导失败（pnpm install --frozen-lockfile）: ERR_BOOT".to_owned(),
+        ],
+        "警告按安装序累积（依赖方在前）"
+    );
+    assert!(
+        env.store.find_by_id(&env.store.created_id()).is_some(),
+        "建档保留（不回滚）"
+    );
+    assert!(
+        env.worktree_root.join("fix-bug").is_dir(),
+        "worktree 保留（不回滚）"
+    );
+}
+
+/// 拓扑序 + 项目根不存在（异常）：`web(dep→api)` 两根本均缺失 → 警告按安装序
+/// 出现两条「在 worktree 内不存在」，零安装。
+#[test]
+fn 拓扑序项目根不存在_警告按安装序排列且零安装() {
+    let env = Env::new("topo-missing");
+    let projects = [proj_with("web", &["api"]), proj("api")];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "缺失 goal", &projects)
+        .expect("建域应 Ok");
+
+    assert!(env.vcs.install_commands().is_empty(), "两根本缺失，零安装");
+    assert_eq!(
+        outcome.warnings,
+        vec![
+            "项目根 \"api\"：在 worktree 内不存在，跳过依赖引导".to_owned(),
+            "项目根 \"web\"：在 worktree 内不存在，跳过依赖引导".to_owned(),
+        ],
+        "缺失警告按安装序排列（依赖方在前）"
+    );
 }
 
 // ---------------------------------------------------------------------------

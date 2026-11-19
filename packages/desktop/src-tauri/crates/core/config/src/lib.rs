@@ -151,12 +151,20 @@ pub struct WriteProtectionFile {
     pub reason: Option<String>,
 }
 
-/// 项目配置（依赖引导扫描锚点）：`root` 为相对 worktree 根的项目目录。
+/// 项目配置（依赖引导项目锚点）：`root` 为目录锚点，`language` /
+/// `depends_on` 为软规则字段。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectConfig {
     /// 项目目录（非空、非绝对、无 `..` 段 / glob 通配符）
     pub root: String,
+    /// 编码语言标注（开放字符串：零白名单 / 零归一 / 不与 `tests[].framework`
+    /// 交叉校验；未设为 `None`）——声明型字段，消费侧归一单点见
+    /// desktop-workspace-config
+    pub language: Option<String>,
+    /// 依赖的项目根（保序、不去重、零引用校验；未设为 `None`）——唯一消费者为
+    /// bootstrap 拓扑序安装（见 desktop-change-worktree「确定性依赖 bootstrap」）
+    pub depends_on: Option<Vec<String>>,
 }
 
 /// 顶层未知字段 passthrough 载体：key + 原文值原样保留、无诊断。
@@ -186,7 +194,8 @@ pub struct WorkspaceConfig {
     pub rules: Option<RulesConfig>,
     /// 静态分析工具配置（未设为 `None`）
     pub static_analysis: Option<String>,
-    /// 依赖引导项目根列表（保序；未设 / 显式 null → 空列表且无诊断）
+    /// 依赖引导项目锚点列表（元素携可选 `language` / `depends_on`；保序；
+    /// 未设 / 显式 null → 空列表且无诊断）
     pub projects: Vec<ProjectConfig>,
     /// 测试 suite 配置列表（保序；违例 suite 剔除）
     pub tests: Vec<TestSuite>,
@@ -693,7 +702,8 @@ fn is_valid_project_root(root: &str) -> bool {
 }
 
 /// 项目元素组装：非对象 / `root` 缺失或非法 → 整条剔除 + `InvalidValue`；
-/// 合法条目原样保留（未知子键忽略，对齐 suite 元素处置）。
+/// 合法条目原样保留（`language` / `depends_on` 只判类型、不参与去留；其余
+/// 未知子键忽略，对齐 suite 元素处置）。
 fn assemble_project(
     item: &Value,
     index: usize,
@@ -733,7 +743,23 @@ fn assemble_project(
             return None;
         }
     };
-    Some(ProjectConfig { root })
+    let language = opt_string(
+        map,
+        "language",
+        &format!("{project_path}.language"),
+        diagnostics,
+    );
+    let depends_on = opt_string_list(
+        map,
+        "depends_on",
+        &format!("{project_path}.depends_on"),
+        diagnostics,
+    );
+    Some(ProjectConfig {
+        root,
+        language,
+        depends_on,
+    })
 }
 
 /// 组装校验纯函数（design「配置语义移植对照」表逐行落地）：对顶层对象逐字段

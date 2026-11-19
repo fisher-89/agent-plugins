@@ -58,7 +58,19 @@ function RulesGroup({
   );
 }
 
-/** projects 子组：项目根列表（空数组呈「（空列表）」；重复 root 允许，index 作 key） */
+/** 依赖列表呈现文案：未设 → 「未设」；空数组 → 「（空列表）」；否则顿号并列 */
+function depsText(deps: string[] | null): string {
+  if (deps === null) {
+    return '未设';
+  }
+  return deps.length === 0 ? '（空列表）' : deps.join('、');
+}
+
+/**
+ * projects 子组：逐项目呈现 root + 已设的 language / depends_on；未设标注
+ *「未设」（呈现面不隐藏已配置值）。空数组呈「（空列表）」；重复 root 允许，
+ * index 作 key；只读（无编辑控件、无写回通道）。
+ */
 function ProjectsGroup({ items }: { items: ProjectConfig[] }): React.JSX.Element {
   return (
     <div className="flex items-baseline gap-3 py-0.5" data-testid="config-projects">
@@ -69,7 +81,9 @@ function ProjectsGroup({ items }: { items: ProjectConfig[] }): React.JSX.Element
         <ul className="m-0 min-w-0 list-disc pl-5">
           {items.map((project, index) => (
             <li key={index} className="break-all">
-              {project.root}
+              <span>{project.root}</span>
+              <span className="ml-3 text-xs text-muted-foreground">{`language：${project.language ?? '未设'}`}</span>
+              <span className="ml-3 text-xs text-muted-foreground">{`depends_on：${depsText(project.dependsOn)}`}</span>
             </li>
           ))}
         </ul>

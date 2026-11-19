@@ -2032,10 +2032,24 @@ export type PhaseEntry = {
 	attempts: AttemptRecord[],
 };
 
-/**  项目配置（依赖引导扫描锚点）：`root` 为相对 worktree 根的项目目录。 */
+/**
+ *  项目配置（依赖引导项目锚点）：`root` 为目录锚点，`language` /
+ *  `depends_on` 为软规则字段。
+ */
 export type ProjectConfig = {
 	/**  项目目录（非空、非绝对、无 `..` 段 / glob 通配符） */
 	root: string,
+	/**
+	 *  编码语言标注（开放字符串：零白名单 / 零归一 / 不与 `tests[].framework`
+	 *  交叉校验；未设为 `None`）——声明型字段，消费侧归一单点见
+	 *  desktop-workspace-config
+	 */
+	language: string | null,
+	/**
+	 *  依赖的项目根（保序、不去重、零引用校验；未设为 `None`）——唯一消费者为
+	 *  bootstrap 拓扑序安装（见 desktop-change-worktree「确定性依赖 bootstrap」）
+	 */
+	dependsOn: string[] | null,
 };
 
 /**
@@ -2363,7 +2377,10 @@ export type WorkspaceConfig = {
 	rules: RulesConfig | null,
 	/**  静态分析工具配置（未设为 `None`） */
 	staticAnalysis: string | null,
-	/**  依赖引导项目根列表（保序；未设 / 显式 null → 空列表且无诊断） */
+	/**
+	 *  依赖引导项目锚点列表（元素携可选 `language` / `depends_on`；保序；
+	 *  未设 / 显式 null → 空列表且无诊断）
+	 */
 	projects: ProjectConfig[],
 	/**  测试 suite 配置列表（保序；违例 suite 剔除） */
 	tests: TestSuite[],

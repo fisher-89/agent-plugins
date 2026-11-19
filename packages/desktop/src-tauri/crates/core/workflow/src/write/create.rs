@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -70,6 +71,16 @@ pub struct CreateOutcome {
     pub warnings: Vec<String>,
 }
 
+/// 依赖引导的单个项目锚点（写面内部纯数据：不进 IPC、不落盘、不区分「未设」
+/// 与「空」）。
+#[derive(Debug, Clone)]
+pub struct BootstrapProject {
+    /// 项目目录（相对 worktree 根；`.` 等价 worktree 根）
+    pub root: String,
+    /// 依赖的项目根（零引用校验；仅用于推导安装序）
+    pub depends_on: Vec<String>,
+}
+
 /// kebab-case 字符级判定：等价正则 `^[a-z][a-z0-9]*(-[a-z0-9]+)*$` 语义
 ///（不引 regex 依赖）。首段以小写字母开头、仅小写字母 / 数字；后续段以
 /// `-` 起头且各至少一个字符（可数字开头）——即禁前导数字、连号连字符、
@@ -116,7 +127,7 @@ pub fn create(
     main_root: &Path,
     store: &dyn ChangeStateStore,
     vcs: &dyn WorktreePort,
-    project_roots: &[String],
+    projects: &[BootstrapProject],
     name: &str,
     goal: &str,
     title: &str,
@@ -289,7 +300,7 @@ pub fn create(
     if probe.dirty {
         warnings.push(WARN_DIRTY_MAIN.to_owned());
     }
-    bootstrap(&worktree, project_roots, vcs, &mut warnings);
+    bootstrap(&worktree, projects, vcs, &mut warnings);
 
     Ok(CreateOutcome {
         id,
@@ -308,22 +319,64 @@ fn write_fs_half(dir: &Path, goal: &str) -> Result<(), String> {
 }
 
 /// 确定性 bootstrap 分派：未配置项目根 → worktree 根单扫描（legacy，行为与
-/// 文案逐字不变）；配置了项目根 → 按配置序逐个项目根扫描，命中即在该项目
-/// 目录执行安装（多安装，每项目至多一次）。失败 / 未命中均只记警告，不回滚
-/// create（后续确定性检查步大声失败兜底；D5 词汇单点）。
+/// 文案逐字不变）；配置了项目根 → 按 `depends_on` 拓扑序逐个安装（依赖先于
+/// 依赖方，同层保持声明序；脏依赖零阻断），命中即在该项目目录执行安装（每
+/// 项目至多一次）。失败 / 未命中均只记警告，不回滚 create（后续确定性检查
+/// 步大声失败兜底；D5 词汇单点）。
 fn bootstrap(
     worktree: &Path,
-    project_roots: &[String],
+    projects: &[BootstrapProject],
     vcs: &dyn WorktreePort,
     warnings: &mut Vec<String>,
 ) {
-    if project_roots.is_empty() {
+    if projects.is_empty() {
         bootstrap_worktree_root(worktree, vcs, warnings);
         return;
     }
-    for root in project_roots {
+    for root in install_order(projects) {
         bootstrap_project(worktree, root, vcs, warnings);
     }
+}
+
+/// 安装序推导：`depends_on` 后序 DFS（依赖先于依赖方），同层 tie-break 为
+/// 配置声明序。悬空依赖跳过、自引用 / 成环由 visited 收口、同名 `root` 折叠
+/// 为首次出现——四类脏数据一律零 `Err` 零诊断，产出确定序列。
+fn install_order(projects: &[BootstrapProject]) -> Vec<&str> {
+    let mut canonical: HashMap<&str, usize> = HashMap::new();
+    for (index, project) in projects.iter().enumerate() {
+        canonical.entry(project.root.as_str()).or_insert(index);
+    }
+    let mut visited = vec![false; projects.len()];
+    let mut order: Vec<&str> = Vec::with_capacity(projects.len());
+    for (index, project) in projects.iter().enumerate() {
+        if canonical.get(project.root.as_str()) != Some(&index) {
+            continue;
+        }
+        visit_order(projects, &canonical, index, &mut visited, &mut order);
+    }
+    order
+}
+
+/// [`install_order`] 的后序 DFS 单步：先置 visited 再递归依赖（自引用 / 成环
+/// 的唯一防死循环手段），依赖落定后 push 自身。
+fn visit_order<'a>(
+    projects: &'a [BootstrapProject],
+    canonical: &HashMap<&'a str, usize>,
+    index: usize,
+    visited: &mut [bool],
+    order: &mut Vec<&'a str>,
+) {
+    if visited[index] {
+        return;
+    }
+    visited[index] = true;
+    let project = &projects[index];
+    for dependency in &project.depends_on {
+        if let Some(&dependency_index) = canonical.get(dependency.as_str()) {
+            visit_order(projects, canonical, dependency_index, visited, order);
+        }
+    }
+    order.push(project.root.as_str());
 }
 
 /// legacy（未配置项目根）：worktree 根探测 lockfile → 映射表首匹配命中即

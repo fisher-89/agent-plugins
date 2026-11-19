@@ -9,6 +9,7 @@ use foundation::layout::resolve;
 
 use crate::state::ChangeStateStore;
 use crate::write::worktree::WorktreePort;
+use crate::write::BootstrapProject;
 
 /// promote 产出（IPC DTO）：本次铸出的 change 身份锚（前端跳转 / 一切后续寻
 /// 址入参）与 change 名（= explore name，promote 免转换语义的显式呈现）。
@@ -32,7 +33,7 @@ pub fn promote_explore(
     main_root: &Path,
     store: &dyn ChangeStateStore,
     vcs: &dyn WorktreePort,
-    project_roots: &[String],
+    projects: &[BootstrapProject],
     name: &str,
     note: &str,
     title: &str,
@@ -42,7 +43,7 @@ pub fn promote_explore(
         main_root,
         store,
         vcs,
-        project_roots,
+        projects,
         name,
         note,
         title,

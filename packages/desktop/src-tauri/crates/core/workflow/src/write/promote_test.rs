@@ -6,6 +6,7 @@ use foundation::layout::resolve;
 
 use super::promote::PromoteOutcome;
 use super::promote_explore;
+use super::BootstrapProject;
 use super::{InstallRun, RepoProbe, WorktreePort};
 use crate::state::{
     BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand,
@@ -44,6 +45,26 @@ impl Env {
             worktree_root,
             store: PromoteStore::new(),
         }
+    }
+
+    /// 项目模式形态（依赖引导项目锚点注入：拓扑序透传断言面）。
+    fn promote_with_projects(
+        &self,
+        name: &str,
+        note: &str,
+        title: &str,
+        projects: &[BootstrapProject],
+    ) -> Result<PromoteOutcome, String> {
+        promote_explore(
+            &self.root,
+            &self.store,
+            &self.vcs,
+            projects,
+            name,
+            note,
+            title,
+            "requirement",
+        )
     }
 
     /// 主仓 explore 笔记路径（`openspec/explores/<name>.md`）。
@@ -758,6 +779,122 @@ fn promote_workflow_type超长与特殊字符拒绝() {
             fs::read_to_string(&note_path).expect("读笔记失败"),
             note,
             "主仓笔记内容零变化"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 项目模式：depends_on 拓扑序经 promote 路径透传
+// ---------------------------------------------------------------------------
+
+/// 带依赖声明的项目锚点（`depends_on` 逐字取自入参，保序）。
+fn proj_with(root: &str, depends_on: &[&str]) -> BootstrapProject {
+    BootstrapProject {
+        root: root.to_owned(),
+        depends_on: depends_on
+            .iter()
+            .map(|dependency| (*dependency).to_owned())
+            .collect(),
+    }
+}
+
+/// 项目模式 + 拓扑序透传（正向 / 跨模块组合）：`[web(dep→api), api]` →
+/// change 内安装序 `api, web`（`create` 侧顺序能力经 promote 路径同样生效），
+/// 笔记同时移走（move 半边不因项目入参形态改变）。
+#[test]
+fn promote拓扑序透传_安装序依赖先于依赖方且笔记移走() {
+    let env = Env::new("promote-topo");
+    let note = "# 拓扑序笔记\n正文";
+    let note_path = env.seed_note("dep-order", note);
+    // 主仓树镜像进 worktree（假件 add_worktree 的检出模拟）——两项目各带
+    // 不同 lockfile，安装命令序列即安装序观察面。
+    let web_lock = env.root.join("web/package-lock.json");
+    fs::create_dir_all(web_lock.parent().expect("应有父目录")).expect("建 web 目录失败");
+    fs::write(&web_lock, "# npm").expect("写 web lockfile 失败");
+    let api_lock = env.root.join("api/pnpm-lock.yaml");
+    fs::create_dir_all(api_lock.parent().expect("应有父目录")).expect("建 api 目录失败");
+    fs::write(&api_lock, "# pnpm").expect("写 api lockfile 失败");
+    let projects = [proj_with("web", &["api"]), proj_with("api", &[])];
+
+    let outcome = env
+        .promote_with_projects("dep-order", note, "拓扑序笔记", &projects)
+        .expect("项目模式 promote 应成功");
+
+    let installs: Vec<String> = env
+        .vcs
+        .calls()
+        .into_iter()
+        .filter(|call| call.starts_with("install:"))
+        .collect();
+    assert_eq!(
+        installs,
+        vec![
+            "install:pnpm install --frozen-lockfile".to_owned(),
+            "install:npm ci".to_owned(),
+        ],
+        "安装序为拓扑序（api 先于 web），透传自 create"
+    );
+    assert!(
+        !note_path.exists(),
+        "笔记同时移走（move 半边不因项目入参形态改变）"
+    );
+    assert_eq!(
+        fs::read_to_string(env.change_dir("dep-order").join("explore.md"))
+            .expect("读 worktree 内 explore.md 失败"),
+        note,
+        "笔记全文落 change 内"
+    );
+    assert_eq!(outcome.change_name, "dep-order");
+}
+
+// ---------------------------------------------------------------------------
+// 项目模式：name 前置校验先于 bootstrap（零安装 / 零笔记删除）
+// ---------------------------------------------------------------------------
+
+/// 空白 / 非 kebab name 拒绝（异常 / 矩阵迭代 2 形态）：create 前置①名称校验
+/// 先于 bootstrap 与笔记删除——`Err` 文案携 kebab-case 判据与原值，vcs 零调用
+/// （零安装、零 worktree 落位）、零建档，主仓已存在的 explore 笔记逐字仍在
+/// （move 半边不触发）。
+#[test]
+fn promote空白与非kebab名拒绝_零安装零笔记删除() {
+    for (idx, name) in ["", "Not-Kebab_Name"].iter().enumerate() {
+        let env = Env::new(&format!("promote-bad-name-{idx}"));
+        let note = "# 保留的笔记\n正文";
+        let note_path = env.seed_note("kept-note", note);
+        let projects = [proj_with("api", &[]), proj_with("web", &["api"])];
+
+        let error = env
+            .promote_with_projects(name, note, "保留的笔记", &projects)
+            .expect_err("空白 / 非 kebab name 应显式 Err");
+
+        assert!(
+            error.contains("kebab-case"),
+            "Err 携名称判据（create 前置①原文透传），实际: {error}"
+        );
+        assert!(
+            error.contains(&format!("{name:?}")),
+            "Err 携原值 {name:?}，实际: {error}"
+        );
+        assert!(
+            env.vcs.calls().is_empty(),
+            "vcs 零调用（名称校验先于 bootstrap 与安装），实际: {:?}",
+            env.vcs.calls()
+        );
+        assert_eq!(
+            env.store.records.lock().expect("记录锁不可中毒").len(),
+            0,
+            "零建档（前置拒绝在任何 IO 之前）"
+        );
+        assert_eq!(
+            env.store.creates.lock().expect("建档锁不可中毒").len(),
+            0,
+            "零铸出（create_change_record 未被调用）"
+        );
+        assert!(note_path.is_file(), "主仓笔记零删除（name {name:?}）");
+        assert_eq!(
+            fs::read_to_string(&note_path).expect("读笔记失败"),
+            note,
+            "主仓笔记内容零变化（name {name:?}）"
         );
     }
 }

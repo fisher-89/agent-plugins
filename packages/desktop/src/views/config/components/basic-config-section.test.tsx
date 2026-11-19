@@ -47,18 +47,23 @@ describe('BasicConfigSection：基础配置分区呈现（AC-5）', () => {
     expect(screen.getByText('任务规则一') !== null).toBe(true);
   });
 
-  it('projects 非空：逐项呈现 root 且保持配置顺序', () => {
+  it('projects 非空：逐项目呈现 root 且保持配置顺序', () => {
     render(
       <BasicConfigSection
         config={makeConfig({
-          projects: [{ root: 'packages/desktop' }, { root: 'packages/desktop/src-tauri' }],
+          projects: [
+            { root: 'packages/desktop', language: null, dependsOn: null },
+            { root: 'packages/desktop/src-tauri', language: null, dependsOn: null },
+          ],
         })}
         defaultedPaths={new Set()}
       />,
     );
 
     const group = screen.getByTestId('config-projects');
-    const roots = Array.from(group.querySelectorAll('li')).map((item) => item.textContent);
+    const roots = Array.from(group.querySelectorAll('li')).map(
+      (item) => item.querySelector('span')?.textContent,
+    );
     expect(roots).toEqual(['packages/desktop', 'packages/desktop/src-tauri']);
     expect(screen.queryByText('（空列表）')).toBeNull();
   });
@@ -94,7 +99,7 @@ describe('BasicConfigSection：基础配置分区呈现（AC-5）', () => {
     render(
       <BasicConfigSection
         config={makeConfig({
-          projects: [{ root: 'packages/desktop' }],
+          projects: [{ root: 'packages/desktop', language: null, dependsOn: null }],
           rules: { proposal: [], tasks: ['仅一条'] },
         })}
         defaultedPaths={new Set(['tests[0].coverage.lines', 'context'])}
@@ -106,5 +111,163 @@ describe('BasicConfigSection：基础配置分区呈现（AC-5）', () => {
     expect(screen.getByText('仅一条') !== null).toBe(true);
     // defaultedPaths 条目均不对位本分区（schema 未在集内），零标注
     expect(screen.queryAllByText(/未设（默认/)).toHaveLength(0);
+  });
+});
+
+describe('ProjectsGroup：projects 区两协议字段呈现（AC-7）', () => {
+  it('单项目已设两字段：该 li 文本依次含 root / language：<值> / depends_on：<值>', () => {
+    render(
+      <BasicConfigSection
+        config={makeConfig({
+          projects: [
+            {
+              root: 'packages/desktop',
+              language: 'typescript',
+              dependsOn: ['packages/desktop/src-tauri'],
+            },
+          ],
+        })}
+        defaultedPaths={new Set()}
+      />,
+    );
+
+    const group = screen.getByTestId('config-projects');
+    const items = group.querySelectorAll('li');
+    expect(items).toHaveLength(1);
+    expect(items[0]?.textContent).toBe(
+      'packages/desktoplanguage：typescriptdepends_on：packages/desktop/src-tauri',
+    );
+    expect(screen.getByText('language：typescript') !== null).toBe(true);
+    expect(screen.getByText('depends_on：packages/desktop/src-tauri') !== null).toBe(true);
+  });
+
+  it('多项目不同值并列：逐项呈现不串行，顺序 = 配置序', () => {
+    render(
+      <BasicConfigSection
+        config={makeConfig({
+          projects: [
+            { root: 'web', language: 'typescript', dependsOn: ['api'] },
+            { root: 'api', language: 'rust', dependsOn: null },
+          ],
+        })}
+        defaultedPaths={new Set()}
+      />,
+    );
+
+    const group = screen.getByTestId('config-projects');
+    const items = Array.from(group.querySelectorAll('li')).map((item) => item.textContent);
+    expect(items).toEqual([
+      'weblanguage：typescriptdepends_on：api',
+      'apilanguage：rustdepends_on：未设',
+    ]);
+  });
+
+  it('两字段均未设：两处「未设」，root 仍呈现（未设不吞行）', () => {
+    render(
+      <BasicConfigSection
+        config={makeConfig({
+          projects: [{ root: 'packages/desktop', language: null, dependsOn: null }],
+        })}
+        defaultedPaths={new Set()}
+      />,
+    );
+
+    expect(screen.getByText('language：未设') !== null).toBe(true);
+    expect(screen.getByText('depends_on：未设') !== null).toBe(true);
+    expect(screen.getByText('packages/desktop') !== null).toBe(true);
+  });
+
+  it('dependsOn 三形态：空数组呈（空列表）、单元素、三元素以「、」连接', () => {
+    const cases: { dependsOn: string[]; text: string }[] = [
+      { dependsOn: [], text: 'depends_on：（空列表）' },
+      { dependsOn: ['only'], text: 'depends_on：only' },
+      { dependsOn: ['a', 'b', 'c'], text: 'depends_on：a、b、c' },
+    ];
+
+    for (const { dependsOn, text } of cases) {
+      const { unmount } = render(
+        <BasicConfigSection
+          config={makeConfig({
+            projects: [{ root: 'web', language: null, dependsOn }],
+          })}
+          defaultedPaths={new Set()}
+        />,
+      );
+
+      expect(screen.getByText(text) !== null).toBe(true);
+      unmount();
+    }
+  });
+
+  it('已设空串 language：呈 language：空值形态，不落「未设」（与 null 可区分）', () => {
+    render(
+      <BasicConfigSection
+        config={makeConfig({
+          projects: [{ root: 'web', language: '', dependsOn: [] }],
+        })}
+        defaultedPaths={new Set()}
+      />,
+    );
+
+    const group = screen.getByTestId('config-projects');
+    const item = group.querySelector('li');
+    expect(item?.textContent).toBe('weblanguage：depends_on：（空列表）');
+    expect(screen.queryByText('language：未设')).toBeNull();
+  });
+
+  it('projects 空数组：呈「（空列表）」且零 li（既有空态不变）', () => {
+    render(<BasicConfigSection config={makeConfig({ projects: [] })} defaultedPaths={new Set()} />);
+
+    const group = screen.getByTestId('config-projects');
+    expect(group.querySelectorAll('li')).toHaveLength(0);
+    expect(screen.getByText('（空列表）') !== null).toBe(true);
+  });
+
+  it('超长值：language 1200 字符 + dependsOn 20 项完整呈现（不截断不抛错）', () => {
+    const longLanguage = 'l'.repeat(1200);
+    const deps = Array.from({ length: 20 }, (_, index) => `dep-${index}`);
+
+    render(
+      <BasicConfigSection
+        config={makeConfig({
+          projects: [{ root: 'web', language: longLanguage, dependsOn: deps }],
+        })}
+        defaultedPaths={new Set()}
+      />,
+    );
+
+    expect(screen.getByText(`language：${longLanguage}`) !== null).toBe(true);
+    expect(screen.getByText(`depends_on：${deps.join('、')}`) !== null).toBe(true);
+  });
+
+  it('特殊字符：language 含换行与 emoji 时值原样进入呈现面', () => {
+    render(
+      <BasicConfigSection
+        config={makeConfig({
+          projects: [{ root: 'web', language: 'Type\nScript🙂', dependsOn: null }],
+        })}
+        defaultedPaths={new Set()}
+      />,
+    );
+
+    // 正则文本查询容忍空白折叠：值不被吞、不转义错乱
+    expect(screen.getByText(/language：Type\s*Script🙂/) !== null).toBe(true);
+    expect(screen.queryByText('language：未设')).toBeNull();
+  });
+
+  it('只读边界：含两字段的 projects 区取到 0 个编辑控件（无编辑 / 保存入口）', () => {
+    render(
+      <BasicConfigSection
+        config={makeConfig({
+          projects: [{ root: 'web', language: 'typescript', dependsOn: ['api'] }],
+        })}
+        defaultedPaths={new Set()}
+      />,
+    );
+
+    const group = screen.getByTestId('config-projects');
+    expect(group.querySelectorAll('input, textarea, select, button')).toHaveLength(0);
+    const section = screen.getByTestId('config-basic');
+    expect(section.querySelectorAll('button')).toHaveLength(0);
   });
 });

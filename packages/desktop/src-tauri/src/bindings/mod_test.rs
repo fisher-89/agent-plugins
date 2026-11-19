@@ -389,6 +389,103 @@ fn type_section(content: &str, type_name: &str) -> String {
     content[start..end].to_owned()
 }
 
+/// zod 产物路径（与 `export_bindings` 内 `src/types/generated` 定位同式）。
+fn generated_zod_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CARGO_MANIFEST_DIR 应有父目录")
+        .join("src/types/generated/bindings.zod.ts")
+}
+
+/// zod 权威产物文本：重导出（幂等确定性）后读取（同一 builder 同步产出
+/// `bindings.ts` 与 `bindings.zod.ts`，调用方须持产物文件锁）。
+fn authoritative_zod_snapshot() -> String {
+    export_bindings().expect("export_bindings 应成功");
+    fs::read_to_string(generated_zod_path()).expect("读取 zod 产物文件应成功")
+}
+
+/// zod 产物中某 `export const <name> =` 声明的完整文本段（至下一个顶层
+/// `export` 前）。
+fn zod_section(content: &str, name: &str) -> String {
+    let marker = format!("export const {name} = ");
+    let start = content
+        .find(&marker)
+        .unwrap_or_else(|| panic!("zod 产物缺声明 {name}"));
+    let body_start = start + marker.len();
+    let end = content[body_start..]
+        .find("\nexport ")
+        .map_or(content.len(), |offset| body_start + offset);
+    content[start..end].to_owned()
+}
+
+/// 内存副本：删除含 `needle` 的行（首处），产物文件本体零改动。
+fn without_line(text: &str, needle: &str) -> String {
+    text.lines()
+        .filter(|line| !line.contains(needle))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 期待断言体 panic 并取回 panic 文案（文案本身是判据的一部分：缺键指认）。
+fn panic_text(body: impl FnOnce()) -> String {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
+        Ok(()) => panic!("期望断言失败 panic，实际通过"),
+        Err(payload) => match payload.downcast_ref::<String>() {
+            Some(text) => text.clone(),
+            None => match payload.downcast_ref::<&'static str>() {
+                Some(text) => (*text).to_string(),
+                None => panic!("panic 载荷既非 String 也非 &str，无法核对文案"),
+            },
+        },
+    }
+}
+
+/// `ProjectConfig` 出线形态断言（入参化文本：正向喂权威产物段，异常喂内存
+/// 副本）；失败文案指认缺失键，并按声明序校验三字段先后。
+fn assert_project_config_section(section: &str) {
+    let fields = [
+        "root: string,",
+        "language: string | null,",
+        "dependsOn: string[] | null,",
+    ];
+    let mut last = 0;
+    for field in fields {
+        let position = section
+            .find(field)
+            .unwrap_or_else(|| panic!("ProjectConfig 缺字段出线 {field}，实际 {section}"));
+        assert!(
+            position >= last,
+            "ProjectConfig 字段出线序漂移（{field} 应位于前序字段之后），实际 {section}"
+        );
+        last = position;
+    }
+}
+
+/// `ProjectConfigSchema` 出线形态断言（入参化文本：正向喂权威 zod 产物段，
+/// 异常喂内存副本）；失败文案指认缺失 getter。
+fn assert_project_config_schema(section: &str) {
+    assert!(
+        section
+            .trim_start()
+            .starts_with("export const ProjectConfigSchema = z.strictObject({"),
+        "ProjectConfigSchema 应为 strictObject 包裹（两 getter 落同一对象内），实际 {section}"
+    );
+    for getter in [
+        "get root() { return z.string(); },",
+        "get language() { return z.string().nullable(); },",
+        "get dependsOn() { return z.array(z.string()).nullable(); },",
+    ] {
+        assert!(
+            section.contains(getter),
+            "ProjectConfigSchema 缺 {getter}，实际 {section}"
+        );
+    }
+    assert!(
+        section.trim_end().ends_with("});"),
+        "ProjectConfigSchema 声明应以 `}});` 收口，实际 {section}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // export_bindings 覆盖性（AC-3）
 // ---------------------------------------------------------------------------
@@ -838,11 +935,12 @@ fn 配置域十三型出线且逐字段形态对位() {
         assert!(config.contains(field), "WorkspaceConfig 缺字段出线 {field}");
     }
 
-    // ProjectConfig：项目根单字段
+    // ProjectConfig：`root` 锚点 + 两可选协议字段（`Option` 出线 `null`、camelCase）
     let project = type_section(&content, "ProjectConfig");
+    assert_project_config_section(&project);
     assert!(
-        project.contains("root: string,"),
-        "ProjectConfig 缺字段出线 root: string，实际 {project}"
+        config.contains("projects: ProjectConfig[],"),
+        "WorkspaceConfig.projects 容器形态不变（元素形状变宽）"
     );
 
     // TestSuite：全字段 camelCase 镜像
@@ -894,6 +992,59 @@ fn 配置域十三型出线且逐字段形态对位() {
     assert!(diagnostic.contains("kind: DiagnosticKind,"));
     assert!(diagnostic.contains("path: string,"));
     assert!(diagnostic.contains("message: string,"));
+}
+
+#[test]
+fn 项目配置出线缺两新键的副本被抓且文案指认缺键() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    let section = type_section(&content, "ProjectConfig");
+
+    // 副本一：删除 language 行
+    let without_language = without_line(&section, "language: string | null,");
+    let text = panic_text(|| assert_project_config_section(&without_language));
+    assert!(
+        text.contains("language: string | null,"),
+        "删 language 行的副本应被断言抓且指认缺键，实际文案 {text:?}"
+    );
+
+    // 副本二：删除 dependsOn 行
+    let without_depends_on = without_line(&section, "dependsOn: string[] | null,");
+    let text = panic_text(|| assert_project_config_section(&without_depends_on));
+    assert!(
+        text.contains("dependsOn: string[] | null,"),
+        "删 dependsOn 行的副本应被断言抓且指认缺键，实际文案 {text:?}"
+    );
+}
+
+#[test]
+fn 项目配置zod_schema含两新键getter且strict_object包裹() {
+    let _lock = lock();
+    let content = authoritative_zod_snapshot();
+
+    let schema = zod_section(&content, "ProjectConfigSchema");
+    assert_project_config_schema(&schema);
+
+    // 容器形态不变：projects 仍为 ProjectConfigSchema 数组
+    let workspace = zod_section(&content, "WorkspaceConfigSchema");
+    assert!(
+        workspace.contains("get projects() { return z.array(ProjectConfigSchema); },"),
+        "WorkspaceConfigSchema.projects 应仍为 z.array(ProjectConfigSchema)，实际 {workspace}"
+    );
+}
+
+#[test]
+fn 项目配置zod_schema缺depends_on的副本被抓且文案指认缺键() {
+    let _lock = lock();
+    let content = authoritative_zod_snapshot();
+    let schema = zod_section(&content, "ProjectConfigSchema");
+
+    let without_depends_on = without_line(&schema, "get dependsOn()");
+    let text = panic_text(|| assert_project_config_schema(&without_depends_on));
+    assert!(
+        text.contains("get dependsOn()"),
+        "删 dependsOn getter 的副本应被断言抓且指认缺键，实际文案 {text:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------

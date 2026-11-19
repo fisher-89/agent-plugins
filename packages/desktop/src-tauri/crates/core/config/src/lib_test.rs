@@ -566,6 +566,470 @@ fn projects元素非对象或root非法逐条剔除_合法保序() {
 }
 
 // ---------------------------------------------------------------------------
+// load：projects[].language / projects[].depends_on（协议扩展两字段）
+// ---------------------------------------------------------------------------
+
+/// 合法信封（schema 显式设值 + 空 tests）包裹 projects 数组片段——零诊断基线。
+fn config_with_projects(projects_json: &str) -> String {
+    format!(r#"{{"schema": "spec-driven", "tests": [], "projects": {projects_json}}}"#)
+}
+
+/// 单元素 projects 的 load 观察面（`project_json` 为元素对象原文）。
+fn load_single_project(tag: &str, project_json: &str) -> ConfigReport {
+    let ws = TempWs::new(tag);
+    ws.ensure_dir();
+    ws.write_config(&config_with_projects(&format!("[{project_json}]")));
+    load(ws.root())
+}
+
+/// 单元素 projects 的 config（项目元素原文）——自洽不变量 / 线面形态用例复用。
+fn load_single_project_config(tag: &str, project_json: &str) -> WorkspaceConfig {
+    load_single_project(tag, project_json).config
+}
+
+#[test]
+fn 项目language缺失与显式null均none且零诊断() {
+    for project in [r#"{"root": "web"}"#, r#"{"root": "web", "language": null}"#] {
+        let report = load_single_project("language-absent", project);
+
+        assert!(
+            report.diagnostics.is_empty(),
+            "project={project} 应零诊断，实际 {:?}",
+            report.diagnostics
+        );
+        assert_eq!(report.config.projects.len(), 1);
+        assert!(
+            report.config.projects[0].language.is_none(),
+            "project={project} 的 language 应为 None"
+        );
+    }
+}
+
+#[test]
+fn 项目language合法字符串原样保留不trim不归一() {
+    let long = "l".repeat(1200);
+    for value in [
+        "typescript",
+        "  rust  ",
+        "TypeScript",
+        "C++",
+        "🙂",
+        long.as_str(),
+    ] {
+        let encoded = serde_json::to_string(value).expect("language 原文应可序列化进 JSON 夹具");
+        let report = load_single_project(
+            "language-legal",
+            &format!(r#"{{"root": "web", "language": {encoded}}}"#),
+        );
+
+        assert!(
+            report.diagnostics.is_empty(),
+            "language={value:?} 应零诊断，实际 {:?}",
+            report.diagnostics
+        );
+        assert_eq!(
+            report.config.projects[0].language.as_deref(),
+            Some(value),
+            "language 应逐字原样保留（不 trim / 不归一）"
+        );
+    }
+}
+
+#[test]
+fn 项目language空串保留为some空串且零诊断() {
+    let report = load_single_project("language-empty", r#"{"root": "web", "language": ""}"#);
+
+    assert!(
+        report.diagnostics.is_empty(),
+        "空串 language 零内容校验，应零诊断，实际 {:?}",
+        report.diagnostics
+    );
+    assert_eq!(
+        report.config.projects[0].language.as_deref(),
+        Some(""),
+        "空串不得退化为 None（Some(\"\") 与 None 可区分）"
+    );
+}
+
+#[test]
+fn 项目language非字符串落none并记invalid_value且元素仍在案() {
+    for value in ["5", "true", "{}", "[]"] {
+        let report = load_single_project(
+            "language-invalid",
+            &format!(r#"{{"root": "web", "language": {value}}}"#),
+        );
+
+        assert_eq!(
+            report.config.projects.len(),
+            1,
+            "language={value} 不参与元素去留，元素应仍在案"
+        );
+        assert_eq!(
+            report.config.projects[0].root, "web",
+            "同元素合法字段不受牵连"
+        );
+        assert!(
+            report.config.projects[0].language.is_none(),
+            "language={value} 应落 None"
+        );
+        assert!(
+            has_diag(
+                &report,
+                &DiagnosticKind::InvalidValue,
+                "projects[0].language"
+            ),
+            "language={value} 应记 path=projects[0].language，实际 {:?}",
+            report.diagnostics
+        );
+        assert_eq!(
+            report.diagnostics.len(),
+            1,
+            "language={value} 恰一条诊断，实际 {:?}",
+            report.diagnostics
+        );
+    }
+}
+
+#[test]
+fn 项目depends_on缺失与显式null均none且零诊断() {
+    for project in [
+        r#"{"root": "web"}"#,
+        r#"{"root": "web", "depends_on": null}"#,
+    ] {
+        let report = load_single_project("deps-absent", project);
+
+        assert!(
+            report.diagnostics.is_empty(),
+            "project={project} 应零诊断，实际 {:?}",
+            report.diagnostics
+        );
+        assert!(
+            report.config.projects[0].depends_on.is_none(),
+            "project={project} 的 depends_on 应为 None"
+        );
+    }
+}
+
+#[test]
+fn 项目depends_on保序不去重且悬空项在案() {
+    let report = load_single_project(
+        "deps-order",
+        r#"{"root": "web", "depends_on": ["b", "a", "b", "ghost"]}"#,
+    );
+
+    assert!(
+        report.diagnostics.is_empty(),
+        "悬空依赖零引用校验，应零诊断，实际 {:?}",
+        report.diagnostics
+    );
+    assert_eq!(
+        report.config.projects[0].depends_on.as_deref(),
+        Some(
+            &[
+                "b".to_owned(),
+                "a".to_owned(),
+                "b".to_owned(),
+                "ghost".to_owned()
+            ][..]
+        ),
+        "depends_on 应保序、不去重、悬空项原样在案"
+    );
+}
+
+#[test]
+fn 项目depends_on空数组单元素与超大列表原样保序() {
+    // 空数组 → Some(vec![])，与 None 可区分
+    let report = load_single_project("deps-empty", r#"{"root": "web", "depends_on": []}"#);
+    assert!(
+        report.diagnostics.is_empty(),
+        "显式空数组应零诊断，实际 {:?}",
+        report.diagnostics
+    );
+    let empty = report.config.projects[0]
+        .depends_on
+        .clone()
+        .expect("空数组应落 Some(vec![]) 而非 None");
+    assert!(empty.is_empty(), "空数组应保空，实际 {empty:?}");
+
+    // 单元素
+    let report = load_single_project(
+        "deps-single",
+        r#"{"root": "web", "depends_on": ["single"]}"#,
+    );
+    assert_eq!(
+        report.config.projects[0].depends_on.as_deref(),
+        Some(&["single".to_owned()][..]),
+        "单元素列表原样保留"
+    );
+
+    // 1000 元素大列表 → 原样保序
+    let big: Vec<String> = (0..1000).map(|index| format!("p{index}")).collect();
+    let project = json!({"root": "web", "depends_on": big}).to_string();
+    let report = load_single_project("deps-big", &project);
+    assert!(
+        report.diagnostics.is_empty(),
+        "大列表应零诊断，实际 {:?}",
+        report.diagnostics
+    );
+    assert_eq!(
+        report.config.projects[0].depends_on.as_deref(),
+        Some(&big[..]),
+        "1000 元素列表应原样保序"
+    );
+}
+
+#[test]
+fn 项目depends_on元素内容零校验_empty_padded_emoji_long() {
+    let long = "x".repeat(1200);
+    let elements = ["", "  padded  ", "emoji🙂", long.as_str()];
+    for element in elements {
+        let encoded = serde_json::to_string(element).expect("depends_on 元素应可序列化进 JSON");
+        let report = load_single_project(
+            "deps-content",
+            &format!(r#"{{"root": "web", "depends_on": [{encoded}]}}"#),
+        );
+
+        assert!(
+            report.diagnostics.is_empty(),
+            "element={element:?} 零内容校验，应零诊断，实际 {:?}",
+            report.diagnostics
+        );
+        assert_eq!(
+            report.config.projects[0].depends_on.as_deref(),
+            Some(&[element.to_owned()][..]),
+            "element={element:?} 应原样保留（空串项不触发诊断）"
+        );
+    }
+}
+
+#[test]
+fn 项目depends_on混入非字符串整字段none并记invalid_value() {
+    for tail in ["5", "null", "true", "[\"c\"]"] {
+        let report = load_single_project(
+            "deps-mixed",
+            &format!(r#"{{"root": "web", "depends_on": ["b", {tail}]}}"#),
+        );
+
+        assert_eq!(
+            report.config.projects.len(),
+            1,
+            "depends_on={tail} 混入非字符串不参与元素去留，元素应仍在案"
+        );
+        assert_eq!(report.config.projects[0].root, "web");
+        assert!(
+            report.config.projects[0].depends_on.is_none(),
+            "混入 {tail} 时整字段应落 None（不部分保留）"
+        );
+        assert!(
+            has_diag(
+                &report,
+                &DiagnosticKind::InvalidValue,
+                "projects[0].depends_on"
+            ),
+            "混入 {tail} 应记 path=projects[0].depends_on，实际 {:?}",
+            report.diagnostics
+        );
+    }
+}
+
+#[test]
+fn 项目depends_on非数组落none并记invalid_value() {
+    for value in ["{}", r#""x""#, "5", "true"] {
+        let report = load_single_project(
+            "deps-not-array",
+            &format!(r#"{{"root": "web", "depends_on": {value}}}"#),
+        );
+
+        assert_eq!(
+            report.config.projects.len(),
+            1,
+            "depends_on={value} 不参与元素去留，元素应仍在案"
+        );
+        assert!(
+            report.config.projects[0].depends_on.is_none(),
+            "depends_on={value} 应落 None"
+        );
+        assert!(
+            has_diag(
+                &report,
+                &DiagnosticKind::InvalidValue,
+                "projects[0].depends_on"
+            ),
+            "depends_on={value} 应记 path=projects[0].depends_on，实际 {:?}",
+            report.diagnostics
+        );
+    }
+}
+
+#[test]
+fn 两字段同时违例_元素在案且language诊断先于depends_on() {
+    let report = load_single_project(
+        "two-fields-invalid",
+        r#"{"root": "web", "language": 5, "depends_on": [7]}"#,
+    );
+
+    assert_eq!(report.config.projects.len(), 1, "仅 root 决定元素去留");
+    assert_eq!(report.diagnostics.len(), 2, "实际 {:?}", report.diagnostics);
+    assert_eq!(
+        report.diagnostics[0].path, "projects[0].language",
+        "诊断追加序固定 language 先于 depends_on（DD2）"
+    );
+    assert_eq!(report.diagnostics[1].path, "projects[0].depends_on");
+    for diagnostic in &report.diagnostics {
+        assert!(
+            kind_rank(&diagnostic.kind) == kind_rank(&DiagnosticKind::InvalidValue),
+            "两字段违例均归 InvalidValue，实际 {:?}",
+            diagnostic.kind
+        );
+    }
+}
+
+#[test]
+fn 项目root非法时两字段合法_整条剔除且只记root一条() {
+    for project in [
+        r#"{"root": "../escape", "language": "rust", "depends_on": ["a"]}"#,
+        r#"{"language": "rust", "depends_on": ["a"]}"#,
+    ] {
+        let report = load_single_project("root-wins", project);
+
+        assert!(
+            report.config.projects.is_empty(),
+            "root 缺失 / 非法即整条剔除（两字段不参与去留），project={project}"
+        );
+        assert_eq!(
+            report.diagnostics.len(),
+            1,
+            "只应记一条 root 诊断（两字段不追加），project={project}，实际 {:?}",
+            report.diagnostics
+        );
+        assert!(
+            has_diag(&report, &DiagnosticKind::InvalidValue, "projects[0].root"),
+            "project={project} 应记 path=projects[0].root"
+        );
+    }
+}
+
+#[test]
+fn 三元素混合_全保留且诊断下标对位互不殃及() {
+    let ws = TempWs::new("projects-two-fields-mixed");
+    ws.ensure_dir();
+    ws.write_config(&config_with_projects(
+        r#"[
+            {"root": "web", "language": "typescript", "depends_on": ["api"]},
+            {"root": "api", "language": 5},
+            {"root": "svc", "depends_on": [7]}
+        ]"#,
+    ));
+
+    let report = load(ws.root());
+
+    let roots: Vec<&str> = report
+        .config
+        .projects
+        .iter()
+        .map(|project| project.root.as_str())
+        .collect();
+    assert_eq!(roots, ["web", "api", "svc"], "三条全部保留且保序");
+    assert_eq!(report.diagnostics.len(), 2, "实际 {:?}", report.diagnostics);
+    assert!(
+        has_diag(
+            &report,
+            &DiagnosticKind::InvalidValue,
+            "projects[1].language"
+        ),
+        "违例下标对位 projects[1].language，实际 {:?}",
+        report.diagnostics
+    );
+    assert!(
+        has_diag(
+            &report,
+            &DiagnosticKind::InvalidValue,
+            "projects[2].depends_on"
+        ),
+        "违例下标对位 projects[2].depends_on，实际 {:?}",
+        report.diagnostics
+    );
+    assert_eq!(
+        report.config.projects[0].depends_on.as_deref(),
+        Some(&["api".to_owned()][..]),
+        "合法条目的两字段不受他条违例殃及"
+    );
+}
+
+#[test]
+fn 两字段合法加未知子键_零诊断() {
+    let report = load_single_project(
+        "two-fields-unknown-key",
+        r#"{"root": "web", "language": "rust", "depends_on": ["a"], "custom": 1}"#,
+    );
+
+    assert!(
+        report.diagnostics.is_empty(),
+        "项目元素未知子键静默忽略，应零诊断，实际 {:?}",
+        report.diagnostics
+    );
+    assert_eq!(report.config.projects[0].language.as_deref(), Some("rust"));
+    assert_eq!(
+        report.config.projects[0].depends_on.as_deref(),
+        Some(&["a".to_owned()][..])
+    );
+}
+
+#[test]
+fn 两新字段四形态自洽不变量_回写再组装零诊断() {
+    for project in [
+        r#"{"root": "web"}"#,
+        r#"{"root": "web", "language": ""}"#,
+        r#"{"root": "web", "depends_on": []}"#,
+        r#"{"root": "web", "language": "rust", "depends_on": ["a", "b"]}"#,
+    ] {
+        let config = load_single_project_config("two-fields-consistent", project);
+        assert_eq!(config.projects.len(), 1, "project={project}");
+        assert_self_consistent(&config);
+    }
+}
+
+#[test]
+fn 两新字段线面形态_null位键恒在且camel_case出线() {
+    let value = value_of(&load_single_project_config(
+        "two-fields-wire-null",
+        r#"{"root": "web"}"#,
+    ));
+    let project = value["projects"][0]
+        .as_object()
+        .expect("项目元素线面恒为对象");
+    assert!(
+        project.contains_key("language"),
+        "None 位键恒在（不出线缺键）"
+    );
+    assert!(
+        project.contains_key("dependsOn"),
+        "None 位键恒在（不出线缺键）"
+    );
+    assert_eq!(project["language"], Value::Null, "None 序列化为 null");
+    assert_eq!(project["dependsOn"], Value::Null, "None 序列化为 null");
+    assert!(
+        !project.contains_key("depends_on"),
+        "线名为 camelCase（不出线下划线形态）"
+    );
+
+    let value = value_of(&load_single_project_config(
+        "two-fields-wire-values",
+        r#"{"root": "web", "language": "C++", "depends_on": ["a", "b"]}"#,
+    ));
+    assert_eq!(
+        value["projects"][0]["language"],
+        json!("C++"),
+        "language 原样出线"
+    );
+    assert_eq!(
+        value["projects"][0]["dependsOn"],
+        json!(["a", "b"]),
+        "depends_on 以 dependsOn 出线且保序"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // load：tests suite（必需字段 / 通配符禁令 / 枚举 / prefault 字段）
 // ---------------------------------------------------------------------------
 
@@ -1617,6 +2081,177 @@ fn framework_enum_mut(schema: &mut Value) -> &mut Vec<Value> {
         .expect("入仓镜像 `framework.enum` 必须为数组")
 }
 
+/// 镜像 `properties.projects.items` 对象（缺失 / `null` 与类型违例分文案）。
+fn mirror_project_item(schema: &Value) -> &Map<String, Value> {
+    let projects = match mirror_properties(schema).get("projects") {
+        Some(Value::Object(map)) => map,
+        Some(Value::Null) => panic!("镜像缺 `projects`：期望对象，实际 null"),
+        Some(other) => panic!("镜像 `projects` 类型违例：期望对象，实际 {other}"),
+        None => panic!("镜像缺 `properties.projects`：未取到该键"),
+    };
+    match projects.get("items") {
+        Some(Value::Object(map)) => map,
+        Some(Value::Null) => panic!("镜像缺 `projects.items`：期望对象，实际 null"),
+        Some(other) => panic!("镜像 `projects.items` 类型违例：期望对象，实际 {other}"),
+        None => panic!("镜像缺 `properties.projects.items`：未取到该键"),
+    }
+}
+
+/// 镜像 `properties.projects.items.properties` 对象（缺失 / `null` 与类型违例分文案）。
+fn project_item_properties(schema: &Value) -> &Map<String, Value> {
+    match mirror_project_item(schema).get("properties") {
+        Some(Value::Object(map)) => map,
+        Some(Value::Null) => panic!("镜像缺 `projects.items.properties`：期望对象，实际 null"),
+        Some(other) => panic!("镜像 `projects.items.properties` 类型违例：期望对象，实际 {other}"),
+        None => panic!("镜像缺 `projects.items.properties`：未取到该键"),
+    }
+}
+
+/// 镜像 `properties.projects.items.required` 数组（缺失 / `null` 与类型违例分文案）。
+fn project_item_required(schema: &Value) -> &Vec<Value> {
+    match mirror_project_item(schema).get("required") {
+        Some(Value::Array(values)) => values,
+        Some(Value::Null) => panic!("镜像缺 `projects.items.required`：期望数组，实际 null"),
+        Some(other) => panic!("镜像 `projects.items.required` 类型违例：期望数组，实际 {other}"),
+        None => panic!("镜像缺 `projects.items.required`：未取到该键"),
+    }
+}
+
+/// 项目元素单属性节点（缺失 / `null` 与类型违例分文案，不越界 `unwrap`）。
+fn project_item_field<'a>(properties: &'a Map<String, Value>, key: &str) -> &'a Map<String, Value> {
+    match properties.get(key) {
+        Some(Value::Object(map)) => map,
+        Some(Value::Null) => {
+            panic!("镜像 `projects.items.properties.{key}` 类型违例：期望对象，实际 null")
+        }
+        Some(other) => {
+            panic!("镜像 `projects.items.properties.{key}` 类型违例：期望对象，实际 {other}")
+        }
+        None => panic!("镜像缺 `projects.items.properties.{key}`：未取到该键"),
+    }
+}
+
+/// 副本内 `properties.projects.items` 对象的可变借用（异常 / 边界行就地改写）。
+fn mirror_project_item_mut(schema: &mut Value) -> &mut Map<String, Value> {
+    schema
+        .get_mut("properties")
+        .and_then(Value::as_object_mut)
+        .and_then(|properties| properties.get_mut("projects"))
+        .and_then(Value::as_object_mut)
+        .and_then(|projects| projects.get_mut("items"))
+        .and_then(Value::as_object_mut)
+        .expect("入仓镜像 `properties.projects.items` 必须为对象")
+}
+
+/// 副本内 `properties.projects.items.properties` 对象的可变借用。
+fn project_item_properties_mut(schema: &mut Value) -> &mut Map<String, Value> {
+    mirror_project_item_mut(schema)
+        .get_mut("properties")
+        .and_then(Value::as_object_mut)
+        .expect("入仓镜像 `properties.projects.items.properties` 必须为对象")
+}
+
+/// 副本内项目元素单属性节点的可变借用（异常 / 边界行就地改写）。
+fn project_item_field_mut<'a>(schema: &'a mut Value, key: &str) -> &'a mut Map<String, Value> {
+    project_item_properties_mut(schema)
+        .get_mut(key)
+        .and_then(Value::as_object_mut)
+        .unwrap_or_else(|| panic!("入仓镜像 `projects.items.properties.{key}` 必须为对象"))
+}
+
+/// AC-6 项目元素镜像断言：键集恰 `root` / `language` / `depends_on` 三键、
+/// `required` 仅 `root`、两新属性只带 `type` + `description` 而不含严于实现的
+/// 约束（`minLength` / `uniqueItems` / `enum` 等）；失败文案指认具体缺失 /
+/// 越界项。
+fn assert_project_item_mirror(schema: &Value) {
+    let properties = project_item_properties(schema);
+    let mut keys: Vec<&str> = properties.keys().map(String::as_str).collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        ["depends_on", "language", "root"],
+        "项目元素镜像键集失配：期望 root / language / depends_on 三键（排序后比较），实际 {keys:?}"
+    );
+
+    let required: Vec<&str> = project_item_required(schema)
+        .iter()
+        .map(|value| match value {
+            Value::String(name) => name.as_str(),
+            other => {
+                panic!("镜像 `projects.items.required` 元素类型违例：期望字符串，实际 {other}")
+            }
+        })
+        .collect();
+    assert_eq!(
+        required,
+        ["root"],
+        "required 应仅含 root（language / depends_on 为可选字段），实际 {required:?}"
+    );
+
+    let language = project_item_field(properties, "language");
+    assert_eq!(
+        language.get("type"),
+        Some(&json!("string")),
+        "`language` 镜像 type 应为 string，实际 {:?}",
+        language.get("type")
+    );
+    for constraint in [
+        "minLength",
+        "maxLength",
+        "enum",
+        "pattern",
+        "default",
+        "const",
+    ] {
+        assert!(
+            !language.contains_key(constraint),
+            "`language` 镜像不得含 `{constraint}` 约束（镜像不得比实现严，DD3）"
+        );
+    }
+
+    let depends_on = project_item_field(properties, "depends_on");
+    assert_eq!(
+        depends_on.get("type"),
+        Some(&json!("array")),
+        "`depends_on` 镜像 type 应为 array，实际 {:?}",
+        depends_on.get("type")
+    );
+    let items = match depends_on.get("items") {
+        Some(Value::Object(map)) => map,
+        Some(Value::Null) => panic!("镜像缺 `depends_on.items`：期望对象，实际 null"),
+        Some(other) => panic!("镜像 `depends_on.items` 类型违例：期望对象，实际 {other}"),
+        None => panic!("镜像缺 `projects.items.properties.depends_on.items`：未取到该键"),
+    };
+    assert_eq!(
+        items.get("type"),
+        Some(&json!("string")),
+        "`depends_on.items.type` 应为 string，实际 {:?}",
+        items.get("type")
+    );
+    for constraint in ["uniqueItems", "minItems", "maxItems", "default", "const"] {
+        assert!(
+            !depends_on.contains_key(constraint),
+            "`depends_on` 镜像不得含 `{constraint}` 约束（镜像不得比实现严，DD3）"
+        );
+    }
+    let description = match depends_on.get("description") {
+        Some(Value::String(text)) => text,
+        Some(Value::Null) => panic!("镜像 `depends_on.description` 为 null"),
+        Some(other) => {
+            panic!("镜像 `depends_on.description` 类型违例：期望字符串，实际 {other}")
+        }
+        None => panic!("镜像缺 `projects.items.properties.depends_on.description`"),
+    };
+    assert!(
+        !description.is_empty(),
+        "`depends_on.description` 应为非空提示文案"
+    );
+    assert!(
+        description.contains("值宜为"),
+        "`depends_on.description` 应为提示文案（含「值宜为」而非强制约束措辞），实际 {description:?}"
+    );
+}
+
 /// A1 键集断言：`properties` 键集（排序去重）== `KNOWN_KEYS`（排序去重）；
 /// 失败文案指认双向差异。
 fn assert_key_set(schema: &Value) {
@@ -1808,6 +2443,182 @@ fn 镜像结构四锚点与设计表一致() {
     for (anchor, ok) in anchors {
         assert!(ok, "镜像结构锚点失配：{anchor}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// schema 镜像 projects.items（协议扩展两属性，AC-6）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 项目元素镜像三键集与required仅root正向通过() {
+    let schema = mirror();
+
+    assert_project_item_mirror(&schema);
+
+    let mut keys: Vec<&str> = project_item_properties(&schema)
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        ["depends_on", "language", "root"],
+        "项目元素镜像键集应恰为三键（root 之后增两属性）"
+    );
+    assert_eq!(
+        project_item_required(&schema),
+        &vec![json!("root")],
+        "required 应仍只含 root（两新键不入 required）"
+    );
+}
+
+#[test]
+fn 项目元素镜像language只带type无严于实现的约束() {
+    let schema = mirror();
+    let language = project_item_field(project_item_properties(&schema), "language");
+
+    assert_eq!(
+        language.get("type"),
+        Some(&json!("string")),
+        "`language` 镜像 type 应为 string，实际 {:?}",
+        language.get("type")
+    );
+    assert!(
+        language.contains_key("description"),
+        "`language` 镜像应带 description 提示文案"
+    );
+    for constraint in [
+        "minLength",
+        "maxLength",
+        "enum",
+        "pattern",
+        "default",
+        "const",
+        "minimum",
+        "maximum",
+    ] {
+        assert!(
+            !language.contains_key(constraint),
+            "`language` 镜像不得含 `{constraint}`（镜像不得严于实现的零校验语义）"
+        );
+    }
+}
+
+#[test]
+fn 项目元素镜像depends_on为字符串数组且带值宜为提示文案() {
+    let schema = mirror();
+    let depends_on = project_item_field(project_item_properties(&schema), "depends_on");
+
+    assert_eq!(
+        depends_on.get("type"),
+        Some(&json!("array")),
+        "`depends_on` 镜像 type 应为 array"
+    );
+    let items = depends_on
+        .get("items")
+        .and_then(Value::as_object)
+        .expect("`depends_on.items` 应为对象");
+    assert_eq!(
+        items.get("type"),
+        Some(&json!("string")),
+        "`depends_on.items.type` 应为 string"
+    );
+    for constraint in ["uniqueItems", "minItems", "maxItems", "default", "const"] {
+        assert!(
+            !depends_on.contains_key(constraint),
+            "`depends_on` 镜像不得含 `{constraint}`（保序 / 不去重 / 零引用校验）"
+        );
+    }
+    let description = depends_on
+        .get("description")
+        .and_then(Value::as_str)
+        .expect("`depends_on.description` 应为字符串");
+    assert!(
+        description.contains("值宜为"),
+        "`depends_on.description` 应为提示文案而非强制约束措辞，实际 {description:?}"
+    );
+}
+
+#[test]
+fn 项目元素镜像缺键与required越界三副本被抓且文案指认() {
+    // 副本一：删除 language
+    let mut copy = mirror_copy();
+    project_item_properties_mut(&mut copy).remove("language");
+    let text = panic_text(|| assert_project_item_mirror(&copy));
+    assert!(
+        text.contains("language") && text.contains("键集"),
+        "删 language 的副本应被键集断言抓且指认缺键，实际文案 {text:?}"
+    );
+
+    // 副本二：删除 depends_on
+    let mut copy = mirror_copy();
+    project_item_properties_mut(&mut copy).remove("depends_on");
+    let text = panic_text(|| assert_project_item_mirror(&copy));
+    assert!(
+        text.contains("depends_on") && text.contains("键集"),
+        "删 depends_on 的副本应被键集断言抓且指认缺键，实际文案 {text:?}"
+    );
+
+    // 副本三：两新键写进 required（越界）
+    let mut copy = mirror_copy();
+    let item = mirror_project_item_mut(&mut copy);
+    item.insert(
+        "required".to_owned(),
+        json!(["root", "language", "depends_on"]),
+    );
+    let text = panic_text(|| assert_project_item_mirror(&copy));
+    assert!(
+        text.contains("required"),
+        "两新键进 required 的副本应被 required 断言抓，实际文案 {text:?}"
+    );
+}
+
+#[test]
+fn 项目元素镜像类型违例两副本被抓且不越界unwrap() {
+    // 副本一：language 写成对象（缺 type）
+    let mut copy = mirror_copy();
+    project_item_field_mut(&mut copy, "language").insert("type".to_owned(), json!({ "a": 1 }));
+    let text = panic_text(|| assert_project_item_mirror(&copy));
+    assert!(
+        text.contains("language") && text.contains("type"),
+        "language 类型漂移的副本应给出可指认文案，实际 {text:?}"
+    );
+
+    // 副本二：depends_on.items 被取走
+    let mut copy = mirror_copy();
+    project_item_field_mut(&mut copy, "depends_on").remove("items");
+    let text = panic_text(|| assert_project_item_mirror(&copy));
+    assert!(
+        text.contains("depends_on.items"),
+        "取走 depends_on.items 的副本应给出可指认文案（不越界 unwrap），实际 {text:?}"
+    );
+}
+
+#[test]
+fn 项目元素镜像属性顺序无关且language为null归类型违例() {
+    // 边界一：副本按倒序重建三属性 → 排序后比较仍通过（比较与入仓顺序无关）
+    let mut copy = mirror_copy();
+    let properties = project_item_properties_mut(&mut copy);
+    let root = properties.remove("root").expect("入仓镜像应有 root");
+    let language = properties
+        .remove("language")
+        .expect("入仓镜像应有 language");
+    let depends_on = properties
+        .remove("depends_on")
+        .expect("入仓镜像应有 depends_on");
+    properties.insert("depends_on".to_owned(), depends_on);
+    properties.insert("language".to_owned(), language);
+    properties.insert("root".to_owned(), root);
+    assert_project_item_mirror(&copy);
+
+    // 边界二：language 为 null → 归类型违例文案
+    let mut copy = mirror_copy();
+    project_item_properties_mut(&mut copy).insert("language".to_owned(), Value::Null);
+    let text = panic_text(|| assert_project_item_mirror(&copy));
+    assert!(
+        text.contains("类型违例"),
+        "language 为 null 的副本应归类型违例文案，实际 {text:?}"
+    );
 }
 
 #[test]

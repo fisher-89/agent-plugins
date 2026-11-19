@@ -1239,6 +1239,8 @@ export const PhaseEntrySchema = z.strictObject({
 
 export const ProjectConfigSchema = z.strictObject({
 	get root() { return z.string(); },
+	get language() { return z.string().nullable(); },
+	get dependsOn() { return z.array(z.string()).nullable(); },
 });
 
 export const PromoteOutcomeSchema = z.strictObject({

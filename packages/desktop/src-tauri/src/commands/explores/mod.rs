@@ -324,19 +324,23 @@ pub(crate) async fn promote_explore_with<R: tauri::Runtime>(
     let title = record.title;
     let store_for_promote = store.clone();
     let outcome = tauri::async_runtime::spawn_blocking(move || {
-        // 依赖引导项目根经 config crate 读取（主 workspace root 当前配置；
-        // 未配置 / 空列表 → legacy worktree 根扫描由写面分派）。
-        let project_roots: Vec<String> = config::load(&main_root)
+        // 项目锚点（root + depends_on）经 config crate 读取（主 workspace root
+        // 当前配置；未配置 / 空列表 → legacy worktree 根扫描由写面分派）；
+        // language 在安装路径不消费。
+        let projects: Vec<write::BootstrapProject> = config::load(&main_root)
             .config
             .projects
             .into_iter()
-            .map(|project| project.root)
+            .map(|project| write::BootstrapProject {
+                root: project.root,
+                depends_on: project.depends_on.unwrap_or_default(),
+            })
             .collect();
         write::promote_explore(
             &main_root,
             store_for_promote.as_ref(),
             &vcs,
-            &project_roots,
+            &projects,
             &promote_name,
             &note_text,
             &title,
