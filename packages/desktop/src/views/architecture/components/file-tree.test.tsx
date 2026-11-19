@@ -6,9 +6,9 @@ import { FileTree } from './file-tree';
 
 /**
  * 左栏文件树渲染面单测（AC-4 / AC-11 / AC-12 / AC-13）：扁平条目 → 森林的
- * 层级派生与兄弟序、缺省展开两段、五种标记呈现、归属行点击语义、聚焦反查
- * （多行高亮 / 强制展开 / 滚到首条 / 零命中提示）、空树与图例、取数状态面
- * （挂载取数 / 解析中 / 失败行内 / 空根零 invoke）。
+ * 层级派生与兄弟序、缺省展开三段、归属标记呈现（member 仅弱化文字）、归属行
+ * 点击语义、聚焦反查（多行高亮 / 强制展开 / 滚到首条 / 零命中提示）、空树与
+ * 取数状态面（挂载取数 / 解析中 / 失败行内 / 空根零 invoke）。
  *
  * 取数面已内收到组件：`FileTree` 只收 `root`，条目经 `useArchiFileTree` 取回。
  * 进程边界 mock：`@tauri-apps/api/core` 的 `invoke`（按命令名分发文件树 fixture）。
@@ -126,41 +126,47 @@ describe('FileTree 层级派生与兄弟序', () => {
     expect(renderedPaths()).toEqual(['src', 'src/a', 'src/m', 'src/a.ts', 'src/z.ts']);
   });
 
-  it('应缺省展开路径段数 ≤ 2 的目录、更深层折叠且不渲子树 DOM', async () => {
-    await renderTree([dir('a'), dir('a/b'), dir('a/b/c'), file('a/b/c/d.ts')]);
+  it('应缺省展开路径段数 ≤ 3 的目录、更深层折叠且不渲子树 DOM', async () => {
+    await renderTree([dir('a'), dir('a/b'), dir('a/b/c'), dir('a/b/c/d'), file('a/b/c/d/e.ts')]);
 
-    // `a`（1 段）/ `a/b`（2 段）默认展开 ⇒ `a/b/c` 行可见但自身折叠
-    expect(renderedPaths()).toEqual(['a', 'a/b', 'a/b/c']);
-    expect(rowOf('a/b/c/d.ts')).toBeUndefined();
+    // `a`（1 段）/ `a/b`（2 段）/ `a/b/c`（3 段）默认展开 ⇒ `a/b/c/d` 行可见但自身折叠
+    expect(renderedPaths()).toEqual(['a', 'a/b', 'a/b/c', 'a/b/c/d']);
+    expect(rowOf('a/b/c/d/e.ts')).toBeUndefined();
 
-    fireEvent.click(screen.getByLabelText('展开 a/b/c'));
-    expect(rowOf('a/b/c/d.ts')).toBeDefined();
+    fireEvent.click(screen.getByLabelText('展开 a/b/c/d'));
+    expect(rowOf('a/b/c/d/e.ts')).toBeDefined();
 
     // 折叠后子树零节点（不是 display:none）
-    fireEvent.click(screen.getByLabelText('收起 a/b/c'));
-    expect(rowOf('a/b/c/d.ts')).toBeUndefined();
-    expect(screen.queryAllByTestId('archi-file-node')).toHaveLength(3);
+    fireEvent.click(screen.getByLabelText('收起 a/b/c/d'));
+    expect(rowOf('a/b/c/d/e.ts')).toBeUndefined();
+    expect(screen.queryAllByTestId('archi-file-node')).toHaveLength(4);
   });
 
   it('应在展开与收起时不触发取数（纯本地 state、零 onFocus）', async () => {
-    const { onFocus } = await renderTree([dir('a'), dir('a/b'), dir('a/b/c'), file('a/b/c/d.ts')]);
+    const { onFocus } = await renderTree([
+      dir('a'),
+      dir('a/b'),
+      dir('a/b/c'),
+      dir('a/b/c/d'),
+      file('a/b/c/d/e.ts'),
+    ]);
     const treeCalls = invokeMock.mock.calls.length;
 
-    fireEvent.click(screen.getByLabelText('展开 a/b/c'));
-    fireEvent.click(screen.getByLabelText('收起 a/b/c'));
-    fireEvent.click(screen.getByLabelText('展开 a/b/c'));
+    fireEvent.click(screen.getByLabelText('展开 a/b/c/d'));
+    fireEvent.click(screen.getByLabelText('收起 a/b/c/d'));
+    fireEvent.click(screen.getByLabelText('展开 a/b/c/d'));
 
     expect(onFocus).not.toHaveBeenCalled();
     expect(invokeMock.mock.calls).toHaveLength(treeCalls);
     // per-path 翻转集合稳定：多次翻转后仍回到展开态
-    expect(rowOf('a/b/c/d.ts')).toBeDefined();
+    expect(rowOf('a/b/c/d/e.ts')).toBeDefined();
     // 聚焦面零命中提示不因展开出现
     expect(screen.queryByTestId('archi-file-tree-focus-miss')).toBeNull();
   });
 });
 
-describe('FileTree 五种标记呈现', () => {
-  it('应逐值渲出 data-mark 与 tooltip（none 行零标记节点）', async () => {
+describe('FileTree 归属标记呈现', () => {
+  it('应逐值渲出标记节点与 tooltip（member / none 行零标记节点）', async () => {
     await renderTree([
       dir('roots', { mark: 'elementRoot', owners: ['App.A'] }),
       dir('shared', { mark: 'ambiguous', owners: ['App.A', 'App.B'] }),
@@ -169,23 +175,27 @@ describe('FileTree 五种标记呈现', () => {
       file('loose.ts', { mark: 'none' }),
     ]);
 
-    const cases: [string, string | null, string | null][] = [
-      ['roots', 'elementRoot', '模块 App.A'],
+    const cases: [string, string, string][] = [
       ['shared', 'ambiguous', '多归属：App.A、App.B'],
-      ['members', 'member', '属于 App.A'],
       ['container', 'containsElements', '含 2 个模块'],
-      ['loose.ts', null, null],
     ];
     for (const [path, mark, title] of cases) {
       const node = markOf(path);
-      if (mark === null) {
-        expect(node, `${path} 为 none 行 ⇒ 零标记节点`).toBeNull();
-        continue;
-      }
       expect(node, `${path} 应有标记节点`).not.toBeNull();
       expect(node?.getAttribute('data-mark')).toBe(mark);
       expect(node?.getAttribute('title')).toBe(title);
     }
+    // elementRoot 为按钮化标记：短名文案 + data-mark
+    const rootMark = markOf('roots');
+    expect(rootMark?.getAttribute('data-mark')).toBe('elementRoot');
+    expect(rootMark?.textContent).toBe('模块 A');
+    // member 仅以弱化文字表达归属（不渲标记节点）；none 行同样零标记
+    for (const path of ['members', 'loose.ts']) {
+      expect(markOf(path), `${path} 不应有标记节点`).toBeNull();
+    }
+    expect(within(rowOf('members')!).getByText('members').className).toContain(
+      'text-muted-foreground',
+    );
     // containsElements 额外渲尾随计数小字
     expect(within(rowOf('container')!).getByText('·2')).toBeTruthy();
   });
@@ -273,14 +283,15 @@ describe('FileTree 聚焦反查', () => {
         dir('a', { mark: 'containsElements', contains: 1 }),
         dir('a/b', { mark: 'containsElements', contains: 1 }),
         dir('a/b/c'),
-        file('a/b/c/d.ts', { mark: 'member', owners: ['App.Deep'] }),
+        dir('a/b/c/d'),
+        file('a/b/c/d/e.ts', { mark: 'member', owners: ['App.Deep'] }),
       ],
       'App.Deep',
     );
 
-    // 缺省只展开前 2 段 ⇒ 该行本不可见；forcedOpen 派生集合把祖先链全部展开
-    expect(rowOf('a/b/c/d.ts')).toBeDefined();
-    expect(isHighlighted('a/b/c/d.ts')).toBe(true);
+    // 缺省只展开前 3 段 ⇒ 该行本不可见；forcedOpen 派生集合把祖先链全部展开
+    expect(rowOf('a/b/c/d/e.ts')).toBeDefined();
+    expect(isHighlighted('a/b/c/d/e.ts')).toBe(true);
   });
 
   it('应对首条命中行调用一次 scrollIntoView({ block: nearest })', async () => {
@@ -341,26 +352,26 @@ describe('FileTree 聚焦反查', () => {
 
 describe('FileTree 展开态保持与空态', () => {
   it('应在同 root 重渲后保持 per-path 展开态，折叠子树仍零 DOM 节点', async () => {
-    const entries = [dir('a'), dir('a/b'), dir('a/b/c'), file('a/b/c/d.ts')];
+    const entries = [dir('a'), dir('a/b'), dir('a/b/c'), dir('a/b/c/d'), file('a/b/c/d/e.ts')];
     const onFocus = vi.fn();
     serve(entries);
     const { rerender } = render(<FileTree root={ROOT} focused={null} onFocus={onFocus} />);
     await screen.findByTestId('archi-file-tree');
     const treeCalls = invokeMock.mock.calls.length;
 
-    // `a/b/c`（3 段）缺省折叠 ⇒ 点它展开
-    fireEvent.click(screen.getByLabelText('展开 a/b/c'));
-    expect(rowOf('a/b/c/d.ts')).toBeDefined();
+    // `a/b/c/d`（4 段）缺省折叠 ⇒ 点它展开
+    fireEvent.click(screen.getByLabelText('展开 a/b/c/d'));
+    expect(rowOf('a/b/c/d/e.ts')).toBeDefined();
 
     rerender(<FileTree root={ROOT} focused={null} onFocus={onFocus} />);
-    expect(rowOf('a/b/c/d.ts'), '重渲后 per-path 展开态保持').toBeDefined();
+    expect(rowOf('a/b/c/d/e.ts'), '重渲后 per-path 展开态保持').toBeDefined();
     expect(invokeMock.mock.calls, '同 root 重渲不重取').toHaveLength(treeCalls);
 
     // 收起一级目录 ⇒ 其子树整体离开 DOM
     fireEvent.click(screen.getByLabelText('收起 a'));
     expect(screen.queryAllByTestId('archi-file-node')).toHaveLength(1);
     expect(rowOf('a/b')).toBeUndefined();
-    expect(rowOf('a/b/c/d.ts')).toBeUndefined();
+    expect(rowOf('a/b/c/d/e.ts')).toBeUndefined();
   });
 
   it('应在空条目时渲空树提示并零行节点', async () => {
@@ -368,35 +379,6 @@ describe('FileTree 展开态保持与空态', () => {
 
     expect(screen.getByTestId('archi-file-tree-empty').textContent).toBe('仓库内无源文件');
     expect(screen.queryAllByTestId('archi-file-node')).toHaveLength(0);
-  });
-});
-
-describe('FileTree 图例与前端过滤纪律', () => {
-  it('应常驻渲可折叠图例，展开后给出判定面说明逐字文案', async () => {
-    await renderTree([file('src/a.ts')]);
-
-    const legend = screen.getByTestId('archi-file-tree-legend');
-    expect(within(legend).getByText('图例')).toBeTruthy();
-    // 折叠态只有一行入口
-    expect(legend.textContent).toBe('图例');
-
-    fireEvent.click(within(legend).getByText('图例'));
-    expect(legend.textContent).toContain(
-      '仅显示判定面源文件（测试文件与架构配置 exclude 命中项不在树中；none 行 = 无元素认领）',
-    );
-    // 图例文本不影响树行渲染
-    expect(rowOf('src/a.ts')).toBeDefined();
-  });
-
-  it('应对越过后端过滤的脏条目照常渲出（前端不做二次过滤）', async () => {
-    await renderTree([
-      file('src/a.test.tsx', { mark: 'member', owners: ['App.A'] }),
-      file('src/b.rs_test'),
-    ]);
-
-    // 反向钉住：过滤面单点在后端，前端零二次过滤
-    expect(rowOf('src/a.test.tsx')).toBeDefined();
-    expect(rowOf('src/b.rs_test')).toBeDefined();
   });
 });
 
@@ -460,14 +442,19 @@ describe('FileTree 取数状态面', () => {
 });
 
 describe('FileTree 条目形态与规模边界', () => {
-  it('应在 1000 条扁平条目下渲染不抛错且 data-path 唯一', async () => {
+  it('应在上千条扁平条目下渲染不抛错且 data-path 唯一', async () => {
     const entries: ArchiFileEntry[] = [];
     for (let module = 0; module < 20; module += 1) {
       const root = `m${String(module).padStart(2, '0')}`;
-      entries.push(dir(root), dir(`${root}/deep`), dir(`${root}/deep/inner`));
+      entries.push(
+        dir(root),
+        dir(`${root}/deep`),
+        dir(`${root}/deep/inner`),
+        dir(`${root}/deep/inner/leaf`),
+      );
       for (let index = 0; index < 50; index += 1) {
         entries.push(
-          file(`${root}/deep/inner/f${String(index).padStart(4, '0')}.ts`, {
+          file(`${root}/deep/inner/leaf/f${String(index).padStart(4, '0')}.ts`, {
             mark: 'member',
             owners: [`App.M${String(module).padStart(2, '0')}`],
           }),
@@ -479,16 +466,16 @@ describe('FileTree 条目形态与规模边界', () => {
     const paths = renderedPaths();
     expect(paths.length).toBeGreaterThan(0);
     expect(new Set(paths).size).toBe(paths.length);
-    // 默认只展开前 2 段 ⇒ 四段文件行缺省不在 DOM（可见行数有界）
+    // 默认只展开前 3 段 ⇒ 五段文件行缺省不在 DOM（可见行数有界）
     expect(paths.length).toBeLessThan(1000);
     expect(
-      paths.every((path) => path.split('/').length <= 3),
-      '可见行深度不超过 3 段',
+      paths.every((path) => path.split('/').length <= 4),
+      '可见行深度不超过 4 段',
     ).toBe(true);
-    // 展开一个深层目录后其文件行进 DOM（标记与展开逻辑照常）
-    fireEvent.click(screen.getByLabelText('展开 m00/deep/inner'));
-    expect(rowOf('m00/deep/inner/f0000.ts')).toBeDefined();
-    expect(markOf('m00/deep/inner/f0000.ts')?.getAttribute('data-mark')).toBe('member');
+    // 展开一个深层目录后其文件行进 DOM（标记与展开逻辑照常；member 行零标记）
+    fireEvent.click(screen.getByLabelText('展开 m00/deep/inner/leaf'));
+    expect(rowOf('m00/deep/inner/leaf/f0000.ts')).toBeDefined();
+    expect(markOf('m00/deep/inner/leaf/f0000.ts')).toBeNull();
   });
 
   it('应对空 path / 超长 / emoji / 单段 path 形态分别给出可判行为', async () => {

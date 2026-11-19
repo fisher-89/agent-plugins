@@ -53,6 +53,11 @@ interface FlowProps {
     id: string;
     type: string;
     position: { x: number; y: number };
+    parentId?: string;
+    extent?: string;
+    width?: number;
+    height?: number;
+    measured?: { width: number; height: number };
     data: { label: string; mark: string };
   }[];
   edges: {
@@ -464,33 +469,101 @@ describe('正常态：缺省 1-hop 渲染面', () => {
     }
   });
 
-  it('应按纯拓扑网格给出节点坐标（聚焦居中 / 入边左 / 出边右 / 子元素下方）', async () => {
+  it('应按纯拓扑网格给出节点坐标（子元素在分组内容区内，出边列避让分组右缘）', async () => {
     serveGraph(hubGraph());
     render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
 
     expect(nodeTransform('Svc')).toBe('translate(0px,0px)');
-    // 入边 3 条：x = -240，y 以 (n-1)*96/2 居中 ⇒ -96 / 0 / +96
-    expect(nodeTransform('Src1')).toBe('translate(-240px,-96px)');
-    expect(nodeTransform('Src2')).toBe('translate(-240px,0px)');
-    expect(nodeTransform('Src3')).toBe('translate(-240px,96px)');
-    // 出边 3 条（含指向未声明元素的 Ghost，其无元素体不入图）：x = +240，y = -96 / 0 / +96
-    expect(nodeTransform('Dst1')).toBe('translate(240px,-96px)');
-    expect(nodeTransform('Dst2')).toBe('translate(240px,0px)');
-    // 直接子元素：x = 0，y = 96 / 192（自上而下堆叠）
-    expect(nodeTransform('Svc.A')).toBe('translate(0px,96px)');
-    expect(nodeTransform('Svc.B')).toBe('translate(0px,192px)');
+    // 入边 3 条：x = -240；纵向以分组高度 176 的中线（88）居中 ⇒ -8 / 88 / 184
+    expect(nodeTransform('Src1')).toBe('translate(-240px,-8px)');
+    expect(nodeTransform('Src2')).toBe('translate(-240px,88px)');
+    expect(nodeTransform('Src3')).toBe('translate(-240px,184px)');
+    // 出边列在分组右缘（宽 240）之外一格 ⇒ x = 480；纵向同上居中
+    expect(nodeTransform('Dst1')).toBe('translate(480px,-8px)');
+    expect(nodeTransform('Dst2')).toBe('translate(480px,88px)');
+    // 直接子元素在分组内容区内（相对分组左上角：x = 16，y = 64 / 116）
+    expect(nodeTransform('Svc.A')).toBe('translate(16px,64px)');
+    expect(nodeTransform('Svc.B')).toBe('translate(16px,116px)');
 
     expect(flow().nodes.map((node) => node.position)).toEqual([
       { x: 0, y: 0 },
-      { x: 240, y: -96 },
-      { x: 240, y: 0 },
-      { x: -240, y: -96 },
-      { x: -240, y: 0 },
-      { x: -240, y: 96 },
-      { x: 0, y: 96 },
-      { x: 0, y: 192 },
+      { x: 480, y: -8 },
+      { x: 480, y: 88 },
+      { x: -240, y: -8 },
+      { x: -240, y: 88 },
+      { x: -240, y: 184 },
+      { x: 16, y: 64 },
+      { x: 16, y: 116 },
     ]);
+  });
+
+  it('应把直接子元素挂到聚焦分组节点下（parentId / extent，尺寸随内容）', async () => {
+    serveGraph(hubGraph());
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
+
+    const byId = new Map(flow().nodes.map((node) => [node.id, node]));
+    expect(byId.get('Svc')).toMatchObject({
+      type: 'modelGroup',
+      width: 240,
+      height: 176,
+      measured: { width: 240, height: 176 },
+    });
+    expect(byId.get('Svc')?.parentId).toBeUndefined();
+    for (const child of ['Svc.A', 'Svc.B']) {
+      expect(byId.get(child)).toMatchObject({
+        type: 'model',
+        parentId: 'Svc',
+        extent: 'parent',
+      });
+      // 子节点不声明尺寸：徽章随短名自适应
+      expect(byId.get(child)?.width).toBeUndefined();
+      expect(byId.get(child)?.height).toBeUndefined();
+    }
+    // 子节点行完整落在分组区域内（行高按布局常量 44）
+    const group = byId.get('Svc')!;
+    for (const childId of ['Svc.A', 'Svc.B']) {
+      const child = byId.get(childId)!;
+      expect(child.position.x).toBeGreaterThanOrEqual(0);
+      expect(child.position.y + 44).toBeLessThanOrEqual(group.height ?? 0);
+    }
+    // 邻域成员不入分组：无 parentId / extent / 定尺
+    for (const fqn of ['Src1', 'Src2', 'Src3', 'Dst1', 'Dst2']) {
+      const node = byId.get(fqn);
+      expect(node?.parentId).toBeUndefined();
+      expect(node?.extent).toBeUndefined();
+      expect(node?.width).toBeUndefined();
+      expect(node?.height).toBeUndefined();
+    }
+  });
+
+  it('应以虚线分区框住入边列（dependedBy），分区不入节点集', async () => {
+    serveGraph(hubGraph());
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('archi-canvas-zone')).toBeTruthy());
+
+    // 入边 3 条列首 y = -8、列尾 y = 184；分区外扩 20、徽章定高 20、标题带高 30
+    const zone = screen.getByTestId('archi-canvas-zone');
+    expect(zone.style.left).toBe('-260px');
+    expect(zone.style.top).toBe('-58px');
+    expect(zone.style.width).toBe('200px');
+    expect(zone.style.height).toBe('282px');
+    // 分区是背景装饰：不产生节点、不吞点击
+    expect(renderedNodeIds()).toHaveLength(8);
+    expect(zone.className.split(/\s+/)).toContain('pointer-events-none');
+  });
+
+  it('应在无入边时不渲分区（只框 dependedBy，不框出边）', async () => {
+    serveGraph({
+      elements: [element('Solo'), element('Peer')],
+      relations: [relation('Solo', 'Peer', null)],
+      diagnostics: [],
+    });
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('rf__node-Solo')).toBeTruthy());
+    expect(screen.queryByTestId('archi-canvas-zone')).toBeNull();
   });
 
   it('应按短名渲染节点文案（末段短名，节点不呈标记点）', async () => {
@@ -502,9 +575,18 @@ describe('正常态：缺省 1-hop 渲染面', () => {
     expect(nodeText('Src1')).toBe('Src1');
     expect(nodeText('Svc.A')).toBe('A');
     expect(nodeText('Svc.B')).toBe('B');
-    // 节点类型固定为局部组件 `archi`
-    expect(flow().nodes.every((node) => node.type === 'archi')).toBe(true);
-    expect(Object.keys(flow().nodeTypes)).toEqual(['archi']);
+    // 节点类型：聚焦元素有子节点 ⇒ 分组节点，其余（含子节点）为叶子节点
+    expect(flow().nodes.map((node) => `${node.id}:${node.type}`)).toEqual([
+      'Svc:modelGroup',
+      'Dst1:model',
+      'Dst2:model',
+      'Src1:model',
+      'Src2:model',
+      'Src3:model',
+      'Svc.A:model',
+      'Svc.B:model',
+    ]);
+    expect(Object.keys(flow().nodeTypes)).toEqual(['model', 'modelGroup']);
   });
 
   it('应只画与聚焦相连的边（id / 端点 / style 逐值），无关边零出现', async () => {
@@ -607,9 +689,9 @@ describe('缺省聚焦与 1-hop 边界', () => {
       expect(renderedNodeIds().sort()).toEqual(['A', 'A.B', 'A.C']);
     });
     expect(nodeTransform('A')).toBe('translate(0px,0px)');
-    // 直接子元素按声明序堆叠在下方
-    expect(nodeTransform('A.B')).toBe('translate(0px,96px)');
-    expect(nodeTransform('A.C')).toBe('translate(0px,192px)');
+    // 直接子元素在分组内容区内：x = 16，y = 64 / 116（声明序自上而下）
+    expect(nodeTransform('A.B')).toBe('translate(16px,64px)');
+    expect(nodeTransform('A.C')).toBe('translate(16px,116px)');
   });
 
   it('应在无任何顶层元素时以首个元素为聚焦', async () => {

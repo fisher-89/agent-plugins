@@ -19,6 +19,8 @@
 - **显式取数**：画布取数 SHALL 只在三种触发下发起——组件挂载、`root` 变化、用户显式刷新；MUST NOT 引入目录监听（watch）或轮询（沿 `desktop-file-watch` 既有红线，本变更不得以任何形式偷加自动刷新）。
 - 画布区块 SHALL 为三段：**左栏**（base-ui `Tabs` 在**一个栏位内三种视图**间切换——缺省**文件树**（磁盘枚举 + 元素根归属标记）/ **元素树**（层级由 FQN 前缀派生）/ **契约视图**（生成物差异 + 契约判据两轴，见 `desktop-archi-contract-panel`）；三视图共用同一栏宽 `w-80`）、中 xyflow 画布（节点 = element，边 = relation）、右抽屉（见「抽屉内容」requirement）。左栏三种视图的完整契约分别归 `desktop-archi-file-tree`（文件 / 元素两视图与分段切换语义）与 `desktop-archi-contract-panel`（契约视图）；本能力只登记「三段布局的第一段是左栏且缺省文件树」。
 - 缺省渲染 SHALL 只呈现**聚焦元素的 1-hop 邻域**（入边 + 出边 + 直接子元素），聚焦切换 SHALL 由图内交互完成；全量铺开 MUST NOT 作为缺省形态（防大模型过载）。
+- 直接子元素 SHALL 渲染在聚焦节点**区域内**：聚焦元素有直接子元素时呈分组容器节点（标题栏 + 内容区），子节点以 xyflow `parentId` + `extent: 'parent'` 挂在容器下、逐行排在内容区内；邻域入 / 出边节点分布在容器左右两侧之外，MUST NOT 落进容器区域。
+- 入边列（`dependedBy`：依赖当前元素的节点）SHALL 以**虚线分区**框选：分区完整包住整列入边节点，作为画布背景装饰——MUST NOT 计入节点集、MUST NOT 响应点击 / 聚焦；无入边时不渲分区。
 - 测试挂钩 SHALL 用 data-testid，MUST NOT 以样式类名作查询挂钩（沿 `desktop-standard-components` 既有纪律）。
 
 #### Scenario: 两处挂载点共用同一组件
@@ -40,6 +42,16 @@
 
 - **WHEN** 模型含数十元素且无元素被显式聚焦
 - **THEN** 画布只渲染聚焦元素（缺省取根元素或首个顶层元素）及其 1-hop 邻域；非邻域元素不出现在图内，全量仅经显式操作展开
+
+#### Scenario: 直接子元素渲染在聚焦节点区域内
+
+- **WHEN** 聚焦一个有直接子元素的元素
+- **THEN** 该元素渲染为分组容器节点（标题栏呈短名），直接子元素挂在其下并逐行排在容器内容区内；邻域入边 / 出边节点分布在容器左右两侧之外，不出现在容器区域内
+
+#### Scenario: 入边虚线分区框选
+
+- **WHEN** 聚焦一个有入边（`dependedBy`）的元素
+- **THEN** 画布在入边列外围渲染一个虚线矩形分区，完整框住该列全部节点；分区不参与节点点击与聚焦（背景装饰），无入边时分区缺席
 
 ### Requirement: 结构错的停摆态（全或无）
 
@@ -189,7 +201,7 @@
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `src/views/architecture/components/architecture-canvas.tsx` | 共享画布 + 标记接线点（两挂载点共用） | 入参 `{ root, mode: 'full' \| 'incremental' }`；三段布局（**左栏（缺省文件树，可切元素树 / 契约视图）** / xyflow 画布 / 抽屉）；1-hop 缺省；两态切换（正常态 / 停摆态）；`graph = driftMarks(report, graph)` 后交渲染，漂移取数失败降级为「零标记 + 行内提示」且 MUST NOT 阻断图渲染；`mode` 直接决定 `archi_drift` 的调用模式；data-testid 挂钩。左栏为 base-ui `Tabs`（`TabsList` 携 `data-testid="archi-tree-mode"`，三枚 `TabsTrigger` 文案「文件」/「元素」/「契约」）切换 `FileTree`（`desktop-archi-file-tree`）/ `ElementTree` / `ContractPanel`（`desktop-archi-contract-panel`），栏宽恒 `w-80`，切换 MUST NOT 触发图或抽屉重取数。画布节点视图取自 `components/graph/module-node.tsx` 的 `ModuleNode` |
+| `src/views/architecture/components/architecture-canvas.tsx` | 共享画布 + 标记接线点（两挂载点共用） | 入参 `{ root, mode: 'full' \| 'incremental' }`；三段布局（**左栏（缺省文件树，可切元素树 / 契约视图）** / xyflow 画布 / 抽屉）；1-hop 缺省；两态切换（正常态 / 停摆态）；`graph = driftMarks(report, graph)` 后交渲染，漂移取数失败降级为「零标记 + 行内提示」且 MUST NOT 阻断图渲染；`mode` 直接决定 `archi_drift` 的调用模式；data-testid 挂钩。左栏为 base-ui `Tabs`（`TabsList` 携 `data-testid="archi-tree-mode"`，三枚 `TabsTrigger` 文案「文件」/「元素」/「契约」）切换 `FileTree`（`desktop-archi-file-tree`）/ `ElementTree` / `ContractPanel`（`desktop-archi-contract-panel`），栏宽恒 `w-80`，切换 MUST NOT 触发图或抽屉重取数。画布节点视图取自 `components/graph/model-node.tsx` 的 `ModelNode`（叶子短名徽章）与 `components/graph/model-group-node.tsx` 的 `ModelGroupNode`（分组容器：聚焦元素有直接子元素时，子节点以 `parentId` 渲染在其区域内）；入边列以 `ViewportPortal` 虚线分区框选（`data-testid="archi-canvas-zone"`，背景装饰不入节点集） |
 | `src/views/architecture/lib/drift-marks.ts` | 报告 → 边标记纯函数 | `driftMarks(report, graph) -> ArchiGraph`：只读 `observations` / `suppressed` 两段、按 `(from, to)` 命中边；MUST NOT 派生节点标记（节点标记不呈现）；零判定、零 IO、无渲染依赖 |
 | `src/views/architecture/hooks/use-archi-drift.ts` | 漂移取数 | 经 `archi_drift(root, mode)` 显式取数（挂载 / 根切换 / 手动刷新三触发，零 watch 零轮询）；`mode` 由挂载点给定（A=`full` / B=`incremental`）；取数失败同时清空 `report` 与已载键（旧报告 MUST NOT 冒充本次结论）；返回 `report` / `loading` / `error` |
 | `src/views/architecture/components/element-tree.tsx` | 左栏元素视图（保留） | 层级由 FQN 前缀派生；节点只呈短名（节点标记不呈现，叶子留禁用的展开空位）；停摆态零节点；testid `archi-element-tree` / `archi-tree-node` 不变（本变更零改动） |
@@ -210,7 +222,7 @@
 |---|---|---|
 | `CanvasBody` 左栏 | 改 | 左栏为 base-ui `Tabs` 三视图分支：`value="file"` → `FileTree`（收 `root` 自取数）、`value="element"` → `ElementTree`、`value="contract"` → `ContractPanel`；三视图共用同一栏宽（`w-80`）；`ElementTree` / `ContractPanel` 的入参与 testid 零改动 |
 | 数据传递 | 改 | `report.apiFindings` 与按元素过滤结果传给契约面板与抽屉；`mode` 决定生成按钮可用性；零新增取数（判据轴复用既有 `use-archi-drift`） |
-| 渲染与标记面 | 零改动 | `toNodes` / `toEdges` / `neighborhoodPositions` / `defaultFocus` / 结构错停摆分支、`lib/marks.ts` / `lib/drift-marks.ts` 逐字不变；节点视图抽为 `components/graph/module-node.tsx` 的 `ModuleNode`，渲染产物与 testid `archi-canvas-node` 逐字不变 |
+| 渲染与标记面 | 改 | `toEdges` / `defaultFocus` / 结构错停摆分支、`lib/marks.ts` / `lib/drift-marks.ts` 逐字不变；`toNodes` / `neighborhoodPositions` 按「直接子元素渲染在聚焦节点区域内」重写（子节点挂 `parentId`，聚焦节点成组时入 / 出边列让出容器）；节点视图拆为 `components/graph/model-node.tsx` 的 `ModelNode` 与 `components/graph/model-group-node.tsx` 的 `ModelGroupNode`，testid `archi-canvas-node` 不变 |
 
 ### Component: 零改动面
 
