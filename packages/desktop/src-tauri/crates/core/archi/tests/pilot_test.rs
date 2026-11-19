@@ -11,16 +11,16 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use archi::api::contract::{is_constructor, parse, Contract};
+use archi::api::contract::{is_constructor, parse, verify, Contract};
 use archi::api::emit::rust::render;
 use archi::api::emit::{EmitTarget, ModuleRef};
 use archi::api::paths::{
     self, contract_path, directory, generated_path, index_path, EntryForm, GeneratedKind,
 };
 use archi::api::schema::{build_index, build_schema, ApiFormStatus, IndexEntry};
-use archi::api::{api_ref, api_ref_of, meta};
+use archi::api::{api_ref, api_ref_of, display, meta};
 use archi::dto::{ApiStatus, ArchiApiRef};
 use foundation::layout::archi_models_dir;
 use serde_json::Value;
@@ -648,5 +648,254 @@ fn 旧名零残留且等值源为生成物文件名() {
     assert!(
         !attribute.contains('/') && !attribute.contains(".."),
         "字面量恒为文件名（零目录段、零 `../`）：{attribute}"
+    );
+}
+
+// ===========================================================================
+// 组合链路（`parse` → `build_schema` → `verify`）在真实语料上的全线通过
+//
+// 被测链路挂靠 `api/contract.rs`（第四闸所在处、`api::load_contracts` 的收口点）。零替身：
+// 真实读盘 + 真实链路，路径串一律经 `archi::api::display` 归一（跨 crate 单点，MUST NOT
+// 自写第二份 `replace`），份数不钉死——由「非留白 / 留白两档各至少一份通过」兜住漂移。
+// ===========================================================================
+
+/// 递归收集目录下全部 `*.md`（真实 `fs::read_dir`，不注入文件清单；目录内坏路径即 panic）。
+fn walk_md(dir: &Path, out: &mut Vec<PathBuf>) {
+    let mut entries: Vec<PathBuf> = fs::read_dir(dir)
+        .unwrap_or_else(|error| panic!("应可读目录 {}：{error}", dir.display()))
+        .map(|entry| entry.expect("目录项应可读").path())
+        .collect();
+    entries.sort();
+    for path in entries {
+        if path.is_dir() {
+            walk_md(&path, out);
+        } else if path.extension().and_then(|extension| extension.to_str()) == Some("md") {
+            out.push(path);
+        }
+    }
+}
+
+/// 契约目录的在盘收面：`(repo 相对路径串, fqn)` 升序；fqn = 文件名去 `.md`。
+fn contract_files() -> Vec<(String, String)> {
+    let root = repository_root();
+    let mut paths: Vec<PathBuf> = Vec::new();
+    walk_md(&api_dir(), &mut paths);
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|path| {
+            let fqn = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .expect("契约文件名应为合法 UTF-8")
+                .to_owned();
+            (display(&root, &path), fqn)
+        })
+        .collect()
+}
+
+/// 一份在盘契约走完整装载链的结果：路径串、fqn、是否留白面（`ops` / `types` /
+/// `reexports` 三项全空 = 第四闸的豁免面）。
+struct LoadedContract {
+    rel: String,
+    fqn: String,
+    blank: bool,
+}
+
+/// 逐份装载（`parse` → `build_schema` → `verify`）：失败即带 repo 相对路径串返回文案，供
+/// 调用方 `panic!`——循环内 MUST NOT `continue` 静默跳过（否则「零误伤」不可判）。
+fn load_contract(rel: &str, fqn: &str, source: &str) -> Result<bool, String> {
+    let contract = parse(source, fqn, rel)
+        .map_err(|error| format!("契约 `{rel}` 解析失败：{}", error.message()))?;
+    let schema = build_schema(&contract, &meta())
+        .map_err(|error| format!("契约 `{rel}` 装配 schema 失败：{}", error.message()))?;
+    verify(&contract, &schema)
+        .map_err(|error| format!("契约 `{rel}` 装载期校验失败：{}", error.message()))?;
+    Ok(contract.ops.is_empty() && contract.types.is_empty() && contract.reexports.is_empty())
+}
+
+/// 契约目录全量装载：任一份失败即 `panic!`（消息含 repo 相对路径串与错误文案，失败可定位）。
+fn load_all_contracts() -> Vec<LoadedContract> {
+    contract_files()
+        .into_iter()
+        .map(|(rel, fqn)| {
+            let source = read_repo(&rel);
+            let blank =
+                load_contract(&rel, &fqn, &source).unwrap_or_else(|message| panic!("{message}"));
+            LoadedContract { rel, fqn, blank }
+        })
+        .collect()
+}
+
+/// 正向（组合链路 · AC-3 留白豁免 + 第四闸生效）：`archi_models_dir` 递归全部 `*.md` 逐份
+/// 走完 `parse` → `build_schema` → `verify` ⇒ 全 `Ok(())`；**不钉死份数**，改断言「至少一份
+/// 非留白契约（闸生效面）与至少一份留白契约（豁免面）各有一份通过」。
+#[test]
+fn 契约目录全量装载全线通过且两档各有通过项() {
+    let files = contract_files();
+    let loaded = load_all_contracts();
+
+    assert_eq!(
+        loaded.len(),
+        files.len(),
+        "收面内的每一份 `*.md` 都被装载（不按文件名白名单豁免、不静默跳过）"
+    );
+    assert!(!loaded.is_empty(), "契约目录应至少有一份 `*.md`");
+    assert!(
+        loaded.iter().any(|item| !item.blank),
+        "至少一份非留白契约通过（第四闸生效面）"
+    );
+    assert!(
+        loaded.iter().any(|item| item.blank),
+        "至少一份留白契约通过（三项全空的豁免面）"
+    );
+}
+
+/// 正向（组合链路 · 后端两份）：`App.Backend.Core.Foundation` /
+/// `App.Backend.Infra.ArchiRuntime` 落在通过集内，且各自散文零表格行 ⇒ 通过（AC-1 反向
+/// 判据：其散文列表项含留白 op 名，零抽取、不误伤）。
+#[test]
+fn 组合链路后端两份散文零表格行() {
+    let loaded = load_all_contracts();
+    for fqn in [
+        "App.Backend.Core.Foundation",
+        "App.Backend.Infra.ArchiRuntime",
+    ] {
+        let item = loaded
+            .iter()
+            .find(|item| item.fqn == fqn)
+            .unwrap_or_else(|| panic!("`{fqn}` 应在全量装载的通过集内"));
+        assert!(
+            !item.blank,
+            "`{fqn}` 是第四闸的生效面（自有 op / 类型非空），实际判为留白"
+        );
+        let source = read_repo(&item.rel);
+        let rows: Vec<&str> = source
+            .lines()
+            .filter(|line| line.trim_start().starts_with('|'))
+            .collect();
+        assert!(
+            rows.is_empty(),
+            "`{fqn}` 散文零表格行（列表项形态零抽取、不误伤）：{rows:?}"
+        );
+    }
+}
+
+/// 正向（组合链路 · 前端留白契约）：`Frontend/` 下的契约（`api-types` 全 `{}`、零 `api-op`、
+/// 零 `api-reexport`、散文多行表格）落在通过集内且全判留白 ⇒ 通过——AC-3 留白豁免的行为
+/// 证据：表格仍在盘而装载零错误，MUST NOT 把它们读成回归；份数不钉死，按在盘份数逐份断。
+#[test]
+fn 组合链路前端留白契约全量通过() {
+    let loaded = load_all_contracts();
+    let frontend: Vec<&LoadedContract> = loaded
+        .iter()
+        .filter(|item| {
+            item.rel
+                .starts_with(".dev-team/architecture/models/Frontend/")
+        })
+        .collect();
+    assert!(!frontend.is_empty(), "前端组件契约应在收面内（当前 8 份）");
+    for item in frontend {
+        assert!(
+            item.blank,
+            "`{}` 三项全空即留白契约（第四闸不生效），散文表格原样合法",
+            item.rel
+        );
+        let source = read_repo(&item.rel);
+        assert!(
+            source
+                .lines()
+                .any(|line| line.trim_start().starts_with('|')),
+            "`{}` 的散文表格仍在盘（豁免面的事实证据，而非被删除）",
+            item.rel
+        );
+    }
+}
+
+/// 异常（组合链路 · 失败可见）：装载失败时消息含 repo 相对路径串与错误文案（可定位），
+/// MUST NOT 落成「静默跳过」。
+#[test]
+fn 组合链路失败可见且不静默跳过() {
+    let rel = ".dev-team/architecture/models/Backend/Core/App.Demo.Broken.md";
+    let source = "# App.Demo.Broken\n\n## 公共面\n\n| `is_set` | 判定 |\n\n### is_set\n\n\
+                  ```json api-op\n{\"params\": []}\n```\n";
+    let message = load_contract(rel, "App.Demo.Broken", source)
+        .expect_err("非留白契约的散文表格复述契约名 ⇒ 应报装载期错误");
+    assert!(message.contains(rel), "消息含 repo 相对路径串：{message}");
+    assert!(
+        message.contains("散文段以表格复述"),
+        "消息含第四闸的错误文案：{message}"
+    );
+
+    let broken_h1 = load_contract(rel, "App.Demo.Broken", "# App.Demo.Other\n\n正文。\n")
+        .expect_err("H1 与文件名不一致 ⇒ 解析期错误");
+    assert!(
+        broken_h1.contains(rel) && broken_h1.contains("解析失败"),
+        "解析期失败同样点名路径：{broken_h1}"
+    );
+}
+
+/// 边界（组合链路 · 收面口径）：收面恰为 `<archi_models_dir>/**/*.md`——只认 `.md`、路径串
+/// 经 `archi::api::display` 归一、`graph/` 是兄弟目录不在收面、不递归第二根、不按文件名白名单
+/// 豁免。
+#[test]
+fn 组合链路收面为契约目录下全部md() {
+    let files = contract_files();
+    assert!(!files.is_empty(), "收面应至少一份 `*.md`");
+
+    for (rel, fqn) in &files {
+        assert!(rel.ends_with(".md"), "只认 `*.md`：{rel}");
+        assert!(
+            rel.starts_with(".dev-team/architecture/models/"),
+            "路径串经 `archi::api::display` 归一为 repo 相对 POSIX：{rel}"
+        );
+        assert!(!rel.contains('\\'), "路径串零反斜杠：{rel}");
+        assert!(
+            !rel.contains("graph/"),
+            "`graph/` 是兄弟目录，MUST NOT 进契约收面：{rel}"
+        );
+        assert!(
+            !fqn.is_empty() && !fqn.ends_with(".md"),
+            "fqn = 文件名去 `.md`：{fqn}"
+        );
+    }
+
+    let graph = repository_root().join(".dev-team/architecture/graph");
+    assert!(graph.is_dir(), "`graph/` 目录在盘（与契约目录分家）");
+    assert!(
+        !files.iter().any(|(rel, _)| rel.contains("/graph/")),
+        "不递归第二根（`graph/model/*.toml` 天然不在收面）"
+    );
+}
+
+/// 边界（组合链路 · 夹具单点复用）：与同文件既有夹具共存且互不遮蔽——路径串归一走
+/// `archi::api::display`（跨 crate 单点），本文件内零第二份 `replace`、上溯层数仍单点。
+#[test]
+fn 组合链路夹具单点复用不另写路径串() {
+    let root = repository_root();
+    for (rel, _) in contract_files() {
+        assert_eq!(
+            display(&root, &root.join(&rel)),
+            rel,
+            "`archi::api::display` 是路径串归一的跨 crate 单点"
+        );
+    }
+
+    let text = include_str!("pilot_test.rs");
+    // 判据串分段拼接：避免断言文本自身命中（分段后本文件内不存在连续的该调用形态）
+    let replace_needle = [
+        ".replace", "(", "'", "\\", "\\", "'", ",", " ", "\"/\"", ")",
+    ]
+    .concat();
+    assert_eq!(
+        text.matches(&replace_needle).count(),
+        0,
+        "MUST NOT 自写第二份路径串 `replace`（走 `archi::api::display`）：{replace_needle}"
+    );
+    let pop_needle = [".", "pop", "(", ")", ";"].concat();
+    assert_eq!(
+        text.matches(&pop_needle).count(),
+        1,
+        "上溯层数是单点（MUST NOT 出现第二份上溯实现）"
     );
 }

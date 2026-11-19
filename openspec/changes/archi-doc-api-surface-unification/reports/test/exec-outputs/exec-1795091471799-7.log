@@ -1,0 +1,40 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-doc-api-surface-unification\packages\desktop\src-tauri\crates\core\archi\src\api\contract_test.rs:2465:
+         Ok(()),
+         "散文零表格行 ⇒ 通过"
+     );
+[31m-    let with_table = fourth_gate_source(
+[0m[31m-        "判定函数。\n\n| 名字 | 形态 |\n|---|---|\n| `unrelated_name` | 参数 |",
+[0m[31m-    );
+[0m[32m+    let with_table =
+[0m[32m+        fourth_gate_source("判定函数。\n\n| 名字 | 形态 |\n|---|---|\n| `unrelated_name` | 参数 |");
+[0m     assert_eq!(
+         verify_source(&with_table),
+         Ok(()),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-doc-api-surface-unification\packages\desktop\src-tauri\crates\core\archi\src\api\contract_test.rs:2579:
+     let cases: [(&str, &str); 11] = [
+         ("列表项", "判定函数：\n\n- `is_set`：判定"),
+         ("裸正文", "is_set 是判定函数"),
+[31m-        ("fence 内表格行", "示例：\n\n```text\n| `is_set` | 判定 |\n```"),
+[0m[32m+        (
+[0m[32m+            "fence 内表格行",
+[0m[32m+            "示例：\n\n```text\n| `is_set` | 判定 |\n```",
+[0m[32m+        ),
+[0m         ("首列无引号", "| is_set | 判定 |"),
+         ("首列非标识符 · 空格", "| `is set` | 判定 |"),
+         ("首列非标识符 · 连字符", "| `is-set` | 判定 |"),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-doc-api-surface-unification\packages\desktop\src-tauri\crates\core\archi\src\api\contract_test.rs:2654:
+     let message = verify_error(&contract, &schema);
+ 
+     let prefix = format!("{FILE}: ");
+[31m-    assert!(message.starts_with(&prefix), "文案以 `file: ` 起手：{message}");
+[0m[32m+    assert!(
+[0m[32m+        message.starts_with(&prefix),
+[0m[32m+        "文案以 `file: ` 起手：{message}"
+[0m[32m+    );
+[0m     let after_file = message.strip_prefix(FILE).expect("文案含文件定位");
+     assert!(
+         !after_file.starts_with(|character: char| character.is_ascii_digit()),
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

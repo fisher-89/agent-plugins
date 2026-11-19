@@ -20,14 +20,18 @@
 //! [`parse`] 交给 `serde_json` 之前的同一份文本上（[`duplicate_keys`]）。`$defs` 的
 //! 键名即身份，同名即定义两次。
 //!
-//! **[`verify`] 是装载期的校验收口**：三条双向 gate + 闸一（七族名字 MUST 是 ASCII
-//! 标识符，D45）+ 落点闸（`x-function` 的合法落点封闭二处，D47）+ `required` 与
-//! `properties` 的自洽闸（集合关系，不占族别编号）。四者同函数、同趟收口——它们都是
-//! 「契约资产的错」，须在 `load_contracts` 中止，MUST NOT 留到写盘面。渲染期因此不做
-//! 二次校验（名字与位置都已保证），`emit` 内零标识符判据、两侧 `value_type` 零
-//! `x-function` 分支。
+//! **[`verify`] 是装载期的校验收口**：四条装载期闸（既有三条双向 gate + 第四条名字清单闸）
+//! + 闸一（七族名字 MUST 是 ASCII 标识符，D45）+ 落点闸（`x-function` 的合法落点封闭二处，
+//! D47）+ `required` 与 `properties` 的自洽闸（集合关系，不占族别编号）。这些闸同函数、
+//! 同趟收口——它们都是「契约资产的错」，须在 `load_contracts` 中止，MUST NOT 留到写盘面。
+//! 渲染期因此不做二次校验（名字与位置都已保证），`emit` 内零标识符判据、两侧
+//! `value_type` 零 `x-function` 分支。
 //!
-//! 错误一律带 `file:line` 与原文片段——契约坏了要能直接改到那一行。
+//! 第四条闸只判点名、不判语义：名字清单的唯一持有者是三类 fence，散文段 MUST NOT 以表格
+//! 复述这些名字（散文的职能 / 边界 / 不变量 / 承载理由仍是人审面）。
+//!
+//! 错误带 `file:line` 与原文片段——契约坏了要能直接改到那一行；段落级判据（`api-types`
+//! 缺键 / `api-reexport` 差集 / 散文表格复述）只有 `file` 前缀，因为段落正文未保留行号。
 
 use serde_json::{Map, Value};
 
@@ -274,6 +278,13 @@ pub fn parse(source: &str, fqn: &str, file: &str) -> Result<Contract, ApiError> 
 ///
 /// 落点闸之前、⑤ 族的同一趟遍历里还续判**自洽闸**：`required` 元素集 MUST ⊆ 同条目
 /// `properties` 键集（悬垂即契约错误）。判的是集合关系而非名字形态，故同样不占族别编号。
+///
+/// 末尾是**第四条闸**（名字清单，机械可校验）：前置 = 契约非留白（`ops` / `types` /
+/// `reexports` 三项任一非空；三项全空即契约面留白，散文表格原样合法）；断言 = 散文表格
+/// 抽取集（[`collect_surface_table`]）∩ 契约名字集（op id ∪ `api-types` 键 ∪
+/// `api-reexport` 键）= ∅。非空即 `ApiError::Contract`（只有 `file` 前缀、无行号）。
+/// 判的是「同一名字不得两处持有」，MUST NOT 读成「散文必须镜像契约」；它只判点名、不判
+/// 语义，不占族别编号、不新增 finding kind。
 pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
     let mut seen: Vec<&str> = Vec::new();
     for op in &contract.ops {
@@ -488,6 +499,31 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
     // 位置错了就不该走到渲染期——否则深层 `x-function` 的 `params[].name` 会沿
     // `value_type` → `function_type` / `method_signature` 裸插，而 ④ 族从未判过它。
     verify_x_function_positions(contract, schema)?;
+    // 第四条闸（名字清单，装载期）：散文段 MUST NOT 以表格复述契约名字。
+    //
+    // 前置 = `ops` / `types` / `reexports` 三项任一非空，这是**留白豁免的唯一来源**：
+    // 三项全空即「契约面留白」，该元素的散文表格原样合法（前端组件元素契约当前全空的
+    // 唯一合法通道）。取的是手写真假（`Contract` 字段）而非生成的 `$defs`；只写透传的
+    // 契约同样持有名字，故 `reexports` 与另两项同权。
+    //
+    // 断言是**交集为空**，MUST NOT 读成「散文必须镜像契约」——闸判的是「同一名字不得
+    // 两处持有」，故散文里的参数表 / 对比表 / 枚举值表只要不与契约名字撞名就合法。
+    //
+    // 本闸**只判点名、不判语义**：职能 / 边界 / 不变量 / 承载理由仍是人审面，MUST NOT
+    // 由此扩张出第二类散文判据。
+    if !(contract.ops.is_empty() && contract.types.is_empty() && contract.reexports.is_empty()) {
+        let repeated: Vec<String> = collect_surface_table(&contract.sections)
+            .into_iter()
+            .filter(|name| {
+                contract.ops.iter().any(|op| op.id == name.as_str())
+                    || contract.types.contains_key(name.as_str())
+                    || contract.reexports.contains_key(name.as_str())
+            })
+            .collect();
+        if !repeated.is_empty() {
+            return Err(surface_table_error(contract, &repeated));
+        }
+    }
     Ok(())
 }
 
@@ -694,6 +730,22 @@ fn required_dangling_error(
          `properties` 必须闭合：改成 `properties` 里已有的键，或补上该字段的定义\
          （悬垂会让两侧产物把该字段静默渲染成可选）",
         contract.file
+    ))
+}
+
+/// 第四条闸（名字清单）的错误面：点名文件、被复述的名字与三处 fence 名，并给出路句。
+///
+/// **零行号**：判据在 `verify` 期扫段落正文，而 [`ContractSection`] 的 `body` 未保留行号
+/// ——与既有两个段落级闸（`api-types` 缺键 / `api-reexport` 差集）同档，`file` + 交集名字
+/// 足以定位（一份契约的表格行数是个位数）。
+fn surface_table_error(contract: &Contract, repeated: &[String]) -> ApiError {
+    ApiError::Contract(format!(
+        "{}: 散文段以表格复述了契约 fence 已持有的名字：{}——名字清单的唯一持有者是 \
+         {FENCE_OP} 的 op id / {FENCE_TYPES} 的键 / {FENCE_REEXPORT} 的键；名字归 fence，\
+         散文只留语义：删掉表格里这些名字（语义用散文句承载）。同一契约 MUST NOT 两处\
+         持有同一个名字",
+        contract.file,
+        repeated.join(" / ")
     ))
 }
 
@@ -974,6 +1026,44 @@ fn collect_reexport_prose(sections: &[ContractSection]) -> Vec<String> {
                 .unwrap_or("");
             if is_identifier(token) && !names.iter().any(|name| name == token) {
                 names.push(token.to_owned());
+            }
+        }
+    }
+    names
+}
+
+/// 散文区的**表格行首列名字**（第四条闸的抽取面）：只认「表格行 + 首列整体反引号 +
+/// ASCII 标识符」三重收窄，去重保序。
+///
+/// - **表格行**：去前导空白后以 `|` 起手（首列 = 去掉行首那个 `|` 之后的第一个 `|` 段）；
+/// - **首列整体被一对反引号包裹**且内部零反引号（表头 `名字`、分隔行 `|---|` 因此天然不中）；
+/// - **ASCII 标识符**：复用 [`is_identifier`] 单点，MUST NOT 抄第二份字符判据。
+///
+/// 三条「零抽取」理由：列表项归 [`collect_reexport_prose`]（那是 `api-reexport` 第三条
+/// gate 的机械镜像面，MUST NOT 在此重判）；裸正文是语义散文；fence 内容结构上不在
+/// `section.body` 里（[`parse`] 的 fence 状态机已隔断）。
+///
+/// `### <op-id>` 段的正文不进 `sections`（[`parse`] 在 `###` 处 [`finish_section`]），
+/// 故抽取面 == 全部 `##` 散文段。
+fn collect_surface_table(sections: &[ContractSection]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for section in sections {
+        for line in section.body.lines() {
+            let Some(rest) = line.trim_start().strip_prefix('|') else {
+                continue;
+            };
+            let cell = rest.split('|').next().unwrap_or("").trim();
+            let Some(inner) = cell
+                .strip_prefix('`')
+                .and_then(|text| text.strip_suffix('`'))
+            else {
+                continue;
+            };
+            if inner.contains('`') || !is_identifier(inner) {
+                continue;
+            }
+            if !names.iter().any(|name| name == inner) {
+                names.push(inner.to_owned());
             }
         }
     }

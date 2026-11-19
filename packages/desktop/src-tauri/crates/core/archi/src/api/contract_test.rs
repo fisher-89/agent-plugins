@@ -2419,3 +2419,472 @@ fn info_tokens空info与连续分隔符() {
         "空 info 块内即便写着语言标也不成 op"
     );
 }
+
+// ===========================================================================
+// 第四条闸（散文表格 ∩ 契约名字集 = ∅）：形态封闭 / 判据方向 / 留白豁免前置 /
+// 退役触发点 / 零抽取六类 / 作用域 / 文案点名面 / 零行号错误面 / 报错顺序 /
+// 结构锚源码自证
+//
+// 抽取面 `collect_surface_table` 与错误构造器 `surface_table_error` 都是**私有 `fn`**
+// （D6），故下列用例一律经 `verify` 的 `Ok` / `Err` 文案黑盒观测——MUST NOT 为此新增
+// 公开出口或测试专用导出。零 mock：源文 `String` 直传 `parse`，`schema` 由真实
+// `build_schema` 产出，仅「缺 `$defs` 键」一类反例以手写 `json!` 注入。
+// ===========================================================================
+
+/// 单 op 契约源文（`### is_set` + `api-op` fence）与一段可注入散文（`## 判定` 段正文）。
+fn fourth_gate_source(paragraph: &str) -> String {
+    format!(
+        "# {FQN}\n\n## 判定\n\n{paragraph}\n\n### is_set\n\n```json api-op\n\
+         {{\"params\": [], \"returns\": {{\"type\": \"boolean\"}}}}\n```\n"
+    )
+}
+
+/// 源文 → `Contract` + 真实 `schema` → `verify`（第四闸的黑盒观测面）。
+fn verify_source(source: &str) -> Result<(), ApiError> {
+    let contract = parse(source, FQN, FILE).expect("夹具应为结构合法源文");
+    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
+    verify(&contract, &schema)
+}
+
+/// 断言第四闸报契约错误并返回文案。
+fn fourth_gate_error(source: &str) -> String {
+    match verify_source(source) {
+        Ok(()) => panic!("期望第四闸报契约错误，实际 Ok：\n{source}"),
+        Err(ApiError::Contract(message)) => message,
+        Err(other) => panic!("期望 ApiError::Contract，实际：{other:?}"),
+    }
+}
+
+/// 正向（第四闸）：契约非留白（1 op `is_set`）而散文零表格行 ⇒ `Ok`；同源再加一张
+/// 首列 `` `unrelated_name` `` 的表格（与契约名字集零交集）⇒ 仍 `Ok`——闸判的是交集，
+/// 不是「表格有无」（R-2：参数表 / 对比表 / 枚举值表只要不撞名即合法）。
+#[test]
+fn verify第四闸非留白契约零表格行通过() {
+    assert_eq!(
+        verify_source(&fourth_gate_source("判定函数。")),
+        Ok(()),
+        "散文零表格行 ⇒ 通过"
+    );
+    let with_table =
+        fourth_gate_source("判定函数。\n\n| 名字 | 形态 |\n|---|---|\n| `unrelated_name` | 参数 |");
+    assert_eq!(
+        verify_source(&with_table),
+        Ok(()),
+        "表格与契约名字集零交集 ⇒ 仍通过（闸判交集，不判表格有无）"
+    );
+}
+
+/// 正向（第四闸 · 三类撞名）：op id / `api-types` 键 / `api-reexport` 键各造一处撞名 ⇒
+/// 逐条 `Err(ApiError::Contract)`，文案含文件、交集名字、三个 fence 语言标与出路句语义。
+#[test]
+fn verify第四闸三类撞名各报契约错误() {
+    let op_hit = fourth_gate_source("判定函数。\n\n| `is_set` | 判定 |");
+    let types_hit = format!(
+        "# {FQN}\n\n## 公共面\n\n| `LocalArchiCheck` | 类型 |\n\n```json api-types\n\
+         {{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    );
+    let reexport_hit = format!(
+        "# {FQN}\n\n## 公共面\n\n- AgentInput → App.Demo.Input\n\n| `AgentInput` | 透传 |\n\n\
+         ```json api-reexport\n{{\"AgentInput\": \"App.Demo.Input\"}}\n```\n"
+    );
+
+    for (label, source, name) in [
+        ("op id", op_hit, "is_set"),
+        ("api-types 键", types_hit, "LocalArchiCheck"),
+        ("api-reexport 键", reexport_hit, "AgentInput"),
+    ] {
+        let message = fourth_gate_error(&source);
+        assert!(message.contains(FILE), "{label}：文案含文件定位：{message}");
+        assert!(message.contains(name), "{label}：文案点名交集名：{message}");
+        for fence in ["api-op", "api-types", "api-reexport"] {
+            assert!(
+                message.contains(fence),
+                "{label}：文案点名三处 fence 语言标之一 `{fence}`：{message}"
+            );
+        }
+        assert!(
+            message.contains("名字归 fence"),
+            "{label}：文案含出路句语义「名字归 fence」：{message}"
+        );
+        assert!(
+            message.contains("散文只留语义"),
+            "{label}：文案含出路句语义「散文只留语义」：{message}"
+        );
+    }
+}
+
+/// 正向（判据方向 · AC-2 反等式）：契约非留白（1 op + 1 type，名字集 2 项）而散文
+/// **零表格行** ⇒ `Ok`——等式 / 镜像语义下「抽取集 0 ≠ 名字集 2」必红，本组即「交集为空
+/// ≠ 集合相等」的行为判据；同一夹具把散文换成首列 `` `is_set` `` 的表格 ⇒ 转 `Err`。
+#[test]
+fn verify第四闸判据是交集为空而非集合相等() {
+    let source = format!(
+        "# {FQN}\n\n## 公共面\n\n判定函数。\n\n### is_set\n\n```json api-op\n\
+         {{\"params\": [], \"returns\": {{\"type\": \"boolean\"}}}}\n```\n\n## 类型\n\n\
+         ```json api-types\n{{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    );
+    assert_eq!(
+        verify_source(&source),
+        Ok(()),
+        "名字集 2 项而抽取集 0 项 ⇒ 交集为空即通过（等式语义下必红）"
+    );
+
+    let same_fixture_with_table = source.replace("判定函数。", "判定函数。\n\n| `is_set` | 判定 |");
+    assert!(
+        fourth_gate_error(&same_fixture_with_table).contains("is_set"),
+        "同一夹具加同名表格 ⇒ 转 Err（方向不可反）"
+    );
+}
+
+/// 正向（AC-4 退役触发点）：留白契约 + 同名表格 ⇒ `Ok`；补一个 `api-types` 键且表格仍
+/// 列同名 ⇒ `Err` 点名该名；删该表格行 ⇒ 通过。三态在同一夹具内顺序断言，源文以字符串
+/// 直传（MUST NOT 落 `tests/corpus/**`）。
+#[test]
+fn verify第四闸退役触发点三态() {
+    let rows = "| `AgentInput` | 会话输入 |\n| `AgentMessages` | 消息列表 |";
+    let blank = format!("# {FQN}\n\n## 公共面\n\n{rows}\n\n```json api-types\n{{}}\n```\n");
+    assert_eq!(
+        verify_source(&blank),
+        Ok(()),
+        "留白契约（`api-types` 为 `{{}}`）+ 同名表格 ⇒ 通过（豁免面）"
+    );
+
+    let with_key = format!(
+        "# {FQN}\n\n## 公共面\n\n{rows}\n\n```json api-types\n\
+         {{\"AgentInput\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    );
+    let message = fourth_gate_error(&with_key);
+    assert!(
+        message.contains("AgentInput"),
+        "补一个 `api-types` 键且表格仍列同名 ⇒ 装载期点名该名：{message}"
+    );
+
+    let row_removed = format!(
+        "# {FQN}\n\n## 公共面\n\n| `AgentMessages` | 消息列表 |\n\n```json api-types\n\
+         {{\"AgentInput\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    );
+    assert_eq!(
+        verify_source(&row_removed),
+        Ok(()),
+        "删掉该表格行（键保留）⇒ 通过"
+    );
+}
+
+/// 异常（抽取面形态封闭 · 零抽取六类）：以「契约已声明 op `is_set`」为背景，下列形态
+/// 都不得抽出 `is_set` ⇒ 全 `Ok`：列表项 / 裸正文 / fence 内表格行 / 首列无引号 /
+/// 首列非标识符（空格 / 连字符 / 数字起手 / CJK / 空反引号对）/ 表头与分隔行。
+#[test]
+fn verify第四闸抽取面形态封闭零抽取六类() {
+    let cases: [(&str, &str); 11] = [
+        ("列表项", "判定函数：\n\n- `is_set`：判定"),
+        ("裸正文", "is_set 是判定函数"),
+        (
+            "fence 内表格行",
+            "示例：\n\n```text\n| `is_set` | 判定 |\n```",
+        ),
+        ("首列无引号", "| is_set | 判定 |"),
+        ("首列非标识符 · 空格", "| `is set` | 判定 |"),
+        ("首列非标识符 · 连字符", "| `is-set` | 判定 |"),
+        ("首列非标识符 · 数字起手", "| `9set` | 判定 |"),
+        ("首列非标识符 · CJK", "| `名字` | 判定 |"),
+        ("首列非标识符 · 空反引号对", "| `` | 判定 |"),
+        ("表头与分隔行", "| 名字 | 形态 |\n|---|---|"),
+        ("参数表不撞名", "| `threshold` | 阈值 |"),
+    ];
+    for (label, paragraph) in cases {
+        assert_eq!(
+            verify_source(&fourth_gate_source(paragraph)),
+            Ok(()),
+            "{label}：不得抽出 `is_set`（该形态零抽取）"
+        );
+    }
+}
+
+/// 异常（抽取面作用域 = 全部 `##` 段）：同名表格行放在 `### is_set` 之后（`api-op`
+/// fence 之后）⇒ 该行不属于任何 `##` 段正文（`parse` 在 `###` 处收束散文段）⇒ 零抽取
+/// ⇒ `Ok`；同源把该行移入 `##` 段正文 ⇒ 立刻 `Err`（两态只差段落位置）。
+#[test]
+fn verify第四闸抽取面作用域为全部散文段() {
+    let in_op_segment = format!(
+        "# {FQN}\n\n## 判定\n\n判定函数。\n\n### is_set\n\n```json api-op\n\
+         {{\"params\": [], \"returns\": {{\"type\": \"boolean\"}}}}\n```\n\n| `is_set` | 判定 |\n"
+    );
+    assert_eq!(
+        verify_source(&in_op_segment),
+        Ok(()),
+        "`###` 段之后的表格行不属于任何 `##` 段正文 ⇒ 零抽取"
+    );
+
+    let in_section = format!(
+        "# {FQN}\n\n## 判定\n\n判定函数。\n\n| `is_set` | 判定 |\n\n### is_set\n\n\
+         ```json api-op\n{{\"params\": [], \"returns\": {{\"type\": \"boolean\"}}}}\n```\n"
+    );
+    assert!(
+        fourth_gate_error(&in_section).contains("is_set"),
+        "同一行移入 `##` 段正文 ⇒ 立刻 Err（作用域对照）"
+    );
+}
+
+/// 异常（文案点名面）：表格一次列出两个交集名 ⇒ 文案按抽取序以 ` / ` 连接两者；表格
+/// 同时列一个非契约名 ⇒ 文案零该名（只有交集入文案，抽取集本身不外泄全量）。
+#[test]
+fn verify第四闸文案只点名交集名字() {
+    let source = format!(
+        "# {FQN}\n\n## 公共面\n\n| `is_set` | 判定 |\n| `unrelated_name` | 说明 |\n\
+         | `LocalArchiCheck` | 类型 |\n\n### is_set\n\n```json api-op\n{{\"params\": []}}\n```\n\n\
+         ```json api-types\n{{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    );
+    let message = fourth_gate_error(&source);
+    assert!(
+        message.contains("is_set / LocalArchiCheck"),
+        "按抽取序以 ` / ` 连接交集名字：{message}"
+    );
+    assert!(
+        !message.contains("unrelated_name"),
+        "非交集名不入文案：{message}"
+    );
+}
+
+/// 异常（错误面与行号承诺）：第四闸一律 `ApiError::Contract`（`verify_error` 辅助的断言
+/// 形态，MUST NOT 落到 `ApiError::Io` / `ApiError::Element`）；文案以 `file: ` 起手而非
+/// `file:<数字>: ` ——段落级判据零行号（与 `api-types` 缺键 / `api-reexport` 差集同档）。
+#[test]
+fn verify第四闸错误面与零行号承诺() {
+    let source = fourth_gate_source("判定函数。\n\n| `is_set` | 判定 |");
+    let contract = parse(&source, FQN, FILE).expect("结构合法源文");
+    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
+    let message = verify_error(&contract, &schema);
+
+    let prefix = format!("{FILE}: ");
+    assert!(
+        message.starts_with(&prefix),
+        "文案以 `file: ` 起手：{message}"
+    );
+    let after_file = message.strip_prefix(FILE).expect("文案含文件定位");
+    assert!(
+        !after_file.starts_with(|character: char| character.is_ascii_digit()),
+        "段落级判据零行号：{message}"
+    );
+}
+
+/// 第四闸前置的三位组合源文：`## 公共面` 段同时列三个名字的表格行（+ 透传列表项使第三
+/// 条 gate 先通过），三类 fence 按开关补齐。
+fn fourth_gate_combination(ops: bool, types: bool, reexports: bool) -> String {
+    let mut source = format!(
+        "# {FQN}\n\n## 公共面\n\n| `is_set` | 判定 |\n| `LocalArchiCheck` | 类型 |\n\
+         | `AgentInput` | 透传 |\n"
+    );
+    if reexports {
+        source.push_str("\n- AgentInput → App.Demo.Input\n");
+    }
+    if ops {
+        source.push_str("\n### is_set\n\n```json api-op\n{\"params\": []}\n```\n");
+    }
+    if types {
+        source.push_str(
+            "\n```json api-types\n{\"LocalArchiCheck\": {\"type\": \"object\", \"properties\": {}}}\n```\n",
+        );
+    }
+    if reexports {
+        source.push_str("\n```json api-reexport\n{\"AgentInput\": \"App.Demo.Input\"}\n```\n");
+    }
+    source
+}
+
+/// 边界（前置真值表 · 三项同权）：`ops` / `types` / `reexports` 三位全枚举（8 组）——
+/// 全空 ⇒ 闸不生效 ⇒ `Ok`；其余 7 组任一非空 ⇒ 闸生效 ⇒ 同名表格行各 `Err`（含
+/// 「仅 `reexports` 非空」一组：只写透传的契约同样持有名字，MUST NOT 被漏判）。
+#[test]
+fn verify第四闸前置真值表三项同权() {
+    for (ops, types, reexports) in [
+        (false, false, false),
+        (true, false, false),
+        (false, true, false),
+        (false, false, true),
+        (true, true, false),
+        (true, false, true),
+        (false, true, true),
+        (true, true, true),
+    ] {
+        let source = fourth_gate_combination(ops, types, reexports);
+        if !(ops || types || reexports) {
+            assert_eq!(
+                verify_source(&source),
+                Ok(()),
+                "三项全空 ⇒ 闸不生效（留白豁免的唯一来源）"
+            );
+            continue;
+        }
+        let message = fourth_gate_error(&source);
+        for (enabled, name) in [
+            (ops, "is_set"),
+            (types, "LocalArchiCheck"),
+            (reexports, "AgentInput"),
+        ] {
+            if enabled {
+                assert!(
+                    message.contains(name),
+                    "ops={ops} types={types} reexports={reexports}：文案应点名 `{name}`：{message}"
+                );
+            }
+        }
+    }
+}
+
+/// 边界（抽取面的行形态边界）：前导空格 / tab 缩进后以 `|` 起手 ⇒ 抽取；单元格两侧多余
+/// 空白 ⇒ 抽取（`trim` 后判反引号包裹）；无尾随 `|` ⇒ 抽取；三列 / 四列表格 ⇒ 只看首列；
+/// 首列为空 / 首列含不止一对反引号 ⇒ 零抽取。
+#[test]
+fn verify第四闸抽取面的行形态边界() {
+    let extracted: [(&str, &str); 6] = [
+        ("前导空格", "| `is_set` | 判定 |"),
+        ("tab 缩进", "\t| `is_set` | 判定 |"),
+        ("单元格多余空白", "|   `is_set`   | 判定 |"),
+        ("无尾随竖线", "| `is_set`"),
+        ("三列表格", "| `is_set` | 判定 | 备注 |"),
+        ("四列表格", "| `is_set` | 判定 | 备注 | 来源文件 |"),
+    ];
+    for (label, paragraph) in extracted {
+        assert!(
+            fourth_gate_error(&fourth_gate_source(paragraph)).contains("is_set"),
+            "{label}：应抽出首列名字 `is_set`"
+        );
+    }
+
+    let zero: [(&str, &str); 2] = [
+        ("首列为空", "|| x |"),
+        ("首列不止一对反引号", "| `a` `b` | 判定 |"),
+    ];
+    for (label, paragraph) in zero {
+        assert_eq!(
+            verify_source(&fourth_gate_source(paragraph)),
+            Ok(()),
+            "{label}：零抽取"
+        );
+    }
+}
+
+/// 边界（抽取集去重保序）：同一名字在两个 `##` 段各出现一次 ⇒ 文案只出现一次；两个不同
+/// 交集名跨段声明 ⇒ 文案按首次出现序连接。
+#[test]
+fn verify第四闸抽取集去重保序() {
+    let repeated_across_sections = format!(
+        "# {FQN}\n\n## 一\n\n| `is_set` | 判定 |\n\n## 二\n\n| `is_set` | 判定 |\n\n\
+         ### is_set\n\n```json api-op\n{{\"params\": []}}\n```\n"
+    );
+    let message = fourth_gate_error(&repeated_across_sections);
+    assert_eq!(
+        message.matches("is_set").count(),
+        1,
+        "同一名字跨段只入文案一次（不以 `is_set / is_set` 形态重复）：{message}"
+    );
+
+    let two_names_across_sections = format!(
+        "# {FQN}\n\n## 一\n\n| `is_set` | 判定 |\n\n## 二\n\n| `LocalArchiCheck` | 类型 |\n\n\
+         ### is_set\n\n```json api-op\n{{\"params\": []}}\n```\n\n\
+         ```json api-types\n{{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    );
+    let message = fourth_gate_error(&two_names_across_sections);
+    assert!(
+        message.contains("is_set / LocalArchiCheck"),
+        "按首次出现序连接交集名字：{message}"
+    );
+}
+
+/// 边界（抽取面的值边界）：首列超长 ASCII 标识符（> 1000 字符、不在契约名字集）⇒ 抽取
+/// 但交集空 ⇒ `Ok`；首列含 emoji / NUL / 字面 `\n` ⇒ 非 ASCII 标识符 ⇒ 零抽取 ⇒ `Ok`；
+/// 零 `##` 段 ⇒ 抽取面为空 ⇒ `Ok`。
+#[test]
+fn verify第四闸抽取面的值边界() {
+    let long = "a".repeat(1001);
+    assert_eq!(
+        verify_source(&fourth_gate_source(&format!("| `{long}` | 超长 |"))),
+        Ok(()),
+        "超长 ASCII 标识符可抽取但与契约名字集零交集"
+    );
+
+    for cell in ["`is_set🎯`", "`is_set\u{0}`", "`is_set\\n`"] {
+        assert_eq!(
+            verify_source(&fourth_gate_source(&format!("| {cell} | 判定 |"))),
+            Ok(()),
+            "首列含 emoji / NUL / 字面反斜线 n ⇒ 非 ASCII 标识符 ⇒ 零抽取：{cell:?}"
+        );
+    }
+
+    let no_sections = format!(
+        "# {FQN}\n\n```json api-types\n\
+         {{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    );
+    assert_eq!(
+        verify_source(&no_sections),
+        Ok(()),
+        "零 `##` 段 ⇒ 散文区为空 ⇒ 零抽取"
+    );
+}
+
+/// 边界（报错顺序零变化）：同一夹具同时违反「`api-types` 键在 `$defs` 缺失」与「表格复述
+/// 该名」⇒ 报**第二条 gate** 的缺键（第四闸在 `verify` 末尾，既有顺序与优先级零变化）。
+#[test]
+fn verify第四闸报错顺序在既有gate之后() {
+    let source = format!(
+        "# {FQN}\n\n## 公共面\n\n| `LocalArchiCheck` | 类型 |\n\n```json api-types\n\
+         {{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    );
+    let contract = parse(&source, FQN, FILE).expect("结构合法源文");
+    let message = verify_error(&contract, &json!({"$defs": {}}));
+    assert!(
+        message.contains("缺失") && message.contains("LocalArchiCheck"),
+        "报第二条 gate 的缺键（既有报错顺序与优先级零变化）：{message}"
+    );
+    assert!(
+        !message.contains("散文段以表格复述"),
+        "第四闸在 `verify` 末尾，被前置 gate 遮蔽：{message}"
+    );
+}
+
+/// 结构锚（源码自证 `include_str!("contract.rs")`）：公开面仍恰 3 个 `pub fn`（两个私有
+/// `fn` 不进公开面）、两处私有 `fn` 各恰 1 处、fence 常量仍恰 2（复用不新增）、
+/// `"api-op"` / `"api-types"` 字面量各恰 1 处（闸内走常量插值）、`⑧` 零命中（第四闸不占
+/// 七族编号）、模块头声明四条装载期闸并点名第四闸的「名字清单」语义。
+#[test]
+fn verify第四闸结构锚源码自证() {
+    let source = include_str!("contract.rs");
+
+    assert_eq!(
+        source.matches("\npub fn ").count(),
+        3,
+        "公开面仍恰 3 个 `pub fn`（parse / verify / is_constructor）"
+    );
+    assert_eq!(
+        source.matches("fn collect_surface_table(").count(),
+        1,
+        "抽取面单点（私有 `fn`，MUST NOT 进公开面）"
+    );
+    assert_eq!(
+        source.matches("fn surface_table_error(").count(),
+        1,
+        "错误构造器单点（私有 `fn`，MUST NOT 进公开面）"
+    );
+    assert_eq!(
+        source.matches("pub(crate) const FENCE_").count(),
+        2,
+        "第四闸复用既有 fence 常量，MUST NOT 新增 fence 常量"
+    );
+    assert_eq!(
+        source.matches("\"api-op\"").count(),
+        1,
+        "`api-op` 引号字面量只落常量定义行（闸内走常量插值）"
+    );
+    assert_eq!(
+        source.matches("\"api-types\"").count(),
+        1,
+        "`api-types` 引号字面量只落常量定义行（闸内走常量插值）"
+    );
+    assert!(!source.contains('⑧'), "第四闸不占七族编号（`⑧` 零命中）");
+    assert!(source.contains("四条装载期闸"), "模块头声明四条装载期闸");
+    assert!(
+        source.contains("第四条名字清单闸"),
+        "模块头点名第四闸的语义（名字清单）"
+    );
+    assert!(!source.contains("四者同函数"), "旧措辞「四者同函数」零残留");
+}

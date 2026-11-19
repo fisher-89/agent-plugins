@@ -23,7 +23,7 @@ This repository is the **WPS AI desktop application** — a Tauri 2 + React app.
 
 ## 模块 API 契约
 
-- **手写真相只有一份**：`.dev-team/architecture/models/<分层目录…>/<FQN>.md`（目录 = 元素 FQN 段链去掉根段与叶段：`App.Backend.Core.Foundation` → `Backend/Core/`）。散文 + `json api-op` / `json api-types` / `json api-reexport` 三类 fenced json 块；与代码一致性由机械闭环守，不靠 review 纪律。模型声明（`NN-<域>.toml`）在 `.dev-team/architecture/graph/model/`，契约资产在 `.dev-team/architecture/models/`——两者按目录分家。
+- **手写真相只有一份**：`.dev-team/architecture/models/<分层目录…>/<FQN>.md`（目录 = 元素 FQN 段链去掉根段与叶段：`App.Backend.Core.Foundation` → `Backend/Core/`）。散文 + `json api-op` / `json api-types` / `json api-reexport` 三类 fenced json 块；名字清单的唯一持有者也是这三类 fence——散文段 MUST NOT 用表格复述契约名字（重复持有即装载期契约错误），散文只留语义；与代码一致性由机械闭环守，不靠 review 纪律。模型声明（`NN-<域>.toml`）在 `.dev-team/architecture/graph/model/`，契约资产在 `.dev-team/architecture/models/`——两者按目录分家。
 - **四类生成物勿手改**：`.schema.json`（同目录）、`INDEX.toml`（`.dev-team/architecture/graph/`）、实现入口同级的 `<入口主干>.i.rs` / `<入口主干>.i.ts`。手改已提交即零 diff 门失败，未提交会被下次生成静默覆盖。
 - **两个脚本**：`api:export` 生成、`api:check` 读盘比对（零写入，差异即非零退出）。`check` 链为四段：`server:check` → `bindings:export` → `api:check` → `client:check`。
 - **`api = none` 是显式留白**（模型元素字段，非「还没写」）：断言本模块无公共 API；写了契约文件反而触发 `apiUnexpected`。
