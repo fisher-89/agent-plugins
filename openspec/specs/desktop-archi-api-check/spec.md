@@ -338,6 +338,37 @@ pair 锚点（不进元素循环，与元素锚点并列、互不挤占）
 - **WHEN** 新增 `corpus/drift/<case>/` 却未登记进 `DRIFT_CASES`，或登记了而 case 目录不存在，或旧金样未重写而缺 `apiFindings` 键
 - **THEN** 三种情形各报红并点名该 case（缺失键 MUST NOT 静默补默认值）；golden 变更只经 `DESKTOP_GOLDEN_REWRITE=1` 显式重写并人工确认
 
+### Requirement: 装载期名字清单闸与判据面的分工
+
+名字清单的「散文表格复述」形态 SHALL 由**装载期闸**判定，MUST NOT 进入本能力的判据面；该闸 SHALL 让判据面**零改动**（`check.rs` / `drift/report.rs` / `drift/mod.rs` 与纳管子集函数逐字不变）。
+
+- **分工单点**：第四条闸（散文表格名字 ∩ 契约名字集 = ∅）的定义与实现归 `desktop-archi-api`「契约资产形态与唯一手写真相」，错误面为 `ApiError::Contract`（`load_contracts` 中止）。分界理由：判据面报的是「契约 vs 代码的比较结论」（可枚举、可渐进消债、进报告数基线），而「契约文件内部两处持有同一个名字」是**契约资产自身的错**——它与代码导出集无关，也不该被算成一条债进入报告（否则一个错字会同时污染基线表与 `status`）。
+- **零新增判据词汇**：`ArchiApiFindingKind` SHALL 保持**十三值**（`ALL` 长度断言不变），`category` 保持七值、`severity()` 保持三档；该闸 MUST NOT 产出 `apiFindings` 条目、MUST NOT 参与纳管子集与 `passed` 判据、MUST NOT 改动 `REPORT_VERSION`（仍 3）。
+- **判据输入面 MUST NOT 含散文表格**：十三判据的输入 SHALL 仍为「模型 + 契约 fence / `<FQN>.schema.json` + 代码导出集 + `doc_facts`」；`apiUndeclared` 的声明集 SHALL 仍**只取 `<FQN>.schema.json` 的 `$defs` 键集**，MUST NOT 并读 markdown 散文、MUST NOT 新增表格行读取点（判据面 MUST NOT 补写半个 markdown 解析器——与「`apiDocMissing` 只判布尔、不接 `contract::parse`」同一条纪律）。
+- **留白期零判据（显式留白，不是疏漏）**：8 个前端组件元素的契约三项（`ops` / `types` / `reexports`）当前全空，其散文「公共面」表共 27 条数据行、名字已存在于代码导出面而未进契约 —— 该形态在本能力**零判据**：MUST NOT 报 `apiUndeclared`（档位保持 `off`），MUST NOT 为此新增第十四值或第八个 `category`，MUST NOT 为「表里列了未声明名字」另立判据。**`apiUndeclared` MUST NOT 抬档**：留白期抬档会把临时债读成判据面债务，且与本能力「完备性判据报的是海、迁移期必然爆炸必须后置」的分档动机冲突；抬档是独立裁决，触发条件是组件契约到场（届时表格已由第四条闸强制退役）。
+- **读数与语料零漂移**：本仓第六段基线 SHALL 逐项不变——`docMissing` **43**（41 + 2）、`apiEntryMissing` **0**、`apiMissing` **0**、其余十值各 **0**、`status = clean`、`passed = true`；`api/**` sidecar SHALL 仍恰 **13** 份（新用例落在 `contract_test.rs` / `pilot_test.rs`，MUST NOT 新建 `api/**` 文件）；`corpus/drift/**` 的 16 份金样零变化（语料契约 `App.Mod.md` 零表格行）。
+- **零改动面（同批断言）**：`api::check` 的输入面与求值序、`ArchiApiFindingKind::severity()` 三档（`apiUndeclared` 仍 `Off`）、`api::gating_findings` 的入选判据逐字不变；`archi_api` / `archi_drift` 命令响应与门禁 `LocalArchiCheck` 报告形状不变（无新增 `kind` / `category` ⇒ `bindings:export` 幂等）；`pnpm api:check` / `pnpm check` 链的段序与命令串不变；呈现面 `contract-panel.tsx` / `model-info.tsx` 零重算、零改动。
+
+#### Scenario: 表格复述契约名字只装载期中止，不进报告
+
+- **WHEN** 某 `api = declared` 元素的契约已声明 op `is_set`，其散文段又有一张以 `` `is_set` `` 起首的表格行
+- **THEN** 装载期判 `ApiError::Contract` 并中止；报告面 MUST NOT 产出任何新条目（`apiFindings` 内零该事实、`ALL` 长度仍 13、`category` 七值、`severity()` 三档不变）；`status` / `passed` 的推导路径零改动
+
+#### Scenario: 留白期散文表格零判据
+
+- **WHEN** 8 个前端组件元素的契约三项全空、散文表格共 27 条数据行，且这些名字在代码导出面成立
+- **THEN** 装载零错误、`apiFindings` 零新增条目；`apiUndeclared` 不产出（档位仍 `off`）；把某元素契约补一个 `api-types` 键 `AgentInput` 后，报错来自装载期（`ApiError::Contract`）而**不是** `apiUndeclared`
+
+#### Scenario: 判据输入面零表格读取
+
+- **WHEN** 审查 `check.rs` 的输入装配、`ApiCheckInput` 的字段面与 `apiUndeclared` 的声明集来源
+- **THEN** 零表格行读取点（散文表格的唯一读者是 `contract::verify`）；`apiUndeclared` 声明集只取 `<FQN>.schema.json` 的 `$defs` 键集；`doc_facts` 三态与 `entry_state` 口径逐字不变
+
+#### Scenario: 第六段读数与语料守护零漂移
+
+- **WHEN** 对本仓模型跑一次检查并核对语料面
+- **THEN** `docMissing 43`、其余十二值各 0、`status = clean`、`passed = true` 逐项与基线表相等；`api/**` sidecar 仍 13 份；16 份 drift 金样逐字节不变；`check.rs` / `drift/report.rs` / `drift/mod.rs` 与纳管子集函数零差异
+
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
