@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义 desktop 工作区配置能力：core/config crate 的配置读取与校验契约（校验以 `core/config` 实现为权威 + `config.schema.json` 静态镜像双断言、默认值填充、passthrough、不复刻吞错的 `ConfigReport` 信封）、`workspace_config` 命令轨道、`/config` 只读配置页的呈现面与显式刷新取数模型，以及 `config.json` 文件名字面量隔离执法与测试纪律。
+定义 desktop 工作区配置能力：core/config crate 的配置读取与校验契约（校验以 `core/config` 实现为权威 + `config.schema.json` 静态镜像双断言、默认值填充、passthrough、不复刻吞错的 `ConfigReport` 信封）、`projects` 项目协议（目录锚点 / 编码语言标注 / 项目间依赖声明）的语义边界与消费点纪律、`workspace_config` 命令轨道、`/config` 只读配置页的呈现面与显式刷新取数模型，以及 `config.json` 文件名字面量隔离执法与测试纪律。
 
 ## Requirements
 
@@ -12,9 +12,12 @@ Rust 侧 SHALL 新增 crate `crates/core/config`（裸名 `config`），承载�
 
 - 依赖 SHALL 仅 `foundation`（workspace 内，取 config.json 路径）+ `serde` / `serde_json` / `specta`；MUST NOT 依赖 `workflow` / `agent` / 任何 infra crate，MUST NOT 依赖 Tauri；
 - 入口 API SHALL 为 `load(root) -> ConfigReport`（函数签名形态 design 定夺），`ConfigReport` SHALL 为 `{ config, diagnostics }` 信封：`config` 为**永远合法**的完整配置（违例字段以默认值填充），`diagnostics` 记录违例细节（哪项非法、哪些字段吃了默认、文件缺失等）；
-- 校验规则 SHALL 以 `core/config` **现行实现为权威**（`KNOWN_KEYS` 八项键集（含 `projects`）、`TestFramework` 八值枚举（`jest` / `vitest` / `vite-plus` / `bun` / `rust` / `node-test` / `go` / `pytest`）、数值阈值 0–100 值域（coverage lines / branches / functions、mutation score）、`tests[].root` 非空且 MUST NOT 含 glob 通配符（`*` `?` `{` `[`）、`projects[].root` 非空且 MUST NOT 为绝对路径 / 含 `..` 段 / `:` / glob 通配符、`schema` 字段字面量 `spec-driven`、顶层未知字段 passthrough 保留）：原对齐源（CLI zod `config.schema.ts`）已随插件退役删除，MUST NOT 再作为权威或对齐断言的目标；机器可读镜像见「`config.schema.json` 静态镜像与实现一致性」requirement；
+- 校验规则 SHALL 以 `core/config` **现行实现为权威**（`KNOWN_KEYS` 八项键集（含 `projects`）、`TestFramework` 八值枚举（`jest` / `vitest` / `vite-plus` / `bun` / `rust` / `node-test` / `go` / `pytest`）、数值阈值 0–100 值域（coverage lines / branches / functions、mutation score）、`tests[].root` 非空且 MUST NOT 含 glob 通配符（`*` `?` `{` `[`）、`projects[].root` 非空且 MUST NOT 为绝对路径 / 含 `..` 段 / `:` / glob 通配符、`projects[].language` 只校验类型（内容零校验：无白名单 / 无归一 / 无交叉校验）、`projects[].depends_on` 只校验类型（内容零校验：无引用 / 自引用 / 成环 / 去重判定）、`schema` 字段字面量 `spec-driven`、顶层未知字段 passthrough 保留）：原对齐源（CLI zod `config.schema.ts`）已随插件退役删除，MUST NOT 再作为权威或对齐断言的目标；机器可读镜像见「`config.schema.json` 静态镜像与实现一致性」requirement；
 - 默认值 SHALL 为：coverage lines 80 / branches 70 / functions 75、mutation score 70、suite `cwd` `.`、`tests` `[]`、`projects` `[]`、`schema` `spec-driven`——数值以本 spec 与 `core/config` 实现为权威，原对齐源（CLI `defaults.ts`）已随插件退役删除，MUST NOT 再出现「对齐 `defaults.ts`」类断言或注释；
-- `projects` SHALL 为顶层数组（元素 `{ root: string }`，承载 create 依赖引导的项目根）：缺失 / 显式 null → 空列表且**零诊断**（「有配置才按项目根扫描」）；非数组 → 空列表 + `InvalidValue`（path `projects`）；元素非对象或 `root` 缺失 / 非法（空串、非字符串、绝对路径、`..` 段、`:`、glob 通配符）→ 该元素剔除 + `InvalidValue`（path `projects[i]` / `projects[i].root`）；合法元素保序保留，`root` 为相对 worktree 根的项目目录；
+- `projects` SHALL 为顶层数组（元素 `{ root: string, language?: string, depends_on?: string[] }`，字段集封闭，承载项目锚点声明 —— 目录锚点 + 编码语言标注 + 项目间依赖声明）：缺失 / 显式 null → 空列表且**零诊断**（「有配置才按项目根扫描」）；非数组 → 空列表 + `InvalidValue`（path `projects`）；元素非对象或 `root` 缺失 / 非法（空串、非字符串、绝对路径、`..` 段、`:`、glob 通配符）→ 该元素剔除 + `InvalidValue`（path `projects[i]` / `projects[i].root`）；合法元素保序保留，`root` 为相对 worktree 根的项目目录；元素内其余子键静默忽略（沿现状处置，零诊断）；
+- `projects[].language` SHALL 为**开放字符串**（编码语言标注，如 `rust` / `typescript`）：缺失 / 显式 null → `None` 且**零诊断**；字符串 → `Some` 原样保留（MUST NOT trim、MUST NOT 大小写 / 别名归一、MUST NOT 白名单校验、MUST NOT 与 `tests[].framework` 交叉校验）；非字符串 → `None` + `InvalidValue`（path `projects[i].language`）；该字段 MUST NOT 影响元素去留（元素身份只由 `root` 决定）；
+- `projects[].depends_on` SHALL 为**字符串数组**（依赖的项目根，值宜为某个 `projects[].root`——镜像 description 可作提示文案，非断言）：缺失 / 显式 null → `None` 且**零诊断**；全字符串数组 → `Some`（保序、不去重、**零引用校验**：悬空 / 自引用 / 成环 / 重复项一律原样保留且零诊断，脏数据免疫责任在消费侧，见「项目协议语义边界与消费点纪律」）；非数组或元素混入非字符串 → `None` + `InvalidValue`（path `projects[i].depends_on`）；该字段 MUST NOT 影响元素去留；
+- `projects` 元素字段集 SHALL 封闭为 `root` / `language` / `depends_on` 三项：运行策略常量（active 建档数上限、worktree 磁盘门槛等）MUST NOT 经该键承载；
 - CLI `readConfig` 的「非法即静默整体回默认」吞错语义 SHALL NOT 复刻：任意输入（缺失文件、坏 JSON、字段非法）MUST NOT 使 `load` 失败收场——产出合法 config + diagnostics；非法输入产出的 config SHALL 能通过同一套校验（自洽不变量）；
 - config.json 路径 SHALL 经 `foundation::layout` 的路径解析取得，crate 内 MUST NOT 出现 `config.json` 文件名字面量（隔离执法见 desktop-crate-layout 增量）。
 
@@ -54,6 +57,21 @@ Rust 侧 SHALL 新增 crate `crates/core/config`（裸名 `config`），承载�
 - **WHEN** `projects` 为对象 / 字符串 / 数字 / 布尔等非数组值
 - **THEN** config 的 `projects` 为空列表，diagnostics 在 path `projects` 记 `InvalidValue`
 
+#### Scenario: projects 元素 language 与 depends_on 原样保留
+
+- **WHEN** `projects` 为 `[{"root": "a", "language": " TypeScript ", "depends_on": ["b", "b", "ghost"]}, {"root": "b"}]`
+- **THEN** 首元素 `language` 为 `" TypeScript "`（不 trim、不归一、不校验）、`depends_on` 为 `["b", "b", "ghost"]`（保序、不去重、悬空项原样在案）；次元素两字段为 `None`；diagnostics **不新增任何条目**
+
+#### Scenario: projects 元素软规则字段类型违例
+
+- **WHEN** 某元素 `language` 为非字符串（数字 / 对象 / 数组），或 `depends_on` 为非数组 / 混入非字符串元素
+- **THEN** 该字段落 `None` 并在 `projects[i].language` / `projects[i].depends_on` 记 `InvalidValue`；该元素本身**仍在案**（仅 `root` 决定去留），同元素其余合法字段原样保留
+
+#### Scenario: 软规则字段不影响自洽不变量
+
+- **WHEN** 含 `language` / `depends_on` 的合法 config 重序列化回 `Value` 再经同一组装
+- **THEN** 二次组装零诊断（两字段回写形态可被判为合法），`config` 输出仍是同一套校验可接受的合法配置
+
 #### Scenario: 路径经 foundation 取得
 
 - **WHEN** 审查 `crates/core/config` 源码
@@ -69,11 +87,12 @@ Rust 侧 SHALL 新增 crate `crates/core/config`（裸名 `config`），承载�
 
 `crates/core/config` SHALL 在 crate 内自持机器可读 schema 镜像，作为编辑器 `$schema` 补全的唯一来源：
 
-- 落位 SHALL 为 `crates/core/config/config.schema.json`，与校验实现（`KNOWN_KEYS` / `TestFramework`）物理相邻；内容 SHALL 为迁入前的逐字副本（迁出后**手工维护**，不再由任何代码生成）；
+- 落位 SHALL 为 `crates/core/config/config.schema.json`，与校验实现（`KNOWN_KEYS` / `TestFramework`）物理相邻；内容 SHALL 与实现字段面一致——**迁入时逐字承接，此后手工维护**（不再由任何代码生成），实现侧字段面变更 SHALL 在同一 commit 内同步镜像（含 `projects.items.properties` 的软规则字段）；
 - 镜像 SHALL 由同 crate 的一致性断言守护（两断言恒在，缺一即视为漂移无人拦）：`KNOWN_KEYS` 八项键集 == `schema.properties` 键集；`TestFramework` 八值枚举 == `tests.items.properties.framework.enum`。断言 SHALL 经 `include_str!` 或等价 crate 内读取路径取得镜像，MUST NOT 为此在实现侧新增导出；
+- 软规则字段（`projects.items.properties` 的 `language` / `depends_on`）SHALL 只以 `type` + `description` 入镜像，MUST NOT 为其新增第三条一致性断言（协议层零校验 ⇒ 无机械锚可断；同步纪律由本节与「项目协议语义边界与消费点纪律」承载）；`depends_on` 的 description SHALL 以「值宜为某个 `projects[].root`」形态作**提示文案**，MUST NOT 写成强制约束；
 - 镜像 MUST NOT 参与 tauri bundle 打包（编辑器消费走 GitHub raw URL），MUST NOT 改变包体积；
 - 镜像 MUST NOT 破坏 `desktop-crate-layout` 的隔离禁令（产品 `.rs` 的 `config.json` 字面量禁令与 `openspec` 目录名禁令照旧；镜像只由 `*_test.rs` 读取）；
-- 引用方 `$schema` SHALL 指向仓库内该路径的 raw URL（`…/master/packages/desktop/src-tauri/crates/core/config/config.schema.json`），MUST NOT 保留指向已删插件 `bin/` 目录的旧 URL；唯一引用方 `.dev-team/config.json` 的值 SHALL 按逐值清单（位置 / 旧值 / 新值，见该 change 的 design 与 tasks）以值级替换回填，回填后 MUST NOT 含旧资产路径（不变量见 `repo-surface-scope`）——本 crate 侧的可执行职责是「镜像在案且逐字一致」与「目标 URL 尾路径与仓库内现存路径同形」。
+- 引用方 `$schema` SHALL 指向仓库内该路径的 raw URL（`…/master/packages/desktop/src-tauri/crates/core/config/config.schema.json`），MUST NOT 保留指向已删插件 `bin/` 目录的旧 URL；唯一引用方 `.dev-team/config.json` 的值 SHALL 按逐值清单（位置 / 旧值 / 新值，见该 change 的 design 与 tasks）以值级替换回填，回填后 MUST NOT 含旧资产路径（不变量见 `repo-surface-scope`）——本 crate 侧的可执行职责是「镜像在案且与实现字段面一致」与「目标 URL 尾路径与仓库内现存路径同形」。
 
 #### Scenario: 双断言拦住漂移
 
@@ -83,7 +102,12 @@ Rust 侧 SHALL 新增 crate `crates/core/config`（裸名 `config`），承载�
 #### Scenario: 镜像与实现现状对齐
 
 - **WHEN** 现状下运行 `core/config` 测试
-- **THEN** 两断言通过（八项键集逐字相同、八值枚举逐字相同），镜像内容与迁入前逐字一致
+- **THEN** 两断言通过（八项键集逐字相同、八值枚举逐字相同），且镜像 `projects.items.properties` 与实现字段集一致（`root` / `language` / `depends_on` 三项在案）
+
+#### Scenario: 软规则字段手工同步
+
+- **WHEN** 增删 `projects.items.properties` 的 `language` / `depends_on` 而未动两断言
+- **THEN** 两断言仍通过（软规则字段不设机械锚），镜像与实现的一致性由本节的同步纪律与实现 review 承载；镜像内 description 只作提示文案（`depends_on` 不作强制约束断言）
 
 #### Scenario: 编辑器消费 URL 的落点与回填
 
@@ -133,7 +157,7 @@ Rust 侧 SHALL 新增 `commands/config/` 命令轨道，提供 `workspace_config
 
 呈现面 SHALL 分区：
 
-- **基础配置**：`$schema` / `schema` / `context` / `static_analysis` / `projects`（逐 project 的 root 列表，空列表标注）/ `rules`；
+- **基础配置**：`$schema` / `schema` / `context` / `static_analysis` / `projects`（逐 project 呈现 `root`；`language` / `depends_on` 已设时并列呈现，未设时标注「未设」——呈现面 MUST NOT 隐藏已配置值；空列表标注）/ `rules`；
 - **tests 面板**：逐 suite 呈现 root / framework / cwd / config / includes / excludes / coverage 阈值（lines / branches / functions）/ mutation（cwd / score）；未设阈值 SHALL 标注「未设（默认 N）」以区分文件值与默认值；
 - **write_protection 面板**：逐条 glob 规则与 reason；
 - **未知字段**：passthrough 字段可见（呈现形态 design 定夺）；
@@ -155,6 +179,11 @@ config.json 不存在 SHALL 呈现空态而非错误；坏 JSON 与命令 reject
 
 - **WHEN** config.json 含非法字段（吃默认）或未知字段
 - **THEN** 警示区逐项列出违例与默认值来源，passthrough 未知字段仍在配置区可见，页面不崩溃
+
+#### Scenario: projects 语言与依赖呈现
+
+- **WHEN** fixture 的 `projects` 为 `[{root: "packages/desktop", language: "typescript"}, {root: "packages/desktop/src-tauri", depends_on: ["packages/desktop"]}]`
+- **THEN** 逐 project 行呈现 `root` 与其已设字段（首行呈现 `language`，次行呈现 `depends_on` 列表）；未设字段呈现「未设」标注而非空白；页面仍为只读（无可编辑控件）
 
 #### Scenario: 空态
 
@@ -213,6 +242,35 @@ desktop 前端 SHALL 维持全管线通过（`vp check --fix` / knip / `vp test`
 - **WHEN** 运行 `pnpm -C packages/desktop run client:check`、`run test` 与 `cargo test --workspace`
 - **THEN** fmt / lint / knip / 测试全部通过，无新增豁免条目
 
+### Requirement: 项目协议语义边界与消费点纪律
+
+新增 `projects[].language` / `projects[].depends_on` 时 SHALL 同时立规，防「已声明、零消费」第三次重演（`context` / `rules` 为存量欠账）：
+
+- **`depends_on` 是平级边，MUST NOT 充当架构模块层级来源**：A 依赖 B 只表达安装顺序与（将来的）影响面传播方向；架构模块的包含 / 父子关系唯一真相源为元素 FQN 最长前缀（`core/archi` 的 `OwnerIndex`）与模型声明纪律「子元素须先声明祖先」。第二真相源 MUST NOT 出现。
+- **`language` 协议层不归一，消费侧归一单点**：协议只存原文（不 trim、不大小写 / 别名归一）；将来按语言分派 prompt / 静态检查 / 测试 SHALL 经**唯一归一入口**（`language_key` 类函数，落 `core/config` 导出）实现，MUST NOT 在各消费点各写一套映射。
+- **新增字段须有消费点或显式标注为声明型**：配置字段的消费点 SHALL 在本 spec 可考；暂无工程消费者的新字段 SHALL 显式标注「声明型 + 计划消费者」，MUST NOT 以「先配起来，将来再说」形态沉默落盘。
+- **字段消费点表**（本期口径，随实现同步）：`$schema` / `schema` → 纯展示（`schema` 恒 `spec-driven`）；`context` / `rules` → ∅ 零消费（**存量欠账**，本变更不改，登记在案）；`static_analysis` → `checks::static_check` 单条命令；`projects[].root` → create / promote bootstrap 项目锚点；`projects[].depends_on` → bootstrap **拓扑序安装**（唯一消费者，见 desktop-change-worktree「确定性依赖 bootstrap」）；`projects[].language` → **声明型**（计划消费者：按语言 prompt 附录 / 按语言检查分派，后续切片）；`tests[]` → testexec / mutation / aggregate；`write_protection.files[]` → agent protect 规则。
+
+#### Scenario: 层级唯一真相源
+
+- **WHEN** 审查架构模块层级判定与 `depends_on` 的全部消费点
+- **THEN** 包含 / 父子关系判定只见 FQN 最长前缀与模型声明纪律，`depends_on` 只出现在安装顺序（与将来的影响面传播方向）；无任何「按 `depends_on` 推父子层级」的代码或契约
+
+#### Scenario: 语言归一单点
+
+- **WHEN** 审查 `projects[].language` 的读取点
+- **THEN** 协议层（`assemble_project`）无 trim / 大小写 / 别名转换；消费侧语言归一经唯一入口函数，各消费点无第二套映射
+
+#### Scenario: 声明型字段在案
+
+- **WHEN** 审查 `projects[].language` 的工程消费者
+- **THEN** 本 spec 显式标注其为声明型字段并列出计划消费者；MUST NOT 声称本期已有运行时效果（本期唯一活消费者是 `depends_on` → 拓扑序安装）
+
+#### Scenario: 消费点表可考
+
+- **WHEN** 将字段消费点表与 `KNOWN_KEYS` 八项键集、`ProjectConfig` 字段集逐项对位
+- **THEN** 每个字段都有消费点或「声明型」标注，无未登记字段；`context` / `rules` 的零消费欠账在案
+
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
@@ -230,3 +288,16 @@ desktop 前端 SHALL 维持全管线通过（`vp check --fix` / knip / `vp test`
 | `packages/desktop/src/views/config/hooks/use-workspace-config.ts`（新） | 取数收口 hook | `{ data, loading, error, refresh }` 形态；显式刷新模型；失败 inline |
 | `packages/desktop/src/routes.tsx` + `src/components/app-sidebar.tsx` | 路由与入口 | `/config` 路由项；「页面」组 [配置] NavLink，`data-testid="nav-config"`，active 由 URL 派生 |
 | `mod_test.rs` 隔离扫描（扩展） | 字面量执法 | `openspec` 与 `config.json` 双禁令；产品源码全扫（排除 `*_test.rs`）；唯一触点 layout/mod.rs |
+
+### 模块增量：`projects` 项目协议扩展（project-config-protocol-extension）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 类型 | 职责 / 契约 |
+|------|------|-------------|
+| `crates/core/config/src/lib.rs` | Function / API | `ProjectConfig` 增 `language: Option<String>` / `depends_on: Option<Vec<String>>`（`specta::Type` + camelCase 出线）；`assemble_project` 追加两字段处置（`opt_string` / `opt_string_list`，均不参与元素去留）；`KNOWN_KEYS` 零改动（`projects` 已在列） |
+| `crates/core/config/config.schema.json` | API（编辑器消费） | `projects.items.properties` 增 `language`（`type: string` + description）/ `depends_on`（`array<string>` + 「值宜为某个 `projects[].root`」提示文案）；两断言锚点零改动 |
+| `crates/core/config/src/lib_test.rs` | 测试 | 两字段矩阵（缺失零诊断 / 合法原样 / 类型违例落 `None` + `InvalidValue` / 元素仍在案）、自洽不变量锚、镜像 `projects.items.properties` 三项在案断言 |
+| `packages/desktop/src/types/generated/bindings.ts` | API（生成物） | 经 `bindings:export` 再生成：`ProjectConfig` 携 `language` / `dependsOn` 可空；MUST NOT 手改 |
+| `packages/desktop/src/views/config/components/basic-config-section.tsx` | Component | `ProjectsGroup` 逐项目呈现 `root` + 已设的 `language` / `depends_on`（未设标注「未设」）；只读，无编辑控件 |
+| `packages/desktop/src/views/config/components/basic-config-section.test.tsx` | 测试 | 呈现断言（已设字段可见 / 未设标注 / 只读无控件） |

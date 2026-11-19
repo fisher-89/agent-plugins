@@ -75,7 +75,7 @@ desktop 桌面端补充"新建变更"入口：用户在变更清单页输入 cha
 #### Scenario: 上限硬编码不进配置
 
 - **WHEN** 审查 `config.json` schema 与写面常量面
-- **THEN** 上限 5 与门槛 7（= 5 + 2 派生）为源码常量单点，`config.json` / config schema 中不存在承载上限的键（`projects` 键只承载依赖引导项目根，见 desktop-change-worktree，不承载上限）
+- **THEN** 上限 5 与门槛 7（= 5 + 2 派生）为源码常量单点，`config.json` / config schema 中不存在承载上限的键（`projects` 键只承载项目锚点声明——`root` / `language` / `depends_on` 三项，见 desktop-workspace-config 与 desktop-change-worktree，不承载上限）
 
 ### Requirement: 名称与入参校验
 
@@ -220,3 +220,12 @@ desktop-app 命令层 SHALL 提供 `create_change` 命令（落位 `commands/cha
 | `crates/infra/vcs/src/git.rs`（`remove_worktree`） | 补偿面回收实现 | 两段式（见 desktop-change-worktree「worktree 回收两段式」）；目录缺席 `Ok` 使「add 失败且目录未生成」不再产出假残留告警 |
 | `crates/core/workflow/src/write/create_test.rs` | 门槛与补偿文案覆盖 | 前置⑨ 断言增落位根路径与「直接检查」措辞（保留 `git worktree list` 锚）；补偿残留断言改为双源形态、断言不含单源 `git worktree remove --force` 指引；拒绝面零副作用断言零改动 |
 | `packages/desktop/package.json` | 版本交付 | 落地时 `HEAD` 现值 + 1 patch（现值 0.6.42 → 0.6.43）；`src-tauri/Cargo.toml` 不随动 |
+
+### 模块增量：`projects` 键承载面措辞订正（project-config-protocol-extension）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 类型 | 职责 / 契约 |
+|------|------|-------------|
+| （零实现触点） | 边界改写 | 本 delta 只订正「`projects` 键承载面」的措辞：字段集封闭为 `root` / `language` / `depends_on`（软规则章见 desktop-workspace-config）；写面 `create` 的上限 5 与门槛 7 仍是源码常量单点，`config.json` / config schema 中无承载键，前置八 / 九道校验语义零改动 |
+| `crates/core/workflow/src/write/create.rs`（签名随动） | Function | `create` 的项目入参改收 `&[BootstrapProject]`（构造面见 desktop-change-worktree「确定性依赖 bootstrap」）；名称 / goal / 冲突 / git / branch / 目录 / 两道上限的校验时序与拒绝面零变化 |
