@@ -119,7 +119,7 @@ fn stage_crate(temp: &TempDir) {
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
     );
     temp.write(
-        ".dev-team/architecture/models/Core/App.Backend.Core.Archi.md",
+        ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Archi.md",
         &contract_markdown(CRATE_FQN),
     );
 }
@@ -143,7 +143,7 @@ fn stage_ts(temp: &TempDir) {
         "export function view(): string { return ''; }\n",
     );
     temp.write(
-        ".dev-team/architecture/models/Views/App.Frontend.Views.Welcome.md",
+        ".dev-team/architecture/models/Frontend/Views/App.Frontend.Views.Welcome.md",
         &contract_markdown(TS_FQN),
     );
 }
@@ -222,7 +222,7 @@ fn generate落四类生成物() {
     );
 
     let schema = temp
-        .read(".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json")
+        .read(".dev-team/architecture/models/Backend/Core/App.Backend.Core.Archi.schema.json")
         .expect("schema 生成物在盘");
     assert!(schema.contains("\"LocalArchiCheck\""), "schema 含类型定义");
     assert!(schema.contains("\"file_stem\""), "schema 含 op 键");
@@ -368,7 +368,7 @@ fn generate契约错误零写入() {
     let temp = TempDir::new("generate-bad-contract");
     stage_crate(&temp);
     temp.write(
-        ".dev-team/architecture/models/Core/App.Backend.Core.Archi.md",
+        ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Archi.md",
         "# App.Backend.Core.Other\n\n## 职能\n\n正文。\n",
     );
     let before = temp.snapshot();
@@ -442,7 +442,7 @@ fn check内容不符() {
     stage_crate(&temp);
     run(Command::Generate, temp.root()).expect("生成应成功");
 
-    let relative = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
+    let relative = ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Archi.schema.json";
     let original = temp.read(relative).expect("schema 在盘");
     let broken = original.replace("\"title\"", "\"titleX\"");
     assert_ne!(broken, original, "夹具应确实改到一处");
@@ -500,7 +500,7 @@ fn check零写盘总断言() {
     assert_eq!(temp.snapshot(), before, "无差异形态零写入");
 
     // 形态二：内容不符
-    let relative = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
+    let relative = ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Archi.schema.json";
     temp.write(relative, "{}");
     let before = temp.snapshot();
     let _ = run(Command::Check, temp.root()).expect("check 不报错");
@@ -607,7 +607,7 @@ fn check不受x_class警告影响() {
     let temp = TempDir::new("check-x-class-warning");
     stage_crate(&temp);
     temp.write(
-        ".dev-team/architecture/models/Core/App.Backend.Core.Archi.md",
+        ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Archi.md",
         &format!(
             "# {CRATE_FQN}\n\n```json api-types\n{{\"Hooks\": {{\"type\": \"object\", \
              \"properties\": {{\"run\": {{\"x-function\": {{\"params\": [], \"returns\": \
@@ -641,7 +641,7 @@ fn generate产物为格式化器不动点() {
 
     for relative in [
         "crates/core/archi/src/lib.i.rs",
-        ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json",
+        ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Archi.schema.json",
         ".dev-team/architecture/graph/INDEX.toml",
     ] {
         let text = temp
@@ -1007,7 +1007,7 @@ fn check差异清单三数组独立且键名固定() {
     let mismatched = TempDir::new("diff-三数组-mismatched");
     stage_crate(&mismatched);
     run(Command::Generate, mismatched.root()).expect("生成应成功");
-    let relative = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
+    let relative = ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Archi.schema.json";
     let original = mismatched.read(relative).expect("schema 在盘");
     mismatched.write(relative, &original.replace("\"title\"", "\"titleX\""));
     assert_eq!(
@@ -1038,7 +1038,8 @@ fn check差异清单三数组独立且键名固定() {
     let all = TempDir::new("diff-三数组-并存");
     stage_crate(&all);
     run(Command::Generate, all.root()).expect("生成应成功");
-    let schema_rel = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
+    let schema_rel =
+        ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Archi.schema.json";
     let schema_text = all.read(schema_rel).expect("schema 在盘");
     all.write(schema_rel, &schema_text.replace("\"title\"", "\"titleX\""));
     all.write(
@@ -1262,7 +1263,8 @@ fn check差异清单逐数组点名该文件() {
     let mismatched = TempDir::new("check-report-mismatched");
     stage_crate(&mismatched);
     run(Command::Generate, mismatched.root()).expect("生成应成功");
-    let schema_rel = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
+    let schema_rel =
+        ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Archi.schema.json";
     let original = mismatched.read(schema_rel).expect("schema 在盘");
     mismatched.write(schema_rel, &original.replace("\"title\"", "\"titleX\""));
     let report = archi::compare(mismatched.root()).expect("比对应成功");
@@ -1294,11 +1296,8 @@ fn check差异清单逐数组点名该文件() {
     stage_crate(&missing);
     let report = archi::compare(missing.root()).expect("比对应成功");
     assert!(
-        report
-            .missing
-            .iter()
-            .any(|path| path
-                == ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json"),
+        report.missing.iter().any(|path| path
+            == ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Archi.schema.json"),
         "missing 点名未生成的 schema：{:?}",
         report.missing
     );
@@ -1343,7 +1342,8 @@ fn 差异清单路径串与跨crate单点同源() {
     let temp = TempDir::new("display-single-point");
     stage_crate(&temp);
     run(Command::Generate, temp.root()).expect("生成应成功");
-    let schema_rel = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
+    let schema_rel =
+        ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Archi.schema.json";
     let absolute = temp.root().join(schema_rel);
     assert_eq!(
         archi::display(temp.root(), &absolute),
@@ -1437,7 +1437,8 @@ fn check单行json与compare三列同源() {
     let temp = TempDir::new("check-json-same-source");
     stage_crate(&temp);
     assert_eq!(run(Command::Generate, temp.root()).expect("生成应成功"), 0);
-    let schema_rel = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
+    let schema_rel =
+        ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Archi.schema.json";
     let original = temp.read(schema_rel).expect("schema 在盘");
     temp.write(schema_rel, &original.replace("\"title\"", "\"titleY\""));
     temp.write("crates/core/stale.i.rs", "// 孤儿\n");

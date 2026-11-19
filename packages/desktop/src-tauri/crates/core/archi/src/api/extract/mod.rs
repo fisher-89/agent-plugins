@@ -2,7 +2,7 @@
 //! [`ApiSymbol`]（名字 / 归属 / 形态 / 归一签名 / `visibility` / 位置）。
 //!
 //! **取数器非权威**：它只供 bootstrap 起草与判据的「代码导出集」一侧；契约权威在
-//! `<archi_models_dir>/<Domain>/<FQN>.md`。两套事实源各自单点，判据在
+//! `<archi_models_dir>/<分层目录…>/<FQN>.md`。两套事实源各自单点，判据在
 //! [`crate::api::check`] 汇合。
 //!
 //! **构造器识别不在取数器**：取数器如实抽名、MUST NOT 过滤构造器——过滤只在两处调用

@@ -1391,13 +1391,7 @@ fn 非空apiFindings金样在案() {
     );
     assert_eq!(
         finding["occurrences"][0]["file"].as_str(),
-        Some(
-            format!(
-                "{}/App/App.Mod.md",
-                foundation::layout::archi_models_rel_dir()
-            )
-            .as_str()
-        ),
+        Some(format!("{}/App.Mod.md", foundation::layout::archi_models_rel_dir()).as_str()),
         "金样 occurrence 的 file 换 base 到 models 段（唯一一处例外）：{finding:?}"
     );
     assert_eq!(

@@ -25,9 +25,6 @@ use foundation::layout::{archi_graph_dir, archi_models_dir};
 
 use crate::dto::{ApiStatus, ArchiElement};
 
-/// 元素根路径顶层分组名（`<Domain>` 缺省——单段 FQN 的契约落此目录）。
-const ROOT_DOMAIN: &str = "Root";
-
 /// 索引文件名（`<archi_graph_dir>/INDEX.toml`，全局唯一一份；写盘目标与孤儿扫描
 /// 收面共用同一持有者）。
 pub(crate) const INDEX_FILE_NAME: &str = "INDEX.toml";
@@ -227,16 +224,28 @@ pub fn rust_module_path(element_root: &str) -> String {
     format!("crate::{}", module_name(element_root))
 }
 
-/// FQN 的 `<Domain>`（父 FQN 末段）：`App.Backend.Infra.ArchiRuntime` → `Infra`；
-/// 单段 FQN → `None`。
-pub fn domain_of(fqn: &str) -> Option<String> {
-    let mut segments: Vec<&str> = fqn.split('.').collect();
-    segments.pop()?;
-    segments.last().map(|segment| (*segment).to_owned())
+/// FQN 的**分层目录段**（父 FQN 段链去掉最外层根段）：`App.Backend.Infra.ArchiRuntime`
+/// → `["Backend", "Infra"]`；`App.Backend` → `[]`（落契约目录根）；单段 FQN → `None`。
+///
+/// 根段（FQN 第一段，本仓恒为 `App`）不建目录：它只表达「同一个应用」，写进每条路径
+/// 会白白加深一层；因此 `Backend/Core/`、`Frontend/Components/Agent/` 直接是层次面。
+/// 目录与元素身份**解耦**：父子层级由段链镜像，元素身份仍是 FQN（文件名恒为完整 FQN），
+/// 同名段（`Core.Agent` 与 `Components.Agent`）因而落在不同层次、互不混装。
+pub fn dir_segments(fqn: &str) -> Option<Vec<String>> {
+    let segments: Vec<&str> = fqn.split('.').collect();
+    if segments.len() < 2 {
+        return None;
+    }
+    Some(
+        segments[1..segments.len() - 1]
+            .iter()
+            .map(|segment| (*segment).to_owned())
+            .collect(),
+    )
 }
 
-/// 契约目录本身（== `<archi_models_dir>`：`<Domain>/<FQN>.md` 与同目录
-/// `.schema.json` 的 base）——本文件是它的唯一派生点。
+/// 契约目录本身（== `<archi_models_dir>`：分层目录段与 `<FQN>.md` / `.schema.json` 的
+/// base）——本文件是它的唯一派生点。
 pub fn directory(root: &Path) -> PathBuf {
     archi_models_dir(root)
 }
@@ -264,7 +273,7 @@ pub fn generated_kind(language: Language) -> GeneratedKind {
     }
 }
 
-/// 契约文件路径：`<archi_models_dir>/<Domain>/<FQN>.md`。
+/// 契约文件路径：`<archi_models_dir>/<分层目录段…>/<FQN>.md`。
 ///
 /// 结果同时是 `api = declared` 元素的**入口文档**（[`carrier_path`] 的 declared 分支）：
 /// 契约 md 与入口文档不是两份资产，只是同一落点的两个用途。
@@ -275,7 +284,7 @@ pub fn contract_path(root: &Path, fqn: &str) -> Option<PathBuf> {
     if !is_fqn(fqn) {
         return None;
     }
-    Some(domain_dir(root, fqn).join(format!("{fqn}.md")))
+    Some(dir_of(root, fqn).join(format!("{fqn}.md")))
 }
 
 /// `doc` 字段的归一与形态判据单点：`normalize_root`（`\` → `/`、剥前导 `./`、去尾
@@ -315,7 +324,7 @@ pub fn schema_path(root: &Path, fqn: &str) -> Option<PathBuf> {
     if !is_fqn(fqn) {
         return None;
     }
-    Some(domain_dir(root, fqn).join(format!("{fqn}.schema.json")))
+    Some(dir_of(root, fqn).join(format!("{fqn}.schema.json")))
 }
 
 /// 元素生成物路径：`<入口目录>/<入口主干>.i.rs` / `.i.ts`（与**入口**同级）。
@@ -495,13 +504,26 @@ pub fn ts_import_specifier(form: EntryForm, name: &str) -> String {
     }
 }
 
-/// 跨文件 `$ref` 的相对前缀：同 `<Domain>` → `./`；跨目录 → `../<Domain>/`；
-/// 目标无 `<Domain>` → `../Root/`。MUST NOT 手算。
+/// 跨文件 `$ref` 的相对前缀：由两侧**分层目录段**逐段求相对路径（同目录 → `./`、
+/// 向上一层 → `../`、向下一层 → `./<段>/`），返回串以 `/` 收尾（`$ref` 的值即
+/// `<前缀><目标 FQN>.schema.json#/$defs/<name>`）。MUST NOT 手算层数。
 pub fn ref_relative(from_fqn: &str, to_fqn: &str) -> String {
-    match domain_of(to_fqn) {
-        Some(domain) if domain_of(from_fqn).as_deref() == Some(domain.as_str()) => "./".to_owned(),
-        Some(domain) => format!("../{domain}/"),
-        None => format!("../{ROOT_DOMAIN}/"),
+    let from = dir_segments(from_fqn).unwrap_or_default();
+    let to = dir_segments(to_fqn).unwrap_or_default();
+    let common = from
+        .iter()
+        .zip(to.iter())
+        .take_while(|(left, right)| left == right)
+        .count();
+    let up = "../".repeat(from.len() - common);
+    let down: String = to[common..]
+        .iter()
+        .map(|segment| format!("{segment}/"))
+        .collect();
+    match (up.is_empty(), down.is_empty()) {
+        (true, true) => "./".to_owned(),
+        (true, false) => format!("./{down}"),
+        (false, _) => format!("{up}{down}"),
     }
 }
 
@@ -515,9 +537,14 @@ pub fn language_of(file: &str) -> Language {
     }
 }
 
-/// `<Domain>` 目录（FQN 缺父段时退化 [`ROOT_DOMAIN`]；契约目录的唯一引用点）。
-fn domain_dir(root: &Path, fqn: &str) -> PathBuf {
-    directory(root).join(domain_of(fqn).unwrap_or_else(|| ROOT_DOMAIN.to_owned()))
+/// 分层目录绝对路径（[`dir_segments`] 逐段 `push` 到契约目录；单段 FQN 即契约目录本身
+/// ——契约目录的唯一引用点）。
+fn dir_of(root: &Path, fqn: &str) -> PathBuf {
+    let mut dir = directory(root);
+    for segment in dir_segments(fqn).unwrap_or_default() {
+        dir.push(segment);
+    }
+    dir
 }
 
 /// 路径形态判据 + 归一（[`entry_candidates`] / [`generated_path`] / [`entry_state`]
@@ -551,9 +578,9 @@ pub(crate) fn is_repo_relative(relative: &str) -> bool {
         .any(|segment| segment.is_empty() || segment == "." || segment == "..")
 }
 
-/// FQN 形态判据：FQN 同时充当契约文件名与 `<Domain>` 的取段源，故 MUST 是「点分段
+/// FQN 形态判据：FQN 同时充当契约文件名与分层目录段的取段源，故 MUST 是「点分段
 /// 标识符」——非空、不含路径分隔符（`/` 与反斜杠）、不含盘符前缀、无空段
-/// （`App..X` / `App.` 一类会让 `<Domain>` 退化成空串或 `.`）。
+/// （`App..X` / `App.` 一类会让目录段退化成空串或 `.`，即目录穿越面）。
 fn is_fqn(fqn: &str) -> bool {
     if fqn.is_empty() || fqn.contains('/') || fqn.contains('\\') {
         return false;

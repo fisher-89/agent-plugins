@@ -2458,38 +2458,49 @@ fn module_detail的entry投影与入口同级落点() {
 // 不靠 review 记忆）——`api/extract/mod.rs:5` 与 `model.rs:46` 回退即判红。
 // ===========================================================================
 
-/// 正向（AC-5 ③ / AC-8）：`dto.rs` 的 doc 方位串已换段——两处 `models/<Domain>/`
-/// 在场（`ApiStatus` 与 `ArchiApiRef::contract_path`）、含完整契约文件方位串。
+/// 正向（AC-5 ③ / AC-8）：`dto.rs` 的 doc 方位串已换成分层口径——两处
+/// `models/<分层目录…>/` 在场（`ApiStatus` 与 `ArchiApiRef::contract_path`）、含完整契约
+/// 文件方位串。
 #[test]
 fn dto_doc方位串换段() {
     let source = include_str!("dto.rs");
     assert_eq!(
-        source.matches("models/<Domain>/").count(),
-        2,
-        "两处 doc 方位串换段（`ApiStatus` 与 `ArchiApiRef::contract_path`）"
+        source.matches("架构域 `models/<分层目录…>/`").count(),
+        1,
+        "`ApiStatus` 的 doc 方位串按分层目录改写"
     );
-    assert!(
-        source.contains("<archi_dir>/models/<Domain>/<FQN>.md"),
-        "契约文件 doc 改指 models 段"
+    assert_eq!(
+        source
+            .matches("<archi_models_dir>/<分层目录…>/<FQN>.md")
+            .count(),
+        1,
+        "`ArchiApiRef::contract_path` 的 doc 方位串按分层目录改写"
     );
 }
 
-/// 正向（AC-5 ③）：三份产品源文各含换段后的方位串——`dto.rs` 两处
-/// `models/<Domain>/`；`api/extract/mod.rs` 一处 `<archi_models_dir>/<Domain>/<FQN>.md`；
-/// `model.rs` 一处「架构域 `models/<Domain>/` 目录」。
+/// 正向（AC-5 ③）：三份产品源文各含分层口径的方位串——`dto.rs` 两处
+/// `models/<分层目录…>/`；`api/extract/mod.rs` 一处
+/// `<archi_models_dir>/<分层目录…>/<FQN>.md`；`model.rs` 一处
+/// `models/<分层目录…>/<FQN>.md`（入口文档派生串）。
 #[test]
 fn 三份产品源文doc方位串换段() {
     let dto = include_str!("dto.rs");
     assert_eq!(
-        dto.matches("models/<Domain>/").count(),
-        2,
-        "`dto.rs` 两处 doc 方位串换段"
+        dto.matches("架构域 `models/<分层目录…>/`").count(),
+        1,
+        "`dto.rs` 的 `ApiStatus` doc 方位串按分层目录改写"
+    );
+    assert_eq!(
+        dto.matches("<archi_models_dir>/<分层目录…>/<FQN>.md")
+            .count(),
+        1,
+        "`dto.rs` 的 `ArchiApiRef::contract_path` doc 方位串按分层目录改写"
     );
 
     let extract = include_str!("api/extract/mod.rs");
     assert_eq!(
         extract
-            .matches("<archi_models_dir>/<Domain>/<FQN>.md")
+            .matches("<archi_models_dir>/<分层目录…>/<FQN>.md")
             .count(),
         1,
         "`api/extract/mod.rs` 模块 doc 一行换段（取数面零改动）"
@@ -2497,9 +2508,9 @@ fn 三份产品源文doc方位串换段() {
 
     let model = include_str!("model.rs");
     assert_eq!(
-        model.matches("架构域 `models/<Domain>/`").count(),
+        model.matches("`<models>/<分层目录…>/<FQN>.md`").count(),
         1,
-        "`model.rs` 的 `api` 字段 doc 改指 models 段"
+        "`model.rs` 的 `api` 字段 doc 派生串按分层目录改写"
     );
 }
 

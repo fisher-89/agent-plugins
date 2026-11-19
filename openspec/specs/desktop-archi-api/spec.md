@@ -2,13 +2,13 @@
 
 ## Purpose
 
-定义模块 API 契约的资产形态与生成链：以 `<archi_models_dir>/<Domain>/<FQN>.md` 为唯一手写真相（散文 + `api-op` / `api-types` / `api-reexport` 三类 fenced json），`<FQN>.schema.json` 与 `INDEX.toml` 为纯派生生成物，加上引用与命名规则、关键字集与类型映射、生成物落点与入口 `#[path]` 纪律、零 diff 门挂载、语言无关纪律、`verify` 闭环与 bootstrap 剪枝、模块嵌套与选择性透传、TS 导出闭包取数面。
+定义模块 API 契约的资产形态与生成链：以 `<archi_models_dir>/<分层目录…>/<FQN>.md` 为唯一手写真相（散文 + `api-op` / `api-types` / `api-reexport` 三类 fenced json），`<FQN>.schema.json` 与 `INDEX.toml` 为纯派生生成物，加上引用与命名规则、关键字集与类型映射、生成物落点与入口 `#[path]` 纪律、零 diff 门挂载、语言无关纪律、`verify` 闭环与 bootstrap 剪枝、模块嵌套与选择性透传、TS 导出闭包取数面。
 
 ## Requirements
 
 ### Requirement: 契约资产形态与唯一手写真相
 
-模块公共 API 契约 SHALL 以**手写 markdown 为唯一真相**，落位 `<archi_models_dir>/<Domain>/<FQN>.md`（`<archi_dir>` 经 `foundation::layout::archi_dir`、契约目录取既有 `foundation::layout::archi_models_dir` —— `api` 段与 `archi_api_dir` 族已退役，MUST NOT 行内字面量、MUST NOT 新增第二个目录派生函数）。`<Domain>` SHALL 取元素**父元素 FQN 末段**（`App.Backend.Infra.ArchiRuntime` → `Infra`），元素身份仍是 FQN、目录只是布局。
+模块公共 API 契约 SHALL 以**手写 markdown 为唯一真相**，落位 `<archi_models_dir>/<分层目录…>/<FQN>.md`（`<archi_dir>` 经 `foundation::layout::archi_dir`、契约目录取既有 `foundation::layout::archi_models_dir` —— `api` 段与 `archi_api_dir` 族已退役，MUST NOT 行内字面量、MUST NOT 新增第二个目录派生函数）。`<分层目录…>` SHALL 是元素 FQN 的**祖先链镜像**：取 FQN 段链去掉**最外层根段**与**叶段**后的逐段路径（`App.Backend.Infra.ArchiRuntime` → `Backend/Infra/`、`App.Frontend.Components.Agent.AgentInput` → `Frontend/Components/Agent/`、`App.Backend` 与单段 `App` → 契约目录根零段），元素身份仍是 FQN（文件名恒为完整 FQN）、目录只是布局——同一末段的不同元素（`Backend.Core.Agent` 与 `Frontend.Components.Agent`）因祖先链不同而落在不同层次，不再混装同一目录。
 
 契约文件的章节位置语义 SHALL 封闭为五类：
 
@@ -23,13 +23,13 @@
 - **合写一份（不拆两文件）**：`<FQN>.json` + `<FQN>.md` 两份手写文件靠约定配对必然漂移（`AGENT.md` / `CLAUDE.md` 同源复制 8 行后标题已分化为既有反例）。合写的收益不是省文件名，而是把「改契约必须同时改理由」从纪律变成**编辑动作**——改了 op 签名却不改不变量，在同一文件里是显眼的遗漏。
 - **载体为 md 内含 fenced json，MUST NOT 用 JSON 内嵌 `description`（散文变整行超长字符串）与 YAML block scalar**：YAML 1.1 把 `off` / `on` / `yes` / `no` 解析为布尔，而 `off` 恰是本仓 `GateTier` 的真实枚举值，各语言解析器版本不一致会破坏跨语言一致性。
 - **双向 gate（机械可校验）**：`### <op-id>` heading 集合 SHALL ≡ `api-op` fence 归属集合；`api-types` fence 的键集 SHALL ⊆ `<FQN>.schema.json` 的 `$defs` 键集；`api-reexport` fence 键集 SHALL ≡ 同文件散文区透传列表。任一不成立 SHALL 判为契约错误并点名缺失项。
-- **统一目录（不跟代码走）**：契约 MUST NOT 落元素主目录。审计型问题（「这批改动动了哪些模块的契约」）只有统一目录能答（`git diff --stat <archi>/models/<Domain>/` 即列出），且无替代物；伴随型问题（「我改的这行契约同步了吗」）由门禁机械回答，不需要文件相邻。代价 SHALL 显式留痕：在 crate 里读代码时看不到契约，只能经画布 / `archi_module` / 门禁失败提示 / 全局搜索四条路之一。
-- **与模型分目录（模型声明在 `graph/model/`，契约资产在 `models/`）**：`<archi_models_dir>` SHALL 只容纳契约资产——**`<Domain>/` 子目录**内的 `<FQN>.md`（手写真相）+ `<FQN>.schema.json`（生成物）；模型声明（恰六个 `NN-<域>.toml`，见 `repo-archi-model`「基线落位与模型文件划分」）在另一目录 `<archi_graph_model_dir>`（`<archi_graph_dir>/model`）。两面的分离判据是**目录**：模型解析的收面只扫 `graph/model/` 一级，MUST NOT 因 `models/` 出现 md / schema / `.toml` 而改变；反向，契约面的收面 MUST NOT 把 `graph/model/*.toml` 当契约或启用证据。MUST NOT 引入目录级豁免清单（目录分家本身就是判据）。
+- **统一目录（不跟代码走）**：契约 MUST NOT 落元素主目录。审计型问题（「这批改动动了哪些模块的契约」）只有统一目录能答（`git diff --stat <archi>/models/<分层目录…>/` 即列出），且无替代物；伴随型问题（「我改的这行契约同步了吗」）由门禁机械回答，不需要文件相邻。代价 SHALL 显式留痕：在 crate 里读代码时看不到契约，只能经画布 / `archi_module` / 门禁失败提示 / 全局搜索四条路之一。
+- **与模型分目录（模型声明在 `graph/model/`，契约资产在 `models/`）**：`<archi_models_dir>` SHALL 只容纳契约资产——**`<分层目录…>/` 子目录**内的 `<FQN>.md`（手写真相）+ `<FQN>.schema.json`（生成物）；模型声明（恰六个 `NN-<域>.toml`，见 `repo-archi-model`「基线落位与模型文件划分」）在另一目录 `<archi_graph_model_dir>`（`<archi_graph_dir>/model`）。两面的分离判据是**目录**：模型解析的收面只扫 `graph/model/` 一级，MUST NOT 因 `models/` 出现 md / schema / `.toml` 而改变；反向，契约面的收面 MUST NOT 把 `graph/model/*.toml` 当契约或启用证据。MUST NOT 引入目录级豁免清单（目录分家本身就是判据）。
 - **契约 md = declared 元素的入口文档（把「落点唯一」变成结构性事实）**：`api = declared`（含缺省）元素的**入口文档就是这个派生落点**，故——
   1. 模型 MUST NOT 为该元素声明 `doc`：写了即 `apiUnexpected`（两事实矛盾），且该值不参与任何判定——`contract_path` 既是派生值又是契约装载源（`load_contracts` 只认它），若放行第二个可写事实，就会出现「`doc` 指向的带 fence 文件让判据以为契约在案、而装载器读的是派生路径」⇒ 零判据静默通过；
   2. `api = none` 元素的入口文档由模型 `doc` 单值声明（可选；不写 = 无入口文档，合法但产出 `docMissing` 读数），该元素 MUST NOT 在派生路径上留契约文件（留了即 `apiUnexpected`）。
   由此 `api` 状态的角色 SHALL 表述为**入口文档载体的开关**（`declared` → 派生落点、`none` → `doc` 声明），而非仅「契约有无」；两件事共用同一判据的事实面归 `desktop-archi-api-check`。
-- **契约面启用判据（本变更收紧，行为变化）**：`api::enabled` SHALL 判「**存在任一 `path` 非空元素的入口文档载体在盘且正文含 api fence 语言标**」（`api-op` 或 `api-types`，语言标常量单点复用 `contract::FENCE_OP` / `FENCE_TYPES`）。判据 MUST NOT 退化为「`<archi_models_dir>` 递归任意 `*.md`」——`models/` 里放一份笔记（非任何元素的载体）或一份无 fence 的 `<Domain>/notes.md` MUST NOT 误判为启用。该判据与判据面同源（同一 `doc_facts` 事实），MUST NOT 在命令层另判一套。
+- **契约面启用判据（本变更收紧，行为变化）**：`api::enabled` SHALL 判「**存在任一 `path` 非空元素的入口文档载体在盘且正文含 api fence 语言标**」（`api-op` 或 `api-types`，语言标常量单点复用 `contract::FENCE_OP` / `FENCE_TYPES`）。判据 MUST NOT 退化为「`<archi_models_dir>` 递归任意 `*.md`」——`models/` 里放一份笔记（非任何元素的载体）或一份无 fence 的 `Backend/notes.md` MUST NOT 误判为启用。该判据与判据面同源（同一 `doc_facts` 事实），MUST NOT 在命令层另判一套。
 - **不接入文档关联面（本变更改写）**：契约 MUST NOT 成为任何「文档关联来源」——原三条来源（`explicit` / `adjacent` / `text`）已随 `desktop-archi-module-docs` 整体退役，MUST NOT 复活为第四种来源，MUST NOT 新增 `kind = api` 之类的形态标记。契约正文的抵达路径只有三条：`api.contractPath` / `doc`（none 元素）/ 通用 `read_file` 按路径自取；检索面只收路径串、零正文。
 - **不依赖语言概念**：资产形态、目录布局、schema 与索引中 MUST NOT 出现 `crate` / `Cargo.toml` / `Rust` 一类语言专有概念——语言特定部分只落取数器（`api/extract/{rust,ts}`）与渲染器（`api/emit/{rust,ts}`），见「语言无关纪律与语言特定落点」。
 
@@ -46,11 +46,11 @@
 #### Scenario: 拆两文件与 JSON 内嵌描述被拒
 
 - **WHEN** 审查资产形态与提交内容
-- **THEN** `<archi_dir>/models/<Domain>/` 下每个元素只有一份 `*.md` 手写真相（同目录的 `.schema.json` 为生成物且头部带警示；`INDEX.toml` 不在契约目录内，落 `<archi_dir>/graph/`）；不存在与 `.md` 配对的第二份手写 `.json`，散文不出现在 JSON 字符串里
+- **THEN** `<archi_dir>/models/<分层目录…>/` 下每个元素只有一份 `*.md` 手写真相（同目录的 `.schema.json` 为生成物且头部带警示；`INDEX.toml` 不在契约目录内，落 `<archi_dir>/graph/`）；不存在与 `.md` 配对的第二份手写 `.json`，散文不出现在 JSON 字符串里
 
 #### Scenario: 契约与模型分目录互不干扰
 
-- **WHEN** 在 `<archi_dir>/graph/model/` 放六个 `NN-<域>.toml`，同时在 `<archi_dir>/models/` 放 `<Domain>/<FQN>.md`、`<Domain>/<FQN>.schema.json` 与三级子目录，随后跑一次模型解析与一次契约装载
+- **WHEN** 在 `<archi_dir>/graph/model/` 放六个 `NN-<域>.toml`，同时在 `<archi_dir>/models/` 的 `Backend/Core/`、`Frontend/Components/Agent/` 三级分层目录下各放 `<FQN>.md` 与 `<FQN>.schema.json`，随后跑一次模型解析与一次契约装载
 - **THEN** 模型解析结果与只放六个 toml 时逐字相同（`diagnostics` 空、元素 / 关系计数不变——收面判据是「`graph/model/` 一级 + `.toml` 后缀」）；契约装载恰好读到那份 md；任一方向 MUST NOT 因两目录并存产生诊断或判据；反向在 `models/` 一级放一份合法 `.toml` MUST NOT 进模型收面
 
 #### Scenario: declared 元素写 doc 即两事实矛盾
@@ -65,12 +65,12 @@
 
 #### Scenario: 启用判据不因杂项 md 误启用
 
-- **WHEN** 观察根下 `graph/model/` 一级有六个 `NN-<域>.toml`，另有 `models/notes.md`（非任何元素的载体）与 `<Domain>/notes.md`（无 fence）
+- **WHEN** 观察根下 `graph/model/` 一级有六个 `NN-<域>.toml`，另有 `models/notes.md`（非任何元素的载体）与 `Backend/notes.md`（无 fence）
 - **THEN** `api::enabled = false` 且 `apiFindings = []`；随后在某 `api = declared` 元素的派生契约路径放入一份带 `api-op` fence 的 md ⇒ `enabled = true`、全部 `path` 非空元素纳入判据
 
 ### Requirement: schema.json 与 INDEX.toml 为纯派生且不可手改
 
-每个契约 SHALL 派生 `<FQN>.schema.json`（JSON Schema 投影，与 `<FQN>.md` 同目录，即 `<archi_models_dir>/<Domain>/`），并由全体契约派生出 `INDEX.toml`（落 `<archi_graph_dir>` 下、全局唯一一份，MUST NOT 落契约目录的根、MUST NOT 落模型声明目录 `graph/model/`）。两者都是生成物、都不可手改。
+每个契约 SHALL 派生 `<FQN>.schema.json`（JSON Schema 投影，与 `<FQN>.md` 同目录，即 `<archi_models_dir>/<分层目录…>/`），并由全体契约派生出 `INDEX.toml`（落 `<archi_graph_dir>` 下、全局唯一一份，MUST NOT 落契约目录的根、MUST NOT 落模型声明目录 `graph/model/`）。两者都是生成物、都不可手改。
 
 `<FQN>.schema.json` SHALL 的每一项字段都必须有 markdown 出处，生成器只做**装配**不做**翻译**：
 
@@ -133,7 +133,7 @@
 - 规则 5 的理由：仓库实测 17 组「字段类型序列完全相同」的类型，其中 `ArchiDependsOn` / `ArchiDependedBy` 是**出入边、语义相反**，`Diagnostic` / `ArchiDiagnostic` 是进程内 vs 线面。合并等于把两个语义变成同一个类型；身份靠名字、去重靠名字。
 - **公共面** SHALL 定义为「第一层 `properties` + 第一层经 `$ref` 可达的闭包」，该约定自动排除不出现在任何签名里的纯内部类型。
 - **位置语义**：第一层 `properties` 为模块导出成员（`x-function` 操作 / `$ref` 到具名类型）；`$defs` 为本模块自有类型与透传纯 `$ref` alias。
-- **跨模块 `$ref` SHALL 用相对文件路径**（`./<FQN>.schema.json#/$defs/<name>` / `../<Domain>/<FQN>.schema.json#/$defs/<name>`），路径由**单点函数**产出，MUST NOT 手算、MUST NOT 用自定义 URI scheme（实测 ajv 对 `module://X#/$defs/Y` 报 `can't resolve reference`，只认标准 URI）。
+- **跨模块 `$ref` SHALL 用相对文件路径**（同目录 `./<FQN>.schema.json#/$defs/<name>`；跨目录的前缀由两侧分层目录逐段求出——先上溯到公共祖先（每层 `../`）再逐段下行（`./<段>/`），因此既有 `../Infra/` 形态（同层跨子树）与 `../../Frontend/Components/`（跨层）由同一函数给出），路径由**单点函数**产出，MUST NOT 手算、MUST NOT 用自定义 URI scheme（实测 ajv 对 `module://X#/$defs/Y` 报 `can't resolve reference`，只认标准 URI）。
 
 #### Scenario: 嵌套提升原名保留且碰撞报错
 
@@ -157,7 +157,7 @@
 
 #### Scenario: 跨模块引用解析成功
 
-- **WHEN** 以 draft 2020-12 校验器按 `$id` 注册父子两份 `schema.json` 后编译父契约（含 `../<Domain>/<子 FQN>.schema.json#/$defs/<name>` 引用）
+- **WHEN** 以 draft 2020-12 校验器按 `$id` 注册父子两份 `schema.json` 后编译父契约（含 `./Agent/<子 FQN>.schema.json#/$defs/<name>` 一类逐段相对引用）
 - **THEN** 编译通过、无 `can't resolve reference`；两种加载顺序（父先 / 子先）均通过；`strict: "log"` 下不因 `x-*` 关键字报错
 
 ### Requirement: 关键字集、类型映射与错误面
@@ -366,7 +366,7 @@
 
 | 生成物 | 落点 | 入库 | 门禁 |
 |---|---|---|---|
-| `<FQN>.schema.json` | `<archi_models_dir>/<Domain>/` | 是 | `api:check` 零 diff |
+| `<FQN>.schema.json` | `<archi_models_dir>/<分层目录…>/` | 是 | `api:check` 零 diff |
 | `INDEX.toml` | `<archi_graph_dir>/`（全局唯一一份） | 是 | `api:check` 零 diff |
 | `<入口主干>.i.rs` | **元素实现入口同级**（`crates/infra/archi/src/lib.i.rs`） | 是 | `api:check` 零 diff + `cargo check` |
 | `<入口主干>.i.ts` | **元素实现入口同级**（`views/welcome-view.i.ts`） | 是 | `api:check` 零 diff + `tsc --noEmit` |
@@ -399,7 +399,7 @@
 #### Scenario: 换段后的字节差异恰为两行
 
 - **WHEN** 迁移前后各执行一次 `api:export`，对 `INDEX.toml` 与全部 `.schema.json` 做逐字节比对
-- **THEN** `INDEX.toml` 的差异恰为两行——说明段的「契约面：目录」串（`<archi_models_rel_dir>`）与已声明元素的 `schema` 列（repo 相对路径含 `models/<Domain>/`）；其余元素条目与全部 `.schema.json` / `.i.rs` 逐字不同为零；MUST NOT 把该差异记成「零 diff」（说明段与路径列按设计变化，见「schema.json 与 INDEX.toml 为纯派生且不可手改」）
+- **THEN** `INDEX.toml` 的差异恰为两行——说明段的「契约面：目录」串（`<archi_models_rel_dir>`）与已声明元素的 `schema` 列（repo 相对路径含 `models/<分层目录…>/`）；其余元素条目与全部 `.schema.json` / `.i.rs` 逐字不同为零；MUST NOT 把该差异记成「零 diff」（说明段与路径列按设计变化，见「schema.json 与 INDEX.toml 为纯派生且不可手改」）
 
 #### Scenario: check 链四段且 fmt 段为校验模式
 
@@ -415,9 +415,9 @@
 
 仓库根 `AGENT.md` SHALL 承载一节 `## 模块 API 契约` 作为 agent 侧的操作纪律入口，内容 SHALL 限于**指针与最简规则**，MUST NOT 复制契约正文、判据长表或 fenced json 示例：
 
-- 该节 SHALL 恰含五条要点：① 手写真相位置 `<archi_models_dir>/<Domain>/<FQN>.md` 与三类 fence 的名字（`api-op` / `api-types` / `api-reexport`）；② 四类生成物勿手改（`.schema.json`（与 md 同目录）/ `INDEX.toml`（`<archi_graph_dir>`）/ **实现入口同级**的 `<入口主干>.i.rs` / `<入口主干>.i.ts`）与「已提交手改即零 diff 门红、未提交即被静默覆盖」；③ `api:export` / `api:check` 两脚本与 `check` 链的段序；④ `api = none` 是显式留白而非「还没写」；⑤ **入口文档承诺已成立**元素的判据进 `status`（`error` 档还可进 `passed`），索引与计数经 `<archi_graph_dir>/INDEX.toml` 查看，两轴经架构页「契约」视图一眼看全。
-- 该节需换段的目录串 SHALL 恰为三条要点：第①条（`<archi_models_dir>/<Domain>/`）、第②条（`INDEX.toml` 方位 `<archi_graph_dir>`）、第⑤条（索引串 `<archi_graph_dir>/INDEX.toml`）；第③ / ④ 条零改动。**换段完成后该节 `grep 'architecture/api'` 与 `grep '契约目录根'` 均零命中**——第②条不含 `architecture/api` 字面量，只测字面量归零不足以证明换段完成。
-- 第①条的目录串 SHALL 与「契约资产形态与唯一手写真相」的落位口径逐字一致（`<archi_models_dir>/<Domain>/`，零 `api` 段残留）；第②条的 `INDEX.toml` 方位 SHALL 写「`<archi_graph_dir>`」而非「契约目录根」——索引与契约已分家，写成契约目录根会指错路径。
+- 该节 SHALL 恰含五条要点：① 手写真相位置 `<archi_models_dir>/<分层目录…>/<FQN>.md` 与三类 fence 的名字（`api-op` / `api-types` / `api-reexport`）；② 四类生成物勿手改（`.schema.json`（与 md 同目录）/ `INDEX.toml`（`<archi_graph_dir>`）/ **实现入口同级**的 `<入口主干>.i.rs` / `<入口主干>.i.ts`）与「已提交手改即零 diff 门红、未提交即被静默覆盖」；③ `api:export` / `api:check` 两脚本与 `check` 链的段序；④ `api = none` 是显式留白而非「还没写」；⑤ **入口文档承诺已成立**元素的判据进 `status`（`error` 档还可进 `passed`），索引与计数经 `<archi_graph_dir>/INDEX.toml` 查看，两轴经架构页「契约」视图一眼看全。
+- 该节需换段的目录串 SHALL 恰为三条要点：第①条（`<archi_models_dir>/<分层目录…>/`）、第②条（`INDEX.toml` 方位 `<archi_graph_dir>`）、第⑤条（索引串 `<archi_graph_dir>/INDEX.toml`）；第③ / ④ 条零改动。**换段完成后该节 `grep 'architecture/api'` 与 `grep '契约目录根'` 均零命中**——第②条不含 `architecture/api` 字面量，只测字面量归零不足以证明换段完成。
+- 第①条的目录串 SHALL 与「契约资产形态与唯一手写真相」的落位口径逐字一致（`<archi_models_dir>/<分层目录…>/`，零 `api` 段残留）；第②条的 `INDEX.toml` 方位 SHALL 写「`<archi_graph_dir>`」而非「契约目录根」——索引与契约已分家，写成契约目录根会指错路径。
 - 第②条的**方位词与文件名形态 SHALL 与「生成物落点与入口查找」的落点口径一致**：「实现入口同级」+ `<入口主干>.i.<后缀>`（`crates/infra/archi/src/lib.rs` → `lib.i.rs`）。该条只说方位与命名，MUST NOT 复述入口解析链、四条判据或 `entry` 字段知识（字段面归 `desktop-archi-model`，agent 侧字段清单归 `desktop-archi-agent` 的知识文本）——文档与 spec 双写必然漂移。本条同步 MUST NOT 增删要点条目（条目数恒 5，`entry` 不得成为第六条）。
 - 该节 MUST NOT 含契约示例正文、`ArchiApiFindingKind` 的十三值长表或判据定义（定义归本能力与 `desktop-archi-api-check`）——文档与 spec 双写必然漂移（`AGENT.md` / `CLAUDE.md` 同源复制即既有反例）。
 - 该节 MUST NOT 出现 `openspec/specs/**` 路径（spec 语料非 agent 的契约操作面），且 MUST NOT 把契约路径写进模型元素 `doc`（`api = declared` 元素零 `doc` 声明，见 `desktop-archi-api-check`「契约判据词汇封闭十三值与开放分类」）。
@@ -441,7 +441,7 @@
 #### Scenario: 第 ② 条方位词与真实落点一致
 
 - **WHEN** 审查 `AGENT.md` 与 `CLAUDE.md` 该节第 ② 条，并对照入口同级的实盘生成物 `crates/infra/archi/src/lib.i.rs` 与索引实盘 `<archi_dir>/graph/INDEX.toml`
-- **THEN** 该条写「实现入口同级」且文件名形态为 `<入口主干>.i.rs` / `<入口主干>.i.ts`，索引方位写 `graph` 目录；`grep '元素根同级'`、`grep '<root>.i'` 与 `grep 'architecture/api'` 在两文件该节零命中；第 ① / ② / ⑤ 三条各含新落点串（`models/<Domain>/<FQN>.md` / `graph` / `graph/INDEX.toml`）而第 ③ / ④ 条逐字不变，`grep '契约目录根'` 在节内零命中（该串无 `architecture/api` 前缀，字面量归零抓不到它）；该节要点数仍恰 5（措辞同步 MUST NOT 增删条目、MUST NOT 出现 `entry` 字段说明）；两文件全文 `diff` 仍恰 2 处且全在节外
+- **THEN** 该条写「实现入口同级」且文件名形态为 `<入口主干>.i.rs` / `<入口主干>.i.ts`，索引方位写 `graph` 目录；`grep '元素根同级'`、`grep '<root>.i'` 与 `grep 'architecture/api'` 在两文件该节零命中；第 ① / ② / ⑤ 三条各含新落点串（`models/<分层目录…>/<FQN>.md` / `graph` / `graph/INDEX.toml`）而第 ③ / ④ 条逐字不变，`grep '契约目录根'` 在节内零命中（该串无 `architecture/api` 前缀，字面量归零抓不到它）；该节要点数仍恰 5（措辞同步 MUST NOT 增删条目、MUST NOT 出现 `entry` 字段说明）；两文件全文 `diff` 仍恰 2 处且全在节外
 
 ### Requirement: 语言无关纪律与语言特定落点
 
@@ -707,9 +707,9 @@
 | `crates/core/archi/src/api/paths_test.rs` | 路径面语料 | 解析链三态（显式 / 文件型根 / 约定默认 / `Absent`）+ 四条判据各一反例 + 单文件根声明别的文件 → `OutsidePath`；`generated_path` 三形态落入口同级；`#[path]` 字面量 == `generated_path().file_name()` 自证；`mod_path_attr` 零命中（已删）；`ts_import_specifier` 既有两值在案并标注待接线 |
 | `crates/core/archi/src/api/contract.rs` | `<FQN>.md` 解析 + 装载期闸 | H1 锚点校验、`### <op-id>` 分段、三类 fence 提取、双向 gate 三条校验、构造器声明检测；错误带文件与行；`verify` 在同趟遍历内续判 `required ⊆ properties`（族别数不变、不拆第二个公开入口、零 pointer-less 文案），属性键族与 `required` 族的错误带 JSON pointer（`$defs.<name>.properties.<key>` / `$defs.<name>.required[<i>]`）与族别化出路句（`data-testid` 一类键不进契约） |
 | `crates/core/archi/src/api/contract_test.rs` | 装载期闸语料 | `data-testid` 首层键 ⇒ 报错含 pointer 与出路句；`required` 悬垂 ⇒ 报错含 `required[0]`；自洽契约通过且渲染为必填 |
-| `crates/core/archi/src/api/schema.rs` | `$defs` 规则 + 装配 + 债表扫描（说明段目录串换段） | `build_index` 说明段的「契约面：目录 …」串 SHALL 取 `foundation::layout::archi_models_rel_dir()`（原 `archi_api_rel_dir()` 已删；MUST NOT 取索引自身所在目录）；`IndexEntry.schema_rel` 仍是 repo 相对路径（现含 `models/<Domain>/`）；`$defs` 身份 / 提升原名 / `$ref` 顶层 / 禁按结构去重 / 透传条目纯 `$ref`；`schema.json` 六字段装配（`$schema` / `$id` / `title` / `$defs` / `properties` / `$comment`）；`INDEX.toml` 装配；`DEGRADED_KINDS`（四值封闭常量，与校验同处，MUST NOT 进 `common.json`）；`degraded_marks(schema) -> Vec<(String, &str)>`（全深度单点扫描）；`verify_defs` 同趟校验取值（非字符串亦拒，文案点名 pointer 并列四值）；`IndexEntry.degraded` 语义 = **标记出现次数**（不再是 `$defs` 条目数） |
+| `crates/core/archi/src/api/schema.rs` | `$defs` 规则 + 装配 + 债表扫描（说明段目录串换段） | `build_index` 说明段的「契约面：目录 …」串 SHALL 取 `foundation::layout::archi_models_rel_dir()`（原 `archi_api_rel_dir()` 已删；MUST NOT 取索引自身所在目录）；`IndexEntry.schema_rel` 仍是 repo 相对路径（现含 `models/<分层目录…>/`）；`$defs` 身份 / 提升原名 / `$ref` 顶层 / 禁按结构去重 / 透传条目纯 `$ref`；`schema.json` 六字段装配（`$schema` / `$id` / `title` / `$defs` / `properties` / `$comment`）；`INDEX.toml` 装配；`DEGRADED_KINDS`（四值封闭常量，与校验同处，MUST NOT 进 `common.json`）；`degraded_marks(schema) -> Vec<(String, &str)>`（全深度单点扫描）；`verify_defs` 同趟校验取值（非字符串亦拒，文案点名 pointer 并列四值）；`IndexEntry.degraded` 语义 = **标记出现次数**（不再是 `$defs` 条目数） |
 | `crates/core/archi/src/api/schema_test.rs` | 词表语料 | 四值逐个通过；词表外值与非字符串值拒收（文案列四值）；`note` 不计入 |
-| `crates/core/archi/src/api/extract/mod.rs` | 取数器分派 + **TS 导出闭包** + nullable 形状识别单点（本变更：仅模块 doc 方位串） | 模块 doc 的契约权威位置改指 `<archi_models_dir>/<Domain>/<FQN>.md`（doc-only，代码零改动；该串既非引号字面量、也不会被按符号 / 字面量扫描抓到）； 按语言分派到 `rust` / `ts`；产出候选 `{ symbol, kind, location, signature, visibility }` 与引用方（`used_by`，本期留白）栏；仅 bootstrap 使用，非权威；`NullableBreakdown { non_null: Option<&Value>, explicit_null: bool }` + `nullable_breakdown(schema: &Value) -> Option<NullableBreakdown>`（三分支识别唯一实现，沿用既有「取首个非空分支」语义），`schema_type` 改经它取非空分支、**对外结果逐值不变**（`non_null: None` 即纯 null 档 → `Optional(Unknown("null"))`），`explicit_null` 是渲染面 `\| null` 的唯一依据（MUST NOT 在 `emit` 侧第二次判 null）；函数**不收 `required`**——可选轴不属它，`schema_type` 签名不因本变更扩参；`ApiSymbol` 新增 `file: String`（定义文件，repo 相对 POSIX；进程内类型，不进 `dto` / 不进 specta）；`extract_element(root, elements, element, entry)`：Rust 分支 = `rust::extract_crate` 逐字不变，TS 分支 = 入口派生闭包（递归 `surface` + visited(文件, 名字集) + `scan::ts::TsResolver::resolve` + `scan::owner::OwnerIndex::owner_of` 的 owner 子树 + `(name, kind)` 去重 + `A as B` 改名），入口读不到 / 语言未知 ⇒ 空集；`extract(element, file, source)` 仍是**显式留白（D52）零产品调用者**，本变更 MUST NOT 接线；边界 doc 更正为「`extract` / `ts` / 归一纯函数零读盘；`extract_element`（与 `rust::extract_crate`）按入口读盘、零写盘、零 spawn」 |
+| `crates/core/archi/src/api/extract/mod.rs` | 取数器分派 + **TS 导出闭包** + nullable 形状识别单点（本变更：仅模块 doc 方位串） | 模块 doc 的契约权威位置改指 `<archi_models_dir>/<分层目录…>/<FQN>.md`（doc-only，代码零改动；该串既非引号字面量、也不会被按符号 / 字面量扫描抓到）； 按语言分派到 `rust` / `ts`；产出候选 `{ symbol, kind, location, signature, visibility }` 与引用方（`used_by`，本期留白）栏；仅 bootstrap 使用，非权威；`NullableBreakdown { non_null: Option<&Value>, explicit_null: bool }` + `nullable_breakdown(schema: &Value) -> Option<NullableBreakdown>`（三分支识别唯一实现，沿用既有「取首个非空分支」语义），`schema_type` 改经它取非空分支、**对外结果逐值不变**（`non_null: None` 即纯 null 档 → `Optional(Unknown("null"))`），`explicit_null` 是渲染面 `\| null` 的唯一依据（MUST NOT 在 `emit` 侧第二次判 null）；函数**不收 `required`**——可选轴不属它，`schema_type` 签名不因本变更扩参；`ApiSymbol` 新增 `file: String`（定义文件，repo 相对 POSIX；进程内类型，不进 `dto` / 不进 specta）；`extract_element(root, elements, element, entry)`：Rust 分支 = `rust::extract_crate` 逐字不变，TS 分支 = 入口派生闭包（递归 `surface` + visited(文件, 名字集) + `scan::ts::TsResolver::resolve` + `scan::owner::OwnerIndex::owner_of` 的 owner 子树 + `(name, kind)` 去重 + `A as B` 改名），入口读不到 / 语言未知 ⇒ 空集；`extract(element, file, source)` 仍是**显式留白（D52）零产品调用者**，本变更 MUST NOT 接线；边界 doc 更正为「`extract` / `ts` / 归一纯函数零读盘；`extract_element`（与 `rust::extract_crate`）按入口读盘、零写盘、零 spawn」 |
 | `crates/core/archi/src/api/extract/mod_test.rs` | 单点对拍语料 | 9 组样例**三轴分列**（可空轴六组：`Optional` ⟺ `\| null` ⟺ `Option<`；可选轴两组：`schema_type` 同值、TS `a`/`b?` 分形、Rust `String`/`Option<String>` 分形；纯 null 一组：`Optional(Unknown("null"))` / `null` / `serde_json::Value`）；`schema_type` 结果与改动前逐值相同；闭包五类语料（精确名单 / 通配等价 / 环与菱形 / owner 子树四值 / 别名改名 / 稳定性）落在本文件 |
 | `crates/core/archi/src/api/extract/rust.rs` | Rust 声明抽取 | `syn` 遍历 `pub struct` / `trait` / `enum` → `$defs`，`pub fn` → `x-function`；签名 AST 归一单行；`visibility` 四值（`pub mod` 链 / `pub(crate)` / 私有 `mod` 内的 `pub` / `#[cfg(test)]` 树）；`ApiSymbol.file` 填值为**当前模块文件**（贯穿 `walk_items` / `walk_modules`；内联 `mod` 与父同文件）；抽取面 / `visibility` 四值 / 签名归一 / `#[path]` 限根纪律逐字不变 |
 | `crates/core/archi/src/api/extract/ts.rs` | TS 声明抽取 | `oxc` 遍历：`export function` → 操作（唯一判定），`export type` / `interface` / `class` → `$defs`，`export const` 按初始化表达式分类（`memo(...)` → 组件留白 / 对象与 Proxy → 排除 / 箭头函数 → **不作操作**，沿本 capability「MUST NOT 为从初始化表达式推断函数造启发式」）；`unused` 的降级接口 `apply_knip_report` 已实现但**本期未接线**（生产面不产出 `Unused`，见待决 5 / 12）；接线是独立变更；`extract_file(file, source)` 签名与产出语义逐字不变（`= extract_surface(..).symbols`）；新增 `extract_surface(file, source) -> ExportSurface { symbols, named: Vec<NamedExport{local, exported, specifier}>, star: Vec<String> }`（纯读源文本 + AST）；`exported_item(statement) -> ExportedItem` 三态单点（`Declaration` / `Named` / `Star` / `None`），`match statement` 恰 1 处；`Statement::ExportNamedDeclaration` / `Statement::ExportDefaultDeclaration` 零命中；每符号填 `file` |
@@ -729,10 +729,10 @@
 | `packages/desktop/package.json`（脚本面） | 生成与门禁驱动 | `api:export`（写盘）/ `api:check`（`--check` 零写入 + 工具内比对）；`check` 由三段扩为四段（`server:check && bindings:export && api:check && client:check`——第二段是 `bindings:export`，生成物零 diff 守卫已退役），`bindings:export` 与 `client:check` 两段原文不变，`server:check` 的 fmt 段为 `cargo fmt --all --check`（clippy 段逐字不变）；`version` 相对落地时 `HEAD` 现值 +1 patch（`tauri.conf.json` 经 `"version": "../package.json"` 跟随；`src-tauri/Cargo.toml` 的 crate 版本行 MUST NOT 随动） |
 | `packages/desktop/knip.json` | 生成物可见性边界 | `ignore` 增 `src/**/*.i.ts`；`ignoreExportsUsedInFile` / `ignoreDependencies` 零新增 |
 | `packages/desktop/src/types/generated/bindings.ts` + `bindings.zod.ts` | IPC 类型再生成 | 含 `ApiStatus` / `ArchiApiRef` / `ArchiApiFindingKind` / `ArchiApiFinding` / 报告 `apiFindings`；再生成后入库、过期由提交前人工核对（零 diff 守卫已退役） |
-| `.dev-team/architecture/models/<Domain>/**`（契约资产新落点） | 契约与生成物资产 | `<Domain>/<FQN>.md`（唯一手写）+ `<Domain>/<FQN>.schema.json`（生成，与 md 同目录）；由 `git mv` 自 `<archi_dir>/api/<Domain>/**` 搬入，内容逐字不变；两者入库、进零 diff 门 |
-| `.dev-team/architecture/graph/INDEX.toml`（契约索引新落点） | 契约索引 | 由 `git mv` 自 `<archi_dir>/api/INDEX.toml` 搬入后由 `api:export` 重生成；差异恰为说明段目录串（`<archi_models_rel_dir>`）与已声明元素的 `schema` 列（repo 相对路径含 `models/<Domain>/`）两行，其余条目逐字不变 |
+| `.dev-team/architecture/models/<分层目录…>/**`（契约资产新落点） | 契约与生成物资产 | `<分层目录…>/<FQN>.md`（唯一手写）+ `<分层目录…>/<FQN>.schema.json`（生成，与 md 同目录）；由 `git mv` 自 `<archi_dir>/api/<分层目录…>/**` 搬入，内容逐字不变；两者入库、进零 diff 门 |
+| `.dev-team/architecture/graph/INDEX.toml`（契约索引新落点） | 契约索引 | 由 `git mv` 自 `<archi_dir>/api/INDEX.toml` 搬入后由 `api:export` 重生成；差异恰为说明段目录串（`<archi_models_rel_dir>`）与已声明元素的 `schema` 列（repo 相对路径含 `models/<分层目录…>/`）两行，其余条目逐字不变 |
 | `.dev-team/architecture/api/**` | **删除** | `api` 段退役，迁移后该目录不存在；孤儿枚举严格两处派生（`<archi_models_dir>/**` + `<archi_graph_dir>/INDEX.toml`），故 `api/` 残留对 `api:check` 不可见——缺席由 `git mv`（同提交）+ 目录树读数 + `pilot_test` 负向断言守，MUST NOT 写成「`api:check` 报应删未删」 |
-| `AGENT.md` + `CLAUDE.md`（仓库根文档，见「仓库根文档的契约纪律节」） | agent 侧操作纪律入口（本变更：第 ① / ② / ⑤ 条目录串换段） | 第 ① 条手写真相 `<archi_models_dir>/<Domain>/<FQN>.md`、第 ② 条 `INDEX.toml` 方位 `<archi_graph_dir>`（原写「契约目录根」，`grep 'architecture/api'` 抓不到它）、第 ⑤ 条索引串 `<archi_graph_dir>/INDEX.toml`；`## 模块 API 契约` 节恰 5 条要点（手写真相位置与三类 fence / 四类生成物勿手改 / 两脚本与 `check` 链段序 / `api = none` 留白 / 入口文档承诺已成立元素的判据进 `status`、其中 `error` 档进 `passed`）；第②条 = 「实现入口同级」+ `<入口主干>.i.rs` / `<入口主干>.i.ts`（与「生成物落点与入口查找」同口径），条目数恒 5、其余四条要点逐字不动；MUST NOT 复制契约正文、判据长表或 fence 示例；零 `entry` 字段说明（字段知识归 `desktop-archi-agent` 的知识文本）；节内零 `openspec/specs/**` 路径；两文件该节正文逐字相同（同源纪律） |
+| `AGENT.md` + `CLAUDE.md`（仓库根文档，见「仓库根文档的契约纪律节」） | agent 侧操作纪律入口（本变更：第 ① / ② / ⑤ 条目录串换段） | 第 ① 条手写真相 `<archi_models_dir>/<分层目录…>/<FQN>.md`、第 ② 条 `INDEX.toml` 方位 `<archi_graph_dir>`（原写「契约目录根」，`grep 'architecture/api'` 抓不到它）、第 ⑤ 条索引串 `<archi_graph_dir>/INDEX.toml`；`## 模块 API 契约` 节恰 5 条要点（手写真相位置与三类 fence / 四类生成物勿手改 / 两脚本与 `check` 链段序 / `api = none` 留白 / 入口文档承诺已成立元素的判据进 `status`、其中 `error` 档进 `passed`）；第②条 = 「实现入口同级」+ `<入口主干>.i.rs` / `<入口主干>.i.ts`（与「生成物落点与入口查找」同口径），条目数恒 5、其余四条要点逐字不动；MUST NOT 复制契约正文、判据长表或 fence 示例；零 `entry` 字段说明（字段知识归 `desktop-archi-agent` 的知识文本）；节内零 `openspec/specs/**` 路径；两文件该节正文逐字相同（同源纪律） |
 
 ### API: 生成物驱动面（零命令形态变化，实现落点变化）
 
@@ -757,7 +757,7 @@
 
 | 项 | 变化 | 描述 |
 |---|---|---|
-| `AGENT.md` / `CLAUDE.md` | 改 | `## 模块 API 契约` 节第 ⑤ 条为纳管口径（入口文档承诺已成立元素的判据进 `status`、其中 `error` 档进 `passed`）；本变更再同步第 ① / ② / ⑤ 条的目录串（手写真相 `<archi_models_dir>/<Domain>/<FQN>.md`、索引方位 `<archi_graph_dir>`、索引串 `<archi_graph_dir>/INDEX.toml`），第 ③ / ④ 条零改动，条目数仍 5；两份副本该节正文逐字相同 |
+| `AGENT.md` / `CLAUDE.md` | 改 | `## 模块 API 契约` 节第 ⑤ 条为纳管口径（入口文档承诺已成立元素的判据进 `status`、其中 `error` 档进 `passed`）；本变更再同步第 ① / ② / ⑤ 条的目录串（手写真相 `<archi_models_dir>/<分层目录…>/<FQN>.md`、索引方位 `<archi_graph_dir>`、索引串 `<archi_graph_dir>/INDEX.toml`），第 ③ / ④ 条零改动，条目数仍 5；两份副本该节正文逐字相同 |
 
 ### 模块增量：入口文档语义定位换面（module-doc-field-docs-retirement）
 
@@ -765,7 +765,7 @@
 
 | 模块 | 职责 | 关键契约 |
 |------|------|------|
-| `crates/core/archi/src/api/paths.rs` | 落点派生 | `directory(root)` == `archi_models_dir(root)`、`contract_path` == `<models>/<Domain>/<FQN>.md`、`schema_path` / `index_path` 逐字不变；**载体派生单点**：declared → `contract_path`、none → `doc` 归一后 join root（形态校验复用 `normalize_root` + `is_repo_relative`，后者提 `pub(crate)`）；MUST NOT 出现第二份路径归一实现（`docs::normalize_rel` 已随 `docs.rs` 删除） |
+| `crates/core/archi/src/api/paths.rs` | 落点派生 | `directory(root)` == `archi_models_dir(root)`、`contract_path` == `<models>/<分层目录…>/<FQN>.md`、`schema_path` / `index_path` 逐字不变；**载体派生单点**：declared → `contract_path`、none → `doc` 归一后 join root（形态校验复用 `normalize_root` + `is_repo_relative`，后者提 `pub(crate)`）；MUST NOT 出现第二份路径归一实现（`docs::normalize_rel` 已随 `docs.rs` 删除） |
 | `crates/core/archi/src/api/mod.rs::enabled` | 启用判据（**收紧**） | `enabled(root, elements)` = 任一 `path` 非空元素的载体在盘且 `DocFact::Present { has_api_fence: true }`；MUST NOT 退化为「递归任意 `*.md`」；命令层 MUST NOT 另判一套 |
 | `crates/core/archi/src/api/mod.rs::load_contracts` | 契约装载（输入源零改动） | 只认 `contract_path` 派生落点（`doc` 不参与装载）；`ApiSnapshot` 增 `doc_facts`（`Absent` / `Missing` / `Present { has_api_fence }`），每份 doc 只读一次即弃 |
 | `crates/core/archi/src/api/contract.rs` | 契约解析 | 五类位置语义、双向 gate、`$defs` 规则、落点闸逐字不变；仅 `FENCE_OP` / `FENCE_TYPES` 提 `pub(crate)` 供启用判据与 `apiDocMissing` 复用 |

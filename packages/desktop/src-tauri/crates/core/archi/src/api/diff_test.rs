@@ -429,8 +429,9 @@ fn compare契约目录的schema与索引孤儿() {
     assert!(diff.missing.is_empty(), "零缺失");
 }
 
-/// 边界（AC-4 / D3 / 零新常量）：契约目录枚举的深度上限两侧——超过 `MAX_API_WALK_DEPTH`
-/// 的深层 schema 不入 `orphaned`、不 panic；上限内的浅层照常入列。
+/// 边界（AC-4 / D3 / 零新常量）：契约目录枚举的深度上限两侧——恰好到
+/// `MAX_API_WALK_DEPTH` 层仍入 `orphaned`，再深两层即不入列、不 panic。层数由常量推导
+/// （不写死数字）：分层目录加深时只须改常量一处。
 #[test]
 fn compare契约目录有界枚举的深度上限() {
     let temp = TempDir::new("compare-api-depth");
@@ -439,34 +440,42 @@ fn compare契约目录有界枚举的深度上限() {
 
     let api_dir = paths::directory(temp.root());
     let shallow = api_dir.join("Ghost2.schema.json");
-    let at_limit = api_dir
-        .join("a")
-        .join("b")
-        .join("c")
-        .join("d")
-        .join("Deep.schema.json");
-    let beyond = api_dir
-        .join("a")
-        .join("b")
-        .join("c")
-        .join("d")
-        .join("e")
-        .join("f")
-        .join("Ghost.schema.json");
-    temp.write_absolute(&shallow, "{}\n");
-    temp.write_absolute(&at_limit, "{}\n");
-    temp.write_absolute(&beyond, "{}\n");
+    let at_limit = nested(&api_dir, super::MAX_API_WALK_DEPTH).join("Deep.schema.json");
+    let beyond = nested(&api_dir, super::MAX_API_WALK_DEPTH + 2).join("Ghost.schema.json");
+    temp.write_absolute(
+        &shallow, "{}
+",
+    );
+    temp.write_absolute(
+        &at_limit, "{}
+",
+    );
+    temp.write_absolute(
+        &beyond, "{}
+",
+    );
 
     let diff = compare(temp.root()).expect("比对应成功");
     assert!(diff.orphaned.contains(&rel(&temp, &shallow)), "浅层入列");
     assert!(
         diff.orphaned.contains(&rel(&temp, &at_limit)),
-        "上限内（depth 4）仍在扫面"
+        "等于上限（depth {}）仍在扫面",
+        super::MAX_API_WALK_DEPTH
     );
     assert!(
         !diff.orphaned.contains(&rel(&temp, &beyond)),
-        "越过上限（depth 6）不入列"
+        "越过上限（depth {}）不入列",
+        super::MAX_API_WALK_DEPTH + 2
     );
+}
+
+/// 深度辅助：`base` 下套 `depth` 层目录（`a/b/c/…`），供上限两侧用例共用。
+fn nested(base: &std::path::Path, depth: usize) -> std::path::PathBuf {
+    let mut path = base.to_path_buf();
+    for index in 0..depth {
+        path.push(((b'a' + (index % 26) as u8) as char).to_string());
+    }
+    path
 }
 
 // ---------------------------------------------------------------------------
@@ -781,20 +790,8 @@ fn compare索引侧深度与收面后缀() {
     materialize(&temp);
 
     let graph_dir = foundation::layout::archi_graph_dir(temp.root());
-    let at_limit = graph_dir
-        .join("a")
-        .join("b")
-        .join("c")
-        .join("d")
-        .join("INDEX.toml");
-    let beyond = graph_dir
-        .join("a")
-        .join("b")
-        .join("c")
-        .join("d")
-        .join("e")
-        .join("f")
-        .join("INDEX.toml");
+    let at_limit = nested(&graph_dir, super::MAX_API_WALK_DEPTH).join("INDEX.toml");
+    let beyond = nested(&graph_dir, super::MAX_API_WALK_DEPTH + 2).join("INDEX.toml");
     let schema_in_graph = graph_dir.join("Sub.schema.json");
     temp.write_absolute(&at_limit, "# 上限内的深层索引\n");
     temp.write_absolute(&beyond, "# 越过上限的深层索引\n");
@@ -803,12 +800,14 @@ fn compare索引侧深度与收面后缀() {
     let diff = compare(temp.root()).expect("比对应成功");
     assert!(
         diff.orphaned.contains(&rel(&temp, &at_limit)),
-        "depth 4 == 上限 → 入列：{:?}",
+        "等于上限（depth {}）→ 入列：{:?}",
+        super::MAX_API_WALK_DEPTH,
         diff.orphaned
     );
     assert!(
         !diff.orphaned.contains(&rel(&temp, &beyond)),
-        "depth 6 > 上限 → 不入列：{:?}",
+        "越过上限（depth {}）→ 不入列：{:?}",
+        super::MAX_API_WALK_DEPTH + 2,
         diff.orphaned
     );
     assert!(

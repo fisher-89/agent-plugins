@@ -2534,8 +2534,8 @@ fn api_ref元素缺席仍报契约事实() {
     );
 }
 
-/// 边界：md 缺席 → `status == None` 且三路径全 `None`；单段 FQN（`App`）→ 目录退化
-/// `Root`，路径可判。
+/// 边界：md 缺席 → `status == None` 且三路径全 `None`；单段 FQN（`App`）→ 落契约目录根，
+/// 路径可判。
 #[test]
 fn api_ref为none时三路径全空() {
     let temp = TempDir::new("api-ref-none");
@@ -2549,11 +2549,12 @@ fn api_ref为none时三路径全空() {
     assert!(reference.schema_path.is_none(), "schema 路径 None");
     assert!(reference.generated_path.is_none(), "生成物路径 None");
 
-    // 单段 FQN：目录退化 Root
+    // 单段 FQN：落契约目录根（无分层段）
     let single = paths::contract_path(temp.root(), "App").expect("单段 FQN 仍合法");
-    assert!(
-        single.to_string_lossy().contains("Root"),
-        "单段 FQN 退化 Root 目录：{single:?}"
+    assert_eq!(
+        single.parent(),
+        Some(paths::directory(temp.root()).as_path()),
+        "单段 FQN 落契约目录根：{single:?}"
     );
     let app = element("App", &[]);
     let reference = super::api_ref_of(temp.root(), std::slice::from_ref(&app), &app);

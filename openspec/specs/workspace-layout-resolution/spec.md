@@ -95,7 +95,7 @@ is_archi_rel_path(rel)     → rel 是否落在 <archi_dir> 之内（repo 相对
 - **`archi_config_path`**：`archi_config_path(root)` → `<archi_dir>/config.json`，SHALL 从 `archi_dir` 派生（`architecture` 段与 `config.json` 文件名均取自 layout 常量组，`config.json` 文件名常量沿用既有 `CONFIG_FILE_NAME` —— MUST NOT 新增第二个文件名字面量）。它 SHALL 是架构域看护配置（豁免元素对 / 扫描排除 glob，见 `desktop-archi-drift`「架构域看护配置」）的**唯一合法定位函数**——消费者（`crates/core/archi` 的配置读取面）MUST NOT 行内拼 `config.json`，产品 `.rs`（`*_test.rs` 除）的 `config.json` 字面量隔离纪律零变化。工作区配置仍只经 `config_path(root)`（`desktop-workspace-config` 唯一出口）。
 - **`archi_graph_dir`**：`archi_graph_dir(root)` → `<archi_dir>/graph`，SHALL 从 `archi_dir` 派生（`graph` 段取自 layout 常量组新增的 `GRAPH_DIR_NAME`）。它 SHALL 是契约索引 `INDEX.toml`（`desktop-archi-api`「schema.json 与 INDEX.toml 为纯派生且不可手改」）的**唯一合法定位函数**——消费者（`crates/core/archi` 的契约面、`crates/tools/archi-api-gen`、`crates/infra/archi` 的写盘单点）MUST NOT 行内拼 `graph` 段。本目录住索引与模型声明子目录（`archi_graph_model_dir`）两份。
 - **`archi_graph_model_dir`**：`archi_graph_model_dir(root)` → `<archi_graph_dir>/model`，SHALL 从 `archi_graph_dir` 派生（`model` 段取自 layout 常量组新增的 `MODEL_DIR_NAME`）。它 SHALL 是模型声明 `NN-<域>.toml`（`repo-archi-model`「基线落位与模型文件划分」）的**唯一合法定位函数**——模型解析面（`core/archi` 的 `parse_dir` / 漂移面 / 结构 diff 存在判据）MUST NOT 行内拼 `model` 段。子目录形态（而非 `graph/` 一级平铺）保证索引 `INDEX.toml` 与模型文件不同层，避免索引被当模型解析。
-- **`api` 段一族退役（本变更删除）**：`API_DIR_NAME` / `archi_api_dir(root)` / `archi_api_rel_dir()` SHALL 全部删除，产品 `.rs`（`*_test.rs` 除）内 `archi_api_dir` / `archi_api_rel_dir` / `API_DIR_NAME` 零命中、`"api"` 段字面量零命中。**契约资产目录不新增派生函数**——它 SHALL 直接取既有 `archi_models_dir(root)`（契约 md 与 `<Domain>/` 子目录在 `models/` 内，见 `desktop-archi-api`「契约资产形态与唯一手写真相」）；模型声明目录是另一个派生（`archi_graph_model_dir`，见上）——「一个目录两个名字」（`archi_api_dir` 改指 models）MUST NOT 出现，那会让目录语义与函数名永久错位。
+- **`api` 段一族退役（本变更删除）**：`API_DIR_NAME` / `archi_api_dir(root)` / `archi_api_rel_dir()` SHALL 全部删除，产品 `.rs`（`*_test.rs` 除）内 `archi_api_dir` / `archi_api_rel_dir` / `API_DIR_NAME` 零命中、`"api"` 段字面量零命中。**契约资产目录不新增派生函数**——它 SHALL 直接取既有 `archi_models_dir(root)`（契约 md 与 `<分层目录…>/` 子目录在 `models/` 内，见 `desktop-archi-api`「契约资产形态与唯一手写真相」）；模型声明目录是另一个派生（`archi_graph_model_dir`，见上）——「一个目录两个名字」（`archi_api_dir` 改指 models）MUST NOT 出现，那会让目录语义与函数名永久错位。
 - 本族函数的落地 SHALL 在 `desktop-crate-layout` 的依赖与消费者登记中同步在案（`archi` crate 为路径派生函数的消费者；`archi_config_path` 与 `archi_graph_dir` 的消费者亦在案）。
 
 #### Scenario: 路径派生正确且同源
@@ -171,7 +171,7 @@ archi_graph_model_rel_dir() → <archi_graph_rel_dir>/model  （模型声明目�
 | `dev-team`（workspace 状态） | 当前 workspace 持有 | 持有选定的根目录 |
 | `foundation::layout`（常量组扩展，架构域段） | 架构域段名单点 | 新增架构域顶层目录名 `.dev-team`、`architecture` 段名与 `models` / `decisions` 子目录名常量；架构域与 `openspec` 域根分树；`Layout` 三字段与 `resolve` 语义零变化 |
 | `foundation::layout::archi_dir` | 架构域根派生单点 | `<root>/.dev-team/architecture`；架构域顶层段与架构域段唯一持有者 |
-| `foundation::layout::archi_models_dir` / `archi_decisions_dir` | 子目录派生 | 全从 `archi_dir` 派生；`archi_models_dir` 是契约资产目录（`<Domain>/<FQN>.md` + `.schema.json`）唯一入口；纯推导无 IO |
+| `foundation::layout::archi_models_dir` / `archi_decisions_dir` | 子目录派生 | 全从 `archi_dir` 派生；`archi_models_dir` 是契约资产目录（`<分层目录…>/<FQN>.md` + `.schema.json`）唯一入口；纯推导无 IO |
 | `foundation::layout::is_archi_rel_path` | 相对路径判定 | 反斜杠归一 + 祖先判定；core 侧归档冲突分流的唯一判据（零 `architecture` 字面量比较） |
 | `foundation::layout::archi_rel_dir` | 架构域根相对路径 | 由目录名常量组派生；`/` 分隔、零前导 `./`；零 IO |
 | `foundation::layout::archi_models_rel_dir` / `archi_decisions_rel_dir` | 子目录相对路径 | 全从 `archi_rel_dir` 派生；`archi_models_rel_dir` 供架构会话知识文本与契约索引 `INDEX.toml` 说明段（契约面目录）两处消费 |

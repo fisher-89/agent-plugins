@@ -630,7 +630,7 @@ export type AgentRunStatus =
  * 
  *  语义：`declared` = 本模块承诺有公共 API 契约（缺省）、`none` = 显式声明本模块
  *  无 API。它是元素的**属性**而非协议正文——签名 / 符号 / 接口定义 MUST NOT 出现在
- *  模型里（契约权威在架构域 `models/<Domain>/` 的契约资产，本枚举只是状态指针）。
+ *  模型里（契约权威在架构域 `models/<分层目录…>/` 的契约资产，本枚举只是状态指针）。
  */
 export type ApiStatus = 
 /**  承诺有契约（缺省） */
@@ -767,7 +767,7 @@ export type ArchiApiMeta = {
 export type ArchiApiRef = {
 	/**  契约状态（文件在案事实） */
 	status: ApiStatus,
-	/**  契约文件（`<archi_dir>/models/<Domain>/<FQN>.md`）的 repo 相对路径 */
+	/**  契约文件（`<archi_models_dir>/<分层目录…>/<FQN>.md`）的 repo 相对路径 */
 	contractPath: string | null,
 	/**  schema 生成物（同目录 `<FQN>.schema.json`）的 repo 相对路径 */
 	schemaPath: string | null,

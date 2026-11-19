@@ -22,7 +22,7 @@ use crate::api::{load_contracts, meta, render_all};
 use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
 
 use super::paths::{
-    contract_path, directory, domain_of, entry_candidates, entry_state, generated_kind,
+    contract_path, dir_segments, directory, entry_candidates, entry_state, generated_kind,
     generated_path, index_path, is_module_segment, language_of, module_name, normalize_root,
     ref_relative, rust_module_path, schema_path, ts_import_specifier, EntryForm, EntryProblem,
     EntryState, GeneratedKind, Language,
@@ -260,10 +260,10 @@ fn normalize_root幂等() {
 }
 
 // ---------------------------------------------------------------------------
-// contract_path / schema_path：同目录、`<Domain>` 目录段
+// contract_path / schema_path：同目录、分层目录段
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-4）：`App.Backend.Infra.ArchiRuntime` → `<archi_models_dir>/Infra/...`；
+/// 正向（AC-4）：`App.Backend.Infra.ArchiRuntime` → `<archi_models_dir>/Backend/Infra/...`；
 /// 两函数父目录逐字相等、均以 `archi_models_dir(root)` 为前缀（零行内段名）。
 #[test]
 fn contract_path与schema_path同目录同前缀() {
@@ -284,7 +284,7 @@ fn contract_path与schema_path同目录同前缀() {
             .and_then(|parent| parent.file_name())
             .map(|name| name.to_string_lossy().into_owned()),
         Some("Infra".to_owned()),
-        "目录段 = 父 FQN 末段"
+        "目录末段 = 父 FQN 末段"
     );
     assert_eq!(
         contract
@@ -302,24 +302,32 @@ fn contract_path与schema_path同目录同前缀() {
     );
     assert_eq!(
         contract.parent(),
-        Some(archi_models_dir(root).join("Infra").as_path()),
-        "前缀恒为 archi_models_dir(root)"
+        Some(
+            archi_models_dir(root)
+                .join("Backend")
+                .join("Infra")
+                .as_path()
+        ),
+        "目录段 = 父 FQN 去根段的段链（App.Backend.Infra → Backend/Infra）"
     );
 }
 
-/// 边界：单段 FQN 退化 `Root` 目录；含 emoji 的合法 FQN → 路径可判且零目录穿越
-/// （不含 `..` 段）；形态非法的 FQN → `None`。
+/// 边界：单段 FQN 落契约目录根（无分层段）；含 emoji 的合法 FQN → 路径可判且零目录
+/// 穿越（不含 `..` 段）；形态非法的 FQN → `None`。
 #[test]
-fn contract_path顶层退化root且零穿越() {
+fn contract_path顶层落契约目录根且零穿越() {
     let root = Path::new("/ws");
     assert_eq!(
         contract_path(root, "App")
-            .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
-            .and_then(|parent| parent
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())),
-        Some("Root".to_owned()),
-        "单段 FQN 落 Root 目录"
+            .and_then(|path| path.parent().map(|parent| parent.to_path_buf())),
+        Some(directory(root)),
+        "单段 FQN 落契约目录根"
+    );
+    assert_eq!(
+        contract_path(root, "App.Backend")
+            .and_then(|path| path.parent().map(|parent| parent.to_path_buf())),
+        Some(directory(root)),
+        "根的直接子元素同样落契约目录根（根段不建目录）"
     );
 
     for fqn in ["App.🎯.Target", "App.Core.Alpha"] {
@@ -1439,59 +1447,80 @@ fn ts_import_specifier三形态() {
 }
 
 // ---------------------------------------------------------------------------
-// ref_relative / domain_of / module_name
+// ref_relative / dir_segments / module_name
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-11）：同 `<Domain>` → `./`；跨目录 → `../<Domain>/`；目标为顶层元素 →
-/// `../Root/`。
+/// 正向（AC-11）：同目录 → `./`；同层跨子树 → `../<段>/`；向上回根层 → 逐层 `../`；
+/// 向下进子层 → `./<段>/`。前缀恒以 `/` 收尾，层数由段链求出（零手算）。
 #[test]
-fn ref_relative同域跨域与顶层() {
+fn ref_relative同目录同层与跨层() {
     assert_eq!(
         ref_relative("App.Backend.Core.Archi", "App.Backend.Core.Foundation"),
         "./",
-        "同域用 `./`"
+        "同目录用 `./`"
     );
     assert_eq!(
         ref_relative("App.Backend.Infra.ArchiRuntime", "App.Backend.Core.Archi"),
         "../Core/",
-        "跨域用 `../<Domain>/`"
+        "同层跨子树用 `../<段>/`"
     );
     assert_eq!(
         ref_relative("App.Backend.Core.Archi", "App"),
-        "../Root/",
-        "目标无父段 → Root"
+        "../../",
+        "目标在契约目录根 → 逐层上溯"
+    );
+    assert_eq!(
+        ref_relative(
+            "App.Frontend.Components.Agent",
+            "App.Frontend.Components.Agent.AgentInput"
+        ),
+        "./Agent/",
+        "目标在子层 → 向下进一段"
+    );
+    assert_eq!(
+        ref_relative(
+            "App.Frontend.Components.Agent.AgentInput",
+            "App.Backend.Core.Archi"
+        ),
+        "../../../Backend/Core/",
+        "跨层：先上溯到公共祖先再逐段下行"
     );
 }
 
-/// 边界（R-8）：上下游末段撞名不影响前缀（元素身份是 FQN，撞名只影响布局）；
+/// 边界（R-8）：上下游末段撞名不影响前缀（元素身份是 FQN，撞名只落在不同层次）；
 /// `from == to` → `./`。
 #[test]
-fn ref_relative撞名域与自引用() {
+fn ref_relative撞名段与自引用() {
     let left = ref_relative("App.Backend.Core.Agent", "App.Frontend.Components.Agent");
     let right = ref_relative("App.Frontend.Components.Agent", "App.Backend.Core.Agent");
-    assert_eq!(left, "../Components/", "目标域末段");
-    assert_eq!(right, "../Core/", "反向目标域末段");
-    assert_ne!(left, right, "撞名只影响布局，前缀仍按目标域算");
+    assert_eq!(left, "../../Frontend/Components/", "目标段链完整给出");
+    assert_eq!(right, "../../Backend/Core/", "反向目标段链完整给出");
+    assert_ne!(left, right, "撞名只影响布局，前缀仍按目标段链算");
     assert_eq!(
         ref_relative("App.Backend.Core.Archi", "App.Backend.Core.Archi"),
         "./",
-        "自引用视为同域"
+        "自引用视为同目录"
     );
 }
 
-/// 边界：四段 → 父段末段；两段 → 首段；单段 / 空串 → `None`；尾点形态可判。
+/// 边界：四段 → 父段链去根段（两段）；三/两段 → 一段 / 零段；单段 / 空串 → `None`；
+/// 尾点形态可判（空段由 `is_fqn` 挡在派生之外）。
 #[test]
-fn domain_of形态() {
+fn dir_segments形态() {
     assert_eq!(
-        domain_of("App.Backend.Infra.ArchiRuntime"),
-        Some("Infra".to_owned())
+        dir_segments("App.Backend.Infra.ArchiRuntime"),
+        Some(vec!["Backend".to_owned(), "Infra".to_owned()])
     );
-    assert_eq!(domain_of("App.Agent"), Some("App".to_owned()));
-    assert_eq!(domain_of("App"), None, "单段无父段");
-    assert_eq!(domain_of(""), None, "空串无父段");
-    // 尾点形态：`App.` 分三段后父段取到 `App`（可判、不 panic）；`App..X` 的父段为空串
-    assert_eq!(domain_of("App."), Some("App".to_owned()));
-    assert_eq!(domain_of("App..X"), Some(String::new()));
+    assert_eq!(
+        dir_segments("App.Agent"),
+        Some(Vec::new()),
+        "根的直接子元素零段"
+    );
+    assert_eq!(dir_segments("App"), None, "单段无父段");
+    assert_eq!(dir_segments(""), None, "空串无父段");
+    // 尾点形态：`App.` 分两段后父段链为空（可判、不 panic）；`App..X` 的中间段为空串
+    assert_eq!(dir_segments("App."), Some(Vec::new()));
+    assert_eq!(dir_segments("App..X"), Some(vec![String::new()]));
 }
 
 /// 正向（D40 正例 / 反例）：`module_name("<root>")` 是透传 `<name>` 的唯一产出点——
@@ -1504,7 +1533,8 @@ fn module_name是透传name的唯一产出点() {
     let name = module_name(element_root);
     assert_eq!(name, "archi", "路径末段");
     assert_eq!(
-        domain_of("App.Backend.Infra.ArchiRuntime"),
+        dir_segments("App.Backend.Infra.ArchiRuntime")
+            .and_then(|segments| segments.last().cloned()),
         Some("Infra".to_owned())
     );
     let fqn_tail = "App.Backend.Infra.ArchiRuntime"
@@ -1679,7 +1709,7 @@ fn language_of未知面不猜测() {
 }
 
 /// 边界：索引路径恒为 `<archi_graph_dir>/INDEX.toml`（全局唯一一份，落独立于契约
-/// 目录的索引家，不在 `<Domain>` 目录内、也不在契约目录根）。
+/// 目录的索引家，不在分层目录内、也不在契约目录根）。
 #[test]
 fn index_path位于索引目录根() {
     let root = Path::new("/ws");
@@ -1687,7 +1717,7 @@ fn index_path位于索引目录根() {
     assert_eq!(
         index_path(root).parent(),
         Some(archi_graph_dir(root).as_path()),
-        "索引不进 <Domain> 子目录"
+        "索引不进分层子目录"
     );
     assert_ne!(
         index_path(root).parent(),
@@ -1760,7 +1790,7 @@ fn directory零行内段名字面量() {
             .expect("合法 FQN")
             .parent(),
         Some(directory(root).join("Core").as_path()),
-        "契约在 directory(root)/<Domain>/ 下一层"
+        "契约在 directory(root)/<分层目录…>/ 下一层"
     );
     assert_eq!(
         schema_path(root, "App.Core.Alpha")
@@ -1773,7 +1803,7 @@ fn directory零行内段名字面量() {
 
 /// 正向（AC-5）：`index_path(root)` 末段恰为 `INDEX.toml`、父目录恰为 `graph/`——与
 /// **契约目录分家**（兄弟目录，互不嵌套），与 `contract_path` / `schema_path`
-/// （`<Domain>/` 下一层）**不同层**。
+/// （分层目录内）**不同层**。
 #[test]
 fn index_path形态与层级对比() {
     let root = Path::new("/ws");
@@ -1797,7 +1827,7 @@ fn index_path形态与层级对比() {
     assert_ne!(
         index.parent(),
         contract.parent(),
-        "索引在 graph 根、契约在域目录（不同层）"
+        "索引在 graph 根、契约在分层目录（不同层）"
     );
     assert!(
         contract
@@ -2593,8 +2623,8 @@ fn index_file_name单点持有与跨模块消费() {
     );
 }
 
-/// 边界（AC-1）：`schema_path` 末段恒 `<FQN>.schema.json`、单段 FQN 落 `Root/`、root 三形态
-/// 父链与 `contract_path` 同源。
+/// 边界（AC-1）：`schema_path` 末段恒 `<FQN>.schema.json`、单段 FQN 落契约目录根、root
+/// 三形态父链与 `contract_path` 同源。
 #[test]
 fn schema_path边界形态与contract同源() {
     for root in [Path::new("/ws"), Path::new(""), Path::new("/ws/")] {
@@ -2607,8 +2637,8 @@ fn schema_path边界形态与contract同源() {
         );
         assert_eq!(
             path.parent(),
-            Some(directory(root).join("Root").as_path()),
-            "单段 FQN 落 Root 目录：root = {root:?}"
+            Some(directory(root).as_path()),
+            "单段 FQN 落契约目录根：root = {root:?}"
         );
 
         let contract = contract_path(root, "App.Backend.Infra.ArchiRuntime").expect("合法 FQN");
@@ -2630,8 +2660,8 @@ fn contract_path超长与特殊字符fqn放行() {
     let path = contract_path(root, &long).unwrap_or_else(|| panic!("超长合法 FQN 应可派生"));
     assert_eq!(
         path.parent(),
-        Some(directory(root).join("App").as_path()),
-        "父目录 = `<Domain>` 目录"
+        Some(directory(root).as_path()),
+        "父目录 = 契约目录根（`App.<末段>` 的父段链去根段后为空）"
     );
     assert!(schema_path(root, &long).is_some(), "schema 路径同步放行");
 

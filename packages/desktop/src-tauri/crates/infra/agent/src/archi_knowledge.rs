@@ -44,7 +44,7 @@ pub(crate) fn build(skeleton: &str) -> Result<String, String> {
          api 状态：{api}（缺省 {}）\n\
          结构诊断：{diagnostics}\n\
          模型目录：{}（按文件名字典序聚合）；\
-         契约资产：{}/<Domain>/<FQN>.md（手写真相）；契约索引：{}/INDEX.toml",
+         契约资产：{}/<分层目录…>/<FQN>.md（手写真相）；契约索引：{}/INDEX.toml",
         skeleton.trim_end(),
         GateTier::default().as_str(),
         ApiStatus::default().as_str(),

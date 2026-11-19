@@ -55,7 +55,7 @@
       "message": "元素 App.Mod 的契约签名与代码不一致（归一后仍需相等）：file_stem：契约 fn(str) -> int / 代码 fn(str) -> String",
       "occurrences": [
         {
-          "file": ".dev-team/architecture/models/App/App.Mod.md",
+          "file": ".dev-team/architecture/models/App.Mod.md",
           "line": 9,
           "specifier": "file_stem",
           "typeOnly": false

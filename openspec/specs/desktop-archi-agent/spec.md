@@ -21,7 +21,7 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_module`（不在七通用工具
 - 元素不存在 SHALL 返回可诊断 `Err`（附近似 FQN 或总量提示），MUST NOT 返回空对象。
 - 模型结构错时 SHALL 返回结构化诊断清单作为 `Err`（绝不 panic），使 agent 能看出"模型本身坏了"而不是"没有这个模块"。
 - 响应 SHALL 经 `archi::dto` 单点投影产出（MUST NOT 在工具执行体内另拼一份 JSON）。
-- **`api` 并列字段**：单元素响应 SHALL 并出 `api` 对象（`status`（`declared` / `none`）/ `contractPath` / `schemaPath` / `generatedPath`），定位 SHALL 按 `<archi_models_dir>/<Domain>/<FQN>.md` 与相应的 `.schema.json` / 生成物路径**派生**（全经 `foundation::layout` 的派生族与 `api::paths` 单点，MUST NOT 行内拼路径；`api` 段已退役，契约资产落在契约资产目录 `models/` 的 `<Domain>/` 子目录内）；文件不存在即 `status = none` 且三个路径字段为 `null`（零配置，「有契约 / 无契约」成为可枚举事实）。该字段 MUST NOT 承载协议正文（正文由 agent 用 `read` 按路径自取），MUST NOT 成为独立工具、MUST NOT 改变本工具的只读属性与注入矩阵。
+- **`api` 并列字段**：单元素响应 SHALL 并出 `api` 对象（`status`（`declared` / `none`）/ `contractPath` / `schemaPath` / `generatedPath`），定位 SHALL 按 `<archi_models_dir>/<分层目录…>/<FQN>.md` 与相应的 `.schema.json` / 生成物路径**派生**（全经 `foundation::layout` 的派生族与 `api::paths` 单点，MUST NOT 行内拼路径；`api` 段已退役，契约资产落在契约资产目录 `models/` 的 `<分层目录…>/` 子目录内）；文件不存在即 `status = none` 且三个路径字段为 `null`（零配置，「有契约 / 无契约」成为可枚举事实）。该字段 MUST NOT 承载协议正文（正文由 agent 用 `read` 按路径自取），MUST NOT 成为独立工具、MUST NOT 改变本工具的只读属性与注入矩阵。
 - **`doc` 并列字段（本变更换面）**：`doc` SHALL 为 repo 相对 POSIX 路径**单值**或 `null`（无 `title` / `kind` / `source` 四字段形态）。只有 `api = none` 的元素会填；`api = declared` 元素的入口文档走既有 `api.contractPath`，MUST NOT 在 `doc` 里重复出线。`doc` 指向的文件不存在时该元素的判据面报 `docNotFound`（`error` 档）——工具响应本身 MUST NOT 为此降级或补默认值。
 - **描述面（`mount.rs`）**：`archi_module` 的工具描述 SHALL 去掉「关联文档（四字段条目）」与「`docNotFound` 警告」两句，改为「入口文档单值 `doc`（仅 `api = none` 元素有值；declared 走 `api.contractPath`）」，MUST NOT 残留 `docs` 词汇或警告语义。
 
@@ -247,7 +247,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 - **两通路并存，互不替代**：MUST NOT 因通路 B 存在而移除通路 A（change 侧 worktree 隔离 + 归档确认仍是「改动随 change 一起评审」的唯一形态）；亦 MUST NOT 因通路 A 存在而禁通路 B（架构页会话的用途恰是「不进 change 也能维护模型」）。
 - **场景归属**：冷启动生成骨架 / 增量维护（新增或重构模块）/ 按现状补声明 / 直接修复图或文档错误，四类场景 SHALL 可走任一条通路（走 change 时落 dev-design 阶段，走架构页时落通用会话），MUST NOT 强制单一入口。
 - **新元素缺省档**：两通路生成的新元素均缺省 `gate = "off"`（ratchet 逐块收紧）。
-- **通路 B 的边界（软约束，非写入面强制）**：会话知识 SHALL 要求「只改架构域模型与 `doc` 所指入口文档；改源码须用户明确要求」，但写入面 MUST NOT 为该约束设硬隔离——该缺口 SHALL 在能力 spec 中如实留痕，MUST NOT 被表述为「会话只能改模型」。
+- **通路 B 的边界（软约束，非写入面强制）**：会话知识 SHALL 要求「禁止修改架构目录之外的文件（源码 / 配置 / 脚本 / 域外文档一律不改，用户要求亦不越界；生成物重生成除外）」，但写入面 MUST NOT 为该约束设硬隔离——该缺口 SHALL 在能力 spec 中如实留痕，MUST NOT 被表述为「会话只能改模型」。
 - **生成物同权但不可手改**：四类契约生成物（`.schema.json` / `INDEX.toml` / `.i.rs` / `.i.ts`）与模型文件同属磁盘可写面（零专用工具、零写前校验），但会话知识 SHALL 要求「MUST NOT 手改生成物，用既有命令重生成」——该约束同样只有事后兜底（零 diff 门 + 契约面板），MUST NOT 表述为写入面拦截。
 
 #### Scenario: worktree 内直改模型成功
@@ -274,19 +274,19 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 
 `source = "archi"` 的会话 SHALL 注入一段架构会话知识到 `SessionInjections.preamble`（系统消息合成见 `desktop-agent-execution`），内容 SHALL 覆盖以下关注点：
 
-- **模型位置与聚合**：模型文件位于架构域 `graph/model/` 下（契约资产在 `models/<Domain>/`，两目录分家）、按文件名字典序聚合；目录路径 SHALL 为**派生所得**的 repo 相对路径（见 `workspace-layout-resolution`），MUST NOT 在产品源码或知识文本中手写目录字面量。
-- **格式约定**：一元素一表头、键为带引号的完整 FQN 单键（禁点分嵌套写法）；元素字段面为 `kind`（必填）/ `gate` / `api` / `entry` / `path` / **`doc`** / `summary` / `metadata`（`docs` 已退役，MUST NOT 再出现在字段面清单里）；`entry` 是**单值**实现入口指针（repo 相对路径，与 `path` 同口径），只在约定默认指不到时显式写（目录型壳与二进制 crate），单文件根元素 MUST NOT 写（根文件即入口）；**`doc` 是单值入口文档指针，只有 `api = none` 的元素可写**（`api = declared` 的入口文档恒为派生落点 `<models>/<Domain>/<FQN>.md`，写了即 `apiUnexpected`）；关系为 `[[relation]]` 条目（`from` / `to` / `desc`）；`metadata` MUST 用内联表，MUST NOT 用子表（子表会被解析为另一个元素）。
+- **模型位置与聚合**：模型文件位于架构域 `graph/model/` 下（契约资产在 `models/<分层目录…>/`，两目录分家）、按文件名字典序聚合；目录路径 SHALL 为**派生所得**的 repo 相对路径（见 `workspace-layout-resolution`），MUST NOT 在产品源码或知识文本中手写目录字面量。
+- **格式约定**：一元素一表头、键为带引号的完整 FQN 单键（禁点分嵌套写法）；元素字段面为 `kind`（必填）/ `gate` / `api` / `entry` / `path` / **`doc`** / `summary` / `metadata`（`docs` 已退役，MUST NOT 再出现在字段面清单里）；`entry` 是**单值**实现入口指针（repo 相对路径，与 `path` 同口径），只在约定默认指不到时显式写（目录型壳与二进制 crate），单文件根元素 MUST NOT 写（根文件即入口）；**`doc` 是单值入口文档指针，只有 `api = none` 的元素可写**（`api = declared` 的入口文档恒为派生落点 `<models>/<分层目录…>/<FQN>.md`，写了即 `apiUnexpected`）；关系为 `[[relation]]` 条目（`from` / `to` / `desc`）；`metadata` MUST 用内联表，MUST NOT 用子表（子表会被解析为另一个元素）。
 - **层级与缺省**：层级由 FQN 最长前缀推导（子元素须先声明祖先）；新元素 `gate` 缺省 `off`（ratchet 逐块收紧）。
 - **边界**：模型里 MUST NOT 写接口 / 导出符号（契约权威在契约资产）；`api` / `entry` / `doc` 是三个**指针**（有无公共 API / 入口在哪 / 入口文档读哪份），MUST NOT 由它们扩张出协议正文。
 - **自检纪律**：改完 SHALL 立即复查——调用 `archi_module`（不带 `element`）取得薄概览或结构诊断清单（诊断带 `file:line`），按行修复；契约面另可调 `archi_api`（`action = "check"`）查两轴（生成物三类差异 + 契约判据）；生成物过期 SHALL 用既有命令（`pnpm api:export` / `cargo run -p archi-api-gen -- generate`）重生成，MUST NOT 手改生成物。该纪律 SHALL 为纯提示词约束，MUST NOT 依赖写盘校验或引擎自动校验回灌。
-- **写面与可见性**：直改主仓（无 worktree、无归档确认），改动随 `git diff` 评审；只改架构域模型与 **`doc` 所指的入口文档**（`docs` 关联面已不存在），改源码须用户明确要求；写盘后画布不自动更新，须提示用户点「刷新」。
+- **写面与可见性**：直改主仓（无 worktree、无归档确认），改动随 `git diff` 评审；**禁止修改架构目录之外的文件**（源码 / 配置 / 脚本 / 域外文档一律不改，用户要求亦不越界；生成物重生成除外）；写盘后画布不自动更新，须提示用户点「刷新」。
 - **历史会话续接**：续接历史会话时 SHALL 先取当下模型现状（`archi_module` 无参概览或指定元素）再回答「现在是什么样」一类问题，MUST NOT 依赖会话早前的描述。
 
 词表类内容 SHALL 从代码单点派生，MUST NOT 手抄：
 
 - `kind` 四值 ← `ElementKind::ALL`；`gate` 三值 + 缺省档 ← `GateTier::ALL` / `GateTier::default()`；`api` 状态二值 + 缺省档 ← `ApiStatus::ALL` / `ApiStatus::default()`；结构诊断九类词 ← `DiagnosticKind::ALL`；目录相对路径 ← `foundation::layout` 的架构域相对路径派生族。
 - `entry` 与 `doc` SHALL **不进**派生词表：两者的值域是任意 repo 相对路径（开放集），不是封闭词汇；知识文本只给纪律句，判据定义归 `desktop-archi-api` / `desktop-archi-api-check`，不在知识文本内复制判据长表。
-- **派生的目录方位 SHALL 为三处**：模型声明目录（`archi_graph_model_rel_dir`）、契约资产（`<archi_models_rel_dir>/<Domain>/<FQN>.md`）、契约索引（`archi_graph_rel_dir`/`INDEX.toml`）。**「决策记录目录：{}」一句 SHALL 删除**（`archi_decisions_rel_dir` 已随 `docs` 三源退役删除；ADR 的定位改由入口文档链接与文件树承担）。
+- **派生的目录方位 SHALL 为三处**：模型声明目录（`archi_graph_model_rel_dir`）、契约资产（`<archi_models_rel_dir>/<分层目录…>/<FQN>.md`）、契约索引（`archi_graph_rel_dir`/`INDEX.toml`）。**「决策记录目录：{}」一句 SHALL 删除**（`archi_decisions_rel_dir` 已随 `docs` 三源退役删除；ADR 的定位改由入口文档链接与文件树承担）。
 - 知识文本 SHALL 为**静态骨架 md（`include_str!`）+ 上述派生片段**在装配侧拼成的单条文本；新增 / 删除任一封闭词汇而知识未同步时，派生消费面测试 MUST 变红（四面词汇集一致性见 `desktop-archi-model`「消费面词汇集一致性对拍」）。
 
 两条工程约束：
@@ -357,11 +357,11 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 |------|------|----------|
 | `crates/core/agent/src/runner.rs` | 注入词表（零改动） | 注入面即 `SessionInjections.tools: Option<Vec<String>>`（工具名字清单）；`SessionToolset` / `toolset` 已退役（产品源码零命中，`sdk/runner_test.rs` 有零命中断言），本表不再登记该枚举 |
 | `crates/infra/agent/src/compose.rs` | 注入装配（新增第三臂） | `assemble_injections`：explore 臂逐字不变 → **archi 臂**（`source == "archi"` 短路命中：`preamble = Some(knowledge())`、`tools = Some(七内建全量 + 三个 archi 工具名)`，不碰相位解析）→ change 臂（7 行矩阵 + fail-closed，`archi_matrix` 为矩阵单点）→ default（显式构造，非默认值兜底）；`ARCHI_SOURCE` 常量为来源词单点 |
-| `crates/infra/agent/src/archi_knowledge.rs` | 骨架 + 派生段拼装（本变更：目录方位串换段） | 注入段 SHALL 由「契约目录：`<archi_api_rel_dir>`」改为「契约资产：`<archi_models_rel_dir>/<Domain>/<FQN>.md`（索引 `<archi_graph_rel_dir>/INDEX.toml`）」——`api` 段串零残留；四面词表注入、纯函数零 IO、降级为 `None` 的语义逐字不变。原拼接面：`knowledge() -> Option<String>`：`include_str!("archi-knowledge.md")` + `ElementKind::ALL` / `GateTier::ALL` / `GateTier::default()` / `ApiStatus::ALL` / `DiagnosticKind::ALL` / `foundation::layout` 相对路径派生族；`entry` / `doc` MUST NOT 进派生词表（开放值集）；纯函数零 IO；降级为 `None` 而非 `Err` |
+| `crates/infra/agent/src/archi_knowledge.rs` | 骨架 + 派生段拼装（本变更：目录方位串换段） | 注入段 SHALL 由「契约目录：`<archi_api_rel_dir>`」改为「契约资产：`<archi_models_rel_dir>/<分层目录…>/<FQN>.md`（索引 `<archi_graph_rel_dir>/INDEX.toml`）」——`api` 段串零残留；四面词表注入、纯函数零 IO、降级为 `None` 的语义逐字不变。原拼接面：`knowledge() -> Option<String>`：`include_str!("archi-knowledge.md")` + `ElementKind::ALL` / `GateTier::ALL` / `GateTier::default()` / `ApiStatus::ALL` / `DiagnosticKind::ALL` / `foundation::layout` 相对路径派生族；`entry` / `doc` MUST NOT 进派生词表（开放值集）；纯函数零 IO；降级为 `None` 而非 `Err` |
 | `crates/infra/agent/src/archi-knowledge.md`（新） | 知识静态骨架（`include_str!` 内嵌） | 格式与键形约定（「格式约定」段的元素字段面为八项：`kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata`，并含 `entry` 三条纪律与 `doc` 的「只有 `api = none` 可写」纪律）/ 层级推导 / `gate` 缺省 / 边界 / 自检 / 写面与可见性 / 历史会话续接 + 两段形态的可解析示例 TOML（`api = "none"` + `doc` / declared 零 `doc` 行；经 `TomlParser` 零诊断）；零 `<>` 占位符、体量受上限约束、零 `include_str!` 之外的动态指令 |
 | `crates/infra/agent/src/archi_knowledge_test.rs` | 知识语料（本变更：断言串换段） | 「契约目录：」引导语断言改为「契约资产：」+「契约索引：」两条并各断言 `<archi_models_rel_dir>` / `<archi_graph_rel_dir>` 逐字注入；示例片段可解析（含 `entry` 单值形态）、四面词表在场、体量上限、纯函数性（三次调用逐字相等）四条语义不变 |
 | `crates/core/archi/src/dto.rs` | 词汇单点（补 `ALL`） | `ArchiDiagnosticKind::ALL: [Self; 9]`，与 `as_str` 同源；既有 `ElementKind::ALL` / `GateTier::ALL` 复用 |
-| `crates/core/archi/src/dto.rs`（`ArchiApiRef` / `ArchiElement.api` / `ArchiModuleDetail.api`） | 契约状态的线面投影 | `api: { status: ApiStatus, contractPath: Option<String>, schemaPath: Option<String>, generatedPath: Option<String> }`；`specta::Type`；三路径由 `api::paths` 派生后转 repo 相对形态（契约 md / schema 在 `<archi_models_dir>/<Domain>/`）；DTO 形状（字段名 / 顺序 / 派生）零变化。**绑定面说准**：两处 doc 方位串经 specta 抄进 `bindings.ts` ⇒ 恰 2 行 doc 注释随动、`bindings.zod.ts` 零 diff |
+| `crates/core/archi/src/dto.rs`（`ArchiApiRef` / `ArchiElement.api` / `ArchiModuleDetail.api`） | 契约状态的线面投影 | `api: { status: ApiStatus, contractPath: Option<String>, schemaPath: Option<String>, generatedPath: Option<String> }`；`specta::Type`；三路径由 `api::paths` 派生后转 repo 相对形态（契约 md / schema 在 `<archi_models_dir>/<分层目录…>/`）；DTO 形状（字段名 / 顺序 / 派生）零变化。**绑定面说准**：两处 doc 方位串经 specta 抄进 `bindings.ts` ⇒ 恰 2 行 doc 注释随动、`bindings.zod.ts` 零 diff |
 | `crates/core/foundation/src/layout/mod.rs` | 相对路径派生 | `archi_rel_dir()` / `archi_models_rel_dir()` / `archi_graph_rel_dir()`（`/` 分隔、零 IO、零行内字面量）；`api` 段一族（`API_DIR_NAME` / `archi_api_dir` / `archi_api_rel_dir`）与 `decisions` 段一族（`DECISIONS_DIR_NAME` / `archi_decisions_dir` / `archi_decisions_rel_dir`）已删 |
 | `crates/infra/agent/src/sdk/tools.rs` | 工具定义面 | 三个工具名常量 + 定义（schema：`element`；`query` + `scope`；`action` + `element`）；`definitions` 按本轮工具名字清单追加；`input_path` 对三者返回 `None`（不进路径沙箱） |
 | `crates/infra/agent/src/sdk/archi_tool.rs` | 工具执行体 | 经 `LoopTurn` per-turn 上下文取 root → `archi::dto` 投影（`archi_module` 两形态、`archi_search` 三 scope）与契约面自检（`archi_api` 的 `check` / `bootstrap` 两动作，零写盘）；命中既有 L1 单结果上限收口；坏模型 → `is_error` 不 panic |

@@ -152,7 +152,7 @@ pair 锚点（不进元素循环，与元素锚点并列、互不挤占）
 
 #### Scenario: 启用判据与载体同源
 
-- **WHEN** 观察根下 `graph/model/` 一级有六个 `NN-<域>.toml`，另有 `models/notes.md`（非任何元素的载体）与 `<Domain>/notes.md`（无 fence）
+- **WHEN** 观察根下 `graph/model/` 一级有六个 `NN-<域>.toml`，另有 `models/notes.md`（非任何元素的载体）与 `Backend/notes.md`（无 fence）
 - **THEN** `enabled = false` 且 `apiFindings = []`；随后在某元素派生契约路径放入一份带 `api-op` fence 的 md ⇒ `enabled = true`、全部 `path` 非空元素纳入判据。两例共用同一判定函数（`doc_facts` 上的 `has_api_fence`），MUST NOT 在命令层另判一套
 
 #### Scenario: entry 优先互斥
@@ -349,7 +349,7 @@ pair 锚点（不进元素循环，与元素锚点并列、互不挤占）
 | `crates/core/archi/src/api/contract.rs` | fence 语言标单点 | `FENCE_OP` / `FENCE_TYPES` 提 `pub(crate)`，供 `apiDocMissing` 与 `enabled` 复用；MUST NOT 抄第二份字面量 |
 | `crates/core/archi/src/api/check.rs` | 十三判据单点求值 | `check(ApiCheckInput) -> Vec<ArchiApiFinding>`：**两支首错短路**（none 支 `apiUnexpected` → `docMissing` → `docNotFound`；declared 支 `docMissing` → `apiDocMissing` → `apiUnexpected` → `apiEntryMissing` → `apiMissing` → 一致性）+ **pair 锚点**（`nested → ref → shadowing`，MUST NOT 引用 `relations`）；`category_of` **七值**（+ `doc`）；`missing_contracts` 只剩形态②；`apiDocMissing` 只读 `input.doc_facts`（零读盘、零 `contract::parse`）；声明集（op **与 `$defs` 类型**）vs 导出集、签名归一比对、嵌套透传五项语义逐字不变；**已删** `has_generated`（`.i` 存在不再充当入口证据）；`$defs` 只读 `schema.json`；零第二份判定；**导出集单点**：导出集由 `extract::extract_element` 给出（TS 侧即入口导出闭包）⇒ `apiMissing` 只减不增、`apiUndeclared` 仍 `off`、`apiSignatureMismatch` 仍逐符号归一比对；判据面 MUST NOT 自行解析 re-export、MUST NOT 内联 owner 归属判断（那是取数面的单点） |
 | `crates/core/archi/src/drift/mod.rs` | 报告装配单点 | `check()` 内调 `api::check` 装配 `api_findings`（与模型面并列）并取纳管子集传 `derive_status`；`derive_status` 在纳管子集上**分档**（任一 `Error` ⇒ `errors`）；`passed` 判据追加「error 档 `apiFindings` 空」；`status == errors ⟺ passed == false` 不变量保持 |
-| `crates/core/archi/src/api/check_test.rs` | 判据语料（本变更：夹具落点换段） | 契约夹具由 `<archi_api_dir>/<Domain>/` 换到 `<archi_models_dir>/<Domain>/`，每条判据的正反例与断言值逐字不变； 十三判据正反例（三值新判据的用例全在既有 sidecar 内）/ entry 互斥（含 `Absent` 与四种 `Invalid` 理由各一条）/ 「`.i` 在盘但无入口仍报 ①」/ `api = none` + `entry` 有值零判据 / 签名归一 / 留白双向 / 交集 / 非直接子元素 / 跨 crate / 透传漂移 / `severity()` 与 `ALL` 逐值对拍；`function()` / `type_symbol()` 夹具补 `ApiSymbol.file`（形状适配，断言值零变化，不新增判据用例） |
+| `crates/core/archi/src/api/check_test.rs` | 判据语料（本变更：夹具落点换段） | 契约夹具由 `<archi_api_dir>/<分层目录…>/` 换到 `<archi_models_dir>/<分层目录…>/`，每条判据的正反例与断言值逐字不变； 十三判据正反例（三值新判据的用例全在既有 sidecar 内）/ entry 互斥（含 `Absent` 与四种 `Invalid` 理由各一条）/ 「`.i` 在盘但无入口仍报 ①」/ `api = none` + `entry` 有值零判据 / 签名归一 / 留白双向 / 交集 / 非直接子元素 / 跨 crate / 透传漂移 / `severity()` 与 `ALL` 逐值对拍；`function()` / `type_symbol()` 夹具补 `ApiSymbol.file`（形状适配，断言值零变化，不新增判据用例） |
 | `crates/core/archi/tests/corpus/drift/**` + `tests/golden_test.rs` | 报告面语料 | 十六份金样随「首错短路 + 纳管分档」显式重录并逐份留痕成因；`corpus/drift/<case>/{contracts,models,repo}` + `expected/<case>.<mode>.json`；`DRIFT_CASES` 登记面即驱动表（未登记 / 目录不存在 / 缺 `apiFindings` 键三种失配皆红）；`api-mismatch` case 保持非空 `apiFindings`；golden 沿 `DESKTOP_GOLDEN_REWRITE=1` 显式重写 |
 | `crates/core/archi/tests/vocabulary_test.rs` | 词汇对拍 | `ArchiApiFindingKind::ALL` 长度 **13** 与 `as_str` / `severity()` 逐值对拍；`WarningKind` / `DocKind` / `DocSource` 三组对拍删除；`SearchScope` 三值词面换 `doc` |
 | `<change>/reports/archi/<timestamp>.json`（门禁留痕） | 运行时产物 | 报告由门禁进程写出并作移交留痕（`apiFindings` 长度 **43**、`status = clean`）；`reports/archi/` 不入库、不计入交付面、不作判红面（`??` 属预期） |

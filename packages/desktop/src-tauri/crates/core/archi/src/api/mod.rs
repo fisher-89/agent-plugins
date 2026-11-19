@@ -360,7 +360,7 @@ pub fn gating_findings(
 /// 语言标（= [`doc_facts`] 中至少一个 `Present { has_api_fence: true }`）。
 ///
 /// MUST NOT 退化为「`<archi_models_dir>` 递归任意 `*.md`」——`models/` 里放一份笔记
-/// （非任何元素的载体）或一份无 fence 的 `<Domain>/notes.md` MUST NOT 误判为启用。
+/// （非任何元素的载体）或一份无 fence 的 `<分层目录>/notes.md` MUST NOT 误判为启用。
 /// 判据与判据面同源（同一 `doc_facts`、同一 fence 语言标常量），命令层 MUST NOT 另
 /// 判一套。
 pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
@@ -1081,8 +1081,9 @@ const SCHEMA_URI: &str = "https://json-schema.org/draft/2020-12/schema";
 /// 生成物警示文案（`$comment` 与 `.i.*` 头注释共用同一句）。
 const GENERATED_NOTICE: &str = "本文件由元素的契约 markdown 生成，勿手改：手改将在下次 generate 时被覆盖，且 api:check 零 diff 门会失败";
 
-/// 契约资产与契约索引两处有界枚举共用的深度上限（`<Domain>/<Sub>/` 级足够；防环）。
-const MAX_API_WALK_DEPTH: usize = 4;
+/// 契约资产与契约索引两处有界枚举共用的深度上限（分层目录深度随 FQN 深度增长，8 层
+/// 对「`Frontend/Components/Agent/` 级」留足余量；本值只防环，不是布局判据）。
+const MAX_API_WALK_DEPTH: usize = 8;
 
 /// `$ref` 的 `$defs` 片段（[`ref_name`] 的切分点，schema 装配与两渲染器同源）。
 pub(crate) const DEFS_FRAGMENT: &str = "#/$defs/";

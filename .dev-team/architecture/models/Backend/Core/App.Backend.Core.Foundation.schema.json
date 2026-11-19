@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "App.Backend.Core.Foundation.schema.json",
+  "title": "App.Backend.Core.Foundation",
+  "$comment": "本文件由元素的契约 markdown 生成，勿手改：手改将在下次 generate 时被覆盖，且 api:check 零 diff 门会失败",
+  "$defs": {},
+  "properties": {
+    "is_archi_rel_path": {
+      "x-function": {
+        "owner": "layout",
+        "params": [
+          {
+            "name": "rel",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "returns": {
+          "type": "boolean"
+        }
+      }
+    },
+    "archi_rel_dir": {
+      "x-function": {
+        "owner": "layout",
+        "params": [],
+        "returns": {
+          "type": "string"
+        }
+      }
+    },
+    "archi_models_rel_dir": {
+      "x-function": {
+        "owner": "layout",
+        "params": [],
+        "returns": {
+          "type": "string"
+        }
+      }
+    },
+    "archi_graph_rel_dir": {
+      "x-function": {
+        "owner": "layout",
+        "params": [],
+        "returns": {
+          "type": "string"
+        }
+      }
+    },
+    "archi_graph_model_rel_dir": {
+      "x-function": {
+        "owner": "layout",
+        "params": [],
+        "returns": {
+          "type": "string"
+        }
+      }
+    },
+    "workspace_identity_segment": {
+      "x-function": {
+        "owner": "identity",
+        "params": [
+          {
+            "name": "canonical_root",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "returns": {
+          "type": "string"
+        }
+      }
+    },
+    "is_pruned_dir_name": {
+      "x-function": {
+        "owner": "prune",
+        "params": [
+          {
+            "name": "name",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "returns": {
+          "type": "boolean"
+        }
+      }
+    },
+    "is_reserved_path": {
+      "x-function": {
+        "owner": "windows_name",
+        "params": [
+          {
+            "name": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "returns": {
+          "type": "boolean"
+        }
+      }
+    },
+    "is_set": {
+      "x-function": {
+        "owner": "CancelFlag",
+        "params": [],
+        "returns": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

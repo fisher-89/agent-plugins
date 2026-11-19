@@ -569,7 +569,7 @@ fn knowledge契约资产与索引派生注入且四目录同源() {
     let contracts = foundation::layout::archi_models_rel_dir();
     let index = foundation::layout::archi_graph_rel_dir();
     assert!(
-        text.contains(&format!("契约资产：{contracts}/<Domain>/<FQN>.md")),
+        text.contains(&format!("契约资产：{contracts}/<分层目录…>/<FQN>.md")),
         "知识文本缺契约资产派生串 {contracts}（路径 MUST NOT 手抄）"
     );
     assert!(
@@ -710,7 +710,7 @@ fn build真实骨架产物含api面() {
 // 骨架 md 的实现措辞是「契约权威在**契约资产**（末段给出路径）」。二者不是同一字面——
 // 设计那半句是**语义要求**（权威指向契约资产、路径由派生段给出），md 侧按「零目录字面量」
 // 既有纪律只能写「契约资产」+「末段给出路径」，「api 目录」这个具体串由 `build()` 的派生段
-// 注入（`契约资产：<archi_models_rel_dir()>/<Domain>/<FQN>.md`）。故本组用例把判据落成三条可机械核对的形态：
+// 注入（`契约资产：<archi_models_rel_dir()>/<分层目录…>/<FQN>.md`）。故本组用例把判据落成三条可机械核对的形态：
 // ① 旧口径零命中；② 新语义的**关键词**在场（契约资产 / 数据末给出路径 / 状态指针 /
 // 正文不进模型）；③ 「api 目录」这一路径串由派生段承载而非骨架手抄。
 // ===========================================================================
@@ -979,6 +979,14 @@ fn 骨架自检纪律写面与续接逐条关键词在场() {
 {write_face}"
         );
     }
+    for piece in ["禁止修改架构目录之外", "源码 / 配置 / 脚本", "生成物重生成"]
+    {
+        assert!(
+            write_face.contains(piece),
+            "写面与可见性缺 {piece:?}（写面禁令）：
+{write_face}"
+        );
+    }
 
     // 冻结面的条目面：两条纪律段各自 3 条要点，条目合并即视为压缩重写
     assert_eq!(
@@ -1205,14 +1213,15 @@ fn knowledge零旧方位与尖括号计数不变() {
     );
 }
 
-/// 边界（AC-8）：体量实测值固定——`knowledge()` 输出恰 3586 字节（骨架字节 + 派生段
-/// 字节；模型声明目录换 `graph/model` 后 +5），仍在既有 4096 上限内（`doc` 纪律进场不破上限）。
+/// 边界（AC-8）：体量实测值固定——`knowledge()` 输出恰 3617 字节（骨架字节 + 派生段
+/// 字节；写面禁令替换旧软约束后 +19、入口文档落点改述按分层目录 +12），仍在既有 4096
+/// 上限内。
 #[test]
 fn knowledge体量实测值固定() {
     let text = text();
     assert_eq!(
         text.len(),
-        3586,
+        3617,
         "体量实测值固定（骨架 trim_end 字节 + 派生段字节），实得 {} 字节",
         text.len()
     );

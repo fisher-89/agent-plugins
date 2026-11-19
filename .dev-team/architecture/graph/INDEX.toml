@@ -40,12 +40,12 @@ generated = ""
 
 [[entry]]
 fqn = "App.Backend.Core.Foundation"
-status = "absent"
+status = "declared"
 types = 0
-ops = 0
+ops = 9
 degraded = 0
-schema = ""
-generated = ""
+schema = ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Foundation.schema.json"
+generated = "packages/desktop/src-tauri/crates/core/foundation/src/lib.i.rs"
 
 [[entry]]
 fqn = "App.Backend.Core.Orchestration"
@@ -80,7 +80,7 @@ status = "declared"
 types = 1
 ops = 1
 degraded = 0
-schema = ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.schema.json"
+schema = ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.schema.json"
 generated = "packages/desktop/src-tauri/crates/infra/archi/src/lib.i.rs"
 
 [entry.categories]
@@ -160,75 +160,75 @@ generated = ""
 
 [[entry]]
 fqn = "App.Frontend.Components.Agent"
-status = "absent"
+status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ""
-generated = ""
+schema = ".dev-team/architecture/models/Frontend/Components/App.Frontend.Components.Agent.schema.json"
+generated = "packages/desktop/src/components/agent/index.i.ts"
 
 [[entry]]
 fqn = "App.Frontend.Components.Agent.AgentBlocks"
-status = "absent"
+status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ""
-generated = ""
+schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.Components.Agent.AgentBlocks.schema.json"
+generated = "packages/desktop/src/components/agent/message-cards/blocks.i.ts"
 
 [[entry]]
 fqn = "App.Frontend.Components.Agent.AgentError"
-status = "absent"
+status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ""
-generated = ""
+schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.Components.Agent.AgentError.schema.json"
+generated = "packages/desktop/src/components/agent/agent-error.i.ts"
 
 [[entry]]
 fqn = "App.Frontend.Components.Agent.AgentInput"
-status = "absent"
+status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ""
-generated = ""
+schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.Components.Agent.AgentInput.schema.json"
+generated = "packages/desktop/src/components/agent/agent-input.i.ts"
 
 [[entry]]
 fqn = "App.Frontend.Components.Agent.AgentMessages"
-status = "absent"
+status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ""
-generated = ""
+schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.Components.Agent.AgentMessages.schema.json"
+generated = "packages/desktop/src/components/agent/agent-messages.i.ts"
 
 [[entry]]
 fqn = "App.Frontend.Components.Agent.AgentSessionView"
-status = "absent"
+status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ""
-generated = ""
+schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.Components.Agent.AgentSessionView.schema.json"
+generated = "packages/desktop/src/components/agent/agent-session-view.i.ts"
 
 [[entry]]
 fqn = "App.Frontend.Components.Agent.SessionPanel"
-status = "absent"
+status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ""
-generated = ""
+schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.Components.Agent.SessionPanel.schema.json"
+generated = "packages/desktop/src/components/agent/session-panel.i.ts"
 
 [[entry]]
 fqn = "App.Frontend.Components.Agent.ToolCards"
-status = "absent"
+status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ""
-generated = ""
+schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.Components.Agent.ToolCards.schema.json"
+generated = "packages/desktop/src/components/agent/message-cards/tool-cards.i.ts"
 
 [[entry]]
 fqn = "App.Frontend.Components.Standard.Dailog"

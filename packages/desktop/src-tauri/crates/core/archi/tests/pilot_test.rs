@@ -67,12 +67,12 @@ fn pilot_element(fqn: &str, paths: &[&str]) -> archi::dto::ArchiElement {
 
 /// 试点契约的 repo 相对路径串。
 fn contract_rel() -> String {
-    format!(".dev-team/architecture/models/Infra/{FQN}.md")
+    format!(".dev-team/architecture/models/Backend/Infra/{FQN}.md")
 }
 
 /// 试点 schema 生成物的 repo 相对路径串。
 fn schema_rel() -> String {
-    format!(".dev-team/architecture/models/Infra/{FQN}.schema.json")
+    format!(".dev-team/architecture/models/Backend/Infra/{FQN}.schema.json")
 }
 
 /// 试点 `.i.rs` 生成物的 repo 相对路径串（落**实现入口同级**）。
@@ -115,8 +115,9 @@ fn api_dir() -> PathBuf {
 // 三方在场：md / schema.json / .i.rs / INDEX.toml
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-13）：三件资产按 `paths` 单点派生的落点在盘——契约在 `<Domain>/` 下、schema
-/// 与它同目录、`.i.rs` 在元素根同级；索引在独立的 `graph/` 根（与契约目录分家）。
+/// 正向（AC-13）：三件资产按 `paths` 单点派生的落点在盘——契约在分层目录段
+/// （`Backend/Infra/`）下、schema 与它同目录、`.i.rs` 在元素根同级；索引在独立的
+/// `graph/` 根（与契约目录分家）。
 #[test]
 fn 试点三件资产按单点派生落点在盘() {
     let root = repository_root();
@@ -130,12 +131,15 @@ fn 试点三件资产按单点派生落点在盘() {
     assert_eq!(
         contract.parent(),
         schema.parent(),
-        "契约与 schema 恒同目录（同一个 `<Domain>/`）"
+        "契约与 schema 恒同目录（同一段分层目录）"
     );
     assert_eq!(
         contract,
-        api_dir().join("Infra").join(format!("{FQN}.md")),
-        "契约路径 = `<archi_models_dir>/<Domain>/<FQN>.md`（零行内 `api` 段）"
+        api_dir()
+            .join("Backend")
+            .join("Infra")
+            .join(format!("{FQN}.md")),
+        "契约路径 = `<archi_models_dir>/<分层目录…>/<FQN>.md`（零行内 `api` 段）"
     );
     assert_eq!(
         generated,

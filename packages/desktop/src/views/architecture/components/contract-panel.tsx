@@ -318,51 +318,51 @@ export function ContractPanel({
 
   const status = statusText(root, error, loading, check, findings);
   return (
-    <section className="min-h-0 flex flex-1 flex-col gap-1.5" data-testid="archi-contract-panel">
-      <ContractHeader
-        check={check}
-        mode={mode}
-        busy={loading || generating}
-        onCheck={refresh}
-        onGenerate={runGenerate}
-      />
-      {mode === 'full' && (
-        <div className="text-[11px] text-muted-foreground" data-testid="archi-contract-readonly">
-          生成需开 change（或让左侧会话执行 `pnpm api:export`）
-        </div>
-      )}
-      {check !== null && (
-        <div className="shrink-0 text-[11px] text-muted-foreground">
-          契约面 {check.meta.toolVersion} · 映射 {shortDigest(check.meta.commonDigest)}
-        </div>
-      )}
-      {generateError !== null && (
-        <div
-          className="break-all rounded-md bg-fail-bg px-2 py-1 text-xs text-fail"
-          data-source="generate"
-          data-testid="archi-contract-error"
-        >
-          生成失败：{generateError}（非原子：失败点之前已写，不回滚）
-        </div>
-      )}
-      {error !== null && (
-        <div
-          className="break-all rounded-md bg-fail-bg px-2 py-1 text-xs text-fail"
-          data-source="check"
-          data-testid="archi-contract-error"
-        >
-          检查失败：{error}（画布照常渲染）
-        </div>
-      )}
-      {status !== null && (
-        <div className="text-[13px] text-muted-foreground" data-testid="archi-contract-status">
-          {status}
-        </div>
-      )}
-      <ScrollArea className="min-h-0 flex-1 pr-2">
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-1.5" data-testid="archi-contract-panel">
+        <ContractHeader
+          check={check}
+          mode={mode}
+          busy={loading || generating}
+          onCheck={refresh}
+          onGenerate={runGenerate}
+        />
+        {mode === 'full' && (
+          <div className="text-[11px] text-muted-foreground" data-testid="archi-contract-readonly">
+            生成需开 change（或让左侧会话执行 `pnpm api:export`）
+          </div>
+        )}
+        {check !== null && (
+          <div className="shrink-0 text-[11px] text-muted-foreground">
+            契约面 {check.meta.toolVersion} · 映射 {shortDigest(check.meta.commonDigest)}
+          </div>
+        )}
+        {generateError !== null && (
+          <div
+            className="break-all rounded-md bg-fail-bg px-2 py-1 text-xs text-fail"
+            data-source="generate"
+            data-testid="archi-contract-error"
+          >
+            生成失败：{generateError}（非原子：失败点之前已写，不回滚）
+          </div>
+        )}
+        {error !== null && (
+          <div
+            className="break-all rounded-md bg-fail-bg px-2 py-1 text-xs text-fail"
+            data-source="check"
+            data-testid="archi-contract-error"
+          >
+            检查失败：{error}（画布照常渲染）
+          </div>
+        )}
+        {status !== null && (
+          <div className="text-[13px] text-muted-foreground" data-testid="archi-contract-status">
+            {status}
+          </div>
+        )}
         <ArtifactsAxis check={check} root={root} />
         <FindingsAxis findings={findings} onFocus={onFocus} />
-      </ScrollArea>
-    </section>
+      </div>
+    </ScrollArea>
   );
 }

@@ -43,8 +43,8 @@ pub struct Element {
     /// gate 档位（缺省 `off`）
     pub gate: GateTier,
     /// 契约状态指针（缺省 `declared`）：同时是**入口文档载体的开关**——`declared` ⇒
-    /// 入口文档 = 派生 `<models>/<Domain>/<FQN>.md`、`none` ⇒ 入口文档 = [`Element::doc`]。
-    /// 协议正文 MUST NOT 进模型——签名 / 导出符号 / 接口定义写在架构域 `models/<Domain>/`
+    /// 入口文档 = 派生 `<models>/<分层目录…>/<FQN>.md`、`none` ⇒ 入口文档 = [`Element::doc`]。
+    /// 协议正文 MUST NOT 进模型——签名 / 导出符号 / 接口定义写在架构域 `models/`
     /// 目录的契约资产里（与模型同树，契约 md 即入口文档）。
     pub api: ApiStatus,
     /// 实现入口指针（缺省 `None`）：单值、repo 相对 POSIX，与 `path` 同口径

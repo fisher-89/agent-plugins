@@ -57,8 +57,8 @@ const ENTRY_DOC = 'src/auth/README.md';
 /** 契约段三路径 fixture（`contractPath` 落在 models 段：契约资产即入口文档）。 */
 const DECLARED_API = {
   status: 'declared',
-  contractPath: '.dev-team/architecture/models/Core/App.Auth.md',
-  schemaPath: '.dev-team/architecture/models/Core/App.Auth.schema.json',
+  contractPath: '.dev-team/architecture/models/App.Auth.md',
+  schemaPath: '.dev-team/architecture/models/App.Auth.schema.json',
   generatedPath: 'src/auth.i.ts',
 };
 

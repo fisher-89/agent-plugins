@@ -128,23 +128,20 @@ export function ElementTree({ elements, focused, onFocus }: ElementTreeProps): R
   );
 
   return (
-    <section className="min-h-0 w-72 shrink-0 flex flex-col" data-testid="archi-element-tree">
-      <h2 className="m-0 mb-1.5 text-[13px] shrink-0 font-medium text-muted-foreground">元素</h2>
+    <ScrollArea className="h-full" data-testid="archi-element-tree">
       {tree.roots.length === 0 ? (
         <div className="text-[13px] text-muted-foreground" data-testid="archi-tree-empty">
           模型内暂无元素
         </div>
       ) : (
-        <ScrollArea className="flex-1 min-h-0 pr-2">
-          <TreeNodes
-            fqns={tree.roots}
-            byFqn={byFqn}
-            tree={tree}
-            focused={focused}
-            onFocus={onFocus}
-          />
-        </ScrollArea>
+        <TreeNodes
+          fqns={tree.roots}
+          byFqn={byFqn}
+          tree={tree}
+          focused={focused}
+          onFocus={onFocus}
+        />
       )}
-    </section>
+    </ScrollArea>
   );
 }
