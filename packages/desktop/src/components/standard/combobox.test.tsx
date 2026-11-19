@@ -75,6 +75,20 @@ describe('StandardCombobox：自由输入（建议不构成约束）', () => {
     expect(inputEl().value).toBe('my-custom-model');
   });
 
+  it('键入目录外自定义值后关闭建议弹层 → 输入原文不被关层收尾回写清空', async () => {
+    const onChange = vi.fn<(value: string) => void>();
+    render(<Harness items={ITEMS} onChange={onChange} />);
+
+    await openList();
+    type('my-custom-model');
+    fireEvent.keyDown(inputEl(), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+
+    expect(inputEl().value).toBe('my-custom-model');
+    expect(inputEl().getAttribute('data-value')).toBe('my-custom-model');
+    expect(onChange).toHaveBeenLastCalledWith('my-custom-model');
+  });
+
   it('展开清单并选中建议项 → 输入框呈该原文、onChange 收到该值', async () => {
     const onChange = vi.fn<(value: string) => void>();
     render(<Harness items={ITEMS} onChange={onChange} />);

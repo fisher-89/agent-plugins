@@ -60,37 +60,24 @@ pub fn catalog() -> ModelCatalog {
         protocols: vec![
             CatalogProtocol {
                 protocol: AgentProviderProtocol::Openai,
-                // DeepSeek 的深度档是 `low / high / max`（`medium` 在其接口里
-                // 映射成 high，是假三档）；GPT-6 系不在此列——rig 的
+                // DeepSeek 的深度档是 `low / high / max`（`medium` / `xhigh` 在
+                // 其接口里映射成 high，是假档位；`none` 是关思考开关，不属
+                // effort 值域）；GPT-6 系不在此列——rig 的
                 // `refuse_tools_while_reasoning` 使该族带 tools 时只接受「关思考」
                 //（`none`），而 `none` 不在本目录值域内
                 efforts: vec!["low".to_owned(), "high".to_owned(), "max".to_owned()],
                 models: vec![
                     CatalogModel {
-                        value: "deepseek-chat".to_owned(),
-                        context_length: Some(128 * 1024),
-                        max_tokens: Some(8_192),
-                        supports_thinking: false,
-                        efforts: Some(Vec::new()),
-                    },
-                    CatalogModel {
-                        value: "deepseek-chat[1m]".to_owned(),
+                        value: "deepseek-flash".to_owned(),
                         context_length: Some(1_000_000),
-                        max_tokens: Some(8_192),
-                        supports_thinking: false,
-                        efforts: Some(Vec::new()),
-                    },
-                    CatalogModel {
-                        value: "deepseek-reasoner".to_owned(),
-                        context_length: Some(128 * 1024),
-                        max_tokens: Some(64 * 1024),
+                        max_tokens: Some(384 * 1024),
                         supports_thinking: true,
                         efforts: None,
                     },
                     CatalogModel {
-                        value: "deepseek-reasoner[1m]".to_owned(),
+                        value: "deepseek-v4-pro".to_owned(),
                         context_length: Some(1_000_000),
-                        max_tokens: Some(64 * 1024),
+                        max_tokens: Some(384 * 1024),
                         supports_thinking: true,
                         efforts: None,
                     },
@@ -142,6 +129,23 @@ pub fn catalog() -> ModelCatalog {
                         max_tokens: Some(8_192),
                         supports_thinking: false,
                         efforts: Some(Vec::new()),
+                    },
+                    // DeepSeek 的 Anthropic 兼容端点（`/anthropic`）：canonical
+                    // 模型名与 openai 段同源；effort 走模型级覆盖（协议级含
+                    // anthropic 专有的 `medium` / `xhigh`，不是 DeepSeek 的值域）
+                    CatalogModel {
+                        value: "deepseek-flash".to_owned(),
+                        context_length: Some(1_000_000),
+                        max_tokens: Some(384 * 1024),
+                        supports_thinking: true,
+                        efforts: Some(vec!["low".to_owned(), "high".to_owned(), "max".to_owned()]),
+                    },
+                    CatalogModel {
+                        value: "deepseek-v4-pro".to_owned(),
+                        context_length: Some(1_000_000),
+                        max_tokens: Some(384 * 1024),
+                        supports_thinking: true,
+                        efforts: Some(vec!["low".to_owned(), "high".to_owned(), "max".to_owned()]),
                     },
                 ],
             },
