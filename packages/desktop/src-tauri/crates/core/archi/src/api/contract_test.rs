@@ -2206,3 +2206,216 @@ fn verify通过后两侧渲染为必填() {
         "非必填字段两侧同判可选：\n{ts}\n{rust}"
     );
 }
+
+// ===========================================================================
+// fence 常量单点（`FENCE_OP` / `FENCE_TYPES`）：值、唯一性、跨模块零字面量
+// ===========================================================================
+
+/// 正向：常量值恰 `"api-op"` / `"api-types"`，且 `api/mod.rs` 经 `contract::{…}` 消费
+/// （`use` 行在案）。
+#[test]
+fn fence常量值且经mod消费() {
+    use super::contract::{FENCE_OP, FENCE_TYPES};
+
+    assert_eq!(FENCE_OP, "api-op", "op fence 语言标");
+    assert_eq!(FENCE_TYPES, "api-types", "类型 fence 语言标");
+
+    let mod_source = include_str!("mod.rs");
+    assert!(
+        mod_source.contains("FENCE_OP") && mod_source.contains("FENCE_TYPES"),
+        "`api/mod.rs` 消费两常量（`use` 行 + `has_api_fence` 体）"
+    );
+    assert!(
+        mod_source.contains("contract::FENCE_OP") && mod_source.contains("contract::FENCE_TYPES"),
+        "经模块路径单点引用（`contract::FENCE_*`）"
+    );
+}
+
+/// 异常：字面量唯一性——两常量在 `contract.rs` 内各恰 1 处定义；`api/mod.rs` 与
+/// `api/check.rs` 内 `"api-op"` / `"api-types"` 引号字面量零命中（第二份语言标即红）。
+#[test]
+fn fence字面量唯一() {
+    let contract = include_str!("contract.rs");
+    assert_eq!(
+        contract
+            .matches("pub(crate) const FENCE_OP: &str = \"api-op\";")
+            .count(),
+        1,
+        "`FENCE_OP` 定义恰一处"
+    );
+    assert_eq!(
+        contract
+            .matches("pub(crate) const FENCE_TYPES: &str = \"api-types\";")
+            .count(),
+        1,
+        "`FENCE_TYPES` 定义恰一处"
+    );
+
+    for (label, source) in [
+        ("api/mod.rs", include_str!("mod.rs")),
+        ("api/check.rs", include_str!("check.rs")),
+    ] {
+        for literal in ["\"api-op\"", "\"api-types\""] {
+            assert!(
+                !source.contains(literal),
+                "{label} 内零 {literal} 引号字面量（第二份语言标即漂移）"
+            );
+        }
+    }
+}
+
+/// 边界：零第二常量——`contract.rs` 内无 `FENCE_OP_ALT` / `API_FENCE` 一类同值别名；
+/// 两常量均 `pub(crate)` 可见（跨模块引用由 [`fence常量值且经mod消费`] 的消费断言承载）。
+#[test]
+fn fence零第二常量() {
+    let contract = include_str!("contract.rs");
+    for alias in ["FENCE_OP_ALT", "API_FENCE", "FENCE_OP_2", "FENCE_LANG"] {
+        assert!(!contract.contains(alias), "零同值别名常量：{alias}");
+    }
+    assert_eq!(
+        contract.matches("pub(crate) const FENCE_").count(),
+        2,
+        "fence 常量恰两个（op / types）"
+    );
+}
+
+// ===========================================================================
+// `info_tokens` 切分单点：整 token 匹配（非子串）、空 info 与连续分隔符、
+// fence 精度经唯一消费者 `has_api_fence`、`parse` 识别回归
+// ===========================================================================
+
+/// 正向：单 token / `json <lang>` / 逗号分隔 / 首尾空白四种形态同判——空白与逗号
+/// 都只是分隔符，语言标一律整 token 进集。
+#[test]
+fn info_tokens按空白与逗号切分() {
+    use super::contract::{info_tokens, FENCE_OP, FENCE_TYPES};
+
+    let cases: [(&str, Vec<&str>); 4] = [
+        ("api-op", vec![FENCE_OP]),
+        ("json api-op", vec!["json", FENCE_OP]),
+        ("api-types,api-op", vec![FENCE_TYPES, FENCE_OP]),
+        ("  api-op  ", vec![FENCE_OP]),
+    ];
+    for (info, expected) in cases {
+        assert_eq!(
+            info_tokens(info),
+            expected,
+            "`{info}` 的 token 切分应逐项相等"
+        );
+    }
+
+    for info in ["api-op", "json api-op", "  api-op  "] {
+        assert!(
+            info_tokens(info).contains(&FENCE_OP),
+            "`{info}` 应判为 op fence，实际 {:?}",
+            info_tokens(info)
+        );
+    }
+    assert!(
+        info_tokens("api-types,api-op").contains(&FENCE_TYPES),
+        "逗号分隔下 api-types 亦在 token 集内：{:?}",
+        info_tokens("api-types,api-op")
+    );
+}
+
+/// 异常：整 token 匹配而非子串——`api-opx` / `notapi-op` / `API-OP` 均不含目标值
+/// （子串命中或大小写宽松都会让散文与错误拼写被误判为 fence 语言标）。
+#[test]
+fn info_tokens整token匹配() {
+    use super::contract::{info_tokens, FENCE_OP, FENCE_TYPES};
+
+    for info in ["api-opx", "notapi-op", "API-OP"] {
+        let tokens = info_tokens(info);
+        assert!(
+            !tokens.contains(&FENCE_OP),
+            "`{info}` 不得判为 op fence（整 token 匹配），实际 {tokens:?}"
+        );
+        assert!(
+            !tokens.contains(&FENCE_TYPES),
+            "`{info}` 不得判为 types fence，实际 {tokens:?}"
+        );
+        assert_eq!(
+            tokens,
+            vec![info],
+            "`{info}` 未被识别时整串只切出一个 token"
+        );
+    }
+}
+
+/// 边界：空 info / 纯分隔符 → 空 token 集；连续分隔符的空段被忽略；fence 精度经唯一
+/// 消费者 `has_api_fence` 钉住（子串、大小写、`~~~`、散文提及都不认）；`parse` 的
+/// fence 识别逐条不变（`pub(crate)` 可见性变更零语义漂移）。
+#[test]
+fn info_tokens空info与连续分隔符() {
+    use super::contract::{info_tokens, FENCE_OP, FENCE_TYPES};
+    use super::has_api_fence;
+
+    for info in ["", "   ", ",", ",,", " \t "] {
+        assert!(
+            info_tokens(info).is_empty(),
+            "空 / 纯分隔符 info `{info:?}` 应得空 token 集，实际 {:?}",
+            info_tokens(info)
+        );
+    }
+
+    assert_eq!(
+        info_tokens("api-op,,api-types"),
+        vec![FENCE_OP, FENCE_TYPES],
+        "连续分隔符的空段被忽略"
+    );
+    assert_eq!(
+        info_tokens("api-op, ,api-types"),
+        vec![FENCE_OP, FENCE_TYPES],
+        "分隔符之间的空白亦不产空 token"
+    );
+
+    for source in [
+        "```api-op\n{}\n```",
+        "```json api-op\n{}\n```",
+        "```api-types\n{}\n```",
+        "```json,api-op\n{}\n```",
+        "## 职能\n\n正文\n\n```api-op\n{}\n```\n",
+    ] {
+        assert!(
+            has_api_fence(source),
+            "含 fence 语言标应判 true：{source:?}"
+        );
+    }
+    for source in [
+        "",
+        "散文里提到 api-op 但没有 fence",
+        "```\n{}\n```",
+        "```json\n{}\n```",
+        "```api-opx\n{}\n```",
+        "```notapi-op\n{}\n```",
+        "```API-OP\n{}\n```",
+        "~~~api-op\n{}\n~~~",
+    ] {
+        assert!(
+            !has_api_fence(source),
+            "空 info / 子串 / 大小写 / `~~~` / 散文提及均不得判为 true：{source:?}"
+        );
+    }
+
+    let single_token = source_with_op("run").replace("```json api-op", "```api-op");
+    let contract = parse(&single_token, FQN, FILE).expect("单 token 语言标合法");
+    assert_eq!(
+        contract.ops[0].id, "run",
+        "单 token 语言标与 `json` 前缀形态同判（回归：识别零漂移）"
+    );
+
+    let substring_info =
+        format!("# {FQN}\n\n### foo\n\n```json api-opx\n{{\"params\": []}}\n```\n");
+    let message = contract_error(parse(&substring_info, FQN, FILE));
+    assert!(
+        message.contains("缺") && message.contains("foo"),
+        "子串形态不认作 op fence，该 op 仍判缺 fence：{message}"
+    );
+
+    let empty_info_block = format!("# {FQN}\n\n## 职能\n\n```\napi-op\n```\n");
+    let contract = parse(&empty_info_block, FQN, FILE).expect("空 info 代码块不参与契约");
+    assert!(
+        contract.ops.is_empty(),
+        "空 info 块内即便写着语言标也不成 op"
+    );
+}

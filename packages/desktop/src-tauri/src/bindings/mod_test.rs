@@ -333,17 +333,12 @@ const DTO_TYPES: &[&str] = &[
     "ArchiScanReport",
     "ArchiSuppressVia",
     "ArchiUnresolvedFile",
-    "ArchiWarning",
-    "DocKind",
-    "DocRef",
-    "DocSource",
     "EdgeMark",
     "ElementKind",
     "FileEntryKind",
     "FileTreeMark",
     "GateTier",
     "NodeMark",
-    "WarningKind",
 ];
 
 /// 类型段内逐字段名（顶层字段声明行：缩进后为标识符 + `:` 起头；doc 注释 /
@@ -1148,14 +1143,14 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
 fn dto类型清单零补录_条目数与首尾锚持衡() {
     assert_eq!(
         DTO_TYPES.len(),
-        104,
-        "DTO 清单新增 ArchiApiCheck / ArchiApiMeta / ArchiApiWriteOutcome（101 + 3）"
+        99,
+        "退役五类型出清单（ArchiWarning / DocKind / DocRef / DocSource / WarningKind）：104 − 5"
     );
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(
         DTO_TYPES.last(),
-        Some(&"WarningKind"),
-        "尾锚随 archi 章节出线类型后移"
+        Some(&"NodeMark"),
+        "尾锚随退役条目回落到封闭词汇末项"
     );
     assert!(
         DTO_TYPES.contains(&"AppEnvironment"),
@@ -1704,7 +1699,7 @@ const ARCHI_COMMANDS: [(&str, &str); 8] = [
 ];
 
 /// 架构域出线类型名（`Archi*` 投影 + 五组封闭词汇）。
-const ARCHI_DTO_TYPES: [&str; 26] = [
+const ARCHI_DTO_TYPES: [&str; 21] = [
     "ArchiApiCheck",
     "ArchiApiMeta",
     "ArchiApiWriteOutcome",
@@ -1720,17 +1715,12 @@ const ARCHI_DTO_TYPES: [&str; 26] = [
     "ArchiGraph",
     "ArchiModuleDetail",
     "ArchiRelation",
-    "ArchiWarning",
-    "DocKind",
-    "DocRef",
-    "DocSource",
     "EdgeMark",
     "ElementKind",
     "FileEntryKind",
     "FileTreeMark",
     "GateTier",
     "NodeMark",
-    "WarningKind",
 ];
 
 /// 正向：命令族在册（清单 + 产物双面）；既有条目零位移（尾部追加）。
@@ -1795,18 +1785,53 @@ fn archi出线类型逐名命中产物() {
         );
     }
 
-    // `ArchiGraph` 三数组形状（停摆判据 = diagnostics 非空）与 `DocRef` 四字段
+    // `ArchiGraph` 三数组形状（停摆判据 = diagnostics 非空）
     let graph = type_section(&content, "ArchiGraph");
     assert_eq!(
         field_names(&graph),
         vec!["elements", "relations", "diagnostics"],
         "ArchiGraph 三字段按声明序出线（元素 / 关系 / 诊断），实际段:\n{graph}"
     );
-    let doc_ref = type_section(&content, "DocRef");
+
+    // 退役类型零声明（旧关联面的三个类型 + 旧警告两类型）
+    let retired = [
+        format!("{}{}", "Doc", "Ref"),
+        format!("{}{}", "Doc", "Kind"),
+        format!("{}{}", "Doc", "Source"),
+        format!("{}{}", "Warning", "Kind"),
+        "ArchiWarning".to_owned(),
+    ];
+    for name in &retired {
+        assert!(
+            !content.contains(&format!("export type {name} =")),
+            "退役类型零出线声明：{name}"
+        );
+    }
+
+    // `ArchiModuleDetail` 的 `doc` 单值槽位
+    let detail = type_section(&content, "ArchiModuleDetail");
     assert_eq!(
-        field_names(&doc_ref),
-        vec!["path", "title", "kind", "source"],
-        "DocRef 恰四字段按声明序出线（无正文 / 无摘要），实际段:\n{doc_ref}"
+        field_names(&detail),
+        vec![
+            "element",
+            "dependsOn",
+            "dependedBy",
+            "children",
+            "doc",
+            "api"
+        ],
+        "ArchiModuleDetail 字段面按声明序出线（`doc` 单值），实际段:\n{detail}"
+    );
+    let element = type_section(&content, "ArchiElement");
+    let element_fields = field_names(&element);
+    let entry_at = element_fields
+        .iter()
+        .position(|field| field == "entry")
+        .expect("entry 在字段面");
+    assert_eq!(
+        element_fields.get(entry_at + 1).map(String::as_str),
+        Some("doc"),
+        "`doc` 紧跟 `entry`：{element_fields:?}"
     );
 }
 

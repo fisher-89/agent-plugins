@@ -7,7 +7,8 @@
 //!
 //! 边界：纯读盘、**零写盘**、**零 spawn**（报告落盘在 `crates/infra/archi`，本
 //! crate 只出结构）。`status` 推导序见 [`derive_status`]——`api_findings` 经纳管子集
-//! （契约在案元素的判据）影响 `status`，不进 `passed`。
+//! （入口文档承诺已成立元素的判据）影响 `status` 与 `passed`：子集内任一 `error` 档
+//! 条目把 `status` 抬到 `errors`，`passed` 同步为 `false`。
 
 pub mod config;
 pub mod report;
@@ -36,8 +37,8 @@ pub use report::{
 /// 报告结构版本号（字段演进须递增并走显式兼容说明）。
 ///
 /// 兼容三点：`version = 1` 的报告没有 `api_findings` 字段；`version = 2` 有该字段但
-/// `status` 推导不读契约判据；`version = 3` 起**契约在案元素**的判据纳管进 `status`。
-/// 消费方按 `version` 分支，MUST NOT 对旧报告补默认值。
+/// `status` 推导不读契约判据；`version = 3` 起**入口文档承诺已成立**元素的判据纳管进
+/// `status` **与** `passed`。消费方按 `version` 分支，MUST NOT 对旧报告补默认值。
 const REPORT_VERSION: u32 = 3;
 
 /// 判定域错误面（封闭三值）：取消与失败面必须**可辨**——runner 靠 `Stopped` 映射
@@ -290,8 +291,9 @@ pub fn check(input: CheckInput<'_>) -> Result<Report, CheckError> {
     }
 
     // ⑧ 契约判据（与模型面并列；装配单点在 `crate::api::findings`，drift 侧零第二份
-    //    装配）。`status` 只吃**纳管子集**（契约在案元素的判据，筛选单点在
-    //    `crate::api::gating_findings`）；`passed` 派生面零改动。
+    //    装配）。`status` 只吃**纳管子集**（入口文档承诺已成立元素的判据，筛选单点在
+    //    `crate::api::gating_findings`）；`passed` 经 `Report::passed` 读同一子集的
+    //    `error` 档（唯一判据 `report::has_error_tier`）。
     let api_findings = crate::api::findings(input.root, &graph.elements)
         .map_err(|error| CheckError::Config(error.message()))?;
     let gating = crate::api::gating_findings(input.root, &graph.elements, &api_findings);
@@ -325,16 +327,16 @@ pub fn check(input: CheckInput<'_>) -> Result<Report, CheckError> {
 
 /// `status` 推导（封闭五值，序固定）：
 ///
-/// `skipped`（无模型，调用方早退）→ `errors`（模型结构错）→ `errors`
-///（`errors[]` 非空）→ `noChanges`（可判文件为 0）→ `warnings`（`warnings[]`
-/// 非空 **或** 纳管子集非空）→ `clean`。
+/// `skipped`（无模型，调用方早退）→ `errors`（模型结构错 / `errors[]` 非空 /
+/// 纳管子集含任一 `error` 档判据）→ `noChanges`（可判文件为 0）→ `warnings`
+/// （`warnings[]` 非空 **或** 纳管子集非空且无 `error` 档）→ `clean`。
 ///
-/// **错误面先于 `noChanges`**：结构错与 `errors[]` 都必须在「无文件可判」之前
-/// 判定——否则会得到「步 failed 且 detail 写没检查」的自相矛盾。按本序
+/// **错误面先于 `noChanges`**：结构错、`errors[]` 与 `error` 档判据都必须在「无文件
+/// 可判」之前判定——否则会得到「步 failed 且 detail 写没检查」的自相矛盾。按本序
 /// `status == errors ⟺ passed == false` 恒成立。
 ///
-/// **纳管只可能把 `clean` 抬到 `warnings`**：契约判据永不产 `errors` 槽，故 `passed`
-/// 派生面零改动（`errors.is_empty() && structural_errors.is_empty()`）。
+/// **纳管两档**：`warn` 档只把 `clean` 抬到 `warnings`；`error` 档把 `clean` /
+/// `warnings` / `noChanges` 一律抬到 `errors`（门禁阻断）。
 fn derive_status(
     structural_errors: &[dto::ArchiDiagnostic],
     scanned_files: u32,
@@ -342,7 +344,7 @@ fn derive_status(
     warnings: &[ArchiDriftEntry],
     gating: &[report::ArchiApiFinding],
 ) -> ArchiCheckStatus {
-    if !structural_errors.is_empty() || !errors.is_empty() {
+    if !structural_errors.is_empty() || !errors.is_empty() || report::has_error_tier(gating) {
         return ArchiCheckStatus::Errors;
     }
     if scanned_files == 0 {

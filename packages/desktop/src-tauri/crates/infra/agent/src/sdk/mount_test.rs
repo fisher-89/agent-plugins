@@ -1436,3 +1436,51 @@ fn definitions_db近似名仍err() {
         assert!(error.contains(miss), "文案携非法名 {miss:?}: {error}");
     }
 }
+
+// ===========================================================================
+// `archi_module` 描述的 `doc` 纪律（源码自证：旧关联面词汇零命中）
+// ===========================================================================
+
+/// 异常：`mount.rs` 内旧关联面词汇零命中——「关联文档」「四字段条目」「`docNotFound` 警告」
+/// 与 `WarningKind` 引用一律退场（`doc` 纪律两半由 `tools_test.rs` 的行为面承载）。
+#[test]
+fn mount描述零旧关联面词汇() {
+    let source = include_str!("mount.rs");
+    for stale in [
+        "关联文档",
+        "四字段条目",
+        "docNotFound",
+        "WarningKind",
+        "docs",
+    ] {
+        assert!(
+            !source.contains(stale),
+            "`mount.rs` 内旧关联面词汇零命中：{stale}"
+        );
+    }
+}
+
+/// 正向：`archi_module` 描述仍点名入口文档单值 `doc` 的两半（留白可写 / `declared` 走
+/// `api.contractPath`），且与 `archi_search` 的「入口文档路径」表述同源。
+#[test]
+fn mount描述含doc纪律两半() {
+    let source = include_str!("mount.rs");
+    for piece in ["单值 doc", "api = none", "api.contractPath", "入口文档路径"] {
+        assert!(
+            source.contains(piece),
+            "`mount.rs` 内 doc 纪律片段在案：{piece}"
+        );
+    }
+}
+
+/// 边界：三工具的 `enum` 词面零 `docs`（`search` 的 scope 三值单数形态），零
+/// `findings` 槽位词进描述。
+#[test]
+fn mount描述enum词面零旧值() {
+    let source = include_str!("mount.rs");
+    assert!(
+        source.contains("\"elements\", \"doc\", \"all\""),
+        "scope 三值单数形态：{source}"
+    );
+    assert!(!source.contains("\"docs\""), "零旧词 \"docs\"");
+}

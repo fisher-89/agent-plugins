@@ -92,7 +92,7 @@ impl ArchiCheckRunner for LocalArchiCheck {
             };
             // 报告落盘失败降级 `None`（审计面失败不阻断结论，主流程不中断）
             let report_ref = write_report(root_path, &name, &report).ok();
-            let passed = report.errors.is_empty() && report.model.structural_errors.is_empty();
+            let passed = report.passed();
             let diagnostics = compose_text(&report, report_ref.as_deref());
             Ok(ToolStepOutput::ArchiCheck(ArchiCheckOutcome {
                 passed,

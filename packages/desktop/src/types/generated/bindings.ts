@@ -697,7 +697,7 @@ export type ArchiApiFinding = {
 };
 
 /**
- *  契约判据种类（封闭十值；线格式 camelCase）。
+ *  契约判据种类（封闭十三值；线格式 camelCase）。
  * 
  *  **与 [`ArchiDriftKind`] 分立**（不并入的四值枚举）：① 事实源不同——`ArchiDriftKind`
  *  是「模型 relation 图 vs 代码」，本枚举是「契约文件 vs 代码」；② 定级语义不同——
@@ -707,7 +707,7 @@ export type ArchiApiFinding = {
 export type ArchiApiFindingKind = 
 /**  元素根路径下既无生成物也无实现入口（结构前提失效） */
 "apiEntryMissing" | 
-/**  契约 → 代码缺失（`declared` 而契约文件缺失，或声明的 op / 类型在代码里没有） */
+/**  有约定无兑现（声明的 op / 类型在代码里没有；契约文件缺失已改名 `docMissing`） */
 "apiMissing" | 
 /**  代码有 `external` 面但契约未声明（**唯一完备性判据**，档位 `off`） */
 "apiUndeclared" | 
@@ -724,7 +724,19 @@ export type ArchiApiFindingKind =
 /**  markdown 散文列表与 `api-reexport` fence 键集不等 */
 "apiReexportDrift" | 
 /**  契约 `### 操作` 声明了构造器（应由生成器产出） */
-"apiConstructorDeclared";
+"apiConstructorDeclared" | 
+/**  入口文档未就位（`declared`：派生契约 md 不在盘 / `none`：`doc` 未声明） */
+"docMissing" | 
+/**
+ *  `doc` 声明指不到盘（仅 `api = none` 元素的声明类形态）
+ * 
+ *  **名字复用而非能力延续**：退役的文档警告单值读旧的多值字段、只报不拦（那组
+ *  词汇已随三源文档关联删除）；本值读 `doc` 单值、`error` 档、纳管 `status`、参与
+ *  `passed`。
+ */
+"docNotFound" | 
+/**  有文档无约定（派生契约 md 在盘但正文无 api fence 语言标） */
+"apiDocMissing";
 
 /**
  *  生成载元的出线形态（`ArchiApiCheck.meta`）。
@@ -748,8 +760,9 @@ export type ArchiApiMeta = {
  *    与生成物即使尚未生成也给路径串）。
  * 
  *  该字段 MUST NOT 回写模型字段（模型存的是意图，投影报的是事实——「`declared`
- *  而文件缺失」是迁移期主形态，不得被投影抹平），MUST NOT 承载协议正文，MUST NOT
- *  进 `docs` 列表。
+ *  而文件缺失」是迁移期主形态，不得被投影抹平），MUST NOT 承载协议正文。
+ *  `declared` 元素的 `contract_path` 同时是它的**入口文档**路径（模型 `doc` 字段对它
+ *  不可写）。
  */
 export type ArchiApiRef = {
 	/**  契约状态（文件在案事实） */
@@ -979,9 +992,9 @@ export type ArchiDriftReport = {
 	/**  观察项（永不影响 `status` / `passed`） */
 	observations: ArchiDriftObservation[],
 	/**
-	 *  契约判据（并列槽位；空数组 = 无契约问题）。**不进 `passed`**；对 `status`
-	 *  的影响限于**契约在案元素**的判据（纳管口径归 `desktop-archi-api-check`，筛选
-	 *  单点在 `api::gating_findings`）——严重度由判据级
+	 *  契约判据（并列槽位；空数组 = 无契约问题）。对 `status` **与** `passed` 的影响
+	 *  限于**入口文档承诺已成立**的纳管子集（纳管口径归 `desktop-archi-api-check`，
+	 *  筛选单点在 `api::gating_findings`）——严重度由判据级
 	 *  [`ArchiApiFindingKind::severity`] 决定
 	 */
 	apiFindings: ArchiApiFinding[],
@@ -1035,6 +1048,11 @@ export type ArchiElement = {
 	 *  ——与「投影不补默认值」同款）
 	 */
 	entry: string | null,
+	/**
+	 *  入口文档指针（模型字段的拷贝；单值，仅 `api = none` 元素有值；`declared` 的
+	 *  入口文档由派生 `contract_path` 给出）
+	 */
+	doc: string | null,
 };
 
 /**  被排除的文件（逐条留痕，MUST NOT 静默丢弃）。 */
@@ -1117,11 +1135,12 @@ export type ArchiModuleDetail = {
 	dependedBy: ArchiDependedBy[],
 	/**  直接子元素 FQN（字典序） */
 	children: string[],
-	/**  文档关联条目（强度序） */
-	docs: DocRef[],
-	/**  文档警告（只报不拦） */
-	warnings: ArchiWarning[],
-	/**  契约状态与三路径的并列字段（MUST NOT 进 `docs` 列表） */
+	/**
+	 *  入口文档指针：单值、仅 `api = none` 元素有值；`declared` 恒 `null`，其入口文档
+	 *  走 `api.contractPath`
+	 */
+	doc: string | null,
+	/**  契约状态与三路径的并列字段 */
 	api: ArchiApiRef,
 };
 
@@ -1185,18 +1204,6 @@ export type ArchiUnresolvedFile = {
 	specifier: string | null,
 	/**  不可判定原因 */
 	message: string,
-};
-
-/**  文档警告投影（只报不拦）。 */
-export type ArchiWarning = {
-	/**  警告种类 */
-	kind: WarningKind,
-	/**  文案 */
-	message: string,
-	/**  归属元素 FQN */
-	element: string | null,
-	/**  涉及的路径 */
-	path: string | null,
 };
 
 /**  archive 月份分组；`month` 为 `None` 即"未知时间"组，固定排组序列尾。 */
@@ -1718,34 +1725,6 @@ export type DirNode = {
 	children: TreeEntry[],
 };
 
-/**  文档形态（由落地路径决定：决策记录目录内恒 `Adr`）。 */
-export type DocKind = 
-/**  普通 markdown 文档 */
-"md" | 
-/**  架构决策记录 */
-"adr";
-
-/**  文档关联条目（恒四字段：无摘要、无正文、无行区间）。 */
-export type DocRef = {
-	/**  repo 相对路径（`/` 分隔） */
-	path: string,
-	/**  首行 ATX 标题（无标题则文件名去扩展名） */
-	title: string,
-	/**  形态标记 */
-	kind: DocKind,
-	/**  来源强度词汇 */
-	source: DocSource,
-};
-
-/**  文档关联来源（强度序即声明序：`Explicit` > `Adjacent` > `Text`）。 */
-export type DocSource = 
-/**  元素 `docs` 显式指定（最强） */
-"explicit" | 
-/**  元素 `path` 覆盖目录内扫描命中 */
-"adjacent" | 
-/**  ADR 正文提及元素 FQN（最弱） */
-"text";
-
 /**  边标记（封闭四值；本期生产者恒 `None`）。 */
 export type EdgeMark = 
 /**  无标记（实线） */
@@ -2261,11 +2240,6 @@ export type Value = unknown;
 
 /**  评估 verdict。 */
 export type Verdict = "pass" | "fail";
-
-/**  文档警告种类（单值；与诊断分立使「文档警告不停摆」在类型上成立）。 */
-export type WarningKind = 
-/**  `docs` 指向的文件不存在（只报不拦） */
-"docNotFound";
 
 /**  单条搜索来源（纯展示字段，不参与回放）。 */
 export type WebSearchSource = {

@@ -526,11 +526,11 @@ fn render_target的x_class警告不进报告面() {
         "警告对头注释零影响"
     );
 
-    // `ArchiApiFindingKind` 仍十值（MUST NOT 扩第十一值）
+    // `ArchiApiFindingKind` 仍十三值（`doc` 面三值进场，警告不是第十四 kind）
     assert_eq!(
         crate::drift::report::ArchiApiFindingKind::ALL.len(),
-        10,
-        "判据词汇仍十值（警告不是第十一 kind）"
+        13,
+        "判据词汇仍十三值（警告不是第十四 kind）"
     );
 }
 

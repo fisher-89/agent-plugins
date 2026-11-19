@@ -1,9 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::docs;
 use crate::graph::ModelGraph;
 use crate::model::{Diagnostic, Element, Relation};
 use crate::parse;
@@ -169,47 +168,6 @@ impl ArchiDiagnosticKind {
     ];
 }
 
-/// 文档警告种类（单值；与诊断分立使「文档警告不停摆」在类型上成立）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub enum WarningKind {
-    /// `docs` 指向的文件不存在（只报不拦）
-    DocNotFound,
-}
-
-impl WarningKind {
-    /// 线格式 camelCase 词。
-    pub fn as_str(self) -> &'static str {
-        match self {
-            WarningKind::DocNotFound => "docNotFound",
-        }
-    }
-}
-
-/// 文档形态（由落地路径决定：决策记录目录内恒 `Adr`）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "lowercase")]
-pub enum DocKind {
-    /// 普通 markdown 文档
-    Md,
-    /// 架构决策记录
-    Adr,
-}
-
-/// 文档关联来源（强度序即声明序：`Explicit` > `Adjacent` > `Text`）。
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, specta::Type,
-)]
-#[serde(rename_all = "lowercase")]
-pub enum DocSource {
-    /// 元素 `docs` 显式指定（最强）
-    Explicit,
-    /// 元素 `path` 覆盖目录内扫描命中
-    Adjacent,
-    /// ADR 正文提及元素 FQN（最弱）
-    Text,
-}
-
 /// 边标记（封闭四值；本期生产者恒 `None`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -306,8 +264,8 @@ impl FileTreeMark {
 pub enum SearchScope {
     /// 只搜元素
     Elements,
-    /// 只搜文档关联条目
-    Docs,
+    /// 只搜入口文档路径
+    Doc,
     /// 两者皆搜
     All,
 }
@@ -317,10 +275,10 @@ impl SearchScope {
     pub fn parse(raw: &str) -> Result<SearchScope, String> {
         match raw {
             "elements" => Ok(SearchScope::Elements),
-            "docs" => Ok(SearchScope::Docs),
+            "doc" => Ok(SearchScope::Doc),
             "all" => Ok(SearchScope::All),
             other => Err(format!(
-                "非法 scope: {other}（合法值：elements / docs / all）"
+                "非法 scope: {other}（合法值：elements / doc / all）"
             )),
         }
     }
@@ -330,20 +288,6 @@ impl SearchScope {
 // 线面 DTO（specta::Type → bindings.ts）
 // ---------------------------------------------------------------------------
 
-/// 文档关联条目（恒四字段：无摘要、无正文、无行区间）。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DocRef {
-    /// repo 相对路径（`/` 分隔）
-    pub path: String,
-    /// 首行 ATX 标题（无标题则文件名去扩展名）
-    pub title: String,
-    /// 形态标记
-    pub kind: DocKind,
-    /// 来源强度词汇
-    pub source: DocSource,
-}
-
 /// 契约状态的线面投影（并列字段，**投影只报文件在案事实**）：
 ///
 /// - `status` = 契约文件是否在案（`declared` / `none`）；
@@ -351,8 +295,9 @@ pub struct DocRef {
 ///   与生成物即使尚未生成也给路径串）。
 ///
 /// 该字段 MUST NOT 回写模型字段（模型存的是意图，投影报的是事实——「`declared`
-/// 而文件缺失」是迁移期主形态，不得被投影抹平），MUST NOT 承载协议正文，MUST NOT
-/// 进 `docs` 列表。
+/// 而文件缺失」是迁移期主形态，不得被投影抹平），MUST NOT 承载协议正文。
+/// `declared` 元素的 `contract_path` 同时是它的**入口文档**路径（模型 `doc` 字段对它
+/// 不可写）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiApiRef {
@@ -480,6 +425,9 @@ pub struct ArchiElement {
     /// 实现入口指针（模型字段的拷贝；线格式 `entry`，缺省 `null`，**显式字段不省略**
     /// ——与「投影不补默认值」同款）
     pub entry: Option<String>,
+    /// 入口文档指针（模型字段的拷贝；单值，仅 `api = none` 元素有值；`declared` 的
+    /// 入口文档由派生 `contract_path` 给出）
+    pub doc: Option<String>,
 }
 
 /// 关系投影（`reason` 本期恒 `null`，`exempt` 场景的呈现载体）。
@@ -512,20 +460,6 @@ pub struct ArchiDiagnostic {
     pub line: u32,
     /// 所在列（1 起始；未知即 `null`）
     pub column: Option<u32>,
-}
-
-/// 文档警告投影（只报不拦）。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ArchiWarning {
-    /// 警告种类
-    pub kind: WarningKind,
-    /// 文案
-    pub message: String,
-    /// 归属元素 FQN
-    pub element: Option<String>,
-    /// 涉及的路径
-    pub path: Option<String>,
 }
 
 /// 元素薄概览（定位工具省略元素时的全量形态 / 检索条目）。
@@ -576,22 +510,21 @@ pub struct ArchiModuleDetail {
     pub depended_by: Vec<ArchiDependedBy>,
     /// 直接子元素 FQN（字典序）
     pub children: Vec<String>,
-    /// 文档关联条目（强度序）
-    pub docs: Vec<DocRef>,
-    /// 文档警告（只报不拦）
-    pub warnings: Vec<ArchiWarning>,
-    /// 契约状态与三路径的并列字段（MUST NOT 进 `docs` 列表）
+    /// 入口文档指针：单值、仅 `api = none` 元素有值；`declared` 恒 `null`，其入口文档
+    /// 走 `api.contractPath`
+    pub doc: Option<String>,
+    /// 契约状态与三路径的并列字段
     pub api: ArchiApiRef,
 }
 
-/// 检索结果（薄条目 + 四字段文档条目）。
+/// 检索结果（薄条目 + 入口文档路径串）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiSearchResult {
     /// 命中元素（FQN 字典序）
     pub elements: Vec<ArchiElementBrief>,
-    /// 命中文档（来源强度 → 路径字典序）
-    pub docs: Vec<DocRef>,
+    /// 命中的入口文档路径（repo 相对 POSIX，路径字典序）
+    pub doc: Vec<String>,
 }
 
 /// gate 变更条目（`from` → `to`）。
@@ -644,8 +577,9 @@ fn load(root: &Path) -> Loaded {
     Loaded { graph, diagnostics }
 }
 
-/// 元素投影（只裁剪）。
-fn to_element(element: &Element) -> ArchiElement {
+/// 元素投影（只裁剪）。`pub(crate)`：检索面的载体派生复用同一份投影（MUST NOT 另拼
+/// 第二份 `ArchiElement`）。
+pub(crate) fn to_element(element: &Element) -> ArchiElement {
     ArchiElement {
         fqn: element.fqn.clone(),
         kind: element.kind,
@@ -658,6 +592,7 @@ fn to_element(element: &Element) -> ArchiElement {
         mark: NodeMark::None,
         api: element.api,
         entry: element.entry.clone(),
+        doc: element.doc.clone(),
     }
 }
 
@@ -762,7 +697,7 @@ pub fn graph_view(root: &Path) -> Result<ArchiGraph, String> {
     })
 }
 
-/// 单元素投影：元素 + 邻域（出边 / 入边 / 直接子元素）+ 文档关联 + 警告。
+/// 单元素投影：元素 + 邻域（出边 / 入边 / 直接子元素）+ 入口文档单值 + 契约面。
 /// 结构错 → `Err`（附诊断清单）；元素缺席 → `Err`（附元素总数提示）。
 pub fn module_detail(root: &Path, fqn: &str) -> Result<ArchiModuleDetail, String> {
     let loaded = load(root);
@@ -776,7 +711,6 @@ pub fn module_detail(root: &Path, fqn: &str) -> Result<ArchiModuleDetail, String
         )
     })?;
     let neighborhood = loaded.graph.neighborhood(fqn);
-    let docs_outcome = docs::element_docs(&loaded.graph, root, fqn);
     // 入口解析需全表（跨元素唯一判据），故投影一次元素表；投影只裁剪、零重算
     let projected: Vec<ArchiElement> = loaded
         .graph
@@ -812,17 +746,11 @@ pub fn module_detail(root: &Path, fqn: &str) -> Result<ArchiModuleDetail, String
             .iter()
             .map(|child| (*child).to_owned())
             .collect(),
-        docs: docs_outcome.docs,
-        warnings: docs_outcome
-            .warnings
-            .iter()
-            .map(|warning| ArchiWarning {
-                kind: WarningKind::DocNotFound,
-                message: format!("{} 指向的文档不存在", warning.path),
-                element: Some(warning.element.clone()),
-                path: Some(warning.path.clone()),
-            })
-            .collect(),
+        // 入口文档只出线一处：`api = none` 出模型原文，`declared` 恒 `null`（其入口文档
+        // 走 `api.contractPath`——两处同时给出会让前端渲两条）
+        doc: (element.api == ApiStatus::None)
+            .then(|| element.doc.clone())
+            .flatten(),
         // 契约状态的定位与投影单点在 `crate::api`（本层零路径拼接、零二次读模型）
         api: crate::api::api_ref_of(root, &projected, current),
     })
@@ -840,7 +768,7 @@ pub fn module_overview(root: &Path) -> Result<Vec<ArchiElementBrief>, String> {
     Ok(briefs)
 }
 
-/// 检索投影（元素薄条目 + 四字段文档条目）。
+/// 检索投影（元素薄条目 + 入口文档路径串）。
 pub fn search(root: &Path, query: &str, scope: SearchScope) -> Result<ArchiSearchResult, String> {
     let loaded = load(root);
     if !loaded.diagnostics.is_empty() {
@@ -856,7 +784,7 @@ pub fn search(root: &Path, query: &str, scope: SearchScope) -> Result<ArchiSearc
     elements.sort_by(|left, right| left.fqn.cmp(&right.fqn));
     Ok(ArchiSearchResult {
         elements,
-        docs: outcome.docs,
+        doc: outcome.doc,
     })
 }
 
@@ -893,14 +821,4 @@ pub fn change_summary(
             .collect(),
         diagnostics: next.diagnostics.iter().map(to_diagnostic).collect(),
     }))
-}
-
-/// 关联集路径集（文档正文取数的越界校验唯一判据）。
-pub fn linked_doc_paths(root: &Path) -> Result<BTreeSet<String>, String> {
-    let loaded = load(root);
-    if !loaded.diagnostics.is_empty() {
-        return Err(diagnostics_error(&loaded.diagnostics));
-    }
-    let outcome = docs::all_docs(&loaded.graph, root);
-    Ok(outcome.docs.iter().map(|doc| doc.path.clone()).collect())
 }

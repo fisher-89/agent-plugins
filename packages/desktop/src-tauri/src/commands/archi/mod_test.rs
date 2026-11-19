@@ -86,7 +86,6 @@ const CORE: &str = concat!(
     "[element.\"App.Auth\"]\n",
     "kind = \"domain\"\n",
     "gate = \"off\"\n",
-    "docs = [\"./src/auth/README.md\"]\n",
     "\n",
     "[element.\"App.Billing\"]\n",
     "kind = \"module\"\n",
@@ -336,7 +335,10 @@ fn module三形态() {
     let detail = archi_module(temp.root(), "App.Auth".to_owned()).expect("Ok");
     assert_eq!(detail.element.fqn, "App.Auth");
     assert_eq!(detail.depends_on.len(), 1);
-    assert_eq!(detail.docs.len(), 1);
+    assert!(
+        detail.doc.is_none(),
+        "`api = declared` 的入口文档走 api.contractPath（`doc` 恒 null）"
+    );
 
     let absent = archi_module(temp.root(), "App.Missing".to_owned()).expect_err("缺席应 Err");
     assert!(absent.contains("元素不存在"), "文案点名缺席: {absent}");
@@ -1112,13 +1114,13 @@ fn archi_module出参含api并列字段() {
         assert!(!text.contains('\\'), "{key} 为 POSIX 分隔：{text}");
     }
     assert!(value.get("api").is_some(), "序列化文本含 api 并列键");
-    // `api` 不在 `docs` 数组内（并列字段而非承重进 docs）
-    for doc in value["docs"].as_array().expect("docs 是数组") {
-        assert!(
-            doc.get("status").is_none(),
-            "契约投影 MUST NOT 进 docs 列表：{doc:?}"
-        );
-    }
+    // `doc` 消位由 `api.contractPath` 承担：declared 元素 `doc` 恒 null，且出参无 `docs` 数组
+    assert_eq!(
+        value["doc"],
+        serde_json::json!(null),
+        "declared 元素 doc 为 null"
+    );
+    assert!(value.get("docs").is_none(), "`docs` 位次已退役");
 }
 
 /// 边界（AC-10）：元素存在但无 md → `status = none` 且三路径全 `null`（零配置、可枚举
@@ -1317,49 +1319,6 @@ fn archi_module试点declared且同输入判据零命中() {
             .iter()
             .map(|finding| (finding.kind.as_str(), finding.message.as_str()))
             .collect::<Vec<_>>()
-    );
-}
-
-/// 边界（AC-16 否定断言）：模块**文档关联集**不含 `<archi_models_dir>/<Domain>/**`——
-/// 契约正文不经 `docs` 三源出线（契约权威在架构域 `models/<Domain>/`；正文由通用
-/// `read_file` 按路径自取，不再是架构命令的专属通路）。
-#[test]
-fn 文档关联集不含契约目录() {
-    let temp = healthy("read-doc-no-api");
-    let fqn = "App.Auth";
-    write_contract(
-        temp.path(),
-        fqn,
-        &format!("# {fqn}\n\n## 职能\n\n契约正文。\n"),
-    );
-    let contract_relative = archi::api::paths::contract_path(temp.path(), fqn).expect("合法 FQN");
-    let contract_relative = contract_relative
-        .strip_prefix(temp.path())
-        .expect("repo 相对路径")
-        .to_string_lossy()
-        .replace('\\', "/");
-    assert!(
-        contract_relative.starts_with(".dev-team/architecture/models/"),
-        "夹具确实落在契约目录：{contract_relative}"
-    );
-
-    // 关联集本身不含契约正文
-    let contract_dir = archi::api::paths::directory(temp.path());
-    let contract_dir = contract_dir
-        .strip_prefix(temp.path())
-        .expect("repo 相对路径")
-        .to_string_lossy()
-        .replace('\\', "/");
-    let linked = archi::dto::linked_doc_paths(temp.path()).expect("Ok");
-    assert!(
-        linked
-            .iter()
-            .all(|path| !path.starts_with(&format!("{contract_dir}/"))),
-        "关联集零契约正文通路：{linked:?}"
-    );
-    assert!(
-        !linked.contains(&contract_relative),
-        "契约路径不在关联集内：{contract_relative}"
     );
 }
 

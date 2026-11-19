@@ -1420,43 +1420,53 @@ fn 契约不一致产出非空api_findings() {
     assert!(!finding.occurrences.is_empty(), "occurrences 逐项在案");
     assert_eq!(
         report.status.as_str(),
-        "warnings",
-        "契约在案元素的判据把 status 拉到 warnings"
+        "errors",
+        "`apiSignatureMismatch` 属 error 档 ⇒ status 抬到 errors"
     );
-    assert!(report.errors.is_empty(), "errors 空");
-    assert!(report.warnings.is_empty(), "既有 warnings 空");
     assert!(
-        report.errors.is_empty() && report.model.structural_errors.is_empty(),
-        "门禁派生面不受影响（passed == true）"
+        report.errors.is_empty(),
+        "errors 槽位空（error 档判据不进该槽）"
+    );
+    assert!(report.warnings.is_empty(), "既有 warnings 空");
+    assert!(!report.passed(), "error 档判据在纳管子集内 ⇒ 门禁布尔为假");
+    assert_eq!(
+        report.status == ArchiCheckStatus::Errors,
+        !report.passed(),
+        "`status == errors ⟺ passed == false`"
     );
 }
 
-/// 边界（AC-4 / D9）：`Absent` 元素（目录根无入口）→ `api_findings` 出现
-/// `apiEntryMissing`，但该元素**无契约在案** ⇒ 不进纳管子集 ⇒ `status` 与 `passed`
-/// 与「无契约面」基线逐字相同。
+/// 边界（AC-4 / D9）：`docMissing` 判据（载体未就位）⇒ 该元素不在纳管子集 ⇒
+/// `status` / `passed` 与「契约面未启用」基线逐字相同（存量入口文档债不常态化为
+/// 永久 `warnings`）。
 #[test]
 fn 入口缺失元素的判据不进纳管子集() {
     let temp = TempDir::new("entry-missing-not-gated");
-    let fqn = "App.Backend.Infra.ArchiRuntime";
-    temp.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
-    // 目录根存在但四条约定候选全不落盘 ⇒ Absent；同目录也没有契约
-    temp.write("crates/infra/archi/README.md", "占位\n");
-    // 契约面启用判定只看 api 目录内 ≥1 份 md（`api::enabled`），故写一份**别的 FQN** 的
-    // 契约把判据面打开——目标元素自身仍无契约在案（纳管子集为空）。
-    write_contract(
-        &temp,
-        "App.Backend.Infra.Unrelated",
-        "# App.Backend.Infra.Unrelated\n\n## 职能\n\n正文。\n",
+    let pilot = "App.Backend.Infra.ArchiRuntime";
+    let ghost = "App.Backend.Infra.GhostRuntime";
+    temp.write_model(&chain_with_siblings(
+        pilot,
+        "crates/infra/archi/",
+        &[(ghost, "crates/infra/ghost/")],
+    ));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
     );
+    temp.write(
+        "crates/infra/ghost/src/lib.rs",
+        "pub fn ghost() -> String { String::new() }\n",
+    );
+    // 试点元素的含 fence 载体把契约面打开；ghost 自身没有载体（未就位）
+    write_contract(&temp, pilot, &pilot_contract(pilot));
 
     let report = run_full(temp.root()).expect("判定应成功");
     assert!(
-        report
-            .api_findings
-            .iter()
-            .any(|finding| finding.kind
-                == crate::drift::report::ArchiApiFindingKind::ApiEntryMissing),
-        "无可用入口应有 `apiEntryMissing`：{:?}",
+        report.api_findings.iter().any(|finding| {
+            finding.kind == crate::drift::report::ArchiApiFindingKind::DocMissing
+                && finding.element.as_deref() == Some(ghost)
+        }),
+        "载体未就位应有 `docMissing`：{:?}",
         report
             .api_findings
             .iter()
@@ -1464,10 +1474,21 @@ fn 入口缺失元素的判据不进纳管子集() {
             .collect::<Vec<_>>()
     );
 
-    // 基线：同一模型、同一盘面，但契约面整体未启用（除 README 外不写任何 md）
+    // 基线：同一模型、同一盘面，但契约面整体未启用（不写任何载体）
     let baseline_temp = TempDir::new("entry-missing-baseline");
-    baseline_temp.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
-    baseline_temp.write("crates/infra/archi/README.md", "占位\n");
+    baseline_temp.write_model(&chain_with_siblings(
+        pilot,
+        "crates/infra/archi/",
+        &[(ghost, "crates/infra/ghost/")],
+    ));
+    baseline_temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
+    );
+    baseline_temp.write(
+        "crates/infra/ghost/src/lib.rs",
+        "pub fn ghost() -> String { String::new() }\n",
+    );
     let baseline = run_full(baseline_temp.root()).expect("判定应成功");
 
     assert_eq!(
@@ -1667,13 +1688,14 @@ fn 契约面不改既有槽位() {
     assert_eq!(before.status.as_str(), "clean", "追加前 status 为 clean");
     assert_eq!(
         after.status.as_str(),
-        "warnings",
-        "契约在案元素的判据纳管进 status（只有这一档被抬起）"
+        "errors",
+        "契约在案元素的 error 档判据把 status 抬到 errors"
     );
     assert!(
         after.errors.is_empty() && after.model.structural_errors.is_empty(),
-        "passed 派生面不受影响（errors / structural_errors 双空）"
+        "既有 errors / structuralErrors 双空（抬档由 error 档判据单独触发）"
     );
+    assert!(!after.passed(), "error 档判据 ⇒ 门禁布尔为假");
     assert_eq!(
         before.model, after.model,
         "模型面事实零变化（契约 md 不是模型资产）"
@@ -1756,8 +1778,8 @@ fn 契约目录零md即未启用() {
     );
 }
 
-/// 正向（AC-7）：`api = declared` 元素有入口无 md → 1 条 `apiMissing`
-/// （`category = contract`、`element` 点名），其余元素零命中。
+/// 正向（AC-2）：`api = declared` 元素有入口无载体 → 1 条 `docMissing`
+/// （`category = doc`、`element` 点名），其余元素零命中。
 #[test]
 fn 缺md产出契约缺失判据() {
     let temp = TempDir::new("api-missing");
@@ -1780,9 +1802,9 @@ fn 缺md产出契约缺失判据() {
 
     let report = run_full(temp.root()).expect("判定应成功");
     assert_eq!(
-        count_kind(&report, ArchiApiFindingKind::ApiMissing),
+        count_kind(&report, ArchiApiFindingKind::DocMissing),
         1,
-        "只有缺 md 的那个元素报 apiMissing：{:?}",
+        "只有缺载体的那个元素报 docMissing：{:?}",
         report
             .api_findings
             .iter()
@@ -1793,11 +1815,11 @@ fn 缺md产出契约缺失判据() {
         .api_findings
         .iter()
         .find(|finding| {
-            finding.kind == ArchiApiFindingKind::ApiMissing
+            finding.kind == ArchiApiFindingKind::DocMissing
                 && finding.element.as_deref() == Some(sibling)
         })
-        .expect("缺 md 元素应产条目");
-    assert_eq!(finding.category, "contract", "② 的分类 = contract");
+        .expect("缺载体元素应产条目");
+    assert_eq!(finding.category, "doc", "④ 的分类 = doc");
     assert!(
         finding.message.contains(sibling) || finding.message.contains(".md"),
         "文案含元素与契约路径：{}",
@@ -1811,7 +1833,7 @@ fn 缺md产出契约缺失判据() {
     assert_eq!(
         report.status.as_str(),
         "clean",
-        "api_findings 不进 status 推导"
+        "`docMissing` 未纳管（承诺未成立）⇒ status 不长档"
     );
 }
 
@@ -1873,16 +1895,22 @@ fn 无入口产出入口缺失判据且互斥() {
 fn 留白遇契约在案产出留白判据() {
     let temp = TempDir::new("api-unexpected");
     let fqn = "App.Backend.Infra.BlankRuntime";
+    let pilot = "App.Backend.Infra.ArchiRuntime";
     temp.write_model(&format!(
-        "[element.\"App\"]\nkind = \"package\"\npath = []\n\n\
-         [element.\"App.Backend\"]\nkind = \"domain\"\npath = []\n\n\
-         [element.\"App.Backend.Infra\"]\nkind = \"domain\"\npath = []\n\n\
-         [element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\napi = \"none\"\npath = [\"crates/infra/blank/\"]\n"
+        "{}\n\
+         [element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\napi = \"none\"\npath = [\"crates/infra/blank/\"]\n",
+        declared_chain_model(pilot, "crates/infra/archi/"),
     ));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
+    );
     temp.write(
         "crates/infra/blank/src/lib.rs",
         "pub fn blank() -> String { String::new() }\n",
     );
+    // 试点元素的含 fence 载体把契约面打开；留白元素自身在派生契约路径上有文件
+    write_contract(&temp, pilot, &pilot_contract(pilot));
     write_contract(&temp, fqn, &pilot_contract(fqn));
 
     let report = run_full(temp.root()).expect("判定应成功");
@@ -1897,9 +1925,9 @@ fn 留白遇契约在案产出留白判据() {
             .collect::<Vec<_>>()
     );
     assert_eq!(
-        count_kind(&report, ArchiApiFindingKind::ApiMissing),
+        count_kind(&report, ArchiApiFindingKind::DocMissing),
         0,
-        "反方向归 ②，两条 MUST NOT 双报"
+        "反方向归 ④，两条 MUST NOT 双报"
     );
     let finding = report
         .api_findings
@@ -2014,9 +2042,9 @@ fn 组合链规模与多判据独立() {
     }
     let report = run_full(scale.root()).expect("规模输入应成功");
     assert_eq!(
-        count_kind(&report, ArchiApiFindingKind::ApiMissing),
+        count_kind(&report, ArchiApiFindingKind::DocMissing),
         200,
-        "200 个 declared 元素缺 md 各 1 条"
+        "200 个 declared 元素缺载体各 1 条"
     );
     assert_eq!(
         count_kind(&report, ArchiApiFindingKind::ApiEntryMissing),
@@ -2222,28 +2250,51 @@ fn 报告版本常量为3() {
     assert!(!source.contains("REPORT_VERSION: u32 = 2"), "零旧值 2");
 }
 
-/// 正向（AC-6 / D9）：契约在案的 `declared` 元素判据非空且 `errors` / `warnings` 双空 →
-/// `status == warnings`；`passed` 派生面不受影响。
+/// 正向（AC-4）：纳管子集仅含 `warn` 档判据（`apiDocMissing`）且 `errors` / `warnings`
+/// 双空 → `status == warnings`；`passed == true`（warn 档不阻断门禁）。
 #[test]
 fn 纳管子集非空且无errors时status为warnings() {
     let temp = TempDir::new("gating-warnings");
-    let fqn = "App.Backend.Infra.ArchiRuntime";
-    temp.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    let pilot = "App.Backend.Infra.ArchiRuntime";
+    let pending = "App.Backend.Infra.SecondRuntime";
+    temp.write_model(&chain_with_siblings(
+        pilot,
+        "crates/infra/archi/",
+        &[(pending, "crates/infra/second/")],
+    ));
     temp.write(
         "crates/infra/archi/src/lib.rs",
-        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+        "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
     );
-    write_contract(&temp, fqn, &mismatched_contract(fqn));
+    temp.write(
+        "crates/infra/second/src/lib.rs",
+        "pub fn second() -> String { String::new() }\n",
+    );
+    // 试点元素的含 fence 载体把契约面打开；second 的载体在盘但正文无 fence
+    write_contract(&temp, pilot, &pilot_contract(pilot));
+    write_contract(
+        &temp,
+        pending,
+        &format!("# {pending}\n\n## 职能\n\n契约尚未展开。\n"),
+    );
 
     let report = run_full(temp.root()).expect("判定应成功");
-    assert!(!report.api_findings.is_empty(), "判据非空");
+    assert!(
+        report
+            .api_findings
+            .iter()
+            .any(|finding| finding.kind == ArchiApiFindingKind::ApiDocMissing),
+        "有文档无约定 ⇒ `apiDocMissing`（warn 档）：{:?}",
+        report
+            .api_findings
+            .iter()
+            .map(|finding| (finding.kind, finding.element.clone()))
+            .collect::<Vec<_>>()
+    );
     assert_eq!(report.status, ArchiCheckStatus::Warnings, "纳管 ⇒ warnings");
     assert!(report.errors.is_empty(), "errors 空");
     assert!(report.warnings.is_empty(), "既存 warnings 空");
-    assert!(
-        report.errors.is_empty() && report.model.structural_errors.is_empty(),
-        "门禁派生面（errors / structural_errors 双空）⇒ passed == true"
-    );
+    assert!(report.passed(), "warn 档判据不阻断门禁 ⇒ passed == true");
 }
 
 /// 异常（AC-6 / D9 先后序不变）：同场造 `errors`（未声明依赖）+ 契约在案判据 →
@@ -2336,22 +2387,29 @@ fn 纳管子集空时status不变() {
     assert_eq!(warn_report.warnings.len(), 1, "既有 warnings 槽内容零增删");
 }
 
-/// 异常（AC-6 / D6 的对照臂）：元素 `api = declared` 但契约 md 缺席、代码入口缺失
-/// （`apiEntryMissing`）→ `api_findings` 非空、纳管子集空 ⇒ `status == clean`；补上契约 md
-/// 后同语料转 `warnings`（自激活，无白名单）。
+/// 异常（AC-4 / 自激活）：元素 `api = declared` 但载体未就位（`docMissing`）→
+/// `api_findings` 非空、纳管子集空 ⇒ `status == clean`；补上含 fence 的契约后同语料转
+/// `errors`（自激活，无白名单）。
 #[test]
 fn 契约不在案且判据存在时不改status() {
     let temp = TempDir::new("gating-self-activate");
     let fqn = "App.Backend.Infra.ArchiRuntime";
-    temp.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
-    // 契约面启用（目录含 md）但**本元素**契约不在案：`App.Backend.Ghost` 只为让
-    // `enabled` 为真（不在模型内，故不参与判据），本元素的判据仍只有 `apiEntryMissing`
-    write_contract(
-        &temp,
-        "App.Backend.Ghost",
-        "# App.Backend.Ghost
-",
+    let pilot = "App.Backend.Infra.PilotRuntime";
+    temp.write_model(&chain_with_siblings(
+        fqn,
+        "crates/infra/archi/",
+        &[(pilot, "crates/infra/pilot/")],
+    ));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
     );
+    temp.write(
+        "crates/infra/pilot/src/lib.rs",
+        "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
+    );
+    // 试点元素的含 fence 载体把契约面打开；目标元素自身载体未就位
+    write_contract(&temp, pilot, &pilot_contract(pilot));
     // 一个可判文件（scanned_files > 0），避免 `noChanges` 档抢先——本用例判的是
     // 「纳管子集空 ⇒ status 不被契约判据抬起」
     temp.write(
@@ -2361,35 +2419,35 @@ fn 契约不在案且判据存在时不改status() {
     );
 
     let absent = run_full(temp.root()).expect("判定应成功");
-    assert!(!absent.api_findings.is_empty(), "判据非空（入口缺失）");
+    assert!(!absent.api_findings.is_empty(), "判据非空（载体未就位）");
     assert!(
         absent
             .api_findings
             .iter()
-            .any(|finding| finding.kind == ArchiApiFindingKind::ApiEntryMissing),
-        "判据种类为 apiEntryMissing：{:?}",
+            .any(|finding| finding.kind == ArchiApiFindingKind::DocMissing),
+        "判据种类为 docMissing：{:?}",
         absent.api_findings
     );
     assert_eq!(
         absent.status,
         ArchiCheckStatus::Clean,
-        "契约不在案 ⇒ 纳管子集空 ⇒ status 不改"
+        "载体未就位 ⇒ 纳管子集空 ⇒ status 不改"
     );
 
     write_contract(&temp, fqn, &mismatched_contract(fqn));
     let present = run_full(temp.root()).expect("判定应成功");
     assert_eq!(
         present.status,
-        ArchiCheckStatus::Warnings,
-        "补上契约 md 后同一语料转 warnings"
+        ArchiCheckStatus::Errors,
+        "补上含 fence 的契约后同一语料转 errors（error 档判据纳管）"
     );
 }
 
-/// 正向（AC-6 / spec「`passed` 本轮不动」）：`status == warnings` 且 `errors` /
-/// `structural_errors` 双空 → 门禁派生面判 `passed == true`；对照臂：造一条 `errors` →
-/// `passed == false` 且 `status == errors`（`status == errors ⟺ passed == false` 不破）。
+/// 正向 / 异常（AC-4）：纳管 `error` 档判据 ⇒ `passed == false` 且 `status == errors`
+/// （旧「`apiFindings` MUST NOT 影响 `passed`」语义反转）；对照臂：造一条 `errors` →
+/// 同样 `passed == false`（`status == errors ⟺ passed == false` 不破）。
 #[test]
-fn passed不因判据变假() {
+fn passed随error档反转() {
     let clean_ish = TempDir::new("gating-passed");
     let fqn = "App.Backend.Infra.ArchiRuntime";
     clean_ish.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
@@ -2398,15 +2456,15 @@ fn passed不因判据变假() {
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
     );
     write_contract(&clean_ish, fqn, &mismatched_contract(fqn));
-    let passed_report = run_full(clean_ish.root()).expect("判定应成功");
+    let gated_report = run_full(clean_ish.root()).expect("判定应成功");
     assert_eq!(
-        passed_report.status,
-        ArchiCheckStatus::Warnings,
-        "纳管 ⇒ warnings"
+        gated_report.status,
+        ArchiCheckStatus::Errors,
+        "纳管 error 档 ⇒ errors"
     );
     assert!(
-        passed_report.errors.is_empty() && passed_report.model.structural_errors.is_empty(),
-        "双空 ⇒ 门禁 passed == true"
+        !gated_report.passed(),
+        "error 档判据在纳管子集内 ⇒ 门禁布尔为假"
     );
 
     let broken = TempDir::new("gating-not-passed");
@@ -2420,7 +2478,7 @@ fn passed不因判据变假() {
     let failed_report = run_full(broken.root()).expect("判定应成功");
     assert_eq!(failed_report.status, ArchiCheckStatus::Errors, "errors 档");
     assert!(
-        !(failed_report.errors.is_empty() && failed_report.model.structural_errors.is_empty()),
+        !failed_report.passed(),
         "errors 非空 ⇒ 门禁 passed == false"
     );
 }
@@ -2452,8 +2510,13 @@ fn warnings与纳管并存不叠加升级() {
     write_contract(&temp, fqn, &mismatched_contract(fqn));
     let after = run_full(temp.root()).expect("判定应成功");
     assert!(!after.api_findings.is_empty(), "纳管子集非空（前提）");
-    assert_eq!(after.status, ArchiCheckStatus::Warnings, "并仍为 warnings");
+    assert_eq!(
+        after.status,
+        ArchiCheckStatus::Errors,
+        "既有 warnings 之上再叠 error 档判据 ⇒ errors（不叠成新档）"
+    );
     assert_eq!(after.warnings, before.warnings, "warnings 槽零增删");
+    assert!(!after.passed(), "error 档判据 ⇒ 门禁布尔为假");
 }
 
 /// 异常（AC-6 / D7）：`drift/mod.rs` 源码自证——判据装配与筛单各恰一处、零 `load_contracts`

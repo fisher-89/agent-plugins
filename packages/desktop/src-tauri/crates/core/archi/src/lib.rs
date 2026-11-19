@@ -1,4 +1,4 @@
-//! 架构模型纯读域：解析 / 内存图 / 结构诊断 / 文档关联 / 检索 / 结构 diff /
+//! 架构模型纯读域：解析 / 内存图 / 结构诊断 / 入口文档 / 检索 / 结构 diff /
 //! `gate` 写回纯函数 / 三面共用投影 / 架构漂移判定（scan + drift）。
 //!
 //! 消费面同源（进程内结构校验、agent 工具 `archi_*`、IPC 命令面、画布、架构漂移
@@ -7,8 +7,8 @@
 //!    投影入口消费），消费面 MUST NOT 各自再建图；
 //! 2. **投影零改写**：投影只裁剪（1-hop / 字段子集），MUST NOT 重算、MUST NOT
 //!    推导、MUST NOT 补默认值；
-//! 3. **词汇全量对拍**：封闭词汇（元素种类 / gate 档 / 结构诊断 / 文档警告 / 边
-//!    标记 / 节点标记）只有一份定义（[`dto`]），三面覆盖同一词汇集；
+//! 3. **词汇全量对拍**：封闭词汇（元素种类 / gate 档 / 结构诊断 / 边标记 / 节点
+//!    标记）只有一份定义（[`dto`]），三面覆盖同一词汇集；
 //! 4. **判定单源**：架构漂移对账 / 定级 / 豁免 / `status` 推导只有一处实现
 //!    （[`drift::check`]）——命令面与门禁面都调它，MUST NOT 各写一份；
 //! 5. **契约面纯读**：模块 API 契约面（[`api`] 全族）零写盘零 spawn——判定域只出
@@ -21,7 +21,6 @@
 
 pub mod api;
 pub mod diff;
-pub mod docs;
 pub mod drift;
 pub mod dto;
 pub mod edit;
@@ -50,8 +49,8 @@ pub use drift::{check, CheckError, CheckInput};
 pub use dto::{
     graph_diagnostics_error, ArchiApiCheck, ArchiApiMeta, ArchiApiWriteOutcome, ArchiChangeSummary,
     ArchiFileEntry, ArchiFileTree, ArchiGraph, ArchiModuleDetail, ArchiSearchResult,
-    DiagnosticKind, DocKind, DocRef, DocSource, EdgeMark, ElementKind, FileEntryKind, FileTreeMark,
-    GateTier, NodeMark, SearchScope, WarningKind,
+    DiagnosticKind, EdgeMark, ElementKind, FileEntryKind, FileTreeMark, GateTier, NodeMark,
+    SearchScope,
 };
 pub use model::{Diagnostic, Element, Model, Relation};
 pub use scan::{scan, ScanInput, ScanOutcome};
@@ -59,8 +58,6 @@ pub use tree::file_tree;
 
 #[cfg(test)]
 mod diff_test;
-#[cfg(test)]
-mod docs_test;
 #[cfg(test)]
 mod dto_test;
 #[cfg(test)]

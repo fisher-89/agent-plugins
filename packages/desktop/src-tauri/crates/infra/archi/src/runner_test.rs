@@ -592,8 +592,8 @@ fn 生产路径fault恒None且零进程() {
     }
 }
 
-/// 边界（AC-10）：`runner.rs` 零归属 / 定级 / `status` 推导实现——`status` 只从
-/// 报告读取，`passed` 只由 `errors` + 结构错派生。
+/// 边界（AC-4 / AC-10）：`runner.rs` 零归属 / 定级 / `status` 推导实现——`status` 只从
+/// 报告读取，`passed` 只经 `report.passed()`（门禁布尔单点，含 error 档判据）。
 #[test]
 fn 零第二套判定() {
     let source = include_str!("runner.rs");
@@ -607,10 +607,14 @@ fn 零第二套判定() {
         source.contains("check(archi::drift::CheckInput"),
         "判定必须经 archi::drift::check 单点"
     );
+    assert_eq!(
+        source.matches("report.passed()").count(),
+        1,
+        "passed 只经报告门禁布尔单点"
+    );
     assert!(
-        source.contains("report.errors.is_empty()")
-            && source.contains("structural_errors.is_empty()"),
-        "passed 只由 errors + 结构错派生"
+        !source.contains("errors.is_empty() && report.model.structural_errors.is_empty()"),
+        "零第二份门禁判定（errors / 结构错双判已收进 `Report::passed`）"
     );
 }
 
@@ -1129,9 +1133,10 @@ fn api_findings不影响passed() {
             .any(|finding| finding.kind == ArchiApiFindingKind::ApiSignatureMismatch),
         "非空槽位由签名不符构成"
     );
-    assert_eq!(
-        before.passed, after.passed,
-        "api_findings MUST NOT 影响 passed（D18 在门禁面的体现）"
+    assert!(before.passed, "无契约面 ⇒ 门禁布尔为真（既有用例零改动）");
+    assert!(
+        !after.passed,
+        "error 档判据（签名不符）纳管 ⇒ 门禁布尔为假（旧「不影响 passed」语义反转）"
     );
     // 文本面：两侧同属「通过」摘要（passed 同真的表达），差异只在 status 词——契约判据
     // 不逐条进反馈文本（逐条事实在报告文件里）
@@ -1143,10 +1148,10 @@ fn api_findings不影响passed() {
         before.diagnostics
     );
     assert!(
-        after
+        !after
             .diagnostics
             .contains("架构检查通过（mode=incremental status=warnings"),
-        "契约在案的判据把摘要词抬到 warnings：{}",
+        "error 档判据不再走「通过」摘要：{}",
         after.diagnostics
     );
     assert!(
@@ -1161,15 +1166,15 @@ fn api_findings不影响passed() {
     );
     assert_eq!(
         after_report.status,
-        ArchiCheckStatus::Warnings,
-        "纳管子集非空 ⇒ warnings（只有这一档被抬起）"
+        ArchiCheckStatus::Errors,
+        "error 档判据纳管 ⇒ errors"
     );
     assert_eq!(before_report.errors, after_report.errors, "errors 面零变化");
 }
 
-/// 边界（D18）：`ArchiCheckOutcome` 的五字段面（`passed` / `diagnostics` / `fault` /
+/// 边界（AC-4）：`ArchiCheckOutcome` 的五字段面（`passed` / `diagnostics` / `fault` /
 /// `report_dir` / `report_ref`）不含契约槽位——槽位只在报告文件里；`passed` 的派生
-/// 单点只读 `errors` + 结构错（源码自证）。
+/// 单点只读 `report.passed()`（源码自证，零第二份双判）。
 #[test]
 fn 槽位不进outcome且passed派生单点() {
     let source = include_str!("runner.rs");
@@ -1178,12 +1183,12 @@ fn 槽位不进outcome且passed派生单点() {
         "runner.rs 内零 api_findings 引用（槽位由 drift 装配、只随报告落盘）"
     );
     assert!(
-        source.contains("report.errors.is_empty() && report.model.structural_errors.is_empty()"),
-        "passed 只由 errors + 结构错派生"
+        source.contains("let passed = report.passed();"),
+        "passed 只经报告门禁布尔单点"
     );
     assert!(
         !source.contains("api_findings.is_empty()"),
-        "passed MUST NOT 读契约槽位（D18 首期）"
+        "runner 侧零契约槽位直读（判定归 `Report::passed`）"
     );
 }
 
@@ -1197,7 +1202,7 @@ fn 实现体与常量零新增分支() {
         "const TRUNCATED: &str = \"…（已截断，全量见报告文件）\";",
         "impl ArchiCheckRunner for LocalArchiCheck {",
         "let report_ref = write_report(root_path, &name, &report).ok();",
-        "let passed = report.errors.is_empty() && report.model.structural_errors.is_empty();",
+        "let passed = report.passed();",
         "let diagnostics = compose_text(&report, report_ref.as_deref());",
     ] {
         assert!(source.contains(needle), "实现体逐字在案：{needle}");
@@ -1275,4 +1280,138 @@ fn 透传查表值经paths单点() {
             "`{path}` 内零 `replace('.', \"::\")`（点分段冒充 Rust 路径即非法）"
         );
     }
+}
+
+// ===========================================================================
+// 门禁布尔随 error 档判据变化（warn 档不阻断 / 存量 docMissing 债不阻断）
+// ===========================================================================
+
+/// 异常（AC-4）：仅 `warn` 档 apiFindings（`apiDocMissing`）⇒ `passed == true` 且摘要
+/// 仍为「通过」（OQ-5 的呈现缺口按现文案断言，MUST NOT 顺手修）。
+#[test]
+fn warn档判据不阻断门禁() {
+    let temp = TempDir::new().expect("建临时目录");
+    let pilot = "App.Backend.Infra.ArchiRuntime";
+    let pending = "App.Backend.Infra.PendingRuntime";
+    write_model(
+        temp.path(),
+        &format!(
+            "{}\n[element.\"{pending}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"crates/infra/pending/\"]\n",
+            declared_chain_model(pilot, "crates/infra/archi/", "declared"),
+        ),
+    );
+    write(
+        temp.path(),
+        "crates/infra/archi/src/lib.rs",
+        "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
+    );
+    write(
+        temp.path(),
+        "crates/infra/pending/src/lib.rs",
+        "pub fn pending() -> String { String::new() }\n",
+    );
+    // 试点元素的含 fence 载体把契约面打开；pending 的载体在盘但正文无 fence
+    write_contract(temp.path(), pilot, &pilot_contract(pilot));
+    write_contract(
+        temp.path(),
+        pending,
+        &format!("# {pending}\n\n## 职能\n\n契约尚未展开。\n"),
+    );
+
+    let outcome = run(
+        temp.path(),
+        "demo",
+        vec!["crates/infra/pending/src/lib.rs".to_owned()],
+        CancelFlag::never(),
+    )
+    .expect("runner 不 Err");
+    let report = read_report(&outcome.report_ref.clone().expect("报告应落盘"));
+    assert!(
+        report
+            .api_findings
+            .iter()
+            .any(|finding| finding.kind == ArchiApiFindingKind::ApiDocMissing),
+        "warn 档判据在案：{:?}",
+        report
+            .api_findings
+            .iter()
+            .map(|finding| finding.kind)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(report.status, ArchiCheckStatus::Warnings, "纳管 ⇒ warnings");
+    assert!(outcome.passed, "warn 档判据不阻断归档");
+
+    // 呈现缺口（OQ-5）按现文案断言：只有 passed 被消费，判据不逐条进摘要
+    assert!(
+        outcome
+            .diagnostics
+            .contains("架构检查通过（mode=incremental status=warnings"),
+        "摘要词随 status 抬到 warnings（呈现面零改动）：{}",
+        outcome.diagnostics
+    );
+}
+
+/// 边界（AC-5）：零入口文档的存量项目（43 条 `docMissing`）⇒ `passed == true`、
+/// `status == clean`（存量债不被常态化为永久 warnings）。
+#[test]
+fn 存量docmissing不阻断门禁() {
+    let temp = TempDir::new().expect("建临时目录");
+    let mut model = String::from(
+        "[element.\"App\"]
+kind = \"package\"
+path = []
+
+[element.\"App.Core\"]
+kind = \"domain\"
+path = []
+
+",
+    );
+    for index in 0..44 {
+        model.push_str(&format!(
+            "[element.\"App.Core.E{index:02}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/e{index:02}/\"]\n\n"
+        ));
+        write(
+            temp.path(),
+            &format!("src/e{index:02}/src/lib.rs"),
+            "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
+        );
+    }
+    model.push_str("[element.\"App.Core.Pilot\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/pilot/\"]\n\n");
+    write_model(temp.path(), &model);
+    write(
+        temp.path(),
+        "src/pilot/src/lib.rs",
+        "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
+    );
+    // 唯一一份含 fence 的载体（把契约面打开，自身零判据）；其余 44 个元素无载体
+    write_contract(
+        temp.path(),
+        "App.Core.Pilot",
+        &pilot_contract("App.Core.Pilot"),
+    );
+
+    let outcome = run(
+        temp.path(),
+        "demo",
+        vec!["src/pilot/src/lib.rs".to_owned()],
+        CancelFlag::never(),
+    )
+    .expect("runner 不 Err");
+    let report = read_report(&outcome.report_ref.clone().expect("报告应落盘"));
+    let doc_missing = report
+        .api_findings
+        .iter()
+        .filter(|finding| finding.kind == ArchiApiFindingKind::DocMissing)
+        .count();
+    assert_eq!(
+        doc_missing, 44,
+        "44 个元素缺载体（分母口径）：{doc_missing}"
+    );
+    assert_eq!(
+        report.status,
+        ArchiCheckStatus::Clean,
+        "`docMissing` 永不纳管 ⇒ status 停在 clean"
+    );
+    assert!(outcome.passed, "存量入口文档债不阻断归档");
 }

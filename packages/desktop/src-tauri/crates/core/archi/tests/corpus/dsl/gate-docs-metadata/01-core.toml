@@ -4,6 +4,6 @@ kind = "package"
 [element."App.Auth"]
 kind = "domain"
 gate = "strict"
-docs = ["./src/auth/README.md"]
+doc = "./src/auth/README.md"
 summary = "认证域"
 metadata = { owner = "core", tier = "1" }

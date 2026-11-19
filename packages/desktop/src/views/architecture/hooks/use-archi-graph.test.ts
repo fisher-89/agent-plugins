@@ -31,6 +31,7 @@ function healthyGraph(): ArchiGraph {
         modelFile: '.dev-team/architecture/models/01-core.toml',
         modelLine: 2,
         entry: null,
+        doc: null,
         mark: 'none',
       },
       {
@@ -44,6 +45,7 @@ function healthyGraph(): ArchiGraph {
         modelFile: '.dev-team/architecture/models/01-core.toml',
         modelLine: 6,
         entry: null,
+        doc: null,
         mark: 'none',
       },
     ],

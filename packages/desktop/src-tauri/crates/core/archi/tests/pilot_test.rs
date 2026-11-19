@@ -61,6 +61,7 @@ fn pilot_element(fqn: &str, paths: &[&str]) -> archi::dto::ArchiElement {
         model_file: ".dev-team/architecture/models/03-backend-infra.toml".to_owned(),
         model_line: 1,
         mark: archi::dto::NodeMark::None,
+        doc: None,
     }
 }
 

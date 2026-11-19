@@ -11,10 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use archi::dto::{
-    self, DiagnosticKind, DocKind, DocSource, EdgeMark, ElementKind, GateTier, NodeMark,
-    SearchScope, WarningKind,
-};
+use archi::dto::{self, DiagnosticKind, EdgeMark, ElementKind, GateTier, NodeMark, SearchScope};
 use archi::graph::ModelGraph;
 use archi::parse;
 use serde_json::Value;
@@ -74,12 +71,9 @@ const DIAGNOSTIC_KINDS: [&str; 9] = [
     "unknownReference",
     "orphanHierarchy",
 ];
-const WARNING_KINDS: [&str; 1] = ["docNotFound"];
-const DOC_KINDS: [&str; 2] = ["md", "adr"];
-const DOC_SOURCES: [&str; 3] = ["explicit", "adjacent", "text"];
 const EDGE_MARKS: [&str; 4] = ["none", "unfulfilled", "crossKind", "exempt"];
 const NODE_MARKS: [&str; 2] = ["none", "unfulfilled"];
-const SEARCH_SCOPES: [&str; 3] = ["elements", "docs", "all"];
+const SEARCH_SCOPES: [&str; 3] = ["elements", "doc", "all"];
 
 /// 枚举线值（`serde_json` 单值序列化）。
 fn line_of<T: serde::Serialize>(value: T) -> String {
@@ -282,20 +276,6 @@ fn 封闭词汇值域九组() {
     .collect();
     assert_eq!(diagnostics, DIAGNOSTIC_KINDS.to_vec());
 
-    assert_eq!(WarningKind::DocNotFound.as_str(), WARNING_KINDS[0]);
-
-    assert_eq!(
-        vec![line_of(DocKind::Md), line_of(DocKind::Adr)],
-        DOC_KINDS.to_vec()
-    );
-    assert_eq!(
-        vec![
-            line_of(DocSource::Explicit),
-            line_of(DocSource::Adjacent),
-            line_of(DocSource::Text)
-        ],
-        DOC_SOURCES.to_vec()
-    );
     assert_eq!(
         vec![
             line_of(EdgeMark::None),
@@ -317,7 +297,7 @@ fn 封闭词汇值域九组() {
     assert_eq!(
         vec![
             line_of(SearchScope::Elements),
-            line_of(SearchScope::Docs),
+            line_of(SearchScope::Doc),
             line_of(SearchScope::All)
         ],
         SEARCH_SCOPES.to_vec()
@@ -440,12 +420,11 @@ fn 投影零改写显式空值四字段() {
         "字段不省略"
     );
 
-    // 元素侧无文档关联 → 详情里 docs / warnings 为显式空数组
+    // 元素侧无入口文档 → 详情里 doc 为显式 null
     let detail = dto::module_detail(temp.root(), "App").expect("Ok");
-    assert!(detail.docs.is_empty() && detail.warnings.is_empty());
+    assert!(detail.doc.is_none());
     let detail_value = serde_json::to_value(&detail).expect("序列化成功");
-    assert_eq!(detail_value["docs"], serde_json::json!([]));
-    assert_eq!(detail_value["warnings"], serde_json::json!([]));
+    assert_eq!(detail_value["doc"], serde_json::Value::Null);
 }
 
 /// 边界：空模型（零元素零关系零诊断）→ 三数组皆空且 `diagnostics` 空；含一个坏点
@@ -548,6 +527,7 @@ fn api_status线词与投影串对拍() {
             model_file: ".dev-team/architecture/models/01.toml".to_owned(),
             model_line: 1,
             mark: NodeMark::None,
+            doc: None,
         };
         let value = serde_json::to_value(&element).expect("序列化成功");
         assert_eq!(
@@ -676,7 +656,8 @@ fn api_status缺省与线形封闭() {
 
 /// 异常（封闭性 / `entry` 的开放值域）：`entry` 的值域是**开放集**（任意 repo 相对
 /// 路径），故它不派生任何词表——四面 `ALL` 的线词集合里零 `entry` 字样，且
-/// `DiagnosticKind` 仍九值、`ArchiApiFindingKind` 仍十值（入口四条判据同报一个 kind）。
+/// `DiagnosticKind` 仍九值、`ArchiApiFindingKind` 为十三值（入口四条判据同报一个 kind，
+/// `doc` 面另有三值）。
 #[test]
 fn entry不派生词表且四面封闭() {
     assert_eq!(
@@ -692,8 +673,8 @@ fn entry不派生词表且四面封闭() {
     );
     assert_eq!(
         archi::drift::report::ArchiApiFindingKind::ALL.len(),
-        10,
-        "契约判据仍十值（四条入口理由同报 `apiEntryMissing`）"
+        13,
+        "契约判据十三值（四条入口理由同报 `apiEntryMissing`）"
     );
 
     let words: Vec<&str> = archi::dto::ElementKind::ALL
@@ -717,4 +698,107 @@ fn entry不派生词表且四面封闭() {
             "`entry` 不是词表值（开放值域不进封闭集）：{words:?}"
         );
     }
+}
+
+// ===========================================================================
+// `doc` 面词汇三面（枚举 / `ALL` / 线格式词）与退役词汇组
+//
+// `ArchiApiFindingKind` 十值 → 十三值、`ApiFindingSeverity` 二值 → 三值：线格式词与
+// `ALL` 逐值对拍（金样与 IPC 面都只认这一份词表）；文档种类 / 文档来源 / 警告种类三组
+// 词汇随文档关联能力退役，零引用零定义。
+// ===========================================================================
+
+/// 正向：`ArchiApiFindingKind` 十三值——`ALL` 逐值 `as_str` 两两不等，序列化值与 `as_str`
+/// 逐值相等（三新词在案，旧十词零漂移）。
+#[test]
+fn 契约判据十三值三面对拍() {
+    use archi::drift::report::ArchiApiFindingKind;
+
+    assert_eq!(
+        ArchiApiFindingKind::ALL.len(),
+        13,
+        "十三值清单（旧断言十值已随 `doc` 面扩面）"
+    );
+    let mut words = Vec::new();
+    for kind in ArchiApiFindingKind::ALL {
+        let word = kind.as_str();
+        assert_eq!(
+            serde_json::to_value(kind).expect("序列化成功"),
+            serde_json::json!(word),
+            "{word} 的 serde 线形与 as_str 一致"
+        );
+        let back: ArchiApiFindingKind =
+            serde_json::from_value(serde_json::json!(word)).expect("反序列化成功");
+        assert_eq!(back, kind, "{word} 往返逐值相等");
+        words.push(word);
+    }
+    for expected in ["docMissing", "docNotFound", "apiDocMissing"] {
+        assert!(
+            words.contains(&expected),
+            "新词在案：{expected} / {words:?}"
+        );
+    }
+    let mut unique = words.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), 13, "十三词两两不等：{words:?}");
+    assert_eq!(
+        ArchiApiFindingKind::ALL[0],
+        ArchiApiFindingKind::ApiEntryMissing,
+        "既有词序零漂移（首项不变）"
+    );
+}
+
+/// 正向 / 异常：`ApiFindingSeverity` 三值——`ALL` 逐值线词 `off` / `warn` / `error`，
+/// `severity()` 的返回值 ∈ `ALL`（十三值逐值验证），零第四档残留。
+#[test]
+fn 档位三值封闭且severity落在其上() {
+    use archi::drift::report::{ApiFindingSeverity, ArchiApiFindingKind};
+
+    assert_eq!(ApiFindingSeverity::ALL.len(), 3, "档位三值");
+    let words: Vec<&str> = ApiFindingSeverity::ALL
+        .iter()
+        .map(|severity| severity.as_str())
+        .collect();
+    assert_eq!(words, vec!["off", "warn", "error"], "三值线词");
+
+    for kind in ArchiApiFindingKind::ALL {
+        let severity = kind.severity();
+        assert!(
+            ApiFindingSeverity::ALL.contains(&severity),
+            "{kind:?} 的档位落三值内：{severity:?}"
+        );
+    }
+    for word in ["info", "fatal", "silent"] {
+        assert!(!words.contains(&word), "无第四档残留：{word}");
+    }
+}
+
+/// 异常（退役词汇组）：本文件与产品源码内三个退役类型标识符零引用；
+/// `ArchiModuleDetail` 无 `docs` / `warnings` 字段。
+#[test]
+fn 退役词汇组零引用() {
+    // 标识符在运行时拼出，避免断言自身命中（自证面必须零引用）
+    let retired = [
+        format!("{}{}", "Doc", "Kind"),
+        format!("{}{}", "Doc", "Source"),
+        format!("{}{}", "Warning", "Kind"),
+    ];
+    let this_file = include_str!("vocabulary_test.rs");
+    let dto_source = include_str!("../src/dto.rs");
+    for name in &retired {
+        assert!(!this_file.contains(name.as_str()), "测试面零引用：{name}");
+        assert!(
+            !dto_source.contains(name.as_str()),
+            "产品源码零定义：{name}"
+        );
+    }
+    assert!(
+        !dto_source.contains("pub docs:"),
+        "`ArchiModuleDetail` 无 `docs` 字段"
+    );
+    assert!(
+        !dto_source.contains("pub warnings:"),
+        "`ArchiModuleDetail` 无 `warnings` 字段"
+    );
 }

@@ -21,7 +21,7 @@ fn element(fqn: &str) -> Element {
         api: ApiStatus::Declared,
         entry: None,
         path: Vec::new(),
-        docs: Vec::new(),
+        doc: None,
         summary: None,
         metadata: BTreeMap::new(),
         file: ".dev-team/architecture/models/01-core.toml".to_owned(),

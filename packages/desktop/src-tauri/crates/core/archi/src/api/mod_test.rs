@@ -182,6 +182,7 @@ fn element(fqn: &str, paths: &[&str]) -> ArchiElement {
         model_file: ".dev-team/architecture/models/01-test.toml".to_owned(),
         model_line: 1,
         mark: NodeMark::None,
+        doc: None,
     }
 }
 
@@ -202,127 +203,101 @@ fn empty_snapshot() -> ApiSnapshot {
         contracts: Vec::new(),
         schemas: BTreeMap::new(),
         symbols: BTreeMap::new(),
+        doc_facts: BTreeMap::new(),
     }
 }
 
 // ---------------------------------------------------------------------------
-// enabled：递归扫描与启用条件
+// enabled：载体在盘且含 api fence
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-7 前置）：`<archi_models_dir>/Infra/App.X.md` → `true`；同一棵树只有
-/// `INDEX.toml` / `*.schema.json` 而无 `*.md` → `false`。
+/// 正向：`api = declared` 元素的派生契约 md 在盘且正文含 `api-op` fence → `true`；
+/// 同一份 md 去掉 fence → `false`（有文档无约定不构成启用证据）。
 #[test]
-fn enabled递归扫描到md() {
-    let temp = TempDir::new("enabled-recursive");
-    temp.write(".dev-team/architecture/models/Infra/App.X.md", "# App.X\n");
-    assert!(enabled(temp.root()), "递归含 md 即启用");
-
-    let only_index = TempDir::new("enabled-no-md");
-    only_index.write(".dev-team/architecture/graph/INDEX.toml", "# 空索引\n");
-    only_index.write(
-        ".dev-team/architecture/models/Infra/App.X.schema.json",
-        "{\"$defs\": {}}\n",
-    );
+fn enabled按载体fence判定() {
+    let temp = TempDir::new("enabled-fence");
+    let fqn = "App.Infra.Rt";
+    let with_fence = element(fqn, &["src/rt/"]);
+    temp.write_contract(fqn, &pilot_markdown(fqn));
     assert!(
-        !enabled(only_index.root()),
-        "只有 INDEX 与 schema 而无 md → 未启用（判据只看 *.md）"
+        enabled(temp.root(), std::slice::from_ref(&with_fence)),
+        "载体在盘且含 api fence → 启用"
+    );
+
+    let no_fence = TempDir::new("enabled-no-fence");
+    no_fence.write_contract(fqn, &format!("# {fqn}\n\n## 职能\n\n正文。\n"));
+    assert!(
+        !enabled(no_fence.root(), &[element(fqn, &["src/rt/"])]),
+        "载体在盘但无 fence → 未启用"
     );
 }
 
-/// 边界（D17）：根下无 `.dev-team` → `false`（零 panic）；契约目录存在但为空 → `false`；
-/// 两层深（`<Domain>/<Sub>/x.md`）→ `true`。
+/// 边界：目录缺席 / 空目录 / 非载体 md 均不构成启用证据——`models/` 一级的笔记与
+/// `<Domain>/notes.md` 都不是任何元素的载体。
 #[test]
-fn enabled目录缺席与空目录() {
+fn enabled杂项md不误启用() {
     let bare = TempDir::new("enabled-bare");
-    assert!(!enabled(bare.root()), "无 .dev-team → false（零 panic）");
+    assert!(
+        !enabled(bare.root(), &[element("App.X", &["src/x/"])]),
+        "无 .dev-team → false（零 panic）"
+    );
 
     let empty = TempDir::new("enabled-empty");
     fs::create_dir_all(archi_models_dir(empty.root())).expect("建空契约目录");
-    assert!(!enabled(empty.root()), "空契约目录 → false");
-
-    let nested = TempDir::new("enabled-nested");
-    nested.write(
-        ".dev-team/architecture/models/Infra/Sub/x.md",
-        "# App.Infra.Sub.X\n",
-    );
-    assert!(enabled(nested.root()), "两层深仍递归命中");
-}
-
-/// 边界：`README.md` → `true`（判据只看 `*.md` 在场，命名合法性归 `load_contracts`）；
-/// `x.MD` / `x.md.txt` / 同名目录 `x.md/` → `false`。
-#[test]
-fn enabled文件名边界() {
-    let readme = TempDir::new("enabled-readme");
-    readme.write(".dev-team/architecture/models/README.md", "# 说明\n");
-    assert!(enabled(readme.root()), "README.md 仍算 md 在场");
-
-    let upper = TempDir::new("enabled-upper");
-    upper.write(".dev-team/architecture/models/x.MD", "# x\n");
-    assert!(!enabled(upper.root()), "x.MD 大小写敏感 → false");
-
-    let doubled = TempDir::new("enabled-doubled");
-    doubled.write(".dev-team/architecture/models/x.md.txt", "# x\n");
-    assert!(!enabled(doubled.root()), "x.md.txt 不以 .md 结尾 → false");
-
-    let dir_named_md = TempDir::new("enabled-dir-md");
-    fs::create_dir_all(archi_models_dir(dir_named_md.root()).join("x.md")).expect("建同名目录");
-    assert!(!enabled(dir_named_md.root()), "同名目录不是文件 → false");
-}
-
-/// 边界（D17 实现纪律 / D34 同源口径）：符号链接**不跟随**（不 panic、不无限递归、
-/// 不因链接指向的树而有 md 命中）；深度判据按 `MAX_API_WALK_DEPTH`（= 4）的边界两侧
-/// 分别判定——扫描自 `<api 目录>` 起 depth 0，因此 `<sub>^k/x.md` 的 depth 为 k，
-/// `k <= 4` 命中、`k > 4` 不命中（后者须返回 `false` 而不栈溢出）。
-#[test]
-fn enabled符号链接不跟随与深度上限两侧边界() {
-    // 符号链接：链接指向一棵含 md 的树，但扫描 MUST NOT 跟随 → 零 md → false。
-    let linked = TempDir::new("enabled-symlink");
-    let target = TempDir::new("enabled-symlink-target");
-    target.write("x.md", "# x\n");
-    fs::create_dir_all(archi_models_dir(linked.root())).expect("建契约目录");
-    let link = archi_models_dir(linked.root()).join("link");
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(target.root(), &link).expect("建符号链接目录");
-        assert!(
-            !enabled(linked.root()),
-            "符号链接目录不跟随：链接内的 md 不构成启用"
-        );
-    }
-    #[cfg(windows)]
-    {
-        // Windows 上目录符号链接常需特权：建不成就只断言「不 panic、结果可判」。
-        if std::os::windows::fs::symlink_dir(target.root(), &link).is_ok() {
-            assert!(
-                !enabled(linked.root()),
-                "符号链接目录不跟随：链接内的 md 不构成启用"
-            );
-        } else {
-            let _ = enabled(linked.root());
-        }
-    }
-
-    // 深度上限：`k` 段子目录（depth = k）。
-    fn nested_at(tag: &str, subdirs: usize) -> TempDir {
-        let temp = TempDir::new(tag);
-        let mut relative = String::from(".dev-team/architecture/models");
-        for _ in 0..subdirs {
-            relative.push_str("/d");
-        }
-        temp.write(&format!("{relative}/x.md"), "# App.D\n");
-        temp
-    }
-
-    let at_limit = nested_at("enabled-depth-at-limit", 4);
     assert!(
-        enabled(at_limit.root()),
-        "depth 4 == MAX_API_WALK_DEPTH → 仍在扫面内，命中"
+        !enabled(empty.root(), &[element("App.X", &["src/x/"])]),
+        "空契约目录 → false"
     );
 
-    let beyond_limit = nested_at("enabled-depth-beyond", 5);
+    let notes = TempDir::new("enabled-notes");
+    notes.write(
+        ".dev-team/architecture/models/notes.md",
+        "```json api-op\n{\"params\": [], \"returns\": {\"type\": \"string\"}}\n```\n",
+    );
+    notes.write(
+        ".dev-team/architecture/models/Infra/notes.md",
+        "# 笔记\n\n```json api-op\n{}\n```\n",
+    );
     assert!(
-        !enabled(beyond_limit.root()),
-        "depth 5 > MAX_API_WALK_DEPTH → 不命中（返回 false 而不栈溢出）"
+        !enabled(notes.root(), &[element("App.X", &["src/x/"])]),
+        "非任何元素的载体 → 未启用（MUST NOT 退化为递归任意 *.md）"
+    );
+}
+
+/// 边界：`api = none` 元素以 `doc` 声明载体——在盘且含 fence 即启用（同一 `doc_facts`
+/// 事实、零 `api` 分支）；`doc` 形态越界（绝对路径 / `..`）→ 零载体 → 未启用。
+#[test]
+fn enabled留白元素doc载体与形态边界() {
+    let temp = TempDir::new("enabled-none-doc");
+    temp.write("guides/auth.md", "```json api-types\n{\"A\": {}}\n```\n");
+    let mut blank = element("App.Auth", &["src/auth/"]);
+    blank.api = ApiStatus::None;
+    blank.doc = Some("guides/auth.md".to_owned());
+    assert!(
+        enabled(temp.root(), &[blank.clone()]),
+        "doc 载体的 fence 同源"
+    );
+
+    blank.doc = Some("/etc/passwd".to_owned());
+    assert!(
+        !enabled(temp.root(), &[blank.clone()]),
+        "绝对路径 → 零载体（越根拦截）"
+    );
+    blank.doc = Some("../outside.md".to_owned());
+    assert!(!enabled(temp.root(), &[blank]), "`..` 段 → 零载体");
+}
+
+/// 边界：`path` 空元素零参与——即便其 `doc` 指向一份带 fence 的文件，也不构成启用证据。
+#[test]
+fn enabled容器元素零参与() {
+    let temp = TempDir::new("enabled-container");
+    temp.write("README.md", "```json api-op\n{}\n```\n");
+    let mut container = element("App", &[]);
+    container.api = ApiStatus::None;
+    container.doc = Some("README.md".to_owned());
+    assert!(
+        !enabled(temp.root(), &[container]),
+        "path 空元素不入载体装配"
     );
 }
 
@@ -403,7 +378,10 @@ fn 快照无缺契约清单字段() {
         .expect("结构体收口")
         .0;
     let fields = snapshot.matches("    pub ").count();
-    assert_eq!(fields, 3, "ApiSnapshot 恰三分量（无第四项清单）");
+    assert_eq!(
+        fields, 4,
+        "ApiSnapshot 四分量（`doc_facts` 进场，仍无缺契约清单）"
+    );
 
     let input = source
         .split_once("pub struct ApiCheckInput<'a> {")
@@ -413,7 +391,10 @@ fn 快照无缺契约清单字段() {
         .expect("结构体收口")
         .0;
     let input_fields = input.matches("    pub ").count();
-    assert_eq!(input_fields, 6, "ApiCheckInput 恰六字段（无 `absent`）");
+    assert_eq!(
+        input_fields, 7,
+        "ApiCheckInput 七字段（`doc_facts` 进场，仍无 `absent`）"
+    );
 }
 
 /// 边界（D16 ⑤）：`api = none` 且 md 不存在 → 不进 `contracts`；`api = none`
@@ -1723,6 +1704,7 @@ path = [\"src/alpha/\"]
         contracts: &snapshot.contracts,
         schemas: &snapshot.schemas,
         symbols: &snapshot.symbols,
+        doc_facts: &snapshot.doc_facts,
         enabled: true,
     };
     let _ = check(extra);
@@ -1828,46 +1810,83 @@ fn check未启用短路() {
         contracts: &snapshot.contracts,
         schemas: &snapshot.schemas,
         symbols: &snapshot.symbols,
+        doc_facts: &snapshot.doc_facts,
         enabled: false,
     });
     assert!(findings.is_empty(), "未启用即空集，不因数据存在而产出");
 }
 
-/// 正向（D18）：构造多元素多 kind 命中（`apiEntryMissing` ×2 + `apiMissing` ×2 +
-/// `apiConstructorDeclared` ×1）→ 返回序按 `(kind, element, target)` 升序；**两次运行
-/// 逐字段相等**（可逐字 diff 的报告）。元素输入序故意与期望序相反（乱序注入）。
+/// 正向（D18）：构造多元素多 kind 命中（`docMissing` ×2 + `apiEntryMissing` ×1 +
+/// `apiMissing` ×1 + `apiConstructorDeclared` ×1）→ 返回序按 `(kind, element, target)`
+/// 升序；**两次运行逐字段相等**（可逐字 diff 的报告）。元素输入序故意与期望序相反
+/// （乱序注入）。
 #[test]
 fn check稳定排序() {
     let temp = TempDir::new("check-sorted");
+    // ① 契约声明构造器（入口可解析 ⇒ 走到一致性面）
     let constructor_fqn = "App.Core.Constructor";
     temp.write_contract(
         constructor_fqn,
         &format!(
-            "# {constructor_fqn}\n\n### new\n\n```json api-op\n{{\"params\": [], \"returns\": \
-             {{\"type\": \"object\"}}}}\n```\n"
+            "# {constructor_fqn}
+
+### new
+
+```json api-op
+{{\"params\": [], \"returns\":              {{\"type\": \"object\"}}}}
+```
+"
         ),
     );
     temp.write(
         "src/constructor/src/lib.rs",
-        "pub fn new() -> Self { Self }\n",
+        "pub fn new() -> Self { Self }
+",
     );
-    // apiMissing 的两个元素：有入口、无契约
-    temp.write("src/present/src/lib.rs", "pub fn present() {}\n");
-    temp.write("src/present2/src/lib.rs", "pub fn present2() {}\n");
+    // ② 有约定无兑现：契约声明 `ghost`，代码里没有
+    let missing_fqn = "App.Core.Missing";
+    temp.write_contract(
+        missing_fqn,
+        &format!(
+            "# {missing_fqn}
+
+### ghost
+
+```json api-op
+{{\"params\": [], \"returns\":              {{\"type\": \"string\"}}}}
+```
+"
+        ),
+    );
+    temp.write(
+        "src/missing/src/lib.rs",
+        "pub fn present() {}
+",
+    );
+    // ③ 载体在盘但入口不可解析
+    let entry_fqn = "App.Core.NoEntry";
+    temp.write_contract(entry_fqn, &pilot_markdown(entry_fqn));
+    // ④ 留白之外的两份无载体元素（`docMissing`）
+    temp.write(
+        "src/plain/src/lib.rs",
+        "pub fn plain() {}
+",
+    );
 
     let elements = [
-        element("App.Core.Present", &["src/present/"]),
+        element("App.Core.Plain", &["src/plain/"]),
         element("App.Core.NoEntryB", &["src/missing-b/"]),
         element(constructor_fqn, &["src/constructor/"]),
+        element(missing_fqn, &["src/missing/"]),
+        element(entry_fqn, &["src/no-entry/"]),
         element("App.Core.NoEntryA", &["src/missing-a/"]),
-        element("App.Core.Present2", &["src/present2/"]),
     ];
 
     let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
     assert_eq!(
         snapshot.contracts.len(),
-        1,
-        "五个元素里只有一个有契约：{:?}",
+        3,
+        "六元素里三份契约在案：{:?}",
         snapshot
             .contracts
             .iter()
@@ -1881,6 +1900,7 @@ fn check稳定排序() {
         contracts: &snapshot.contracts,
         schemas: &snapshot.schemas,
         symbols: &snapshot.symbols,
+        doc_facts: &snapshot.doc_facts,
         enabled: true,
     };
 
@@ -1890,18 +1910,23 @@ fn check稳定排序() {
 
     let kinds: Vec<&str> = first.iter().map(|finding| finding.kind.as_str()).collect();
     let count = |kind: &str| kinds.iter().filter(|value| **value == kind).count();
-    assert_eq!(count("apiEntryMissing"), 2, "两个无入口元素：{kinds:?}");
+    assert_eq!(count("apiEntryMissing"), 1, "一个无入口元素：{kinds:?}");
     assert_eq!(
         count("apiMissing"),
-        2,
-        "两个有入口无契约的元素（无入口者不再判 ②）：{kinds:?}"
+        1,
+        "一个「有约定无兑现」元素：{kinds:?}"
     );
     assert_eq!(
         count("apiConstructorDeclared"),
         1,
         "契约声明构造器恰一条：{kinds:?}"
     );
-    assert_eq!(first.len(), 5, "共五条命中：{kinds:?}");
+    assert_eq!(
+        count("docMissing"),
+        3,
+        "三份无载体元素各一条（`Plain` / `NoEntryA` / `NoEntryB`）：{kinds:?}"
+    );
+    assert_eq!(first.len(), 6, "共六条命中：{kinds:?}");
 
     let keys: Vec<(String, Option<String>, Option<String>)> = first
         .iter()
@@ -1921,16 +1946,17 @@ fn check稳定排序() {
     );
 
     // 同 kind 内按 element 升序（乱序输入不影响输出）
-    let entry_elements: Vec<Option<String>> = first
+    let doc_missing_elements: Vec<Option<String>> = first
         .iter()
-        .filter(|finding| finding.kind.as_str() == "apiEntryMissing")
+        .filter(|finding| finding.kind.as_str() == "docMissing")
         .map(|finding| finding.element.clone())
         .collect();
     assert_eq!(
-        entry_elements,
+        doc_missing_elements,
         vec![
             Some("App.Core.NoEntryA".to_owned()),
-            Some("App.Core.NoEntryB".to_owned())
+            Some("App.Core.NoEntryB".to_owned()),
+            Some("App.Core.Plain".to_owned())
         ],
         "同 kind 内按 element 字典序"
     );
@@ -1950,6 +1976,7 @@ fn check委托单点() {
         contracts: &snapshot.contracts,
         schemas: &snapshot.schemas,
         symbols: &snapshot.symbols,
+        doc_facts: &snapshot.doc_facts,
         enabled: true,
     };
     let outer = check(build());
@@ -3840,8 +3867,10 @@ fn mismatch_markdown(fqn: &str) -> String {
     )
 }
 
-/// 代码侧源文（`count_all` 返回 `String` ⇒ 与契约的 `integer` 不符）。
-const MISMATCH_SOURCE: &str = "pub fn count_all(input: &str) -> String { input.to_owned() }\n";
+/// 代码侧源文（`count_all` 返回 `String` ⇒ 与契约的 `integer` 不符；`LocalCheck` 类型
+/// 在案 ⇒ ⑧「有约定无兑现」不命中，判据落到 ⑨ 一致性面）。
+const MISMATCH_SOURCE: &str =
+    "pub struct LocalCheck;\n\npub fn count_all(input: &str) -> String { input.to_owned() }\n";
 
 /// 判据构造器（`gating_findings` 只吃 `element` 与序，其余字段取稳定缺省）。
 fn api_finding(element: Option<&str>, kind: ArchiApiFindingKind) -> ArchiApiFinding {
@@ -3885,7 +3914,12 @@ fn artifact_check三列与compare逐列相等() {
     assert_eq!(dto.mismatched, diff.mismatched, "mismatched 逐列相等");
     assert_eq!(dto.orphaned, diff.orphaned, "orphaned 逐列相等");
     assert_eq!(dto.missing, diff.missing, "missing 逐列相等");
-    assert_eq!(dto.enabled, super::enabled(temp.root()), "enabled 同源");
+    let elements = super::elements_of(temp.root()).expect("模型在场");
+    assert_eq!(
+        dto.enabled,
+        super::enabled(temp.root(), &elements),
+        "enabled 同源"
+    );
     assert_eq!(dto.orphaned, vec!["src/loose.i.rs".to_owned()], "孤儿一条");
 }
 
@@ -4051,21 +4085,29 @@ fn gating_findings无契约文件落选() {
     );
 }
 
-/// 异常（AC-6 / D6 的闭合面）：`api = none` 元素即使契约在案也落选（口径 = 契约即承诺，
-/// 只筛 `Declared`；`ApiStatus` 是封闭二值，另一值即本行的对照臂）。
+/// 正向（纳管口径两支）：`api = none` 元素以 `doc` 声明为承诺——声明在案即纳管
+/// （`docNotFound` 判的正是「声明指不到盘」），未声明则 `docMissing` 永不纳管。
 #[test]
-fn gating_findings非declared元素落选() {
-    let temp = TempDir::new("gating-not-declared");
-    for fqn in ["App.Core.Blank", "App.Core.Deferred"] {
-        temp.write_contract(fqn, &format!("# {fqn}\n"));
-        let mut target = element(fqn, &["src/x/"]);
-        target.api = ApiStatus::None;
-        let findings = vec![api_finding(Some(fqn), ArchiApiFindingKind::ApiUnexpected)];
-        assert!(
-            super::gating_findings(temp.root(), &[target], &findings).is_empty(),
-            "{fqn}：api = none 即便契约在案也落选"
-        );
-    }
+fn gating_findings留白元素声明即承诺() {
+    let temp = TempDir::new("gating-none-declared");
+    let fqn = "App.Core.Blank";
+    temp.write_contract(fqn, &format!("# {fqn}\n"));
+    let mut declared_doc = element(fqn, &["src/x/"]);
+    declared_doc.api = ApiStatus::None;
+    declared_doc.doc = Some("guides/nowhere.md".to_owned());
+    let findings = vec![api_finding(Some(fqn), ArchiApiFindingKind::DocNotFound)];
+    assert_eq!(
+        super::gating_findings(temp.root(), std::slice::from_ref(&declared_doc), &findings).len(),
+        1,
+        "留白元素声明了 doc ⇒ 承诺已成立（即便指不到盘）⇒ 纳管"
+    );
+
+    let mut undeclared = element(fqn, &["src/x/"]);
+    undeclared.api = ApiStatus::None;
+    assert!(
+        super::gating_findings(temp.root(), &[undeclared], &findings).is_empty(),
+        "留白元素未声明 doc ⇒ 无承诺 ⇒ docMissing 落选"
+    );
 }
 
 /// 异常（AC-6 / D6）：`element = None` 的判据落选；同一调用里带归属且契约在案的另一条
@@ -4168,13 +4210,14 @@ fn findings正常装配产出判据() {
         contracts: &snapshot.contracts,
         schemas: &snapshot.schemas,
         symbols: &snapshot.symbols,
+        doc_facts: &snapshot.doc_facts,
         enabled: true,
     });
     assert_eq!(findings, direct, "与判据单点逐字段相等");
 }
 
-/// 边界（AC-6 / D7）：契约面未启用（① 缺席② 零 md）→ `Ok(vec![])`；源码面自证
-/// `if !enabled(root)` 早退分支在契约装载之前。
+/// 边界（AC-6 / D7）：契约面未启用（① 缺席 ② 零载体）→ `Ok(vec![])`；源码面自证
+/// `findings` 体内零独立启用判定（启用由快照的载体事实派生，同一 `load_contracts` 装配）。
 #[test]
 fn findings未启用短路() {
     let absent = TempDir::new("findings-absent");
@@ -4198,11 +4241,20 @@ fn findings未启用短路() {
         .split_once("\n}\n")
         .expect("函数体收口")
         .0;
-    let early_return = body.find("if !enabled(root)").expect("早退分支在案");
-    let load = body
-        .find("load_contracts(root, elements)")
-        .expect("装载在案");
-    assert!(early_return < load, "早退分支在契约装载之前：\n{body}");
+    assert!(
+        !body.contains("enabled(root"),
+        "零独立启用判定（`enabled` 由快照事实派生）：\n{body}"
+    );
+    assert_eq!(
+        body.matches("facts_enabled(&snapshot.doc_facts)").count(),
+        1,
+        "启用判据经唯一本体（同一份 `doc_facts`）：\n{body}"
+    );
+    assert_eq!(
+        body.matches("load_contracts(root, elements)?").count(),
+        1,
+        "装载单点恰一处：\n{body}"
+    );
 }
 
 /// 异常（AC-6 / D7 错误映射）：非法 JSON fence / 缺 H1 标题 / 非法 UTF-8 字节任一 → `Err`
@@ -4918,8 +4970,8 @@ fn findings组合闭包只减不增() {
     for finding in &found {
         assert_eq!(
             finding.kind,
-            ArchiApiFindingKind::ApiEntryMissing,
-            "子元素无入口是唯一余下条目：{}",
+            ArchiApiFindingKind::DocMissing,
+            "父元素之外的五份无载体元素是唯一余下条目：{}",
             finding.message
         );
     }
@@ -5052,8 +5104,8 @@ fn enabled模型文件不是启用证据() {
     temp.write(".dev-team/architecture/graph/INDEX.toml", "# 空索引\n");
 
     assert!(
-        !enabled(temp.root()),
-        "6 份模型 toml + schema + 索引而零 md ⇒ 未启用（模型文件不是启用证据）"
+        !enabled(temp.root(), &[element("App.Core.Alpha", &["src/alpha/"])]),
+        "6 份模型 toml + schema + 索引而零载体 ⇒ 未启用（模型文件不是启用证据）"
     );
 
     let elements = [element("App.Core.Alpha", &["src/alpha/"])];
@@ -5073,13 +5125,12 @@ fn enabled模型与契约混居与冷启动态() {
         ".dev-team/architecture/models/01-app.toml",
         "[element.\"App\"]\nkind = \"package\"\n",
     );
-    mixed.write(
-        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md",
-        "# App.Backend.Infra.ArchiRuntime\n",
-    );
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    mixed.write_contract(fqn, &pilot_markdown(fqn));
+    let carriers = [element(fqn, &["crates/infra/archi/"])];
     assert!(
-        enabled(mixed.root()),
-        "模型 toml + 契约 md 并存 ⇒ 启用（模型文件不遮蔽契约子树）"
+        enabled(mixed.root(), &carriers),
+        "模型 toml + 含 fence 的载体并存 ⇒ 启用（模型文件不遮蔽载体）"
     );
 
     let cold = TempDir::new("enabled-cold-start");
@@ -5087,43 +5138,35 @@ fn enabled模型与契约混居与冷启动态() {
     let index = paths::index_path(cold.root());
     fs::create_dir_all(index.parent().expect("索引有父目录")).expect("建索引目录");
     assert!(
-        !enabled(cold.root()),
-        "两目录在、零 md ⇒ 未启用（零 panic）"
+        !enabled(cold.root(), &carriers),
+        "两目录在、零载体 ⇒ 未启用（零 panic）"
     );
 }
 
-/// 边界（AC-4 单点判定自证）：`mod.rs` 内 `has_markdown(&paths::directory(root), 0)` 恰
-/// 1 处（命令层无第二处判断），`enabled` 体内零目录派生调用与零段名字面量（根只经
-/// `paths::directory` 单点）。
+/// 边界（AC-4 单点判定自证）：启用判据本体只在私有 `facts_enabled` 一处，`enabled`
+/// 与 `findings` 都调它（MUST NOT 各判一套）；载体装配只在 `doc_facts` 一处。
 #[test]
 fn enabled判定单点自证() {
     let source = include_str!("mod.rs");
     assert_eq!(
-        source
-            .matches("has_markdown(&paths::directory(root), 0)")
-            .count(),
+        source.matches("fn facts_enabled(").count(),
         1,
-        "启用判定单点（恰一处，命令层无第二处判断）"
+        "启用判定本体恰一处"
     );
-
-    let start = source
-        .find("pub fn enabled(root: &Path) -> bool {")
-        .expect("`enabled` 在案");
-    let rest = &source[start..];
-    let end = rest.find("\n}\n").expect("函数体收尾");
-    let body = &rest[..end];
-    for banned in [
-        "archi_models_dir",
-        "archi_api",
-        "\"api\"",
-        "\"models\"",
-        "\"graph\"",
-    ] {
-        assert!(
-            !body.contains(banned),
-            "`enabled` 体内零 `{banned}`（根只经 paths::directory）：{body}"
-        );
-    }
+    assert_eq!(
+        source.matches("facts_enabled(&").count(),
+        2,
+        "`enabled` 与 `findings` 同经本体（两处调用，零第三处）"
+    );
+    assert_eq!(
+        source.matches("fn doc_facts(").count(),
+        1,
+        "载体事实装配恰一处"
+    );
+    assert!(
+        !source.contains("has_markdown") && !source.contains("MARKDOWN_SUFFIX"),
+        "旧「递归任意 *.md」判据已整体退役"
+    );
 }
 
 /// 正向（AC-4 读数守恒）：契约 md 与模型 toml 同住 `models/`（md 在 `<Domain>/` 子目录）
@@ -5142,11 +5185,11 @@ fn load_contracts双身份混居仍出三表() {
     );
     temp.write_contract(fqn, &pilot_markdown(fqn));
 
+    let elements = [element(fqn, &["crates/infra/archi/"])];
     assert!(
-        enabled(temp.root()),
+        enabled(temp.root(), &elements),
         "md 落 `models/<Domain>/` 子目录仍启用"
     );
-    let elements = [element(fqn, &["crates/infra/archi/"])];
     let snapshot = load_contracts(temp.root(), &elements).expect("混居不产出结构诊断");
     assert_eq!(snapshot.contracts.len(), 1, "contracts 就位");
     assert_eq!(snapshot.schemas.len(), 1, "schemas 就位");
@@ -5172,16 +5215,14 @@ fn findings计数与模型文件混居无关() {
     ));
     temp.write("src/alpha/src/lib.rs", "pub fn alpha() {}\n");
     temp.write("src/beta/src/lib.rs", "pub fn beta() {}\n");
-    // 零 op / 零类型的契约：声明集为空 ⇒ 该元素零判据（契约即承诺且已在案）。
+    // 含 `api-types` fence 且类型在代码在案：声明集已兑现 ⇒ 该元素零判据，同时把契约面
+    // 置为启用（否则 `enabled == false` 一律空集）。
+    temp.write("src/alpha/src/lib.rs", "pub struct LocalCheck;\n");
     temp.write_contract(
         with_contract,
         &format!(
-            "# {with_contract}
-
-## 职能
-
-口径示例。
-"
+            "# {with_contract}\n\n## 职能\n\n口径示例。\n\n## 类型\n\n```json api-types\n\
+             {{\"LocalCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
         ),
     );
 
@@ -5199,8 +5240,26 @@ fn findings计数与模型文件混居无关() {
     assert_eq!(count("apiEntryMissing"), 0, "两元素入口均可解析");
     assert_eq!(
         count("apiMissing"),
+        0,
+        "改判后不再有「契约缺失」形态的 apiMissing：{:?}",
+        found
+            .iter()
+            .map(|finding| (finding.kind.as_str(), finding.element.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        count("apiDocMissing"),
+        0,
+        "契约 md 带 fence ⇒ 零 apiDocMissing：{:?}",
+        found
+            .iter()
+            .map(|finding| (finding.kind.as_str(), finding.element.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        count("docMissing"),
         1,
-        "有入口无契约者恰一条：{:?}",
+        "无契约 md 的元素 ⇒ 一条 docMissing（warn 档）：{:?}",
         found
             .iter()
             .map(|finding| (finding.kind.as_str(), finding.element.clone()))
@@ -5217,11 +5276,11 @@ fn findings计数与模型文件混居无关() {
     );
 }
 
-/// 边界（AC-4 ③ · 离线可推读数）：真实仓库的 `path` 非空元素 44 个，其中 `api = none`
-/// 2 个（留白不入判据面）、契约在案 1 个（零判据），其余 41 个各一条 `apiMissing`
-/// ⇒ `apiEntryMissing 0` + `apiMissing 41`（`44 − 2 − 1 = 41`）。换根只改契约落点，
-/// 该算术不变，故把它写成 fixture 级机械事实：判据计数只由「元素声明 + 契约在案与否」
-/// 决定，与契约目录叫什么名字无关。
+/// 边界（AC-5 · 离线可推读数）：真实仓库的 `path` 非空元素 44 个，其中 `api = none`
+/// 2 个（留白未声明 `doc`）、契约在案且已兑现 1 个（零判据），其余 41 个入口文档未就位
+/// ⇒ `docMissing 43`（`41` 份改名 + `2` 个新入面）、`apiMissing 0`、分母 44。换根只改
+/// 契约落点，该算术不变，故把它写成 fixture 级机械事实：判据计数只由「元素声明 + 载体
+/// 事实」决定，与契约目录叫什么名字无关。
 #[test]
 fn findings离线可推读数四十四减二减一() {
     let temp = TempDir::new("findings-offline-counts");
@@ -5237,9 +5296,13 @@ fn findings离线可推读数四十四减二减一() {
         elements.push(declared);
     }
     let in_place = "App.Core.E00";
+    temp.write("src/e00/src/lib.rs", "pub struct LocalCheck;\n");
     temp.write_contract(
         in_place,
-        &format!("# {in_place}\n\n## 职能\n\n口径示例。\n"),
+        &format!(
+            "# {in_place}\n\n## 职能\n\n口径示例。\n\n## 类型\n\n```json api-types\n\
+             {{\"LocalCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+        ),
     );
 
     // 夹具自证：44 个 `path` 非空元素、`api = none` 恰 2 个、契约在案恰 1 份。
@@ -5283,8 +5346,26 @@ fn findings离线可推读数四十四减二减一() {
     );
     assert_eq!(
         count("apiMissing"),
-        41,
-        "44 − 2 − 1 = 41：{:?}",
+        0,
+        "改判后零 apiMissing（契约缺失不再是本判据）：{:?}",
+        found
+            .iter()
+            .map(|finding| (finding.kind.as_str(), finding.element.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        count("apiDocMissing"),
+        0,
+        "契约在案且带 fence ⇒ 零 apiDocMissing：{:?}",
+        found
+            .iter()
+            .map(|finding| (finding.kind.as_str(), finding.element.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        count("docMissing"),
+        43,
+        "44 − 1 = 43 条 docMissing（41 份改名 + 2 个留白未声明 doc）：{:?}",
         found
             .iter()
             .map(|finding| (finding.kind.as_str(), finding.element.clone()))
@@ -5292,7 +5373,626 @@ fn findings离线可推读数四十四减二减一() {
     );
     assert_eq!(
         found.len(),
-        41,
-        "判据总数 41（`apiEntryMissing 0` + `apiMissing 41`，零附加判据）"
+        43,
+        "判据总数 43（`docMissing 43` 独占，分母 44 减已兑现 1 份）"
     );
+}
+
+// ===========================================================================
+// 载体事实三态（`DocFact`）与启用判据的 fence 精度
+//
+// `doc_facts` 是「入口文档载体在盘 / 含不含 api fence」的唯一装配点：启用判据与
+// `docMissing` / `docNotFound` / `apiDocMissing` 三条判据都只读这张表。
+// ===========================================================================
+
+use super::{doc_facts, DocFact};
+
+/// 正向：三态互斥且穷尽——留白未声明 → `Absent`；载体不在盘 → `Missing`；在盘含
+/// `api-op` / `api-types` → `Present { true }`；在盘零 fence → `Present { false }`。
+#[test]
+fn doc_facts三态装配互斥且穷尽() {
+    let temp = TempDir::new("doc-facts-three-states");
+
+    let mut absent = element("App.Core.Absent", &["src/a/"]);
+    absent.api = ApiStatus::None;
+
+    let missing_declared = element("App.Core.MissingDeclared", &["src/m/"]);
+    let mut missing_none = element("App.Core.MissingNone", &["src/n/"]);
+    missing_none.api = ApiStatus::None;
+    missing_none.doc = Some("guides/nowhere.md".to_owned());
+
+    let with_op = element("App.Core.WithOp", &["src/op/"]);
+    temp.write_contract(
+        "App.Core.WithOp",
+        "# App.Core.WithOp\n\n```json api-op\n{\"params\": [], \"returns\": {\"type\": \"string\"}}\n```\n",
+    );
+    let with_types = element("App.Core.WithTypes", &["src/types/"]);
+    temp.write_contract(
+        "App.Core.WithTypes",
+        "# App.Core.WithTypes\n\n```json api-types\n{\"T\": {\"type\": \"object\"}}\n```\n",
+    );
+    let no_fence = element("App.Core.NoFence", &["src/plain/"]);
+    temp.write_contract(
+        "App.Core.NoFence",
+        "# App.Core.NoFence\n\n## 职能\n\n正文。\n",
+    );
+
+    let elements = vec![
+        absent,
+        missing_declared,
+        missing_none,
+        with_op,
+        with_types,
+        no_fence,
+    ];
+    let facts = doc_facts(temp.root(), &elements);
+
+    assert_eq!(facts.len(), elements.len(), "每个 path 非空元素一档事实");
+    assert_eq!(
+        facts.get("App.Core.Absent"),
+        Some(&DocFact::Absent),
+        "留白未声明 ⇒ Absent"
+    );
+    assert_eq!(
+        facts.get("App.Core.MissingDeclared"),
+        Some(&DocFact::Missing),
+        "declared 载体不在盘 ⇒ Missing（已派生，不是 Absent）"
+    );
+    assert_eq!(
+        facts.get("App.Core.MissingNone"),
+        Some(&DocFact::Missing),
+        "none 已声明但指不到盘 ⇒ Missing"
+    );
+    assert_eq!(
+        facts.get("App.Core.WithOp"),
+        Some(&DocFact::Present {
+            has_api_fence: true
+        }),
+        "在盘含 api-op ⇒ Present(true)"
+    );
+    assert_eq!(
+        facts.get("App.Core.WithTypes"),
+        Some(&DocFact::Present {
+            has_api_fence: true
+        }),
+        "在盘含 api-types ⇒ Present(true)"
+    );
+    assert_eq!(
+        facts.get("App.Core.NoFence"),
+        Some(&DocFact::Present {
+            has_api_fence: false
+        }),
+        "在盘零 fence ⇒ Present(false)"
+    );
+}
+
+/// 异常：载体存在但不可读（非法 UTF-8 / 目录占位）**不打成 `Err`**——启用判定是探针。
+#[test]
+fn doc_facts不可读载体不打成err() {
+    let temp = TempDir::new("doc-facts-unreadable");
+    let fqn = "App.Core.Binary";
+    let carrier = paths::contract_path(temp.root(), fqn).expect("FQN 恒合法");
+    fs::create_dir_all(carrier.parent().expect("契约目录")).expect("建契约目录");
+    fs::write(&carrier, [0xff_u8, 0xfe, 0xfd]).expect("写非法 UTF-8 契约");
+
+    let facts = doc_facts(temp.root(), &[element(fqn, &["src/b/"])]);
+    assert_eq!(
+        facts.get(fqn),
+        Some(&DocFact::Present {
+            has_api_fence: false
+        }),
+        "读失败按「无 fence」处置（不得整条 Err）"
+    );
+
+    // 目录占位同名路径：不是文件 ⇒ Missing（`is_file` 判据），同样不打成 Err
+    let dir_temp = TempDir::new("doc-facts-dir");
+    let dir_fqn = "App.Core.Dir";
+    let dir_carrier = paths::contract_path(dir_temp.root(), dir_fqn).expect("FQN 恒合法");
+    fs::create_dir_all(&dir_carrier).expect("建同名目录");
+    let dir_facts = doc_facts(dir_temp.root(), &[element(dir_fqn, &["src/d/"])]);
+    assert_eq!(
+        dir_facts.get(dir_fqn),
+        Some(&DocFact::Missing),
+        "同名目录不是载体文件"
+    );
+}
+
+/// 边界：零元素 / `path` 空元素不装配；重复元素以 FQN 为键幂等；`declared` 支即便
+/// 投影带了 `doc` 也按派生 `contract_path` 装配（`doc` 在该支不参与）。
+#[test]
+fn doc_facts边界_空表与path空与键幂等与declared支不读doc() {
+    let temp = TempDir::new("doc-facts-boundary");
+    assert!(
+        doc_facts(temp.root(), &[]).is_empty(),
+        "零元素 ⇒ 空表（零读盘、零 panic）"
+    );
+
+    let mut container = element("App", &[]);
+    container.api = ApiStatus::None;
+    container.doc = Some("guides/entry.md".to_owned());
+    assert!(
+        doc_facts(temp.root(), &[container]).is_empty(),
+        "path 空元素不入载体装配"
+    );
+
+    let fqn = "App.Core.Dup";
+    temp.write_contract(fqn, "# App.Core.Dup\n");
+    let facts = doc_facts(
+        temp.root(),
+        &[element(fqn, &["src/x/"]), element(fqn, &["src/y/"])],
+    );
+    assert_eq!(facts.len(), 1, "同一 FQN 重复出现 ⇒ 单键（BTreeMap 幂等）");
+
+    // declared 支：投影里的 `doc` 指着一份带 fence 的真实文件，但载体仍是派生契约落点
+    let mut declared = element("App.Core.DocIgnored", &["src/di/"]);
+    temp.write("guides/declared-doc.md", "```json api-op\n{}\n```\n");
+    declared.doc = Some("guides/declared-doc.md".to_owned());
+    let declared_facts = doc_facts(temp.root(), &[declared]);
+    assert_eq!(
+        declared_facts.get("App.Core.DocIgnored"),
+        Some(&DocFact::Missing),
+        "declared 支只认派生契约落点（`doc` 不参与装配）"
+    );
+}
+/// 边界：fence 判据精度——info string 按空白 / 逗号切 token；散文提及、大写变体、
+/// `~~~` 围栏都不构成启用证据。
+#[test]
+fn doc_facts边界_fence判据精度() {
+    let cases = [
+        ("json api-op", true, "```json api-op"),
+        ("api-op", true, "```api-op"),
+        ("api-types,api-op", true, "逗号分隔同判"),
+        ("API-OP", false, "大小写不构成语言标"),
+        ("json", false, "普通代码块不是 api fence"),
+    ];
+    for (index, (info, expected, note)) in cases.into_iter().enumerate() {
+        let temp = TempDir::new(&format!("doc-facts-fence-{index}"));
+        let fqn = "App.Core.Fence";
+        temp.write(
+            "guides/entry.md",
+            &format!("# 入口文档\n\n```{info}\n{{}}\n```\n"),
+        );
+        let mut subject = element(fqn, &["src/f/"]);
+        subject.api = ApiStatus::None;
+        subject.doc = Some("guides/entry.md".to_owned());
+        let facts = doc_facts(temp.root(), &[subject]);
+        assert_eq!(
+            facts.get(fqn),
+            Some(&DocFact::Present {
+                has_api_fence: expected
+            }),
+            "{note}（info string: {info:?}）"
+        );
+    }
+
+    // 散文里提及 `api-op` 不算；`~~~` 围栏不认
+    let prose = TempDir::new("doc-facts-prose");
+    prose.write(
+        "guides/entry.md",
+        "本文提到 api-op 语言标，但不是 fence。\n",
+    );
+    let tilde = TempDir::new("doc-facts-tilde");
+    tilde.write("guides/entry.md", "~~~json api-op\n{}\n~~~\n");
+    for (temp, note) in [(&prose, "散文提及"), (&tilde, "`~~~` 围栏")] {
+        let mut subject = element("App.Core.Fence", &["src/f/"]);
+        subject.api = ApiStatus::None;
+        subject.doc = Some("guides/entry.md".to_owned());
+        assert_eq!(
+            doc_facts(temp.root(), &[subject]).get("App.Core.Fence"),
+            Some(&DocFact::Present {
+                has_api_fence: false
+            }),
+            "{note}不构成 api fence"
+        );
+    }
+}
+
+/// 边界（声明在案 vs 未声明）：`api = none` 且 `doc` 已声明但**形态越根**（绝对路径 /
+/// 盘符 / `~` / `..` / 空段 / 空串）⇒ `Missing`，MUST NOT 归 `Absent`——「派生不出路径」
+/// 有两种成因，判据面对它们分属 `docMissing`（warn、不纳管）与 `docNotFound`（error、
+/// 纳管），把「写错了」并进「还没写」就是那条消红后门。同时反向核对：真未声明 ⇒ `Absent`。
+#[test]
+fn doc_facts越根doc归missing() {
+    let malformed = [
+        "/etc/passwd",
+        "C:/win.md",
+        "~/home.md",
+        "../outside.md",
+        "",
+        "a//b.md",
+    ];
+    for (index, doc) in malformed.into_iter().enumerate() {
+        let temp = TempDir::new(&format!("doc-facts-malformed-{index}"));
+        let fqn = "App.Core.Malformed";
+        let mut subject = element(fqn, &["src/m/"]);
+        subject.api = ApiStatus::None;
+        subject.doc = Some(doc.to_owned());
+        assert_eq!(
+            doc_facts(temp.root(), std::slice::from_ref(&subject)).get(fqn),
+            Some(&DocFact::Missing),
+            "声明 `{doc}` 越根 ⇒ Missing（声明在案、指不到盘）"
+        );
+
+        let mut undeclared = element(fqn, &["src/m/"]);
+        undeclared.api = ApiStatus::None;
+        assert_eq!(
+            doc_facts(temp.root(), &[undeclared]).get(fqn),
+            Some(&DocFact::Absent),
+            "未声明 `doc` ⇒ Absent"
+        );
+    }
+}
+
+/// 正向（判据面接力）：`api = none` + `doc` 越根的元素经装载期事实在判据面**恰报一条
+/// `docNotFound`**（error 档、纳管），零 `docMissing`；同一 root 里真未声明的留白元素
+/// 仍报 `docMissing`（warn、不纳管）。启用由另一份带 fence 的契约载体给出，故本用例
+/// 走完整 `findings` 链路（装载 → 事实 → 判据），而非只读 `doc_facts`。
+#[test]
+fn 判据面越根doc报docnotfound并纳管() {
+    let temp = TempDir::new("findings-doc-not-found");
+    let enabled_by = "App.Core.Fenced";
+    temp.write_contract(enabled_by, &pilot_markdown(enabled_by));
+
+    let malformed = "App.Core.Malformed";
+    let mut bad = element(malformed, &["src/m/"]);
+    bad.api = ApiStatus::None;
+    bad.doc = Some("/etc/passwd".to_owned());
+
+    let blank = "App.Core.Blank";
+    let mut undeclared = element(blank, &["src/b/"]);
+    undeclared.api = ApiStatus::None;
+
+    let elements = [element(enabled_by, &["src/f/"]), bad, undeclared];
+    let found = super::findings(temp.root(), &elements).expect("判据装配应成功");
+    let of = |fqn: &str, kind: ArchiApiFindingKind| -> Vec<&ArchiApiFinding> {
+        found
+            .iter()
+            .filter(|finding| finding.element.as_deref() == Some(fqn) && finding.kind == kind)
+            .collect()
+    };
+
+    assert_eq!(
+        of(malformed, ArchiApiFindingKind::DocNotFound).len(),
+        1,
+        "越根 `doc` ⇒ 恰一条 docNotFound：{found:?}"
+    );
+    assert_eq!(
+        of(malformed, ArchiApiFindingKind::DocMissing).len(),
+        0,
+        "声明在案 MUST NOT 降级为 docMissing"
+    );
+    assert_eq!(
+        of(blank, ArchiApiFindingKind::DocMissing).len(),
+        1,
+        "真未声明 ⇒ docMissing"
+    );
+    assert_eq!(
+        of(blank, ArchiApiFindingKind::DocNotFound).len(),
+        0,
+        "未声明不产生 docNotFound"
+    );
+
+    let gated = super::gating_findings(temp.root(), &elements, &found);
+    assert!(
+        gated.iter().any(|finding| {
+            finding.element.as_deref() == Some(malformed)
+                && finding.kind == ArchiApiFindingKind::DocNotFound
+        }),
+        "docNotFound 纳管（声明本身即承诺）：{gated:?}"
+    );
+    assert!(
+        !gated
+            .iter()
+            .any(|finding| finding.kind == ArchiApiFindingKind::DocMissing),
+        "docMissing 永不纳管：{gated:?}"
+    );
+}
+
+/// 正向：两份载体其一含 fence 即启用；fence 位于文件第 2 行 / 文末同样命中。
+#[test]
+fn enabled任一份载体含fence即启用() {
+    let temp = TempDir::new("enabled-any-carrier");
+    let fenced = "App.Core.Fenced";
+    let plain = "App.Core.Plain";
+    temp.write_contract(fenced, &pilot_markdown(fenced));
+    temp.write_contract(plain, "# App.Core.Plain\n\n正文。\n");
+    let elements = [element(fenced, &["src/f/"]), element(plain, &["src/p/"])];
+    assert!(
+        enabled(temp.root(), &elements),
+        "两份载体其一含 fence 即启用"
+    );
+
+    for (index, source) in [
+        ("第二行", "# X\n\n```api-op\n{}\n```\n"),
+        ("文末", "# X\n\n正文。\n\n```api-op\n{}\n```"),
+    ] {
+        let temp = TempDir::new(&format!("enabled-fence-position-{index}"));
+        let fqn = "App.Core.Pos";
+        temp.write_contract(fqn, source);
+        assert!(
+            enabled(temp.root(), &[element(fqn, &["src/pos/"])]),
+            "fence 位于{index}仍命中"
+        );
+    }
+}
+
+/// 异常（AC-7 反向判据）：旧「递归任意 `*.md`」形态一律**不**构成启用证据——笔记、
+/// 普通代码块、`models/` 仅 `*.toml`、`models/` 缺席、`models/README.md`。
+#[test]
+fn enabled旧判据残留形态一律不启用() {
+    let fqn = "App.Core.Candidate";
+
+    // ① 载体位置但正文只有普通代码块
+    let plain_block = TempDir::new("enabled-plain-block");
+    plain_block.write_contract(fqn, "# App.Core.Candidate\n\n```rust\nfn f() {}\n```\n");
+    assert!(
+        !enabled(plain_block.root(), &[element(fqn, &["src/b/"])]),
+        "普通代码块不是 api fence"
+    );
+
+    // ② `models/README.md`（旧判据的「任意 md」形态）
+    let readme = TempDir::new("enabled-readme");
+    readme.write(".dev-team/architecture/models/README.md", "# 说明\n");
+    assert!(
+        !enabled(readme.root(), &[element(fqn, &["src/b/"])]),
+        "README.md 不是任何元素的载体"
+    );
+
+    // ③ `models/` 仅 `*.toml`
+    let toml_only = TempDir::new("enabled-toml-only");
+    toml_only.write(
+        ".dev-team/architecture/models/01-app.toml",
+        "[element.\"App\"]\nkind = \"package\"\n",
+    );
+    assert!(
+        !enabled(toml_only.root(), &[element(fqn, &["src/b/"])]),
+        "模型文件不是启用证据"
+    );
+
+    // ④ `models/` 缺席（冷启动）+ 零元素
+    let bare = TempDir::new("enabled-absent-models");
+    assert!(
+        !enabled(bare.root(), &[element(fqn, &["src/b/"])]),
+        "契约目录缺席 ⇒ 未启用（零 panic）"
+    );
+    assert!(!enabled(bare.root(), &[]), "零元素 ⇒ 未启用（零读盘）");
+}
+/// 正向：快照的 `doc_facts` 覆盖全部 `path` 非空元素；`api = none` 的 `doc` 即便带
+/// fence 也不进 `contracts`（三表零增删）。
+#[test]
+fn load_contracts快照带载体事实且三表零增删() {
+    let temp = TempDir::new("load-contracts-doc-facts");
+    let declared = "App.Core.Declared";
+    temp.write_contract(declared, &pilot_markdown(declared));
+    temp.write("guides/blank.md", "```json api-op\n{}\n```\n");
+    let mut blank = element("App.Core.Blank", &["src/blank/"]);
+    blank.api = ApiStatus::None;
+    blank.doc = Some("guides/blank.md".to_owned());
+    let container = element("App.Core.Container", &[]);
+
+    let elements = [element(declared, &["src/d/"]), blank, container];
+    let snapshot = load_contracts(temp.root(), &elements).expect("健康语料零错误");
+
+    assert_eq!(
+        snapshot.doc_facts.len(),
+        2,
+        "只装配 path 非空元素（容器零参与）"
+    );
+    assert_eq!(
+        snapshot.doc_facts.get(declared),
+        Some(&DocFact::Present {
+            has_api_fence: true
+        }),
+        "declared 载体事实在案"
+    );
+    assert_eq!(
+        snapshot.doc_facts.get("App.Core.Blank"),
+        Some(&DocFact::Present {
+            has_api_fence: true
+        }),
+        "none 的 doc 载体事实在案"
+    );
+    assert_eq!(snapshot.contracts.len(), 1, "`api = none` 不进 contracts");
+    assert_eq!(
+        snapshot.contracts[0].fqn, declared,
+        "唯一契约恒为 declared 元素"
+    );
+    assert_eq!(snapshot.schemas.len(), 1, "schemas 与 contracts 同源");
+    assert_eq!(snapshot.symbols.len(), 1, "symbols 与 contracts 同源");
+}
+
+/// 边界：空元素表 → 三表 + `doc_facts` 全空；同一 root 两次调用逐键相等（零缓存但
+/// 确定性）；载体读取与契约解析各一处（源码自证）。
+#[test]
+fn load_contracts边界_空表与两次调用相等与读取单点() {
+    let temp = TempDir::new("load-contracts-empty");
+    let empty = load_contracts(temp.root(), &[]).expect("空表不是错误");
+    assert!(empty.contracts.is_empty(), "contracts 空");
+    assert!(empty.schemas.is_empty(), "schemas 空");
+    assert!(empty.symbols.is_empty(), "symbols 空");
+    assert!(empty.doc_facts.is_empty(), "doc_facts 空");
+
+    let fqn = "App.Core.Twice";
+    temp.write_contract(fqn, &pilot_markdown(fqn));
+    let elements = [element(fqn, &["src/t/"])];
+    let first = load_contracts(temp.root(), &elements).expect("第一次");
+    let second = load_contracts(temp.root(), &elements).expect("第二次");
+    assert_eq!(
+        first.doc_facts, second.doc_facts,
+        "两次调用逐键相等（零缓存但确定性）"
+    );
+
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source.matches("fs::read_to_string").count(),
+        2,
+        "两处读盘：载体装配 1 处 + 契约解析 1 处（双读是本变更的显式取舍）"
+    );
+}
+
+/// 边界：单份载体 + 未声明 `doc` 的留白元素 → `docMissing` 一条（warn 档，不是
+/// `Err`）；空元素表 → 空 `Vec`；两次调用逐条相等。
+#[test]
+fn findings边界_单条docmissing与去重稳定() {
+    let temp = TempDir::new("findings-docmissing");
+    let mut blank = element("App.Core.NoDoc", &["src/n/"]);
+    blank.api = ApiStatus::None;
+    // 契约面启用需要至少一份含 fence 的载体：留白元素以 `doc` 声明它（本元素零判据）
+    let mut carrier = element("App.Core.Carrier", &["src/c/"]);
+    carrier.api = ApiStatus::None;
+    carrier.doc = Some("guides/carrier.md".to_owned());
+    temp.write(
+        "guides/carrier.md",
+        "# 入口文档\n\n```json api-op\n{}\n```\n",
+    );
+    let elements = [blank, carrier];
+
+    let first = findings(temp.root(), &elements).expect("未声明 doc 不是错误");
+    assert_eq!(first.len(), 1, "一条 docMissing：{first:?}");
+    assert_eq!(first[0].kind, ArchiApiFindingKind::DocMissing, "判据种类");
+    assert_eq!(first[0].category, "doc", "分类 doc");
+    let second = findings(temp.root(), &elements).expect("第二次");
+    assert_eq!(first, second, "两次调用逐条相等（报告面可重复）");
+
+    assert!(
+        findings(temp.root(), &[]).expect("空元素表").is_empty(),
+        "空元素表 ⇒ 空 Vec"
+    );
+}
+
+/// 异常：`findings` 体内零独立启用判定——`load_contracts(` 恰 1 次、载体事实经快照
+/// 派生、零 `enabled(root` 调用（同源即被测语义）。
+#[test]
+fn findings启用判据不独立装配() {
+    let source = include_str!("mod.rs");
+    let start = source.find("pub fn findings(").expect("`findings` 在案");
+    let rest = &source[start..];
+    let end = rest.find("\n}\n").expect("函数体收尾");
+    let body = &rest[..end];
+    assert_eq!(
+        body.matches("load_contracts(").count(),
+        1,
+        "装载单点恰一处：{body}"
+    );
+    assert_eq!(
+        body.matches("facts_enabled(").count(),
+        1,
+        "启用由快照事实派生：{body}"
+    );
+    assert!(
+        !body.contains("enabled(root"),
+        "零独立启用判定（同源即被测语义）：{body}"
+    );
+    assert!(
+        body.contains("snapshot.doc_facts"),
+        "载体事实经快照读取：{body}"
+    );
+}
+
+/// 异常：`api = none` 元素的 `doc` 载体存在但不可读 ⇒ 按「无 fence」处置、`enabled`
+/// 为假、不触发 `ApiError::Io`（探针与契约解析两条错误面分工）。
+#[test]
+fn findings不可读载体走未启用而非io错误() {
+    let temp = TempDir::new("findings-unreadable");
+    let fqn = "App.Core.Bin";
+    let carrier = temp.root().join("guides/binary.md");
+    fs::create_dir_all(carrier.parent().expect("指南目录")).expect("建指南目录");
+    fs::write(&carrier, [0xff_u8, 0x00, 0x1f]).expect("写非法 UTF-8");
+
+    let mut blank = element(fqn, &["src/bin/"]);
+    blank.api = ApiStatus::None;
+    blank.doc = Some("guides/binary.md".to_owned());
+
+    let produced = match findings(temp.root(), &[blank]) {
+        Ok(produced) => produced,
+        Err(error) => panic!("不可读载体不得打成 Io 错误：{error:?}"),
+    };
+    assert!(produced.is_empty(), "启用判据为假 ⇒ 空判据集：{produced:?}");
+}
+
+/// 异常：无模型（`.dev-team` 缺席）→ `artifact_check` 仍 `Ok` 且 `enabled = false`
+/// （冷启动态），不产出半真结果。
+#[test]
+fn artifact_check冷启动ok且未启用() {
+    let temp = TempDir::new("artifact-cold-start");
+    let dto = super::artifact_check(temp.root()).expect("无模型不是错误");
+    assert!(!dto.enabled, "冷启动 ⇒ 未启用");
+    assert!(dto.mismatched.is_empty(), "零不符");
+    assert!(dto.orphaned.is_empty(), "零孤儿");
+    assert!(
+        !dto.missing.is_empty(),
+        "索引生成物仍照实报缺失（应生成集恒含 INDEX.toml）"
+    );
+}
+
+/// 边界：`artifact_check` 的元素表只取一次（源码自证 `elements_of(root)?` 恰 1 处），
+/// 且 `enabled` 由元素表派生、字段形状零变化。
+#[test]
+fn artifact_check元素表取数单点() {
+    let source = include_str!("mod.rs");
+    let start = source
+        .find("pub fn artifact_check(")
+        .expect("`artifact_check` 在案");
+    let rest = &source[start..];
+    let end = rest.find("\n}\n").expect("函数体收尾");
+    let body = &rest[..end];
+    assert_eq!(
+        body.matches("elements_of(root)?").count(),
+        1,
+        "元素表只取一次：{body}"
+    );
+    assert!(
+        body.contains("enabled: enabled(root, &elements)"),
+        "`enabled` 由元素表派生：{body}"
+    );
+}
+
+/// 异常：判据归属的元素不在 `elements` 表内 ⇒ 落选（无承诺可对）；`docMissing` 两支
+/// （`declared` 载体不在盘 / `none` 未声明）都不纳管。
+#[test]
+fn gating_findings不在表内与两条docmissing均落选() {
+    let temp = TempDir::new("gating-not-in-table");
+    let fqn = "App.Core.Alpha";
+    temp.write_contract(fqn, "# App.Core.Alpha\n");
+    let elements = [element(fqn, &["src/alpha/"])];
+    let stranger = vec![api_finding(
+        Some("App.Core.Stranger"),
+        ArchiApiFindingKind::ApiMissing,
+    )];
+    assert!(
+        super::gating_findings(temp.root(), &elements, &stranger).is_empty(),
+        "元素不在表内 ⇒ 落选"
+    );
+
+    let mut blank = element("App.Core.Blank", &["src/blank/"]);
+    blank.api = ApiStatus::None;
+    // 本臂的 declared 元素**契约 md 不在盘**（`docMissing` 的另一支）
+    let in_play = [element("App.Core.NoContract", &["src/nc/"]), blank];
+    let doc_missing = vec![
+        api_finding(Some("App.Core.Blank"), ArchiApiFindingKind::DocMissing),
+        api_finding(Some("App.Core.NoContract"), ArchiApiFindingKind::DocMissing),
+    ];
+    assert!(
+        super::gating_findings(temp.root(), &in_play, &doc_missing).is_empty(),
+        "docMissing 两支都不纳管（承诺尚未成立）"
+    );
+}
+
+/// 边界：`declared` 元素写了 `doc` 且载体在盘（判据面报 `apiUnexpected`）→ 仍纳管
+/// （承诺已成立即纳管，矛盾本身照常进 status）；条目顺序与输入顺序一致。
+#[test]
+fn gating_findings留白矛盾仍纳管且保序() {
+    let temp = TempDir::new("gating-unexpected");
+    let fqn = "App.Core.Alpha";
+    temp.write_contract(fqn, "# App.Core.Alpha\n");
+    let mut subject = element(fqn, &["src/alpha/"]);
+    subject.doc = Some("guides/a.md".to_owned());
+    let findings = vec![
+        api_finding(Some(fqn), ArchiApiFindingKind::ApiUnexpected),
+        api_finding(Some(fqn), ArchiApiFindingKind::ApiUnexpected),
+        api_finding(Some(fqn), ArchiApiFindingKind::ApiUnexpected),
+    ];
+    let gated = super::gating_findings(temp.root(), &[subject], &findings);
+    assert_eq!(gated.len(), 3, "载体在盘 ⇒ 矛盾判据仍纳管");
+    assert_eq!(gated, findings, "过滤不改序");
 }

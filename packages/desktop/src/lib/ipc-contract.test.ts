@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import type { Channel } from '@tauri-apps/api/core';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vite-plus/test';
 import { ZodObject, ZodType, type z } from 'zod';
@@ -758,6 +761,7 @@ function archiElement(overrides: Partial<ArchiElement> = {}): ArchiElement {
     mark: 'none',
     api: 'declared',
     entry: null,
+    doc: null,
     ...overrides,
   };
 }
@@ -794,5 +798,22 @@ describe('ArchiElement.entry 出线形态', () => {
     ).toBe(false);
     // 多余键的反例只针对新增字段面：合法对象仍可解析
     expect(ArchiElementSchema.safeParse(archiElement()).success).toBe(true);
+  });
+});
+
+describe('doc 单值面的产物词面', () => {
+  it('应在 bindings.ts 里零 `docs` 词、单值 `doc` 在 ArchiModuleDetail 内', () => {
+    const source = readFileSync(resolve('src/types/generated/bindings.ts'), 'utf8');
+    expect(source).not.toContain('docs');
+    const detail = source.slice(source.indexOf('export type ArchiModuleDetail'));
+    const section = detail.slice(0, detail.indexOf('\nexport '));
+    expect(section).toContain('doc: string | null');
+    expect(section).not.toContain('warnings');
+  });
+
+  it('应在 zod 产物里同名换面（ArchiModuleDetail 无 docs / warnings 键）', () => {
+    const source = readFileSync(resolve('src/types/generated/bindings.zod.ts'), 'utf8');
+    expect(source).not.toContain('docs:');
+    expect(source).not.toContain('warnings:');
   });
 });

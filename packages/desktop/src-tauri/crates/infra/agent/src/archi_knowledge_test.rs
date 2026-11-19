@@ -126,15 +126,12 @@ fn knowledge词汇漂移守卫三组封闭集长度与去重() {
 fn knowledge目录派生注入两路径逐字在场且零反斜杠() {
     let text = text();
     let models = foundation::layout::archi_models_rel_dir();
-    let decisions = foundation::layout::archi_decisions_rel_dir();
+    let graph = foundation::layout::archi_graph_rel_dir();
     assert!(
         text.contains(&models),
         "知识文本缺模型目录派生串 {models}（目录 MUST NOT 手抄）"
     );
-    assert!(
-        text.contains(&decisions),
-        "知识文本缺决策记录目录派生串 {decisions}"
-    );
+    assert!(text.contains(&graph), "知识文本缺契约索引派生串 {graph}");
     assert!(
         !text.contains('\\'),
         "知识文本应为 `/` 分隔（模型可见文本），不得出现反斜杠"
@@ -441,20 +438,17 @@ fn 关系两端已声明且说明非空() {
     );
 }
 
-/// 边界：`docs` 指向不存在的虚构路径不产生结构诊断（`docNotFound` 属 warning，
+/// 边界：`doc` 指向不存在的虚构路径不产生结构诊断（`docNotFound` 属契约判据，
 /// 不进 `diagnostics()` 自证面）。
 #[test]
 fn 文档引用不触发结构错() {
     let (model, _) = example_model();
-    let has_docs = model
-        .elements
-        .iter()
-        .any(|element| !element.docs.is_empty());
-    assert!(has_docs, "示例应至少声明一条 docs 关联（引用形态可考）");
+    let has_docs = model.elements.iter().any(|element| element.doc.is_some());
+    assert!(has_docs, "示例应至少声明一条 doc 入口文档（引用形态可考）");
     let graph = ModelGraph::build(model);
     assert!(
         graph.diagnostics().is_empty(),
-        "虚构 docs 路径只报 warning，不入结构诊断: {:?}",
+        "虚构 doc 路径只出契约判据，不入结构诊断: {:?}",
         graph.diagnostics()
     );
 }
@@ -503,8 +497,8 @@ fn 必静态条款在场八条关键词逐条() {
         ("③ 最长前缀层级 + 祖先先声明", ["最长前缀", "先声明祖先"]),
         ("④ 新元素 gate 缺省不收紧", ["gate", "缺省"]),
         (
-            "⑤ 不写接口与导出符号（只经 docs 引用）",
-            ["不写接口", "docs"],
+            "⑤ 不写接口与导出符号（只经入口文档 `doc` 指向）",
+            ["不写接口", "入口文档"],
         ),
         (
             "⑥ 改完调 archi_module 复查并按 file:line 修",
@@ -577,11 +571,7 @@ fn knowledge契约资产与索引派生注入且四目录同源() {
         text.contains(&format!("契约索引：{index}/INDEX.toml")),
         "知识文本缺契约索引派生串 {index}（索引与契约分家）"
     );
-    for relative in [
-        contracts.clone(),
-        foundation::layout::archi_decisions_rel_dir(),
-        index.clone(),
-    ] {
+    for relative in [contracts.clone(), index.clone()] {
         assert!(
             relative.starts_with(&foundation::layout::archi_rel_dir()),
             "{relative} 应以架构域相对根为前缀（同源派生）"
@@ -643,6 +633,7 @@ fn api_status线词与元素投影串相等() {
             model_file: ".dev-team/architecture/models/01.toml".to_owned(),
             model_line: 1,
             mark: archi::dto::NodeMark::None,
+            doc: None,
         };
         let value = serde_json::to_value(&element).expect("序列化失败");
         assert_eq!(
@@ -720,7 +711,7 @@ fn build真实骨架产物含api面() {
 // ===========================================================================
 
 /// 正向（AC-10 / D25）：`格式约定` 段的元素字段枚举行含 `api`，且同处给出二值
-/// `declared`（缺省）/ `none`；六项既有字段`kind` / `gate` / `path` / `docs` /
+/// `declared`（缺省）/ `none`；六项既有字段`kind` / `gate` / `path` / `doc` /
 /// `summary` / `metadata` 仍在（追加非替换）。
 #[test]
 fn 骨架字段面补api且六项仍在() {
@@ -737,7 +728,7 @@ fn 骨架字段面补api且六项仍在() {
         "`kind`",
         "`gate`",
         "`path`",
-        "`docs`",
+        "`doc`",
         "`summary`",
         "`metadata`",
     ] {
@@ -796,7 +787,7 @@ fn bullet_count(section: &str) -> usize {
 }
 
 /// 正向（AC-6 字段面）：元素字段枚举行八项逐词在场（`kind` / `gate` / `api` / `entry` /
-/// `path` / `docs` / `summary` / `metadata`），`entry` 是**追加**而非替换。
+/// `path` / `doc` / `summary` / `metadata`），`entry` 是**追加**而非替换。
 #[test]
 fn 骨架字段面八项逐词在场() {
     let field_line = SKELETON
@@ -814,7 +805,7 @@ fn 骨架字段面八项逐词在场() {
         "`api`",
         "`entry`",
         "`path`",
-        "`docs`",
+        "`doc`",
         "`summary`",
         "`metadata`",
     ] {
@@ -918,13 +909,14 @@ fn 骨架不抄四条判据长表() {
     );
 }
 
-/// 边界（边界段表述）：`api` 与 `entry` 以「两个指针」表述，且零契约正文示例。
+/// 边界（边界段表述）：`api` / `entry` / `doc` 以「三个指针」表述（`doc` 进场后不得回退
+/// 成两指针），且零契约正文示例。
 #[test]
-fn 骨架边界段以两个指针表述() {
+fn 骨架边界段以三个指针表述() {
     let boundary_section = section("## 边界");
     let line = boundary_section
         .lines()
-        .find(|line| line.contains("指针") && line.contains("`entry`"))
+        .find(|line| line.contains("指针") && line.contains("`entry`") && line.contains("`doc`"))
         .unwrap_or_else(|| {
             panic!(
                 "边界段缺「两个指针」行：
@@ -933,8 +925,8 @@ fn 骨架边界段以两个指针表述() {
         });
     assert!(line.contains("`api`"), "点明 `api` 指针：{line}");
     assert!(
-        line.contains("两个") || line.contains("都是"),
-        "两个指针的并列表述：{line}"
+        line.contains("三个") || line.contains("都是"),
+        "三个指针的并列表述：{line}"
     );
     assert!(
         line.contains("MUST NOT") && line.contains("协议正文"),
@@ -1208,16 +1200,103 @@ fn knowledge零旧方位与尖括号计数不变() {
     );
 }
 
-/// 边界（AC-6）：体量实测值固定——`knowledge()` 输出恰 3646 字节（实现后实测的骨架字节
-/// + 换段后的派生段字节），仍在既有 4096 上限内。
+/// 边界（AC-8）：体量实测值固定——`knowledge()` 输出恰 3581 字节（骨架字节 + 派生段
+/// 字节），仍在既有 4096 上限内（`doc` 纪律进场不破上限）。
 #[test]
 fn knowledge体量实测值固定() {
     let text = text();
     assert_eq!(
         text.len(),
-        3646,
+        3581,
         "体量实测值固定（骨架 trim_end 字节 + 派生段字节），实得 {} 字节",
         text.len()
     );
     assert!(text.len() <= 4096, "仍在既有 4KB 上限内");
+}
+
+// ===========================================================================
+// `doc` 纪律进场（知识骨架 / 工具 description / 响应形态）
+// ===========================================================================
+
+/// 正向（AC-8）：知识骨架含 `doc` 纪律关键词——字段面八项、单值、仅留白可写、派生
+/// 落点、`apiUnexpected` 反例；示例两段形态（一段 `api = "none"` + `doc`、一段
+/// `declared` 零 `doc` 行）。
+#[test]
+fn knowledge含doc纪律关键词() {
+    let text = text();
+    for piece in [
+        "`doc`",
+        "单值",
+        "只有 `api = none` 的元素可写",
+        "派生落点",
+        "apiUnexpected",
+    ] {
+        assert!(text.contains(piece), "知识文本含 doc 纪律片段 `{piece}`");
+    }
+
+    let example = example_fence();
+    assert!(
+        example.contains("api = \"none\"") && example.contains("doc = "),
+        "示例一段给出留白 + doc 载体：\n{example}"
+    );
+    let declared_segment = example
+        .split("[element.\"App.Auth\"]")
+        .nth(1)
+        .and_then(|rest| rest.split("[element.").next())
+        .expect("示例含 declared 段");
+    assert!(
+        !declared_segment.contains("doc = "),
+        "`declared` 段零 `doc` 行（派生落点即入口文档）：\n{declared_segment}"
+    );
+}
+
+/// 异常：知识文本零旧多值词汇（`docs` / 文档关联三源）与零旧警告类型词。
+#[test]
+fn knowledge零旧多值文档词汇() {
+    let text = text();
+    assert!(!text.contains("docs"), "知识文本零 `docs`：{text}");
+    for word in ["adjacent", "DocKind", "DocSource", "docNotFound"] {
+        assert!(!text.contains(word), "旧文档词汇零命中：{word}");
+    }
+}
+
+/// 异常（AC-8）：输出零「决策记录目录」串（旧 adr 派生段的散文随符号面同批退场）。
+#[test]
+fn knowledge零决策记录目录串() {
+    let text = text();
+    assert!(
+        !text.contains("决策记录"),
+        "知识文本零「决策记录」段落：{text}"
+    );
+    assert!(
+        !text.contains("decisions"),
+        "知识文本零 decisions 目录字面：{text}"
+    );
+
+    // 数据面仍在盘（目录本体不随符号面删除；用例只断言符号/文本面无访问单点）
+    let crate_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let decisions = crate_root
+        .join("..")
+        .join("..")
+        .join("core")
+        .join("foundation")
+        .join("src")
+        .join("layout");
+    assert!(
+        decisions.is_dir(),
+        "派生单点所在的 layout 模块仍在盘：{}",
+        decisions.display()
+    );
+}
+
+/// 边界（AC-8）：体量相对本变更初版（派生段扩写后 3646 字节）下降，仍在 4KB 上限内。
+#[test]
+fn knowledge体量相对初版下降() {
+    let text = text();
+    assert!(text.len() <= 4096, "4KB 上限内：{}", text.len());
+    assert!(
+        text.len() < 3646,
+        "相对本变更初版（3646 字节）压缩：{}",
+        text.len()
+    );
 }

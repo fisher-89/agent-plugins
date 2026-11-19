@@ -1498,7 +1498,7 @@ fn archi两工具定义schema面() {
     );
     assert_eq!(
         search.parameters["properties"]["scope"]["enum"],
-        json!(["elements", "docs", "all"]),
+        json!(["elements", "doc", "all"]),
         "scope 三值描述"
     );
     assert!(!search.description.is_empty(), "描述非空");
@@ -1783,4 +1783,74 @@ fn db近似名落默认path分支() {
             "近似名 {name:?} 无 path 字段 → None"
         );
     }
+}
+
+// ===========================================================================
+// 工具 description 的 `doc` 纪律（`archi_module` / `archi_search`）
+// ===========================================================================
+
+/// 正向（AC-8）：`archi_module` 描述点名入口文档**单值** `doc` 与「仅 `api = none` 有值 /
+/// `declared` 走 `api.contractPath`」两半；`archi_search` 描述点名入口文档路径。
+#[test]
+fn archi_module描述含doc纪律两半() {
+    let defs = defs(&archi_injections(true, true), "");
+    let module = defs
+        .iter()
+        .find(|def| def.name == crate::sdk::mount::ARCHI_MODULE_TOOL)
+        .expect("archi_module 定义在场");
+    for piece in ["单值 doc", "api = none", "api.contractPath", "入口文档"] {
+        assert!(
+            module.description.contains(piece),
+            "描述含 doc 纪律片段 {piece:?}：{}",
+            module.description
+        );
+    }
+
+    let search = defs
+        .iter()
+        .find(|def| def.name == crate::sdk::mount::ARCHI_SEARCH_TOOL)
+        .expect("archi_search 定义在场");
+    assert!(
+        search.description.contains("入口文档路径"),
+        "检索描述点名入口文档路径：{}",
+        search.description
+    );
+}
+
+/// 异常：两工具 description 零旧词（`docs` 复数 / `findings` 槽位 / `warnings` 数组）。
+#[test]
+fn archi工具描述零旧多值词() {
+    let defs = defs(&archi_injections(true, true), "");
+    for def in &defs {
+        for stale in ["docs", "findings", "warnings"] {
+            assert!(
+                !def.description.contains(stale),
+                "{} 描述零旧词 {stale:?}：{}",
+                def.name,
+                def.description
+            );
+        }
+    }
+}
+
+/// 边界：`scope` 枚举是单值词 `doc`（不是 `docs`），且描述写「缺省 all」。
+#[test]
+fn archi_search_scope单值词且缺省all() {
+    let defs = defs(&archi_injections(true, true), "");
+    let search = defs
+        .iter()
+        .find(|def| def.name == crate::sdk::mount::ARCHI_SEARCH_TOOL)
+        .expect("archi_search 定义在场");
+    assert_eq!(
+        search.parameters["properties"]["scope"]["enum"],
+        json!(["elements", "doc", "all"]),
+        "三值单数形态"
+    );
+    assert!(
+        search.parameters["properties"]["scope"]["description"]
+            .as_str()
+            .is_some_and(|description| description.contains("缺省 all")),
+        "缺省档写进描述：{}",
+        search.parameters["properties"]["scope"]
+    );
 }

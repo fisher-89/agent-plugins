@@ -4,7 +4,6 @@
 [element."App"]
 kind = "package"
 gate = "off"
-docs = ["./README.md", "./AGENT.md"]
 summary = "桌面应用包根：Tauri 壳 + React 前端"
 
 [element."App.Backend"]

@@ -38,9 +38,6 @@ const ARCHITECTURE_DIR_NAME: &str = "architecture";
 /// 架构模型子目录名（相对架构域根锚定）
 const MODELS_DIR_NAME: &str = "models";
 
-/// 架构决策记录（ADR）子目录名（相对架构域根锚定）
-const DECISIONS_DIR_NAME: &str = "decisions";
-
 /// 契约索引子目录名（相对架构域根锚定）——`INDEX.toml` 的路径段唯一持有者
 const GRAPH_DIR_NAME: &str = "graph";
 
@@ -150,11 +147,6 @@ pub fn archi_models_dir(root: &Path) -> PathBuf {
     archi_dir(root).join(MODELS_DIR_NAME)
 }
 
-/// 架构决策记录目录派生（`<架构域根>/decisions`；全从 [`archi_dir`] 派生）。
-pub fn archi_decisions_dir(root: &Path) -> PathBuf {
-    archi_dir(root).join(DECISIONS_DIR_NAME)
-}
-
 /// 架构域看护配置路径派生（`<架构域根>/config.json`；全从 [`archi_dir`] 派生，
 /// 文件名复用既有 [`CONFIG_FILE_NAME`]——MUST NOT 新增第二个文件名字面量）。
 /// 架构域看护配置（豁免元素对 / 扫描排除 glob）的唯一合法定位函数：消费者
@@ -197,12 +189,6 @@ pub fn archi_rel_dir() -> String {
 /// 派生，架构域段名不二次出现）。
 pub fn archi_models_rel_dir() -> String {
     format!("{}/{}", archi_rel_dir(), MODELS_DIR_NAME)
-}
-
-/// 架构决策记录目录的 repo 相对路径（`<archi_rel_dir>/decisions`；全从
-/// [`archi_rel_dir`] 派生）。
-pub fn archi_decisions_rel_dir() -> String {
-    format!("{}/{}", archi_rel_dir(), DECISIONS_DIR_NAME)
 }
 
 /// 架构契约索引目录的 repo 相对路径（`<archi_rel_dir>/graph`；全从

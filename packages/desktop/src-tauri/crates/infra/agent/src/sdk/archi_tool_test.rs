@@ -51,7 +51,9 @@ const CORE: &str = concat!(
     "[element.\"App.Auth\"]\n",
     "kind = \"domain\"\n",
     "gate = \"strict\"\n",
-    "docs = [\"./src/auth/README.md\"]\n",
+    "path = [\"./src/auth/\"]\n",
+    "api = \"none\"\n",
+    "doc = \"./src/auth/README.md\"\n",
     "summary = \"认证域\"\n",
     "metadata = { owner = \"core\" }\n",
     "\n",
@@ -146,9 +148,12 @@ async fn archi_module指定元素返回邻接与声明位置() {
     assert_eq!(detail["dependsOn"][0]["description"], json!("认证调用计费"));
     assert_eq!(detail["dependedBy"], json!([]));
     assert_eq!(detail["children"], json!([]));
-    assert_eq!(detail["docs"][0]["path"], json!("src/auth/README.md"));
-    assert_eq!(detail["docs"][0]["source"], json!("explicit"));
-    assert_eq!(detail["warnings"], json!([]));
+    assert_eq!(detail["doc"], json!("./src/auth/README.md"));
+    assert_eq!(detail["api"]["status"], json!("none"));
+    assert!(
+        detail.get("docs").is_none() && detail.get("warnings").is_none(),
+        "旧 `docs` / `warnings` 槽位已退役：{detail}"
+    );
 
     // 子元素面
     let billing = execute_json(&context, ARCHI_MODULE_TOOL, json!({ "element": "App" })).await;
@@ -310,7 +315,7 @@ async fn archi_search三scope与缺省() {
     )
     .await;
     assert!(!all["elements"].as_array().expect("元素数组").is_empty());
-    assert!(!all["docs"].as_array().expect("文档数组").is_empty());
+    assert!(!all["doc"].as_array().expect("文档数组").is_empty());
 
     let default_scope = execute_json(&context, ARCHI_SEARCH_TOOL, json!({ "query": "auth" })).await;
     assert_eq!(default_scope, all, "scope 缺省按 all");
@@ -321,15 +326,15 @@ async fn archi_search三scope与缺省() {
         json!({ "query": "auth", "scope": "elements" }),
     )
     .await;
-    assert_eq!(elements["docs"], json!([]), "elements 档 docs 为空数组");
+    assert_eq!(elements["doc"], json!([]), "elements 档 doc 为空数组");
 
     let docs = execute_json(
         &context,
         ARCHI_SEARCH_TOOL,
-        json!({ "query": "auth", "scope": "docs" }),
+        json!({ "query": "auth", "scope": "doc" }),
     )
     .await;
-    assert_eq!(docs["elements"], json!([]), "docs 档 elements 为空数组");
+    assert_eq!(docs["elements"], json!([]), "doc 档 elements 为空数组");
 }
 
 /// 异常：`query` 缺失 / `null` / 数字 → `Err`；空白 `query` → `Err`（透传参数
@@ -358,7 +363,7 @@ async fn archi_search参数异常五形态() {
         )
         .await
         .expect_err("非法 scope 应 Err");
-    for legal in ["elements", "docs", "all"] {
+    for legal in ["elements", "doc", "all"] {
         assert!(scope.contains(legal), "错误文案列出合法值 {legal}: {scope}");
     }
 }
@@ -664,8 +669,12 @@ async fn archi_api非法action与缺参() {
 #[tokio::test]
 async fn archi_api输出过cap_result() {
     let dir = tempdir("api-cap");
-    // 3000 个元素各带 `path` 但无入口 / 无契约 ⇒ 每元素一条 `apiEntryMissing`
-    let mut model = String::from("[element.\"App\"]\nkind = \"package\"\n\n");
+    // 3000 个元素各带 `path` 但无载体 ⇒ 每元素一条 `docMissing`（另加一个载体元素）
+    let mut model = String::from(
+        "[element.\"App\"]\nkind = \"package\"\n\n\
+         [element.\"App.Carrier\"]\nkind = \"module\"\napi = \"none\"\n\
+         path = [\"guides/carrier/\"]\ndoc = \"guides/carrier.md\"\n\n",
+    );
     for index in 0..3000 {
         model.push_str(&format!(
             "[element.\"App.E{index:04}\"]\nkind = \"module\"\ngate = \"warn\"\n\
@@ -673,13 +682,12 @@ async fn archi_api输出过cap_result() {
         ));
     }
     write_model(dir.path(), "01.toml", &model);
-    // 契约面启用（目录含一份 md）——否则 `findings` 走 `enabled` 短路返回空集，
-    // 「摘要优先 / 截断留痕」都无从表述；该 md 不属模型内元素，故不产生额外判据
+    // 契约面启用需要一份属于模型元素的含 fence 载体（`App.Carrier` 自带 `doc` 载体，
+    // 自身零判据）；非载体 md 不构成启用证据
     write_file(
         dir.path(),
-        ".dev-team/architecture/models/App/Ghost.md",
-        "# App.Ghost
-",
+        "guides/carrier.md",
+        "# App.Carrier\n\n```json api-op\n{}\n```\n",
     );
 
     let context = ArchiContext::new(dir.path().to_path_buf());
@@ -799,4 +807,145 @@ async fn archi_api参数脏值不panic() {
         .await
         .expect_err("input 为 null（越签名脏值）⇒ is_error");
     assert!(error.contains("action"), "文案点名缺失字段：{error}");
+}
+
+// ===========================================================================
+// `doc` 单值响应形状（`archi_module` / `archi_search` 消费侧）
+// ===========================================================================
+
+/// 留白 + 声明的两元素夹具（`App.Auth` 写 `doc`，`App.Billing` 为 `declared` 却写了 `doc`）。
+fn doc_shape_dir(tag: &str) -> tempfile::TempDir {
+    let dir = tempdir(tag);
+    write_model(
+        dir.path(),
+        "01-core.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"domain\"\n",
+            "api = \"none\"\n",
+            "path = [\"./src/auth/\"]\n",
+            "doc = \"./src/auth/README.md\"\n",
+            "\n",
+            "[element.\"App.Billing\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"./src/billing/\"]\n",
+            "doc = \"./src/billing/README.md\"\n",
+            "\n",
+            "[[relation]]\n",
+            "from = \"App.Auth\"\n",
+            "to = \"App.Billing\"\n",
+            "desc = \"认证调用计费\"\n",
+        ),
+    );
+    write_file(dir.path(), "src/auth/README.md", "# 认证说明\n\n正文\n");
+    write_file(dir.path(), "src/billing/README.md", "# 计费说明\n\n正文\n");
+    dir
+}
+
+/// 正向：`api = none` 的元素出模型原文（`./` 不剥）且与元素投影同源；`declared` 元素出
+/// `null` 而元素投影保留原文（判据 ⑥ 的取数路不清零）。
+#[tokio::test]
+async fn archi_module响应doc单值三组同源() {
+    let dir = doc_shape_dir("doc-shape");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+
+    let blank = execute_json(
+        &context,
+        ARCHI_MODULE_TOOL,
+        json!({ "element": "App.Auth" }),
+    )
+    .await;
+    assert_eq!(blank["doc"], json!("./src/auth/README.md"), "留白出原文");
+    assert_eq!(
+        blank["doc"], blank["element"]["doc"],
+        "段与元素投影同源（不漂移）"
+    );
+
+    let declared = execute_json(
+        &context,
+        ARCHI_MODULE_TOOL,
+        json!({ "element": "App.Billing" }),
+    )
+    .await;
+    assert_eq!(declared["doc"], json!(null), "declared 出 null");
+    assert_eq!(
+        declared["element"]["doc"],
+        json!("./src/billing/README.md"),
+        "元素投影保留原文（MUST NOT 清零）"
+    );
+}
+
+/// 异常：响应零 `docs` / 零 `warnings` 键；`doc` 为 `null` 时键仍显式在场。
+#[tokio::test]
+async fn archi_module响应doc键面零旧槽位() {
+    let dir = doc_shape_dir("doc-keys");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let declared = execute_json(
+        &context,
+        ARCHI_MODULE_TOOL,
+        json!({ "element": "App.Billing" }),
+    )
+    .await;
+    let keys: Vec<&str> = declared
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert!(keys.contains(&"doc"), "`doc` 键显式在场：{keys:?}");
+    assert!(!keys.contains(&"docs"), "零 `docs` 键：{keys:?}");
+    assert!(!keys.contains(&"warnings"), "零 `warnings` 键：{keys:?}");
+
+    let element_keys: Vec<&str> = declared["element"]
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert!(
+        element_keys.contains(&"doc"),
+        "元素投影的 `doc` 键不省略：{element_keys:?}"
+    );
+}
+
+/// 边界：省略 `element` 的薄概览零 `doc` 字段；`archi_search` 的 `doc` 条目为路径串而非
+/// 四字段对象；`scope = "docs"` 非法且文案列三合法值；`scope = "doc"` 时元素侧空。
+#[tokio::test]
+async fn archi_tool_doc边界与scope异常() {
+    let dir = doc_shape_dir("doc-bounds");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+
+    let overview = execute_json(&context, ARCHI_MODULE_TOOL, json!({})).await;
+    for brief in overview.as_array().expect("数组") {
+        assert!(brief.get("doc").is_none(), "薄概览零 `doc` 字段：{brief}");
+    }
+
+    let hit = execute_json(&context, ARCHI_SEARCH_TOOL, json!({ "query": "auth" })).await;
+    let docs = hit["doc"].as_array().expect("doc 数组");
+    assert!(!docs.is_empty(), "语料非空：{hit}");
+    for entry in docs {
+        assert!(entry.is_string(), "条目为路径串而非对象：{entry}");
+    }
+
+    let doc_scope = execute_json(
+        &context,
+        ARCHI_SEARCH_TOOL,
+        json!({ "query": "auth", "scope": "doc" }),
+    )
+    .await;
+    assert_eq!(doc_scope["elements"], json!([]), "doc 档元素侧空");
+
+    let error = context
+        .execute(
+            ARCHI_SEARCH_TOOL,
+            &json!({ "query": "auth", "scope": "docs" }),
+        )
+        .await
+        .expect_err("旧词 docs 应 Err");
+    for legal in ["elements", "doc", "all"] {
+        assert!(error.contains(legal), "文案列合法值 {legal}: {error}");
+    }
 }

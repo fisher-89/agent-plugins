@@ -1,5 +1,5 @@
 //! `dto` 的单元测试：六个投影入口（`graph_view` / `module_detail` /
-//! `module_overview` / `search` / `change_summary` / `linked_doc_paths`）、
+//! `module_overview` / `search` / `change_summary`）、
 //! `SearchScope::parse` 与封闭词汇的 serde 线形。
 //!
 //! 零 mock：真实临时目录 + 真实 `parse_dir` / `ModelGraph` / `docs` 组合（投影只
@@ -15,8 +15,7 @@ use serde_json::json;
 use crate::dto::{
     self, ApiStatus, ArchiApiCheck, ArchiApiMeta, ArchiApiWriteOutcome, ArchiDiagnostic,
     ArchiElement, ArchiFileEntry, ArchiFileTree, ArchiGraph, ArchiRelation, DiagnosticKind,
-    DocKind, DocSource, EdgeMark, ElementKind, FileEntryKind, FileTreeMark, GateTier, NodeMark,
-    SearchScope, WarningKind,
+    EdgeMark, ElementKind, FileEntryKind, FileTreeMark, GateTier, NodeMark, SearchScope,
 };
 
 // ---------------------------------------------------------------------------
@@ -91,7 +90,6 @@ const CORE: &str = concat!(
     "kind = \"domain\"\n",
     "gate = \"strict\"\n",
     "path = [\"./src/auth/\"]\n",
-    "docs = [\"./src/auth/README.md\"]\n",
     "summary = \"认证域\"\n",
     "metadata = { owner = \"core\" }\n",
     "\n",
@@ -329,7 +327,7 @@ fn graph_view空态与文档警告不混入诊断() {
         concat!(
             "[element.\"App\"]\nkind = \"package\"\n\n",
             "[element.\"App.Auth\"]\nkind = \"domain\"\n",
-            "docs = [\"./src/auth/MISSING.md\"]\n",
+            "doc = \"./src/auth/MISSING.md\"\n",
         ),
     );
     let graph = dto::graph_view(missing_doc.root()).expect("健康模型 Ok");
@@ -365,7 +363,7 @@ fn graph_view规模面稳定序与幂等() {
 // `module_detail`
 // ---------------------------------------------------------------------------
 
-/// 正向：元素 + 出边 / 入边 / 子元素 + 文档 + 警告；三项邻接与 `neighborhood`
+/// 正向：元素 + 出边 / 入边 / 子元素 + 入口文档；三项邻接与 `neighborhood`
 /// 逐一等同（投影零改写）。
 #[test]
 fn module_detail邻接与文档逐项投影() {
@@ -392,16 +390,10 @@ fn module_detail邻接与文档逐项投影() {
         "入边含 source（按 (from, to) 字典序）"
     );
     assert!(detail.children.is_empty(), "无直接子元素");
-    assert_eq!(
-        detail
-            .docs
-            .iter()
-            .map(|doc| (doc.path.as_str(), doc.source))
-            .collect::<Vec<_>>(),
-        vec![("src/auth/README.md", DocSource::Explicit)],
-        "文档关联按强度序"
+    assert!(
+        detail.doc.is_none(),
+        "`api = declared` 的入口文档走 api.contractPath，`doc` 恒 null（MUST NOT 出线两处）"
     );
-    assert!(detail.warnings.is_empty());
 
     // 投影零改写：与图侧邻域查询逐项等同
     let graph = dto::graph_view(temp.root()).expect("Ok");
@@ -484,7 +476,7 @@ fn module_detail边界形态() {
 }
 
 // ---------------------------------------------------------------------------
-// `module_overview` / `search` / `linked_doc_paths`
+// `module_overview` / `search`
 // ---------------------------------------------------------------------------
 
 /// 正向 / 异常 / 边界：薄概览按 FQN 字典序、每条为既有四字段 + `api`（同一模型字段的
@@ -534,17 +526,27 @@ fn module_overview三形态() {
 #[test]
 fn dto_search三scope与参数与结构错() {
     let temp = healthy_dir("search");
+    // 落一份 `App.Auth` 的派生契约 md（`declared` 元素的入口文档载体）
+    temp.write(
+        &paths::contract_path(temp.root(), "App.Auth")
+            .expect("合法 FQN")
+            .strip_prefix(temp.root())
+            .expect("相对")
+            .to_string_lossy()
+            .replace('\\', "/"),
+        "# App.Auth\n",
+    );
     let all = dto::search(temp.root(), "auth", SearchScope::All).expect("Ok");
     assert!(
-        !all.elements.is_empty() && !all.docs.is_empty(),
+        !all.elements.is_empty() && !all.doc.is_empty(),
         "All 两数组皆非空"
     );
 
     let elements = dto::search(temp.root(), "auth", SearchScope::Elements).expect("Ok");
-    assert!(elements.docs.is_empty(), "Elements → docs 空");
+    assert!(elements.doc.is_empty(), "Elements → doc 空");
 
-    let docs = dto::search(temp.root(), "auth", SearchScope::Docs).expect("Ok");
-    assert!(docs.elements.is_empty(), "Docs → elements 空");
+    let docs = dto::search(temp.root(), "auth", SearchScope::Doc).expect("Ok");
+    assert!(docs.elements.is_empty(), "Doc → elements 空");
 
     let empty_query =
         dto::search(temp.root(), "  ", SearchScope::All).expect_err("空 query 应 Err");
@@ -555,66 +557,6 @@ fn dto_search三scope与参数与结构错() {
     assert!(
         dto::search(broken.root(), "auth", SearchScope::All).is_err(),
         "结构错透传 Err"
-    );
-}
-
-/// 正向 / 边界：关联集路径集（三源并集、去重）；空模型空集；`docNotFound` 路径
-/// 不入集；结构错 `Err`；任意越界路径不在集内。
-#[test]
-fn linked_doc_paths三源并集与边界() {
-    let temp = TempDir::new("linked");
-    temp.write("src/auth/README.md", "# 认证\n");
-    temp.write("src/auth/guide.md", "# 指南\n");
-    fs::create_dir_all(foundation::layout::archi_decisions_dir(temp.root()))
-        .expect("建决策记录目录");
-    fs::write(
-        foundation::layout::archi_decisions_dir(temp.root()).join("0001-auth.md"),
-        "涉及 App.Auth\n",
-    )
-    .expect("写决策记录");
-    temp.write_model(
-        "01.toml",
-        concat!(
-            "[element.\"App\"]\nkind = \"package\"\n\n",
-            "[element.\"App.Auth\"]\nkind = \"domain\"\n",
-            "path = [\"./src/auth/\"]\n",
-            "docs = [\"./src/auth/README.md\", \"./src/auth/MISSING.md\"]\n",
-        ),
-    );
-
-    let linked = dto::linked_doc_paths(temp.root()).expect("Ok");
-    let paths: Vec<&str> = linked.iter().map(String::as_str).collect();
-    assert_eq!(
-        paths,
-        vec![
-            ".dev-team/architecture/decisions/0001-auth.md",
-            "src/auth/README.md",
-            "src/auth/guide.md",
-        ],
-        "三源并集去重（explicit / adjacent / adr）"
-    );
-    assert!(
-        !linked.contains("src/auth/MISSING.md"),
-        "docNotFound 路径不入集"
-    );
-    assert!(
-        !linked.contains("openspec/changes/x/proposal.md"),
-        "任意越界路径不在集内"
-    );
-
-    let empty = TempDir::with_empty_models("linked-empty");
-    assert!(
-        dto::linked_doc_paths(empty.root())
-            .expect("空模型 Ok")
-            .is_empty(),
-        "空模型空集"
-    );
-
-    let broken = TempDir::new("linked-broken");
-    broken.write_model("01.toml", "[element.\"App\"]\nkind = \"pakage\"\n");
-    assert!(
-        dto::linked_doc_paths(broken.root()).is_err(),
-        "结构错应 Err"
     );
 }
 
@@ -754,23 +696,36 @@ fn change_summary结构错两臂() {
 // `SearchScope::parse`
 // ---------------------------------------------------------------------------
 
-/// 正向：`"elements"` / `"docs"` / `"all"` → 对应变体（3 值全覆）。
+/// 正向：`"elements"` / `"doc"` / `"all"` → 对应变体（3 值全覆）；`"docs"` 是非法值
+/// （不保留别名）。
 #[test]
 fn search_scope_parse三值() {
     assert_eq!(SearchScope::parse("elements"), Ok(SearchScope::Elements));
-    assert_eq!(SearchScope::parse("docs"), Ok(SearchScope::Docs));
+    assert_eq!(SearchScope::parse("doc"), Ok(SearchScope::Doc));
     assert_eq!(SearchScope::parse("all"), Ok(SearchScope::All));
+    assert!(
+        SearchScope::parse("docs").is_err(),
+        "旧词 `docs` 不保留别名"
+    );
 }
 
 /// 异常：空串 / 大小写不同 / 尾空格 / 未知 / 超长 → `Err` 且消息列出三合法值。
 #[test]
 fn search_scope_parse非法值列出合法值() {
     let long = "a".repeat(1200);
-    for raw in ["", "Elements", "ALL", "all ", "unknown", long.as_str()] {
+    for raw in [
+        "",
+        "Elements",
+        "ALL",
+        "all ",
+        "docs",
+        "unknown",
+        long.as_str(),
+    ] {
         let error = SearchScope::parse(raw)
             .err()
             .unwrap_or_else(|| panic!("非法 scope {raw:?} 应 Err"));
-        for legal in ["elements", "docs", "all"] {
+        for legal in ["elements", "doc", "all"] {
             assert!(error.contains(legal), "错误文案列出合法值 {legal}: {error}");
         }
     }
@@ -837,36 +792,6 @@ fn 词汇serde线形逐值() {
         );
     }
     assert!(serde_json::from_value::<DiagnosticKind>(json!("SyntaxError")).is_err());
-
-    // WarningKind（1）
-    assert_eq!(WarningKind::DocNotFound.as_str(), "docNotFound");
-    assert_eq!(
-        serde_json::to_value(WarningKind::DocNotFound).expect("序列化成功"),
-        json!("docNotFound")
-    );
-    assert!(serde_json::from_value::<WarningKind>(json!("docnotfound")).is_err());
-
-    // DocKind（2）/ DocSource（3）
-    assert_eq!(
-        serde_json::to_value(DocKind::Md).expect("序列化成功"),
-        json!("md")
-    );
-    assert_eq!(
-        serde_json::to_value(DocKind::Adr).expect("序列化成功"),
-        json!("adr")
-    );
-    assert!(serde_json::from_value::<DocKind>(json!("MD")).is_err());
-    for (value, line) in [
-        (DocSource::Explicit, "explicit"),
-        (DocSource::Adjacent, "adjacent"),
-        (DocSource::Text, "text"),
-    ] {
-        assert_eq!(
-            serde_json::to_value(value).expect("序列化成功"),
-            json!(line)
-        );
-    }
-    assert!(serde_json::from_value::<DocSource>(json!("Explicit")).is_err());
 
     // EdgeMark（4）/ NodeMark（2）
     for (value, line) in [
@@ -936,6 +861,7 @@ fn 缺省与可选字段显式线形() {
         model_file: ".dev-team/architecture/models/01.toml".to_owned(),
         model_line: 1,
         mark: NodeMark::None,
+        doc: None,
     };
     let value = serde_json::to_value(&element).expect("序列化成功");
     assert_eq!(value["summary"], json!(null));
@@ -1120,6 +1046,7 @@ fn declared_ref(root: &Path, fqn: &str) -> serde_json::Value {
         model_file: ".dev-team/architecture/models/01.toml".to_owned(),
         model_line: 1,
         mark: NodeMark::None,
+        doc: None,
     };
     // 入口同级后生成物路径是入口的函数：先落一个入口文件，投影才给 `generatedPath`
     std::fs::create_dir_all(root.join("src/mod/src")).expect("建入口目录");
@@ -1201,9 +1128,9 @@ fn archi_api_ref为none时三路径全空() {
     assert!(back.generated_path.is_none());
 }
 
-/// 正向（AC-10 / D22）：`module_detail` 的 `api` 为**并列字段**（不在 `docs` 数组内），
-/// 键集含 `element` / `dependsOn` / `dependedBy` / `children` / `docs` / `warnings` /
-/// `api` 七项。
+/// 正向（AC-6）：`module_detail` 的 `api` 为**并列字段**，键集含 `element` /
+/// `dependsOn` / `dependedBy` / `children` / `doc` / `api` 六项（`docs` / `warnings`
+/// 已随三源关联能力退役）。
 #[test]
 fn module_detail并列api字段() {
     let temp = healthy_dir("detail-api-field");
@@ -1222,18 +1149,21 @@ fn module_detail并列api字段() {
             "dependsOn",
             "dependedBy",
             "children",
-            "docs",
-            "warnings",
+            "doc",
             "api"
         ],
-        "七字段键序（api 为末位并列字段）"
+        "六字段键序（doc 单值 + api 并列字段）"
     );
-    // `api` 不在 `docs` 数组内
-    let docs = value["docs"].as_array().expect("docs 是数组");
+    // `doc` 是单值（字符串或 null），契约投影不进该槽位
     assert!(
-        docs.iter()
-            .all(|doc| doc.get("status").is_none() && doc.get("contractPath").is_none()),
-        "契约投影 MUST NOT 进 docs 列表：{docs:?}"
+        value["doc"].is_null() || value["doc"].is_string(),
+        "`doc` 是单值（不是数组）：{:?}",
+        value["doc"]
+    );
+    assert!(
+        value["doc"].get("contractPath").is_none(),
+        "契约投影 MUST NOT 进 `doc` 槽位：{:?}",
+        value["doc"]
     );
 }
 
@@ -1352,9 +1282,10 @@ fn 既有字段面零变化() {
             "modelLine",
             "mark",
             "api",
-            "entry"
+            "entry",
+            "doc"
         ],
-        "元素十一字段（api / entry 依次末位追加，既有九字段逐字与顺序不变）"
+        "元素十二字段（api / entry / doc 依次末位追加，既有九字段逐字与顺序不变）"
     );
 
     let search = dto::search(temp.root(), "Auth", SearchScope::All).expect("Ok");
@@ -1466,6 +1397,7 @@ fn archi_element_api两态线形() {
         model_file: ".dev-team/architecture/models/01.toml".to_owned(),
         model_line: 7,
         mark: NodeMark::None,
+        doc: None,
     };
     for (status, word) in [(ApiStatus::Declared, "declared"), (ApiStatus::None, "none")] {
         let element = ArchiElement {
@@ -1554,6 +1486,7 @@ fn archi_api_ref超长与特殊字符路径() {
             model_file: ".dev-team/architecture/models/01.toml".to_owned(),
             model_line: 1,
             mark: NodeMark::None,
+            doc: None,
         };
         let relative = crate::api::paths::contract_path(Path::new("/ws"), fqn)
             .expect("合法 FQN")
@@ -2013,24 +1946,9 @@ fn 既有词汇与出线类型零变化() {
         "EdgeMark 仍四值"
     );
     assert_eq!(
-        line_words([WarningKind::DocNotFound].to_vec()),
-        vec!["docNotFound"],
-        "WarningKind 仍单值"
-    );
-    assert_eq!(
-        line_words([DocKind::Md, DocKind::Adr].to_vec()),
-        vec!["md", "adr"],
-        "DocKind 仍两值"
-    );
-    assert_eq!(
-        line_words([DocSource::Explicit, DocSource::Adjacent, DocSource::Text].to_vec()),
-        vec!["explicit", "adjacent", "text"],
-        "DocSource 仍三值（声明序即强度序）"
-    );
-    assert_eq!(
-        line_words([SearchScope::Elements, SearchScope::Docs, SearchScope::All].to_vec()),
-        vec!["elements", "docs", "all"],
-        "SearchScope 仍三值"
+        line_words([SearchScope::Elements, SearchScope::Doc, SearchScope::All].to_vec()),
+        vec!["elements", "doc", "all"],
+        "SearchScope 仍三值（词面 `docs` → `doc`）"
     );
 
     // 既有出线 DTO 键序列逐字不变（新增类型并列，不入既有 DTO）
@@ -2059,6 +1977,7 @@ fn 既有词汇与出线类型零变化() {
         model_file: "a.toml".to_owned(),
         model_line: 1,
         mark: NodeMark::None,
+        doc: None,
     })
     .expect("序列化");
     let element_keys: Vec<&str> = element_value
@@ -2080,9 +1999,10 @@ fn 既有词汇与出线类型零变化() {
             "modelLine",
             "mark",
             "api",
-            "entry"
+            "entry",
+            "doc"
         ],
-        "ArchiElement 既有键序零变化（entry 末位追加）"
+        "ArchiElement 既有键序零变化（doc 末位追加）"
     );
 
     // 源码自证：两词表在 `dto.rs` 内各恰一处定义、零映射
@@ -2577,9 +2497,9 @@ fn 三份产品源文doc方位串换段() {
 
     let model = include_str!("model.rs");
     assert_eq!(
-        model.matches("架构域 `models/<Domain>/` 目录").count(),
+        model.matches("架构域 `models/<Domain>/`").count(),
         1,
-        "`model.rs` 的 `api` 字段 doc 一行换段"
+        "`model.rs` 的 `api` 字段 doc 改指 models 段"
     );
 }
 
@@ -2706,4 +2626,314 @@ fn dto_doc换段不触字段面() {
             "`dto.rs` 内 `{removed}` 零命中（不保留改指别名）"
         );
     }
+}
+
+// ===========================================================================
+// `doc` 单值面：`ArchiModuleDetail.doc` / `ArchiSearchResult.doc` /
+// `ArchiElement.doc` 授权进场 / 载体派生替代面
+//
+// `doc` 三处进场口径：① 模块详情（`api = none` 出模型原文、`declared` 恒 `null`）；
+// ② 检索结果（在盘载体路径串）；③ 元素投影（模型字段拷贝，判据 ③ ⑥ 的唯一取数路）。
+// ===========================================================================
+
+/// 留白 + 声明的夹具：`App`（容器）/ `App.Auth`（`api = none` + doc）/ `App.Billing`
+/// （`declared`，模型里故意写了 doc——投影不复述矛盾）。
+fn doc_dir(tag: &str) -> TempDir {
+    let temp = TempDir::new(tag);
+    temp.write_model(
+        "01-doc.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"module\"\n",
+            "api = \"none\"\n",
+            "doc = \"./src/auth/README.md\"\n",
+            "path = [\"src/auth/\"]\n",
+            "\n",
+            "[element.\"App.Billing\"]\n",
+            "kind = \"module\"\n",
+            "doc = \"./src/billing/README.md\"\n",
+            "path = [\"src/billing/\"]\n",
+        ),
+    );
+    temp.write("src/auth/README.md", "# 认证\n");
+    temp.write("src/billing/README.md", "# 计费\n");
+    temp
+}
+
+/// 正向：`api = none` 的元素出模型原文（`./` 前缀不归一）；`declared` 的元素恒 `null`
+/// （投影不复述模型矛盾）。
+#[test]
+fn module_detail_doc留白出原文声明支恒null() {
+    let temp = doc_dir("detail-doc");
+    let blank = dto::module_detail(temp.root(), "App.Auth").expect("元素在场应 Ok");
+    assert_eq!(
+        blank.doc.as_deref(),
+        Some("./src/auth/README.md"),
+        "留白元素出模型原文（不归一）"
+    );
+
+    let declared = dto::module_detail(temp.root(), "App.Billing").expect("Ok");
+    assert_eq!(
+        declared.doc, None,
+        "`declared` 即便模型写了 doc 也出 null（入口文档走 api.contractPath）"
+    );
+
+    let container = dto::module_detail(temp.root(), "App").expect("Ok");
+    assert_eq!(container.doc, None, "未声明 doc 的留白元素出 null");
+}
+
+/// 边界：`doc` 槽位恒在场（`null` 不省略）、字段序 `children → doc → api`。
+#[test]
+fn module_detail_doc键恒在场且序在api前() {
+    let temp = doc_dir("detail-doc-keys");
+    let detail = dto::module_detail(temp.root(), "App.Billing").expect("Ok");
+    let value = serde_json::to_value(&detail).expect("序列化成功");
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        vec![
+            "element",
+            "dependsOn",
+            "dependedBy",
+            "children",
+            "doc",
+            "api"
+        ],
+        "`doc` 在 `children` 之后、`api` 之前且不省略"
+    );
+    assert!(
+        value.as_object().expect("对象").contains_key("doc"),
+        "`doc` 为 null 时键仍显式在场（不省略）"
+    );
+}
+
+/// 异常：元素不存在 → `Err`（既有文案面）；序列化键集零 `docs` / 零 `warnings`。
+#[test]
+fn module_detail异常与零旧键() {
+    let temp = doc_dir("detail-doc-errors");
+    let error = dto::module_detail(temp.root(), "App.Missing").expect_err("不存在即 Err");
+    assert!(error.contains("App.Missing"), "文案点名元素：{error}");
+
+    let detail = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+    let text = serde_json::to_string(&detail).expect("序列化成功");
+    assert!(!text.contains("\"docs\""), "零 `docs` 键：{text}");
+    assert!(!text.contains("\"warnings\""), "零 `warnings` 键：{text}");
+}
+
+/// 正向：检索结果的 `doc` 是 repo 相对路径串；`scope = All` 两数组可同时非空；
+/// `scope = Elements` 时 `doc` 恒空。
+#[test]
+fn search_doc数组为路径串() {
+    let temp = doc_dir("search-doc");
+    let all = dto::search(temp.root(), "auth", SearchScope::All).expect("Ok");
+    assert!(
+        all.doc.contains(&"src/auth/README.md".to_owned()),
+        "留白元素的 doc 载体入语料：{:?}",
+        all.doc
+    );
+    assert!(
+        all.elements.iter().any(|brief| brief.fqn == "App.Auth"),
+        "元素侧同时命中：{:?}",
+        all.elements
+    );
+
+    let elements_only = dto::search(temp.root(), "auth", SearchScope::Elements).expect("Ok");
+    assert!(elements_only.doc.is_empty(), "Elements 时 doc 恒空");
+
+    let doc_only = dto::search(temp.root(), "auth", SearchScope::Doc).expect("Ok");
+    assert!(doc_only.elements.is_empty(), "Doc 时元素侧恒空");
+    assert!(!doc_only.doc.is_empty(), "Doc 时 doc 非空");
+}
+
+/// 异常 / 边界：空白 query → `Err`；零命中 → 两数组皆空；序列化键名是 `doc`（不是
+/// `docs`）。
+#[test]
+fn search_异常与键名() {
+    let temp = doc_dir("search-doc-errors");
+    for query in ["", "   "] {
+        assert!(
+            dto::search(temp.root(), query, SearchScope::All).is_err(),
+            "空白 query 应 Err：{query:?}"
+        );
+    }
+
+    let none = dto::search(temp.root(), "zzzunknown", SearchScope::All).expect("Ok");
+    assert!(
+        none.elements.is_empty() && none.doc.is_empty(),
+        "零命中 → 两数组空"
+    );
+
+    let hit = dto::search(temp.root(), "auth", SearchScope::All).expect("Ok");
+    let value = serde_json::to_value(&hit).expect("序列化成功");
+    let object = value.as_object().expect("对象");
+    assert!(object.contains_key("doc"), "键名为 doc：{value}");
+    assert!(!object.contains_key("docs"), "旧键名 docs 退场：{value}");
+}
+
+/// 模型元素夹具（`doc` 原文直传，其余字段取稳定缺省）。
+fn model_element(fqn: &str, api: ApiStatus, doc: Option<&str>) -> crate::model::Element {
+    crate::model::Element {
+        fqn: fqn.to_owned(),
+        kind: ElementKind::Module,
+        gate: GateTier::Off,
+        api,
+        entry: None,
+        path: vec!["./src/x/".to_owned()],
+        doc: doc.map(str::to_owned),
+        summary: None,
+        metadata: std::collections::BTreeMap::new(),
+        file: "01-doc.toml".to_owned(),
+        line: 1,
+    }
+}
+
+/// 正向（授权进场）：`to_element` 逐元素拷贝模型 `doc` 原文（不归一、不清零）——留白
+/// 与声明支都保留原文，`declared` 写了 `doc` 也不清零（否则判据 ⑥ 不可达）。
+#[test]
+fn to_element_doc原文拷贝且不清零() {
+    for (api, doc) in [
+        (ApiStatus::None, Some("./src/auth/README.md")),
+        (ApiStatus::None, None),
+        (ApiStatus::Declared, Some("./src/billing/README.md")),
+    ] {
+        let element = model_element("App.Auth", api, doc);
+        let projected = crate::dto::to_element(&element);
+        assert_eq!(
+            projected.doc.as_deref(),
+            doc,
+            "doc 逐字拷贝（零归一零清零）：{api:?} / {doc:?}"
+        );
+        assert_eq!(projected.api, api, "`api` 逐值拷贝");
+    }
+}
+
+/// 异常 / 边界：`ArchiElementBrief` 零 `doc` 字段（薄概览五项形状不变）；`ArchiElement`
+/// 序列化后 `doc` 紧跟 `entry` 且 `null` 不省略。
+#[test]
+fn to_element_doc字段面形态() {
+    let temp = doc_dir("to-element-shape");
+    let overview = dto::module_overview(temp.root()).expect("Ok");
+    for brief in overview {
+        let value = serde_json::to_value(&brief).expect("序列化成功");
+        assert!(
+            !value.as_object().expect("对象").contains_key("doc"),
+            "薄概览 MUST NOT 带 doc：{value}"
+        );
+    }
+
+    let element = model_element("App", ApiStatus::Declared, None);
+    let value = serde_json::to_value(crate::dto::to_element(&element)).expect("序列化成功");
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    let entry = keys.iter().position(|key| *key == "entry").expect("entry");
+    let doc = keys.iter().position(|key| *key == "doc").expect("doc");
+    assert_eq!(doc, entry + 1, "`doc` 紧跟 `entry`：{keys:?}");
+    assert!(
+        value.as_object().expect("对象").contains_key("doc"),
+        "`doc` 为 null 时键仍显式在场"
+    );
+}
+
+/// 边界：`doc` 特殊值逐字保留（空串 / 超长 / 含 `\n` / emoji）；同一模型两次投影逐字段
+/// 相等。
+#[test]
+fn to_element_doc边界值逐字保留() {
+    let long = format!("guides/{}.md", "a".repeat(1200));
+    let values = vec![String::new(), long, "guides/行1\n行2🚀.md".to_owned()];
+    for raw in values {
+        let element = model_element("App.Auth", ApiStatus::None, Some(raw.as_str()));
+        let first = crate::dto::to_element(&element);
+        let second = crate::dto::to_element(&element);
+        assert_eq!(first.doc.as_deref(), Some(raw.as_str()), "doc 逐字保留");
+        assert_eq!(first, second, "两次投影逐字段相等");
+    }
+}
+
+/// 正向（替代面）：`carrier_path` 承担载体派生（检索 / 投影两消费者），`dto.rs` 内
+/// `linked_doc_paths` 与退役文档类型零残留、零兼容壳。
+#[test]
+fn linked_doc_paths退役且替代面到位() {
+    let source = include_str!("dto.rs");
+    assert!(
+        !source.contains("linked_doc_paths"),
+        "`dto.rs` 内旧关联集入口零命中"
+    );
+    // 退役类型标识符在运行时拼出（断言自身不得命中）
+    let retired = [
+        format!("{}{}", "Doc", "Ref"),
+        format!("{}{}", "Doc", "Kind"),
+        format!("{}{}", "Doc", "Source"),
+        format!("{}{}", "Warning", "Kind"),
+    ];
+    for name in &retired {
+        assert!(!source.contains(name.as_str()), "退役类型零定义：{name}");
+    }
+    assert!(!source.contains("deprecated"), "零 `#[deprecated]` 兼容壳");
+    assert!(!source.contains("linked_doc_paths_v2"), "零一类别名转发");
+    assert_eq!(
+        source.matches("pub(crate) fn to_element(").count(),
+        1,
+        "模型 → 元素投影单点恰一处"
+    );
+}
+
+// ===========================================================================
+// 出口面与词面收尾（`lib.rs` 零 `pub mod docs` / `dto.rs` 零 `docs` 词面）
+// ===========================================================================
+
+/// 异常：`lib.rs` 出口面零 `pub mod docs`、零 `DocsOutcome` / `DocWarning` /
+/// `linked_doc_paths` 再导出（模块删除 + 出口清理同批）；`archi` crate 无 `lib_test.rs`
+/// 惯例，故这条自证落在 `dto_test`。
+#[test]
+fn lib出口面零文档关联残留() {
+    let source = include_str!("lib.rs");
+    for retired in [
+        "pub mod docs",
+        "DocsOutcome",
+        "DocWarning",
+        "linked_doc_paths",
+    ] {
+        assert!(!source.contains(retired), "`lib.rs` 出口面零 {retired}");
+    }
+    assert!(
+        source.contains("pub mod search;"),
+        "`search` 出口仍在（检索能力保留）"
+    );
+}
+
+/// 边界：`dto.rs` 词面零 `docs`（`doc` 单值换面不留复数形式），`SearchScope` 三值词
+/// 单数形态，`doc` 字段在 `ArchiModuleDetail` / `ArchiElement` / `ArchiSearchResult`
+/// 三处各恰一条声明。
+#[test]
+fn dto词面零docs且三处doc声明() {
+    let source = include_str!("dto.rs");
+    assert!(!source.contains("docs"), "`dto.rs` 内零 `docs` 词面");
+    for word in ["\"elements\"", "\"doc\"", "\"all\""] {
+        assert!(source.contains(word), "`SearchScope::parse` 词面含 {word}");
+    }
+    assert_eq!(
+        source.matches("    pub doc:").count(),
+        3,
+        "三处 `doc` 字段（模块详情 / 检索结果 / 元素投影）"
+    );
+    assert!(
+        source.contains("pub doc: Vec<String>"),
+        "检索结果的 `doc` 是路径串数组"
+    );
+    assert!(
+        source.contains("pub doc: Option<String>"),
+        "元素与模块详情的 `doc` 是单值可选"
+    );
 }

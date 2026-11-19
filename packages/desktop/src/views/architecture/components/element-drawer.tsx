@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button';
 
 import {
   commands,
+  type ApiStatus,
   type ArchiApiFinding,
   type ArchiApiRef,
   type ArchiElement,
-  type ArchiModuleDetail,
   type ArchiRelation,
   type GateTier,
 } from '../../../types/generated/bindings';
@@ -63,44 +63,6 @@ function Overview({ element }: { element: ArchiElement }): React.JSX.Element {
       {element.summary !== null && (
         <div className="wrap-break-word text-muted-foreground">{element.summary}</div>
       )}
-    </div>
-  );
-}
-
-/** 文档条目：展开 ADR 才取正文（越界 / 读盘失败行内呈现）。 */
-function DocRow({
-  root,
-  path,
-  title,
-  source,
-  kind,
-}: {
-  root: string;
-  path: string;
-  title: string;
-  source: string;
-  kind: string;
-}): React.JSX.Element {
-  return (
-    <div className="flex flex-col gap-0.5" data-testid="archi-doc-item" data-source={source}>
-      <FileViewer
-        root={root}
-        files={[{ path }]}
-        trigger={
-          <Button
-            variant="ghost"
-            size="sm"
-            className="justify-start"
-            disabled={kind !== 'adr'}
-            title={path}
-          >
-            {title}
-            <span className="ml-1 text-xs text-muted-foreground">
-              {source} · {kind}
-            </span>
-          </Button>
-        }
-      />
     </div>
   );
 }
@@ -282,32 +244,44 @@ function ContractSection({
   );
 }
 
-/** 文档关联段（四字段条目按强度序；ADR 条目展开才取正文）。 */
-function DocsSection({
+/**
+ * 入口文档段（仅 `api = none` 元素）：单条路径行（「查看」经通用 `read_file`）。
+ *
+ * `api = declared` 元素返回 `null`——其入口文档由契约段 `ContractPathRow("契约")`
+ * 承担，两处同时给出会让抽屉出现两条入口文档。
+ */
+function EntryDocSection({
   root,
-  docs,
+  api,
+  doc,
 }: {
   root: string;
-  docs: ArchiModuleDetail['docs'];
-}): React.JSX.Element {
+  api: ApiStatus;
+  doc: string | null;
+}): React.JSX.Element | null {
+  if (api !== 'none') return null;
   return (
     <div className="flex flex-col gap-1">
-      <h3 className="m-0 text-[13px] font-medium text-muted-foreground">文档</h3>
-      {docs.length === 0 ? (
-        <div className="text-[13px] text-muted-foreground" data-testid="archi-docs-empty">
-          无关联文档
+      <h3 className="m-0 text-[13px] font-medium text-muted-foreground">入口文档</h3>
+      {doc === null ? (
+        <div className="text-[13px] text-muted-foreground" data-testid="archi-entry-doc-empty">
+          无入口文档
         </div>
       ) : (
-        docs.map((doc) => (
-          <DocRow
-            key={doc.path}
-            path={doc.path}
-            title={doc.title}
-            source={doc.source}
-            kind={doc.kind}
+        <div className="flex items-center gap-1" data-testid="archi-entry-doc" title={doc}>
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
+            {doc}
+          </span>
+          <FileViewer
             root={root}
+            files={[{ path: doc }]}
+            trigger={
+              <Button variant="ghost" size="sm">
+                查看
+              </Button>
+            }
           />
-        ))
+        </div>
       )}
     </div>
   );
@@ -343,9 +317,10 @@ function ExemptSection({
 }
 
 /**
- * 右抽屉：概览 → 契约 → 文档关联 → 豁免 →（`incremental`）改档入口 /（`full`）只读
+ * 右抽屉：概览 → 契约 → 入口文档 → 豁免 →（`incremental`）改档入口 /（`full`）只读
  * 提示。未选中元素时呈空态（不发 `archi_module` 取数）；契约段数据全部来自既有
- * `ArchiModuleDetail.api` 与父级同一份判据（零新 invoke）。
+ * `ArchiModuleDetail.api` 与父级同一份判据（零新 invoke）；入口文档段只对 `api = none`
+ * 元素渲染（`declared` 的入口文档由契约段承担）。
  */
 export function ElementDrawer({
   root,
@@ -388,7 +363,9 @@ export function ElementDrawer({
           findings={findings}
         />
       )}
-      {root && <DocsSection root={root} docs={module.detail?.docs ?? []} />}
+      {root !== null && module.detail !== null && (
+        <EntryDocSection root={root} api={element.api} doc={module.detail.doc} />
+      )}
       <ExemptSection element={element} relations={relations} />
       {mode === 'incremental' ? (
         <GateEditor key={element.fqn} root={root} element={element} onChanged={onChanged} />

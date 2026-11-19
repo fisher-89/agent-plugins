@@ -1,0 +1,15 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\module-doc-field-docs-retirement\packages\desktop\src-tauri\crates\core\archi\src\api\check_test.rs:2436:
+     }
+ 
+     // 反向：真未声明 ⇒ `Absent` ⇒ `docMissing`（`warn` 档、不纳管）
+[31m-    let undeclared = Fixture::new("doc-truly-undeclared")
+[0m[31m-        .with_element(blank_element(fqn, &["src/m/"]));
+[0m[32m+    let undeclared =
+[0m[32m+        Fixture::new("doc-truly-undeclared").with_element(blank_element(fqn, &["src/m/"]));
+[0m     let findings = undeclared.run_with_real_doc_facts();
+     assert_eq!(count(&findings, ArchiApiFindingKind::DocMissing), 1);
+     assert_eq!(count(&findings, ArchiApiFindingKind::DocNotFound), 0);
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

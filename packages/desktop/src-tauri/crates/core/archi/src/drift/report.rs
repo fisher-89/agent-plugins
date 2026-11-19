@@ -4,11 +4,11 @@
 //! [`super::check`]，报告落盘在 `crates/infra/archi`。
 //!
 //! **词汇封闭且单点**：`status`（五值）、漂移条目 `kind`（四值）、观察项 `kind`
-//! （两值）、**契约判据 `kind`（十值）** 各持一份 `ALL` 常量——新增变体必须同补
+//! （两值）、**契约判据 `kind`（十三值）** 各持一份 `ALL` 常量——新增变体必须同补
 //! `ALL`（长度即红灯），语料对拍覆盖全部取值。四组词汇 MUST NOT 复用既有 DTO 词汇
-//! （`DiagnosticKind` 结构诊断九类 / `EdgeMark` / `NodeMark` 画布标记 /
-//! `WarningKind` 文档警告）——混用会让「结构错」「文档警告」「漂移违例」三类在类型
-//! 上不可辨。
+//! （`DiagnosticKind` 结构诊断九类 / `EdgeMark` / `NodeMark` 画布标记）——混用会让
+//! 「结构错」「漂移违例」两类在类型上不可辨。（退役的文档警告单值已随三源文档关联
+//! 一并删除，不再作为一组词汇出现。）
 //!
 //! **线面名带 `Archi` 前缀**：specta 的类型注册表按**裸类型名**唯一（`dto.rs` 的
 //! `ArchiDiagnosticKind` 先例同约束），故报告类型一律前缀化，短名 `Report` 经
@@ -148,19 +148,21 @@ impl ArchiObservationKind {
     ];
 }
 
-/// 判据级档位（封闭二值，纯进程内枚举——零 serde / specta，不进 IPC）：`off` 不产出
-/// 条目、`warn` 产出提示。
+/// 判据级档位（封闭三值，纯进程内枚举——零 serde / specta，不进 IPC）：`off` 不产出
+/// 条目、`warn` 产出提示、`error` 产出提示并阻断门禁。
 ///
-/// **与元素 `gate` 类型分立**：`strict` 在判据面上不可表达，复用 `GateTier` 会让
-/// 「契约判据档位」与「元素 gate」在类型上可互换——正是本变更要解耦的那件事。唯一
-/// 来源是 [`ArchiApiFindingKind::severity`]；无配置键、无环境变量、无命令行 flag
+/// **与元素 `gate` 类型分立**：`GateTier` 的 `strict` 是元素档位，本枚举的 `error` 是
+/// 判据档位——复用 `GateTier` 会让两者在类型上可互换，而那正是本契约要解耦的那件事。
+/// 唯一来源是 [`ArchiApiFindingKind::severity`]；无配置键、无环境变量、无命令行 flag
 /// 可改档位。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApiFindingSeverity {
     /// 不产出条目（完备性判据的档位）
     Off,
-    /// 产出提示（一致性判据的档位）
+    /// 产出提示（结构债 / 中间态的档位）
     Warn,
+    /// 产出提示并进 `status = errors` 与 `passed = false`
+    Error,
 }
 
 impl ApiFindingSeverity {
@@ -169,14 +171,19 @@ impl ApiFindingSeverity {
         match self {
             ApiFindingSeverity::Off => "off",
             ApiFindingSeverity::Warn => "warn",
+            ApiFindingSeverity::Error => "error",
         }
     }
 
     /// 全部合法值（清单单点）。
-    pub const ALL: [ApiFindingSeverity; 2] = [ApiFindingSeverity::Off, ApiFindingSeverity::Warn];
+    pub const ALL: [ApiFindingSeverity; 3] = [
+        ApiFindingSeverity::Off,
+        ApiFindingSeverity::Warn,
+        ApiFindingSeverity::Error,
+    ];
 }
 
-/// 契约判据种类（封闭十值；线格式 camelCase）。
+/// 契约判据种类（封闭十三值；线格式 camelCase）。
 ///
 /// **与 [`ArchiDriftKind`] 分立**（不并入的四值枚举）：① 事实源不同——`ArchiDriftKind`
 /// 是「模型 relation 图 vs 代码」，本枚举是「契约文件 vs 代码」；② 定级语义不同——
@@ -187,7 +194,7 @@ impl ApiFindingSeverity {
 pub enum ArchiApiFindingKind {
     /// 元素根路径下既无生成物也无实现入口（结构前提失效）
     ApiEntryMissing,
-    /// 契约 → 代码缺失（`declared` 而契约文件缺失，或声明的 op / 类型在代码里没有）
+    /// 有约定无兑现（声明的 op / 类型在代码里没有；契约文件缺失已改名 `docMissing`）
     ApiMissing,
     /// 代码有 `external` 面但契约未声明（**唯一完备性判据**，档位 `off`）
     ApiUndeclared,
@@ -205,6 +212,16 @@ pub enum ArchiApiFindingKind {
     ApiReexportDrift,
     /// 契约 `### 操作` 声明了构造器（应由生成器产出）
     ApiConstructorDeclared,
+    /// 入口文档未就位（`declared`：派生契约 md 不在盘 / `none`：`doc` 未声明）
+    DocMissing,
+    /// `doc` 声明指不到盘（仅 `api = none` 元素的声明类形态）
+    ///
+    /// **名字复用而非能力延续**：退役的文档警告单值读旧的多值字段、只报不拦（那组
+    /// 词汇已随三源文档关联删除）；本值读 `doc` 单值、`error` 档、纳管 `status`、参与
+    /// `passed`。
+    DocNotFound,
+    /// 有文档无约定（派生契约 md 在盘但正文无 api fence 语言标）
+    ApiDocMissing,
 }
 
 impl ArchiApiFindingKind {
@@ -221,20 +238,27 @@ impl ArchiApiFindingKind {
             ArchiApiFindingKind::ApiNestedCrossCrate => "apiNestedCrossCrate",
             ArchiApiFindingKind::ApiReexportDrift => "apiReexportDrift",
             ArchiApiFindingKind::ApiConstructorDeclared => "apiConstructorDeclared",
+            ArchiApiFindingKind::DocMissing => "docMissing",
+            ArchiApiFindingKind::DocNotFound => "docNotFound",
+            ArchiApiFindingKind::ApiDocMissing => "apiDocMissing",
         }
     }
 
-    /// 判据级档位（**唯一来源**）：九条一致性判据 `warn`、唯一完备性判据
-    /// `apiUndeclared` 为 `off`（迁移期全量打开等于让门禁永久红）。
+    /// 判据级档位（**唯一来源**）：`error` 恰三项（`docNotFound` / `apiMissing` /
+    /// `apiSignatureMismatch`）、`off` 恰 `apiUndeclared`、其余 `warn`。
     pub fn severity(self) -> ApiFindingSeverity {
         match self {
             ArchiApiFindingKind::ApiUndeclared => ApiFindingSeverity::Off,
+            ArchiApiFindingKind::DocNotFound
+            | ArchiApiFindingKind::ApiMissing
+            | ArchiApiFindingKind::ApiSignatureMismatch => ApiFindingSeverity::Error,
+            // 新增变体落哪一档须在此显式决定（兜底只为现有变体的 `warn` 面）
             _ => ApiFindingSeverity::Warn,
         }
     }
 
-    /// 全部合法值（清单单点：新增变体不同步即语料红）。
-    pub const ALL: [ArchiApiFindingKind; 10] = [
+    /// 全部合法值（清单单点：新增变体不同步即语料红）。新增三值排在原十值之后。
+    pub const ALL: [ArchiApiFindingKind; 13] = [
         ArchiApiFindingKind::ApiEntryMissing,
         ArchiApiFindingKind::ApiMissing,
         ArchiApiFindingKind::ApiUndeclared,
@@ -245,6 +269,9 @@ impl ArchiApiFindingKind {
         ArchiApiFindingKind::ApiNestedCrossCrate,
         ArchiApiFindingKind::ApiReexportDrift,
         ArchiApiFindingKind::ApiConstructorDeclared,
+        ArchiApiFindingKind::DocMissing,
+        ArchiApiFindingKind::DocNotFound,
+        ArchiApiFindingKind::ApiDocMissing,
     ];
 }
 
@@ -468,13 +495,35 @@ pub struct ArchiDriftReport {
     pub suppressed: Vec<ArchiDriftSuppressedEntry>,
     /// 观察项（永不影响 `status` / `passed`）
     pub observations: Vec<ArchiDriftObservation>,
-    /// 契约判据（并列槽位；空数组 = 无契约问题）。**不进 `passed`**；对 `status`
-    /// 的影响限于**契约在案元素**的判据（纳管口径归 `desktop-archi-api-check`，筛选
-    /// 单点在 `api::gating_findings`）——严重度由判据级
+    /// 契约判据（并列槽位；空数组 = 无契约问题）。对 `status` **与** `passed` 的影响
+    /// 限于**入口文档承诺已成立**的纳管子集（纳管口径归 `desktop-archi-api-check`，
+    /// 筛选单点在 `api::gating_findings`）——严重度由判据级
     /// [`ArchiApiFindingKind::severity`] 决定
     pub api_findings: Vec<ArchiApiFinding>,
     /// 检查结论
     pub status: ArchiCheckStatus,
+}
+
+impl ArchiDriftReport {
+    /// 门禁布尔单点（`status == errors ⟺ passed == false`）：`errors` 空 ∧ 模型结构错
+    /// 空 ∧ **纳管子集内零 `error` 档判据**。
+    ///
+    /// `error` 档的触发条件都蕴含纳管成立（`docNotFound` 需 `doc` 已声明；
+    /// `apiMissing` / `apiSignatureMismatch` 需契约在盘含 fence），故不存在「打断了
+    /// `passed` 却不进 `status`」的旁路。门禁执行体只读本方法，MUST NOT 另写一份判据。
+    pub fn passed(&self) -> bool {
+        self.errors.is_empty()
+            && self.model.structural_errors.is_empty()
+            && !has_error_tier(&self.api_findings)
+    }
+}
+
+/// 「含任一 `error` 档判据」的唯一判据：[`ArchiDriftReport::passed`] 与
+/// `drift::derive_status` 共用，MUST NOT 各写一份。
+pub fn has_error_tier(findings: &[ArchiApiFinding]) -> bool {
+    findings
+        .iter()
+        .any(|finding| finding.kind.severity() == ApiFindingSeverity::Error)
 }
 
 /// 报告结构短名（spec Module Contract 的 `Report`；线面名带 `Archi` 前缀是

@@ -33,11 +33,11 @@ use serde_json::{Map, Value};
 
 use super::{kind_of, ApiError};
 
-/// 操作 fence 的语言标。
-const FENCE_OP: &str = "api-op";
+/// 操作 fence 的语言标（供启用判据与 `apiDocMissing` 复用——MUST NOT 抄第二份字面量）。
+pub(crate) const FENCE_OP: &str = "api-op";
 
-/// 自有类型 fence 的语言标。
-const FENCE_TYPES: &str = "api-types";
+/// 自有类型 fence 的语言标（供启用判据与 `apiDocMissing` 复用——MUST NOT 抄第二份字面量）。
+pub(crate) const FENCE_TYPES: &str = "api-types";
 
 /// 透传清单 fence 的语言标。
 const FENCE_REEXPORT: &str = "api-reexport";
@@ -768,7 +768,9 @@ fn file_title(file: &str, fqn: &str) -> String {
 }
 
 /// fence info string → token 列表（空格 / 逗号分隔；`json api-op` 与 `api-op` 同判）。
-fn info_tokens(info: &str) -> Vec<&str> {
+///
+/// `pub(crate)`：启用判据与 `apiDocMissing` 复用同一切分（MUST NOT 补写第二份）。
+pub(crate) fn info_tokens(info: &str) -> Vec<&str> {
     info.split(|character: char| character.is_whitespace() || character == ',')
         .filter(|token| !token.is_empty())
         .collect()

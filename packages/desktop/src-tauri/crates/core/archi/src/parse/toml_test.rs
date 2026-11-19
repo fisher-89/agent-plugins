@@ -54,7 +54,7 @@ const FULL_SOURCE: &str = concat!(
     "kind = \"domain\"\n",
     "gate = \"strict\"\n",
     "path = [\"./src/auth/\", \"./src/token/\"]\n",
-    "docs = [\"./src/auth/README.md\"]\n",
+    "doc = \"./src/auth/README.md\"\n",
     "summary = \"认证域\"\n",
     "metadata = { owner = \"core\", tier = \"1\" }\n",
     "\n",
@@ -73,7 +73,7 @@ const FULL_SOURCE: &str = concat!(
 );
 
 /// 正向：proposal 示例全字段 → 元素 / 关系逐字段等于期望；省略 `gate` 的元素取
-/// `Off`；缺省 `path` / `docs` 为空数组、`metadata` 为空表。
+/// `Off`；缺省 `path` 为空数组、`doc` 为 `None`、`metadata` 为空表。
 #[test]
 fn 解析全字段源_元素关系逐字段相等且缺省取零值() {
     let outcome = parse(FULL_SOURCE);
@@ -100,7 +100,7 @@ fn 解析全字段源_元素关系逐字段相等且缺省取零值() {
     assert_eq!(app.kind, ElementKind::Package);
     assert_eq!(app.gate, GateTier::Off, "省略 gate 取缺省 Off");
     assert!(app.path.is_empty(), "缺省 path 为空数组");
-    assert!(app.docs.is_empty(), "缺省 docs 为空数组");
+    assert_eq!(app.doc, None, "缺省 doc 为 None（字段不省略）");
     assert_eq!(app.summary, None, "缺省 summary 为 None");
     assert!(app.metadata.is_empty(), "缺省 metadata 为空表");
     assert_eq!(app.file, "", "单文件解析契约：file 留空待聚合层回填");
@@ -116,7 +116,11 @@ fn 解析全字段源_元素关系逐字段相等且缺省取零值() {
         vec!["./src/auth/".to_owned(), "./src/token/".to_owned()],
         "path 逐项保留（不归一）"
     );
-    assert_eq!(auth.docs, vec!["./src/auth/README.md".to_owned()]);
+    assert_eq!(
+        auth.doc.as_deref(),
+        Some("./src/auth/README.md"),
+        "doc 原文保留"
+    );
     assert_eq!(auth.summary.as_deref(), Some("认证域"));
     assert_eq!(auth.metadata.len(), 2, "metadata 两键均保留");
     assert_eq!(auth.metadata.get("owner").map(String::as_str), Some("core"));
@@ -385,7 +389,7 @@ fn 同文件重复表头归_duplicate_element() {
 // ---------------------------------------------------------------------------
 
 /// 边界：`str` 值边界——超长（>1000 chars）摘要逐字保留；`\n` / `\u0000` / emoji
-/// 转义值逐字保留；`path` / `docs` 各 1 项与各 200 项均正确。
+/// 转义值逐字保留；`path` 1 项与 200 项、`doc` 单值均正确。
 #[test]
 fn 字符串值边界_超长与转义与数组规模均逐字保留() {
     let long = "摘".repeat(1200);
@@ -396,7 +400,7 @@ fn 字符串值边界_超长与转义与数组规模均逐字保留() {
             "summary = \"{long}\"\n",
             "metadata = {{ note = \"行1\\n行2\", nil = \"a\\u0000b\", emoji = \"🚀\" }}\n",
             "path = [\"./a/\"]\n",
-            "docs = [\"./a/README.md\"]\n",
+            "doc = \"./a/README.md\"\n",
         ),
         long = long
     );
@@ -420,20 +424,18 @@ fn 字符串值边界_超长与转义与数组规模均逐字保留() {
         "emoji 逐字"
     );
     assert_eq!(app.path, vec!["./a/".to_owned()], "单元素 path");
-    assert_eq!(app.docs, vec!["./a/README.md".to_owned()], "单元素 docs");
+    assert_eq!(app.doc.as_deref(), Some("./a/README.md"), "单元素 doc");
 
-    // 200 项 path / docs
+    // 200 项 path
     let items = (0..200)
         .map(|index| format!("\"./p{index:03}/md.md\""))
         .collect::<Vec<String>>()
         .join(", ");
-    let source =
-        format!("[element.\"App\"]\nkind = \"package\"\npath = [{items}]\ndocs = [{items}]\n");
+    let source = format!("[element.\"App\"]\nkind = \"package\"\npath = [{items}]\n");
     let outcome = parse(&source);
     assert!(outcome.diagnostics.is_empty());
     let app = outcome.model.element("App").expect("App 在模型内");
     assert_eq!(app.path.len(), 200, "200 项 path 全量保留");
-    assert_eq!(app.docs.len(), 200, "200 项 docs 全量保留");
     assert_eq!(app.path[199], "./p199/md.md", "末项逐字");
 }
 
@@ -638,7 +640,7 @@ fn 解析非法api值归invalid_value并列出合法值() {
     }
 }
 
-/// 边界：`api` 与其余字段正交——同元素同时带 `api = "none"` 与全字段（path / docs /
+/// 边界：`api` 与其余字段正交——同元素同时带 `api = "none"` 与全字段（path / doc /
 /// summary / metadata）→ 各自逐值保留；`api` 键不改变其它字段的解析结果。
 #[test]
 fn 解析api与其余字段正交() {
@@ -646,7 +648,7 @@ fn 解析api与其余字段正交() {
                   kind = \"domain\"\n\
                   api = \"none\"\n\
                   path = [\"./src/auth/\"]\n\
-                  docs = [\"src/auth/README.md\"]\n\
+                  doc = \"src/auth/README.md\"\n\
                   summary = \"认证\"\n\n\
                   [element.\"App.Auth\".metadata]\n\
                   owner = \"auth-team\"\n";
@@ -660,9 +662,9 @@ fn 解析api与其余字段正交() {
         "path 原文保留"
     );
     assert_eq!(
-        element.docs,
-        vec!["src/auth/README.md".to_owned()],
-        "docs 原文保留"
+        element.doc.as_deref(),
+        Some("src/auth/README.md"),
+        "doc 原文保留"
     );
     assert_eq!(element.summary.as_deref(), Some("认证"), "summary 保留");
     assert_eq!(
@@ -1205,4 +1207,181 @@ fn 解析metadata的entry键不当入口指针() {
         Some("src/not-an-entry.rs"),
         "该键原样进 metadata"
     );
+}
+
+use crate::dto::ApiStatus;
+
+// ===========================================================================
+// `doc` 键（单值入口文档指针）与 `deny_unknown_fields` 白名单同步
+//
+// 解析面只做「单值 vs 非单值」的形态判定：`doc` 是单值，数组 / 内联表 / 数字一律
+// `invalidValue`（MUST NOT 静默取首条）；旧的多值键已出白名单，写了即 `unknownField`
+// ——模型停摆的反向判据。
+// ===========================================================================
+
+/// 正向：`doc` 单值逐字进模型（`./` 前缀不剥——归一归 `api::paths`）；`api = "none"`
+/// 与 `doc` 同元素并存合法。
+#[test]
+fn 解析doc单值逐字进模型() {
+    for (raw, expected) in [
+        ("src/auth/README.md", "src/auth/README.md"),
+        ("./src/auth/README.md", "./src/auth/README.md"),
+    ] {
+        let source =
+            format!("[element.\"App.Auth\"]\nkind = \"domain\"\napi = \"none\"\ndoc = \"{raw}\"\n");
+        let outcome = parse(&source);
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "合法源零诊断：{:?}",
+            outcome.diagnostics
+        );
+        let element = outcome.model.element("App.Auth").expect("元素在案");
+        assert_eq!(
+            element.doc.as_deref(),
+            Some(expected),
+            "原文逐字保留（解析面零改写）"
+        );
+        assert_eq!(element.api, ApiStatus::None, "`api` 与 `doc` 并存合法");
+    }
+}
+
+/// 异常：数组 / 内联表 / 数字三种非单值形态一律 `invalidValue`，且不产出元素
+/// （单文件解析全或无，绝不静默取首条）。
+#[test]
+fn 解析doc非单值形态归invalid_value() {
+    for (index, fragment) in ["doc = [\"a.md\"]", "doc = { path = \"a.md\" }", "doc = 1"]
+        .into_iter()
+        .enumerate()
+    {
+        let source = format!("[element.\"App\"]\nkind = \"package\"\n{fragment}\n");
+        let diagnostic = single_diagnostic(&source);
+        assert_eq!(
+            diagnostic.kind,
+            DiagnosticKind::InvalidValue,
+            "第 {index} 形态（{fragment}）应归一值域违例：{}",
+            diagnostic.message
+        );
+        let outcome = parse(&source);
+        assert!(
+            outcome.model.elements.is_empty(),
+            "解析失败即空模型（{fragment}）"
+        );
+    }
+}
+
+/// 边界：省略 `doc` → `None`；`doc = ""` → `Some("")`；超长单值与含 `\n` / emoji 的转义
+/// 值逐字保留；`path` 空 + `doc` 非空合法。
+#[test]
+fn 解析doc边界面() {
+    let omitted = parse("[element.\"App\"]\nkind = \"package\"\n");
+    assert!(omitted.diagnostics.is_empty(), "省略键零诊断");
+    assert_eq!(
+        omitted.model.element("App").expect("元素在案").doc,
+        None,
+        "省略 `doc` 即 `None`"
+    );
+
+    let empty = parse("[element.\"App\"]\nkind = \"package\"\ndoc = \"\"\n");
+    assert!(empty.diagnostics.is_empty(), "空串零诊断");
+    assert_eq!(
+        empty.model.element("App").expect("元素在案").doc.as_deref(),
+        Some(""),
+        "空串逐字保留（形态判据归 `api::paths`）"
+    );
+
+    let long = format!("guides/{}.md", "a".repeat(1200));
+    let source = format!("[element.\"App\"]\nkind = \"package\"\ndoc = \"{long}\"\n");
+    let outcome = parse(&source);
+    assert!(outcome.diagnostics.is_empty(), "超长值零诊断");
+    let element = outcome.model.element("App").expect("元素在案");
+    assert_eq!(
+        element.doc.as_deref(),
+        Some(long.as_str()),
+        "超长单值逐字保留"
+    );
+    assert!(element.path.is_empty(), "`path` 空 + `doc` 非空合法");
+
+    let escaped = parse("[element.\"App\"]\nkind = \"package\"\ndoc = \"docs/行1\\n行2🚀.md\"\n");
+    assert!(escaped.diagnostics.is_empty(), "转义值零诊断");
+    assert_eq!(
+        escaped
+            .model
+            .element("App")
+            .expect("元素在案")
+            .doc
+            .as_deref(),
+        Some("docs/行1\n行2🚀.md"),
+        "转义后的原文逐字保留"
+    );
+}
+
+/// 正向：`doc` 在白名单内（含 `doc` 的源零诊断），其余键的解析结果零变化。
+#[test]
+fn 解析doc键在白名单内() {
+    let outcome = parse(
+        "[element.\"App.Auth\"]\n\
+         kind = \"domain\"\ngate = \"strict\"\napi = \"none\"\n\
+         summary = \"认证域\"\npath = [\"./src/auth/\"]\n\
+         doc = \"guides/auth.md\"\nmetadata = { owner = \"core\" }\n",
+    );
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "含 `doc` 的源零诊断：{:?}",
+        outcome.diagnostics
+    );
+    let element = outcome.model.element("App.Auth").expect("元素在案");
+    assert_eq!(element.kind, ElementKind::Domain, "kind 零变化");
+    assert_eq!(element.gate, GateTier::Strict, "gate 零变化");
+    assert_eq!(element.summary.as_deref(), Some("认证域"), "summary 零变化");
+    assert_eq!(element.path, vec!["./src/auth/".to_owned()], "path 零变化");
+    assert_eq!(
+        element.metadata.get("owner").map(String::as_str),
+        Some("core"),
+        "metadata 零变化"
+    );
+}
+
+/// 异常（AC-1 反向判据）：旧键 `docs` 与两个拼错形态 → `unknownField`（停摆形态真实
+/// 可复现，不静默忽略）。
+#[test]
+fn 解析旧docs键与拼错键归unknown_field() {
+    for (index, fragment) in [
+        "docs = [\"./README.md\"]",
+        "dc = \"a.md\"",
+        "docss = [\"a.md\"]",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let source = format!("[element.\"App\"]\nkind = \"package\"\n{fragment}\n");
+        let diagnostic = single_diagnostic(&source);
+        assert_eq!(
+            diagnostic.kind,
+            DiagnosticKind::UnknownField,
+            "第 {index} 形态（{fragment}）应归未知字段：{}",
+            diagnostic.message
+        );
+        assert!(
+            diagnostic.line >= 1,
+            "诊断行号指向出错行：{:?}",
+            diagnostic.line
+        );
+    }
+}
+
+/// 边界：白名单与结构体字段同步换面（源码自证）——`toml.rs` 内 `docs` 零命中、`doc`
+/// 至少两处（结构体字段 + 传递点），面包屑不留旧键。
+#[test]
+fn 解析doc白名单源码自证() {
+    let source = include_str!("toml.rs");
+    assert!(
+        !source.contains("docs"),
+        "白名单与结构体字段同步清除旧键（`toml.rs` 内 `docs` 零命中）"
+    );
+    assert!(
+        source.matches("doc").count() >= 2,
+        "`doc` 在结构体字段与传递点各一处以上：{}",
+        source.matches("doc").count()
+    );
+    assert!(source.contains("doc: Option<String>"), "字段面为单值可选");
 }

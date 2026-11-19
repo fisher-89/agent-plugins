@@ -1,19 +1,19 @@
-use crate::docs;
-use crate::dto::{DocRef, SearchScope};
+use crate::api;
+use crate::dto::SearchScope;
 use crate::graph::ModelGraph;
 use crate::model::Element;
 
-/// 检索结果（元素 FQN 清单 + 文档条目）。
+/// 检索结果（元素 FQN 清单 + 入口文档路径串）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchOutcome {
     /// 命中元素 FQN（字典序）
     pub element_fqns: Vec<String>,
-    /// 命中文档（来源强度序 → 路径字典序）
-    pub docs: Vec<DocRef>,
+    /// 命中的入口文档路径（`path` 非空元素的在盘载体，路径字典序）
+    pub doc: Vec<String>,
 }
 
-/// 检索入口：空白 query → `Err`（MUST NOT 返回全量）；`Elements` 时 `docs` 恒空、
-/// `Docs` 时 `element_fqns` 恒空。
+/// 检索入口：空白 query → `Err`（MUST NOT 返回全量）；`Elements` 时 `doc` 恒空、
+/// `Doc` 时 `element_fqns` 恒空。
 pub fn search(
     graph: &ModelGraph,
     root: &std::path::Path,
@@ -26,9 +26,9 @@ pub fn search(
     }
     let mut outcome = SearchOutcome {
         element_fqns: Vec::new(),
-        docs: Vec::new(),
+        doc: Vec::new(),
     };
-    if scope != SearchScope::Docs {
+    if scope != SearchScope::Doc {
         outcome.element_fqns = graph
             .model()
             .elements
@@ -40,11 +40,20 @@ pub fn search(
         outcome.element_fqns.dedup();
     }
     if scope != SearchScope::Elements {
-        outcome.docs = docs::all_docs(graph, root)
-            .docs
-            .into_iter()
-            .filter(|doc| matches_doc(doc, &tokens))
+        // 语料 = `path` 非空元素的在盘入口文档载体（与判据面同一集合、同一载体派生）
+        outcome.doc = graph
+            .model()
+            .elements
+            .iter()
+            .filter(|element| !element.path.is_empty())
+            .filter_map(|element| {
+                let carrier = api::paths::carrier_path(root, &crate::dto::to_element(element))?;
+                carrier.is_file().then(|| api::display(root, &carrier))
+            })
+            .filter(|path| matches_doc(path, &tokens))
             .collect();
+        outcome.doc.sort();
+        outcome.doc.dedup();
     }
     Ok(outcome)
 }
@@ -64,14 +73,22 @@ fn matches_element(element: &Element, tokens: &[String]) -> bool {
     contains_all(&haystack, tokens)
 }
 
-/// 文档命中判据：路径与文件名去扩展名（**不读正文**，故 `title` 不参与——标题取自
-/// 正文首行，属正文射程）。
-fn matches_doc(doc: &DocRef, tokens: &[String]) -> bool {
-    let mut haystack = String::with_capacity(doc.path.len() + 32);
-    haystack.push_str(&doc.path);
+/// 入口文档命中判据：路径与文件名去扩展名（**不读正文**）。
+fn matches_doc(doc: &str, tokens: &[String]) -> bool {
+    let mut haystack = String::with_capacity(doc.len() + 32);
+    haystack.push_str(doc);
     haystack.push('\n');
-    haystack.push_str(&docs::file_stem(&doc.path));
+    haystack.push_str(&file_stem(doc));
     contains_all(&haystack, tokens)
+}
+
+/// 文件名去扩展名（末段）：`guides/auth-token.md` → `auth-token`（检索文件名匹配用）。
+fn file_stem(relative: &str) -> String {
+    let name = relative.rsplit('/').next().unwrap_or(relative);
+    match name.rsplit_once('.') {
+        Some((stem, _)) => stem.to_owned(),
+        None => name.to_owned(),
+    }
 }
 
 /// 目标文本（小写后）是否包含全部分词段（AND 语义）。

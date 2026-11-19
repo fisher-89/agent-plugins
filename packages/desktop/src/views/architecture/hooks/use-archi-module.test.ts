@@ -30,26 +30,13 @@ function detailOf(fqn: string): ArchiModuleDetail {
       modelFile: '.dev-team/architecture/models/01-core.toml',
       modelLine: 6,
       entry: null,
+      doc: null,
       mark: 'none',
     },
     dependsOn: [{ target: 'App.Billing', description: '认证调用计费' }],
     dependedBy: [],
     children: [`${fqn}.Token`],
-    docs: [
-      {
-        path: 'src/auth/README.md',
-        title: '认证说明',
-        kind: 'md',
-        source: 'explicit',
-      },
-      {
-        path: '.dev-team/architecture/decisions/0007-token-sink.md',
-        title: '令牌收口',
-        kind: 'adr',
-        source: 'text',
-      },
-    ],
-    warnings: [],
+    doc: null,
     api: { status: 'declared', contractPath: null, schemaPath: null, generatedPath: null },
   };
 }
@@ -78,7 +65,7 @@ describe('useArchiModule 取数', () => {
     await waitFor(() => expect(result.current.detail).not.toBeNull());
     expect(result.current.detail?.element.fqn).toBe('App.Auth');
     expect(result.current.detail?.dependsOn).toHaveLength(1);
-    expect(result.current.detail?.docs).toHaveLength(2);
+    expect(result.current.detail?.doc).toBeNull();
     const calls = callsOf('archi_module');
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual({ root: 'C:\\demo\\alpha', element: 'App.Auth' });

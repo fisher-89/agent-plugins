@@ -25,7 +25,7 @@ fn element(fqn: &str) -> Element {
         api: ApiStatus::Declared,
         entry: None,
         path: Vec::new(),
-        docs: Vec::new(),
+        doc: None,
         summary: None,
         metadata: BTreeMap::new(),
         file: ".dev-team/architecture/models/01-core.toml".to_owned(),
@@ -39,7 +39,7 @@ fn three_elements() -> Model {
     auth.kind = ElementKind::Domain;
     auth.gate = GateTier::Strict;
     auth.path = vec!["./src/auth/".to_owned(), "./src/token/".to_owned()];
-    auth.docs = vec!["./src/auth/README.md".to_owned()];
+    auth.doc = Some("./src/auth/README.md".to_owned());
     auth.summary = Some("认证域".to_owned());
     auth.metadata = BTreeMap::from([
         ("owner".to_owned(), "core".to_owned()),
@@ -69,7 +69,7 @@ fn element按fqn取元素且九字段逐项相等() {
         vec!["./src/auth/".to_owned(), "./src/token/".to_owned()],
         "path 逐项保留（不归一、不折叠）"
     );
-    assert_eq!(found.docs, vec!["./src/auth/README.md".to_owned()]);
+    assert_eq!(found.doc.as_deref(), Some("./src/auth/README.md"));
     assert_eq!(found.summary.as_deref(), Some("认证域"));
     assert_eq!(found.metadata.len(), 2, "metadata 多键逐项保留");
     assert_eq!(
@@ -274,7 +274,7 @@ fn element_api两态与其余字段独立() {
     assert_eq!(blank.kind, declared.kind);
     assert_eq!(blank.gate, declared.gate);
     assert_eq!(blank.path, declared.path);
-    assert_eq!(blank.docs, declared.docs);
+    assert_eq!(blank.doc, declared.doc);
     assert_eq!(blank.summary, declared.summary);
     assert_eq!(blank.metadata, declared.metadata);
     assert_eq!(blank.file, declared.file);
@@ -367,18 +367,18 @@ fn element_api大模型逐元素可读() {
 }
 
 // ===========================================================================
-// `Element.api` 字段面零扩写（AC-10 / AC-16）
+// `Element` 字段面（AC-1 / AC-6）
 //
-// `Element` 字段数 = 11（原 10 + `api`）；新增字段只此一处，MUST NOT 顺手扩面。
+// `Element` 字段数 = 11（`api` 与 `entry` 已进场，`docs` 改名 `doc` 后不再是数组）。
 // 字段数以源码自证（`pub struct Element { … }` 块内的 `pub ` 行数）表达：结构体字段
 // 面无 serde 反射可得，`include_str!` 自证是唯一零新增依赖的机械判据。
 // ===========================================================================
 
-/// 边界（AC-10 / AC-16）：`Element` 字段数恰 11（`fqn` / `kind` / `gate` / `api` /
-/// `path` / `docs` / `summary` / `metadata` / `file` / `line` = 10 个既有 + `api` 1 个），
-/// 且 `api` 是本变更唯一新增字段（`ApiStatus` 类型在场、协议正文四词零命中已在另测覆盖）。
+/// 边界（AC-1 / AC-6）：`Element` 字段面恰 11 项（`fqn` / `kind` / `gate` / `api` /
+/// `entry` / `path` / `doc` / `summary` / `metadata` / `file` / `line`），`docs` 不在清单
+/// 内；`doc` 是单值可选指针（与 `entry` 同型）。
 #[test]
-fn element字段数恰十二个且两个指针各一处() {
+fn element字段数恰十一个且两个指针各一处() {
     let source = include_str!("model.rs");
     let block_start = source
         .find("pub struct Element {")
@@ -390,16 +390,15 @@ fn element字段数恰十二个且两个指针各一处() {
     let fields: Vec<&str> = body
         .lines()
         .map(str::trim)
-        .filter(|line| line.starts_with("pub "))
+        .filter(|line| line.starts_with("pub ") && line.ends_with(','))
         .collect();
     assert_eq!(
         fields.len(),
-        12,
-        "Element 字段数 = 12（原 10 + api + entry），实际 {fields:?}"
+        11,
+        "Element 字段数 = 11（`api` / `entry` / `doc` 三个指针位），实际 {fields:?}"
     );
     for expected in [
-        "fqn", "kind", "gate", "api", "entry", "path", "docs", "summary", "metadata", "file",
-        "line",
+        "fqn", "kind", "gate", "api", "entry", "path", "doc", "summary", "metadata", "file", "line",
     ] {
         assert!(
             fields.iter().any(|field| field.contains(expected)),
@@ -441,6 +440,18 @@ fn element字段数恰十二个且两个指针各一处() {
     assert!(
         position_of("entry: Option<String>") < position_of("path: Vec<String>"),
         "`entry` 在 `path` 之前：{fields:?}"
+    );
+    assert_eq!(
+        fields
+            .iter()
+            .filter(|field| field.contains("doc: Option<String>"))
+            .count(),
+        1,
+        "`doc` 是单值可选指针（MUST NOT 退回数组形态）"
+    );
+    assert!(
+        !fields.iter().any(|field| field.contains("docs")),
+        "旧的多值文档字段不在字段面：{fields:?}"
     );
 }
 
@@ -592,7 +603,7 @@ fn element_api两值经解析面逐值相等() {
         assert_eq!(found.kind, ElementKind::Domain, "kind 逐值相等");
         assert_eq!(found.gate, GateTier::Off, "省略 gate 即缺省 off");
         assert!(found.path.is_empty(), "省略 path 即空数组");
-        assert!(found.docs.is_empty(), "省略 docs 即空数组");
+        assert_eq!(found.doc, None, "省略 doc 即 None");
         assert_eq!(found.summary, None, "省略 summary 即 None");
     }
 }
@@ -606,7 +617,7 @@ fn element_path原文在api字段新增后逐字保留() {
          kind = \"domain\"\n\
          api = \"none\"\n\
          path = [\"./src/auth/\", \"src/token\"]\n\
-         docs = [\"./src/auth/README.md\"]\n",
+         doc = \"./src/auth/README.md\"\n",
     );
     assert!(
         outcome.diagnostics.is_empty(),
@@ -620,9 +631,9 @@ fn element_path原文在api字段新增后逐字保留() {
         "path 原文写法逐字保留（不归一）"
     );
     assert_eq!(
-        found.docs,
-        vec!["./src/auth/README.md".to_owned()],
-        "docs 原文写法逐字保留"
+        found.doc.as_deref(),
+        Some("./src/auth/README.md"),
+        "doc 原文写法逐字保留"
     );
     assert_eq!(found.api, ApiStatus::None, "api 与 path 正交");
 }
@@ -651,5 +662,158 @@ fn element_api不被metadata同名键改变() {
         found.metadata.get("api").map(String::as_str),
         Some("non"),
         "该键原样停在 metadata（静默无效的在案反例）"
+    );
+}
+
+// ===========================================================================
+// `Element.doc`（单值入口文档指针）
+//
+// 字段面只承载原文：形态判据（repo 相对 / 越根拒绝）归 `api::paths::doc_path`，
+// 模型层零归一、零校验、零交叉判定。`api` 是「入口文档载体的开关」——`declared` 的
+// 入口文档恒为派生的 `contract_path`，`doc` 只服务 `api = none`；矛盾不在本层拒绝。
+// ===========================================================================
+
+/// 正向：缺省构造 `doc: None`；显式 `Some("./src/auth/README.md")` 逐字保留（前导 `./`
+/// 不剥离，归一归 `api::paths`）。
+#[test]
+fn element_doc缺省none与显式原文逐字保留() {
+    let default = element("App.Auth");
+    assert_eq!(default.doc, None, "缺省即 `None`（不是空串）");
+
+    let mut explicit = element("App.Auth");
+    explicit.doc = Some("./src/auth/README.md".to_owned());
+    assert_eq!(
+        explicit.doc.as_deref(),
+        Some("./src/auth/README.md"),
+        "模型层零归一：前导 `./` 逐字保留"
+    );
+    assert_ne!(explicit.doc, default.doc, "缺省与显式两态可区分");
+}
+
+/// 异常：`model.rs` 内旧的多值文档词汇零残留（本文件射程内自证）——`docs` 标识符、
+/// 文档关联三类型与警告类型全部离场，且零「显式文档路径数组」类散文。
+#[test]
+fn element_doc旧多值词汇零残留() {
+    let source = include_str!("model.rs");
+    assert!(
+        !source.contains("docs"),
+        "`model.rs` 内 `docs` 标识符零命中（字段面与散文同步换面）"
+    );
+    for retired in ["DocKind", "DocSource", "DocRef", "WarningKind"] {
+        assert!(!source.contains(retired), "退役文档词汇零命中：{retired}");
+    }
+    for prose in ["显式文档路径", "关联文档"] {
+        assert!(!source.contains(prose), "旧 doc 散文零残留：{prose}");
+    }
+    assert!(
+        source.contains("pub doc: Option<String>"),
+        "`doc` 是单值可选字段"
+    );
+}
+
+/// 边界：空串 / 超长值 / 含 `\n` 与 emoji 的路径串在模型层原样保留（形态判据不在本层）；
+/// `None` 与 `Some("")` 是两个可区分状态。
+#[test]
+fn element_doc边界值原样保留() {
+    let long = format!("guides/{}.md", "a".repeat(1200));
+    let cases = [
+        String::new(),
+        long.clone(),
+        "docs/a\nb.md".to_owned(),
+        "文档/入口🚀.md".to_owned(),
+    ];
+    for raw in cases {
+        let mut subject = element("App.Auth");
+        subject.doc = Some(raw.clone());
+        assert_eq!(
+            subject.doc.as_deref(),
+            Some(raw.as_str()),
+            "模型层零校验零清洗：{raw:?}"
+        );
+    }
+
+    let mut empty = element("App.Auth");
+    empty.doc = Some(String::new());
+    assert_ne!(empty, element("App.Auth"), "`Some(\"\")` 与 `None` 可区分");
+    assert_eq!(empty.doc.as_deref(), Some(""), "空串逐字保留");
+}
+
+/// 正向：`api` 两态与 `doc` 的两组合法组合（`declared` + `None` / `none` + `Some`）
+/// 均被模型层接受，且 `Model::element` 的查找结果与 `doc` 值无关。
+#[test]
+fn element_api开关语义_两组合法与查找无关() {
+    let mut declared = element("App.Auth");
+    declared.doc = None;
+    assert_eq!(declared.api, ApiStatus::Declared, "declared + 无 doc 合法");
+
+    let mut blank = element("App.Auth");
+    blank.api = ApiStatus::None;
+    blank.doc = Some("./src/auth/README.md".to_owned());
+    assert_eq!(blank.api, ApiStatus::None, "none + doc 合法");
+
+    for subject in [declared, blank] {
+        let model = Model {
+            elements: vec![subject.clone()],
+            relations: Vec::new(),
+        };
+        let found = model.element("App.Auth").expect("FQN 命中");
+        assert_eq!(found.doc, subject.doc, "查找结果原样带回 `doc`");
+        assert_eq!(found.api, subject.api, "查找不改变 `api`");
+    }
+}
+
+/// 异常：`declared` + `doc = Some(…)` 的矛盾组合也被模型层接受——既不静默拒绝，也不
+/// 清零（矛盾由 `api::check` 报 `apiUnexpected`，模型层 MUST NOT 抢先改写）。
+#[test]
+fn element_api开关语义_矛盾组合模型层不拒绝不清零() {
+    let mut contradictory = element("App.Auth");
+    contradictory.api = ApiStatus::Declared;
+    contradictory.doc = Some("./src/auth/README.md".to_owned());
+
+    assert_eq!(
+        contradictory.doc.as_deref(),
+        Some("./src/auth/README.md"),
+        "模型层不清零（否则判据面无法复述原文）"
+    );
+    assert_eq!(contradictory.api, ApiStatus::Declared, "模型层不改写 `api`");
+    assert_eq!(
+        contradictory.clone(),
+        contradictory,
+        "矛盾组合仍是可构造、可比较的合法值"
+    );
+}
+
+/// 边界：`api = none` + `doc = None` 合法（留白无入口文档是合法态）；`path` 空 + `doc`
+/// 非空合法（载体派生不依赖 `path`）。
+#[test]
+fn element_api开关语义_两种合法边界态() {
+    let mut blank = element("App.Auth");
+    blank.api = ApiStatus::None;
+    assert_eq!(blank.doc, None, "留白无入口文档是合法态");
+
+    let mut pathless = element("App");
+    pathless.doc = Some("guides/entry.md".to_owned());
+    assert!(pathless.path.is_empty(), "path 为空");
+    assert!(
+        pathless.doc.is_some(),
+        "载体派生只读 `api` / `doc` / `fqn`，与 `path` 无关"
+    );
+}
+
+/// 辅助：`path` 显式传入的元素（本节的 `path` 空 / 非空对照臂）。
+#[test]
+fn element_doc与path正交() {
+    let mut subject = element("App.Auth");
+    subject.path = vec!["./src/auth/".to_owned()];
+    subject.doc = Some("guides/auth.md".to_owned());
+    assert_eq!(
+        subject.path,
+        vec!["./src/auth/".to_owned()],
+        "path 原文逐字保留"
+    );
+    assert_eq!(
+        subject.doc.as_deref(),
+        Some("guides/auth.md"),
+        "doc 原文逐字保留"
     );
 }

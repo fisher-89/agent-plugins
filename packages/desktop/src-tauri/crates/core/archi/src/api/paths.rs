@@ -16,14 +16,14 @@
 //! `EntryState::Invalid`）。理由是
 //! `Path::join` 的语义：base 被绝对路径 / 盘符**替换**、`..` 段会**上溯**——放行即
 //! 让「证据在盘」的探测越出仓库（任意文件读），也让工具 crate 的写盘面落成任意文件
-//! 写。判据与 `docs::normalize_rel` / `scan::rust::normalize_rel` 同一条纪律（repo
+//! 写。判据与 `scan::rust::normalize_rel` 同一条纪律（repo
 //! 相对：`/` 分隔、无绝对前缀、无盘符、无 `.` / `..` / 空段），MUST NOT 靠调用方自觉。
 
 use std::path::{Path, PathBuf};
 
 use foundation::layout::{archi_graph_dir, archi_models_dir};
 
-use crate::dto::ArchiElement;
+use crate::dto::{ApiStatus, ArchiElement};
 
 /// 元素根路径顶层分组名（`<Domain>` 缺省——单段 FQN 的契约落此目录）。
 const ROOT_DOMAIN: &str = "Root";
@@ -266,6 +266,9 @@ pub fn generated_kind(language: Language) -> GeneratedKind {
 
 /// 契约文件路径：`<archi_models_dir>/<Domain>/<FQN>.md`。
 ///
+/// 结果同时是 `api = declared` 元素的**入口文档**（[`carrier_path`] 的 declared 分支）：
+/// 契约 md 与入口文档不是两份资产，只是同一落点的两个用途。
+///
 /// FQN 形态非法（空 / 含路径分隔符 / `.` 或 `..` 段 / 绝对前缀）→ `None`：FQN 同时
 /// 充当**文件名**，放行即让下层的 `is_file()` 探测与工具 crate 的写盘越出契约目录。
 pub fn contract_path(root: &Path, fqn: &str) -> Option<PathBuf> {
@@ -273,6 +276,37 @@ pub fn contract_path(root: &Path, fqn: &str) -> Option<PathBuf> {
         return None;
     }
     Some(domain_dir(root, fqn).join(format!("{fqn}.md")))
+}
+
+/// `doc` 字段的归一与形态判据单点：`normalize_root`（`\` → `/`、剥前导 `./`、去尾
+/// `/`）通过 [`is_repo_relative`] 后 `root.join`，否则 `None`。
+///
+/// **`join` 越根的安全边界**：绝对路径 / 盘符会替换 base、`..` 段会上溯——放行即让
+/// 载体探测变成任意文件读取面。形态判据只有这一处（退役的文档关联实现里的等价函数
+/// 已随该能力删除），判据面 / 纳管面 / 检索面 / 投影面 MUST NOT 各写第二份归一。
+pub fn doc_path(root: &Path, doc: &str) -> Option<PathBuf> {
+    let normalized = normalize_root(doc);
+    if !is_repo_relative(&normalized) {
+        return None;
+    }
+    Some(root.join(normalized))
+}
+
+/// **入口文档载体的派生单点**——判据面 / 纳管面 / 检索面 / 投影面共用，MUST NOT 出现
+/// 第二份载体派生。
+///
+/// `api` 状态就是载体开关：`declared` → 派生 [`contract_path`]（契约 md 即入口文档）、
+/// `none` → 模型 `doc` 声明的 [`doc_path`]。
+///
+/// **`None` 有两种成因，本函数不区分、调用方 MUST 自行分流**：`doc` 未声明（真无载体，
+/// `api = none` 的合法态）与 `doc` 已声明而形态越根（[`doc_path`] 拒绝，声明在案却指不到
+/// 盘）。两者在判据面上分属不同值（`docMissing` vs `docNotFound`）、不同档位与不同纳管
+/// 结论，故把「派生不出路径」一律读成「未声明」就等于把「写错了」降级成「还没写」。
+pub fn carrier_path(root: &Path, element: &ArchiElement) -> Option<PathBuf> {
+    match element.api {
+        ApiStatus::Declared => contract_path(root, &element.fqn),
+        ApiStatus::None => element.doc.as_deref().and_then(|doc| doc_path(root, doc)),
+    }
 }
 
 /// schema 生成物路径：与契约同目录的 `<FQN>.schema.json`（形态判据同
@@ -497,13 +531,13 @@ fn checked_root(raw: &str) -> Option<String> {
     Some(root)
 }
 
-/// repo 相对路径判据（与 `docs::normalize_rel` 同一条纪律）：`/` 分隔、无绝对前缀、
-/// 无盘符、无 `.` / `..` / 空段、非空。
+/// repo 相对路径判据的**唯一实现**（文档关联能力已退役）：`/` 分隔、无绝对前缀、
+/// 无盘符、无 `~`、无 `.` / `..` / 空段、非空。
 ///
 /// **这是路径派生的安全边界**：`root.join(绝对路径)` 会替换 base、`..` 段会越出
 /// 观察根——放行即让 `is_file()` 探测变成任意文件读、让工具 crate 的写盘变成任意
 /// 文件写。
-fn is_repo_relative(relative: &str) -> bool {
+pub(crate) fn is_repo_relative(relative: &str) -> bool {
     if relative.is_empty() || relative.starts_with('/') || relative.starts_with('~') {
         return false;
     }

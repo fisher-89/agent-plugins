@@ -25,6 +25,7 @@ fn element(fqn: &str, gate: GateTier, paths: &[&str]) -> ArchiElement {
         model_file: ".dev-team/architecture/models/01-test.toml".to_owned(),
         model_line: 1,
         mark: NodeMark::None,
+        doc: None,
     }
 }
 

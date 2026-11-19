@@ -693,7 +693,7 @@ export const ArchiApiFindingSchema = z.strictObject({
 	get occurrences() { return z.array(ArchiDriftOccurrenceSchema); },
 });
 
-export const ArchiApiFindingKindSchema = z.union([z.literal("apiEntryMissing"), z.literal("apiMissing"), z.literal("apiUndeclared"), z.literal("apiSignatureMismatch"), z.literal("apiUnexpected"), z.literal("apiShadowing"), z.literal("apiRefMissing"), z.literal("apiNestedCrossCrate"), z.literal("apiReexportDrift"), z.literal("apiConstructorDeclared")]);
+export const ArchiApiFindingKindSchema = z.union([z.literal("apiEntryMissing"), z.literal("apiMissing"), z.literal("apiUndeclared"), z.literal("apiSignatureMismatch"), z.literal("apiUnexpected"), z.literal("apiShadowing"), z.literal("apiRefMissing"), z.literal("apiNestedCrossCrate"), z.literal("apiReexportDrift"), z.literal("apiConstructorDeclared"), z.literal("docMissing"), z.literal("docNotFound"), z.literal("apiDocMissing")]);
 
 export const ArchiApiMetaSchema = z.strictObject({
 	get toolVersion() { return z.string(); },
@@ -817,6 +817,7 @@ export const ArchiElementSchema = z.strictObject({
 	get mark() { return NodeMarkSchema; },
 	get api() { return ApiStatusSchema; },
 	get entry() { return z.string().nullable(); },
+	get doc() { return z.string().nullable(); },
 });
 
 export const ArchiExcludedFileSchema = z.strictObject({
@@ -866,8 +867,7 @@ export const ArchiModuleDetailSchema = z.strictObject({
 	get dependsOn() { return z.array(ArchiDependsOnSchema); },
 	get dependedBy() { return z.array(ArchiDependedBySchema); },
 	get children() { return z.array(z.string()); },
-	get docs() { return z.array(DocRefSchema); },
-	get warnings() { return z.array(ArchiWarningSchema); },
+	get doc() { return z.string().nullable(); },
 	get api() { return ArchiApiRefSchema; },
 });
 
@@ -897,13 +897,6 @@ export const ArchiUnresolvedFileSchema = z.strictObject({
 	get file() { return z.string(); },
 	get specifier() { return z.string().nullable(); },
 	get message() { return z.string(); },
-});
-
-export const ArchiWarningSchema = z.strictObject({
-	get kind() { return WarningKindSchema; },
-	get message() { return z.string(); },
-	get element() { return z.string().nullable(); },
-	get path() { return z.string().nullable(); },
 });
 
 export const ArchiveGroupSchema = z.strictObject({
@@ -1124,17 +1117,6 @@ export const DirNodeSchema = z.strictObject({
 	get children() { return z.array(TreeEntrySchema); },
 });
 
-export const DocKindSchema = z.union([z.literal("md"), z.literal("adr")]);
-
-export const DocRefSchema = z.strictObject({
-	get path() { return z.string(); },
-	get title() { return z.string(); },
-	get kind() { return DocKindSchema; },
-	get source() { return DocSourceSchema; },
-});
-
-export const DocSourceSchema = z.union([z.literal("explicit"), z.literal("adjacent"), z.literal("text")]);
-
 export const EdgeMarkSchema = z.union([z.literal("none"), z.literal("unfulfilled"), z.literal("crossKind"), z.literal("exempt")]);
 
 export const ElementKindSchema = z.union([z.literal("package"), z.literal("domain"), z.literal("module"), z.literal("component")]);
@@ -1333,8 +1315,6 @@ export const TurnSummarySchema = z.strictObject({
 });
 
 export const VerdictSchema = z.union([z.literal("pass"), z.literal("fail")]);
-
-export const WarningKindSchema = z.literal("docNotFound");
 
 export const WebSearchSourceSchema = z.strictObject({
 	get url() { return z.string(); },

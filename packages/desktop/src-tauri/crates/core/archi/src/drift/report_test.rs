@@ -579,10 +579,10 @@ fn api_finding() -> ArchiApiFinding {
     }
 }
 
-/// 正向（AC-8）：十值 `ALL` 长度 10、`as_str` 逐值 camelCase、无重复。
+/// 正向（AC-3）：十三值 `ALL` 长度 13、`as_str` 逐值 camelCase、无重复。
 #[test]
-fn 契约判据词汇十值封闭() {
-    assert_eq!(ArchiApiFindingKind::ALL.len(), 10, "十值清单");
+fn 契约判据词汇十三值封闭() {
+    assert_eq!(ArchiApiFindingKind::ALL.len(), 13, "十三值清单");
     let expected = [
         (ArchiApiFindingKind::ApiEntryMissing, "apiEntryMissing"),
         (ArchiApiFindingKind::ApiMissing, "apiMissing"),
@@ -603,8 +603,11 @@ fn 契约判据词汇十值封闭() {
             ArchiApiFindingKind::ApiConstructorDeclared,
             "apiConstructorDeclared",
         ),
+        (ArchiApiFindingKind::DocMissing, "docMissing"),
+        (ArchiApiFindingKind::DocNotFound, "docNotFound"),
+        (ArchiApiFindingKind::ApiDocMissing, "apiDocMissing"),
     ];
-    assert_eq!(expected.len(), 10, "表驱动十值");
+    assert_eq!(expected.len(), 13, "表驱动十三值");
     for (kind, word) in expected {
         assert_eq!(kind.as_str(), word, "{kind:?} 的线词");
         assert_eq!(
@@ -623,7 +626,7 @@ fn 契约判据词汇十值封闭() {
     let all_words = words.clone();
     words.sort_unstable();
     words.dedup();
-    assert_eq!(words.len(), 10, "ALL 无重复值");
+    assert_eq!(words.len(), 13, "ALL 无重复值");
     assert_eq!(
         all_words,
         expected
@@ -634,10 +637,10 @@ fn 契约判据词汇十值封闭() {
     );
 }
 
-/// 正向（AC-7 / AC-8 / D14）：`severity()` 九 `Warn` 一 `Off`（仅完备性判据 `off`）；
-/// `ApiFindingSeverity` 二值 `ALL` 与线词；与 `GateTier` 类型分立（各自 `match` 穷尽）。
+/// 正向（AC-3 / AC-7 / D14）：`severity()` 三档分布 `Off 1 + Error 3 + Warn 9`；
+/// `ApiFindingSeverity` 三值 `ALL` 与线词；与 `GateTier` 类型分立（各自 `match` 穷尽）。
 #[test]
-fn 契约判据档位九warn一off() {
+fn 契约判据档位三档分布() {
     let warn: Vec<ArchiApiFindingKind> = ArchiApiFindingKind::ALL
         .iter()
         .copied()
@@ -648,17 +651,36 @@ fn 契约判据档位九warn一off() {
         .copied()
         .filter(|kind| kind.severity() == ApiFindingSeverity::Off)
         .collect();
-    assert_eq!(warn.len(), 9, "九条一致性判据 warn：{warn:?}");
+    let error: Vec<ArchiApiFindingKind> = ArchiApiFindingKind::ALL
+        .iter()
+        .copied()
+        .filter(|kind| kind.severity() == ApiFindingSeverity::Error)
+        .collect();
+    assert_eq!(warn.len(), 9, "九条 warn 档：{warn:?}");
     assert_eq!(off.len(), 1, "唯一完备性判据 off：{off:?}");
     assert_eq!(
         off,
         vec![ArchiApiFindingKind::ApiUndeclared],
         "off 档恒为 apiUndeclared"
     );
+    assert_eq!(
+        error,
+        vec![
+            ArchiApiFindingKind::ApiMissing,
+            ArchiApiFindingKind::ApiSignatureMismatch,
+            ArchiApiFindingKind::DocNotFound
+        ],
+        "error 档恰 docNotFound / apiMissing / apiSignatureMismatch：{error:?}"
+    );
+    assert!(
+        !warn.contains(&ArchiApiFindingKind::ApiUndeclared),
+        "warn 档不含完备性判据"
+    );
 
-    assert_eq!(ApiFindingSeverity::ALL.len(), 2, "档位二值");
+    assert_eq!(ApiFindingSeverity::ALL.len(), 3, "档位三值");
     assert_eq!(ApiFindingSeverity::Off.as_str(), "off");
     assert_eq!(ApiFindingSeverity::Warn.as_str(), "warn");
+    assert_eq!(ApiFindingSeverity::Error.as_str(), "error");
 
     // 类型分立：两枚举各自穷尽 match（无 `From`、无互通）
     let from_gate = match GateTier::Off {
@@ -669,6 +691,7 @@ fn 契约判据档位九warn一off() {
     let from_severity = match ApiFindingSeverity::Off {
         ApiFindingSeverity::Off => "off",
         ApiFindingSeverity::Warn => "warn",
+        ApiFindingSeverity::Error => "error",
     };
     assert_eq!(from_gate, from_severity, "词面相同（`off`）但类型分立");
 }
@@ -1246,5 +1269,229 @@ fn 状态词五值线形不变() {
     assert!(
         serde_json::from_value::<ArchiCheckStatus>(serde_json::json!("warning")).is_err(),
         "词汇外单数形态 → Err（零宽松归一）"
+    );
+}
+
+// ===========================================================================
+// 门禁布尔：`has_error_tier` 与 `ArchiDriftReport::passed`
+//
+// 分工单点：`has_error_tier` 只看档位（把「纳管筛选」留给 `api::gating_findings`），
+// `passed` 是门禁布尔的唯一来源（errors 空 ∧ structuralErrors 空 ∧ 无 error 档）。
+// ===========================================================================
+
+use super::report::has_error_tier;
+
+/// 构造一条指定 kind 的判据（`element` 可选）。
+fn finding_of(kind: ArchiApiFindingKind, element: Option<&str>) -> ArchiApiFinding {
+    ArchiApiFinding {
+        kind,
+        category: crate::api::check::category_of(kind).to_owned(),
+        element: element.map(str::to_owned),
+        target: None,
+        message: "门禁布尔夹具".to_owned(),
+        occurrences: Vec::new(),
+    }
+}
+
+/// 正向 / 边界：含任一 `error` 档 → `true`；仅 `warn` / 仅 `off` / 空切片 → `false`；
+/// 重复条目与混合切片不改变结论。
+#[test]
+fn has_error_tier只看档位() {
+    assert!(
+        has_error_tier(&[finding_of(ArchiApiFindingKind::DocNotFound, Some("App.A"))]),
+        "error 档一条即真"
+    );
+    assert!(
+        !has_error_tier(&[
+            finding_of(ArchiApiFindingKind::DocMissing, Some("App.A")),
+            finding_of(ArchiApiFindingKind::ApiDocMissing, Some("App.B")),
+        ]),
+        "仅 warn 档 ⇒ 假"
+    );
+    assert!(
+        !has_error_tier(&[finding_of(ArchiApiFindingKind::ApiUndeclared, None)]),
+        "仅 off 档 ⇒ 假"
+    );
+    assert!(!has_error_tier(&[]), "空切片 ⇒ 假");
+    assert!(
+        has_error_tier(&[
+            finding_of(ArchiApiFindingKind::DocMissing, Some("App.A")),
+            finding_of(ArchiApiFindingKind::ApiMissing, Some("App.B")),
+        ]),
+        "warn + error 混合 ⇒ 真"
+    );
+    assert!(
+        has_error_tier(&[
+            finding_of(ArchiApiFindingKind::ApiMissing, Some("App.B")),
+            finding_of(ArchiApiFindingKind::ApiMissing, Some("App.B")),
+        ]),
+        "重复条目仍为真且零 panic"
+    );
+    assert!(
+        has_error_tier(&[finding_of(ArchiApiFindingKind::DocNotFound, None)]),
+        "`element = None` 的 error 条目也算真（只看档位）"
+    );
+}
+
+/// 正向：零 `errors` / 零 `structuralErrors` / 零 error 档 → `passed == true`（`warnings`
+/// 非空、`apiFindings` 全 `warn` 仍为真）。
+#[test]
+fn passed零error即真() {
+    let mut report = empty_report();
+    assert!(report.passed(), "全空报告 ⇒ passed");
+
+    report.warnings = vec![entry("App.A", "App.B")];
+    report.api_findings = vec![
+        finding_of(ArchiApiFindingKind::DocMissing, Some("App.A")),
+        finding_of(ArchiApiFindingKind::ApiDocMissing, Some("App.B")),
+        finding_of(ArchiApiFindingKind::ApiEntryMissing, Some("App.C")),
+    ];
+    assert!(
+        report.passed(),
+        "warnings 非空 + apiFindings 全 warn ⇒ passed 仍真"
+    );
+}
+
+/// 异常：`errors` 非空 / `structuralErrors` 非空 / error 档判据单独触发 → `passed == false`
+/// （旧「`apiFindings` MUST NOT 影响 `passed`」语义反转）。
+#[test]
+fn passed三面各可阻断() {
+    let mut errored = empty_report();
+    errored.errors = vec![entry("App.A", "App.B")];
+    assert!(!errored.passed(), "errors 非空 ⇒ false");
+
+    let mut structural = empty_report();
+    structural.model.structural_errors = vec![diagnostic()];
+    assert!(!structural.passed(), "structuralErrors 非空 ⇒ false");
+
+    let mut gated = empty_report();
+    gated.api_findings = vec![finding_of(
+        ArchiApiFindingKind::ApiSignatureMismatch,
+        Some("App.A"),
+    )];
+    gated.status = ArchiCheckStatus::Errors;
+    assert!(
+        !gated.passed(),
+        "error 档判据单独触发 ⇒ false（旧语义反转）"
+    );
+}
+
+/// 边界：43 条 `docMissing`（全 warn）在场 → `passed == true`；`api_findings` 空数组 →
+/// `true`；`status` 与 `passed` 一致性锚（error 档单独触发 `errors` 态 ⇒ `passed == false`）。
+#[test]
+fn passed与status一致性锚() {
+    let mut many_warn = empty_report();
+    many_warn.api_findings = (0..43)
+        .map(|index| {
+            finding_of(
+                ArchiApiFindingKind::DocMissing,
+                Some(&format!("App.Core.E{index:02}")),
+            )
+        })
+        .collect();
+    many_warn.status = ArchiCheckStatus::Clean;
+    assert!(
+        many_warn.passed(),
+        "43 条 warn 档判据不阻断门禁（存量入口文档债）"
+    );
+
+    let mut empty_findings = empty_report();
+    empty_findings.api_findings = Vec::new();
+    assert!(empty_findings.passed(), "空数组 ⇒ true");
+
+    for (kind, expected_status) in [
+        (ArchiApiFindingKind::DocNotFound, ArchiCheckStatus::Errors),
+        (ArchiApiFindingKind::DocMissing, ArchiCheckStatus::Clean),
+    ] {
+        let mut report = empty_report();
+        report.status = if expected_status == ArchiCheckStatus::Errors {
+            ArchiCheckStatus::Errors
+        } else {
+            ArchiCheckStatus::Clean
+        };
+        report.api_findings = vec![finding_of(kind, Some("App.A"))];
+        assert_eq!(report.status, expected_status, "{kind:?} 的 status 锚点");
+        assert_eq!(
+            report.status == ArchiCheckStatus::Errors,
+            !report.passed(),
+            "`status == errors ⟺ passed == false`（{kind:?}）"
+        );
+    }
+}
+
+/// 正向：三新词在案（`docMissing` / `docNotFound` / `apiDocMissing`），旧十词零漂移；
+/// 十三词两两不等、零驼峰外大小写变体。
+#[test]
+fn 三新词线面与唯一性() {
+    let new_words = [
+        (ArchiApiFindingKind::DocMissing, "docMissing"),
+        (ArchiApiFindingKind::DocNotFound, "docNotFound"),
+        (ArchiApiFindingKind::ApiDocMissing, "apiDocMissing"),
+    ];
+    for (kind, word) in new_words {
+        assert_eq!(kind.as_str(), word, "{kind:?} 的线词");
+        assert_eq!(
+            serde_json::to_value(kind).expect("序列化失败"),
+            serde_json::json!(word),
+            "{word} 的 serde 线形与 as_str 一致"
+        );
+    }
+
+    let mut words: Vec<&str> = ArchiApiFindingKind::ALL
+        .iter()
+        .map(|kind| kind.as_str())
+        .collect();
+    words.sort_unstable();
+    words.dedup();
+    assert_eq!(words.len(), 13, "十三词两两不等");
+
+    for (severity, word) in [
+        (ApiFindingSeverity::Off, "off"),
+        (ApiFindingSeverity::Warn, "warn"),
+        (ApiFindingSeverity::Error, "error"),
+    ] {
+        assert_eq!(severity.as_str(), word, "{severity:?} 的线词");
+        assert_eq!(word, word.to_lowercase(), "档位词全小写（零大小写变体）");
+    }
+    assert_eq!(ApiFindingSeverity::ALL.len(), 3, "档位三值");
+}
+
+/// 边界：`REPORT_VERSION` 仍为 3，`api_findings` 序列化键名仍为 `apiFindings`，报告字段面
+/// 与序零变化（十三值进场不动线形）。
+#[test]
+fn 报告版本与槽位键名零变化() {
+    assert_eq!(super::REPORT_VERSION, 3, "报告版本仍 3");
+    let text = serde_json::to_string(&empty_report()).expect("序列化失败");
+    assert!(
+        text.contains("\"apiFindings\":[]"),
+        "槽位键名仍为 apiFindings：{text}"
+    );
+    let value: serde_json::Value = serde_json::from_str(&text).expect("反序列化失败");
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("报告为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        vec![
+            "version",
+            "timestamp",
+            "mode",
+            "root",
+            "change",
+            "base",
+            "modelHash",
+            "model",
+            "scan",
+            "errors",
+            "warnings",
+            "suppressed",
+            "observations",
+            "apiFindings",
+            "status",
+        ],
+        "报告字段面与序零变化：{keys:?}"
     );
 }

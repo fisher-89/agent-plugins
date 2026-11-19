@@ -802,11 +802,11 @@ fn 报告目录常量锚与report_dir_name两臂穷尽映射() {
 // 架构域路径派生（`archi` 章节）：三函数同源 + `is_archi_rel_path` 判定
 // ---------------------------------------------------------------------------
 
-/// 正向：`archi_dir` / `archi_models_dir` / `archi_decisions_dir` 三者以
-/// `archi_dir` 为共同前缀（同源断言：后两者 == `archi_dir.join(…)`）。
+/// 正向：`archi_dir` / `archi_models_dir` 两者以 `archi_dir` 为共同前缀（同源断言：
+/// 后者 == `archi_dir.join(…)`）。
 #[test]
-fn archi_dir族三函数同源且逐段逐字() {
-    use super::{archi_decisions_dir, archi_dir, archi_models_dir};
+fn archi_dir族两函数同源且逐段逐字() {
+    use super::{archi_dir, archi_models_dir};
 
     let temp = TempDir::new("archi-dirs");
     let dir = archi_dir(&temp.0);
@@ -820,27 +820,20 @@ fn archi_dir族三函数同源且逐段逐字() {
         dir.join("models"),
         "模型目录从 archi_dir 派生"
     );
-    assert_eq!(
-        archi_decisions_dir(&temp.0),
-        dir.join("decisions"),
-        "决策记录目录从 archi_dir 派生"
-    );
     assert!(
-        archi_models_dir(&temp.0).starts_with(&dir)
-            && archi_decisions_dir(&temp.0).starts_with(&dir),
-        "三者以 archi_dir 为共同前缀"
+        archi_models_dir(&temp.0).starts_with(&dir),
+        "两者以 archi_dir 为共同前缀"
     );
 }
 
 /// 边界：纯推导零 IO——调用后目录未被创建；不存在的 root 亦正常返回。
 #[test]
 fn archi_dir族纯推导零io与不存在root() {
-    use super::{archi_decisions_dir, archi_dir, archi_models_dir};
+    use super::{archi_dir, archi_models_dir};
 
     let temp = TempDir::new("archi-pure");
     let _ = archi_dir(&temp.0);
     let _ = archi_models_dir(&temp.0);
-    let _ = archi_decisions_dir(&temp.0);
     assert!(
         fs::metadata(temp.0.join(".dev-team")).is_err(),
         "纯推导不得创建目录（零 IO 的机械证据）"
@@ -983,39 +976,27 @@ fn is_archi_rel_path大小写敏感() {
 }
 
 // ---------------------------------------------------------------------------
-// 架构域**相对路径**派生族（`archi_rel_dir` / `archi_models_rel_dir` /
-// `archi_decisions_rel_dir`）：repo 相对、`/` 分隔、纯推导零 IO、不接 root 入参
-// ——唯一消费者为架构会话知识文本（模型可见文本）。
+// 架构域**相对路径**派生族（`archi_rel_dir` / `archi_models_rel_dir`）：repo 相对、
+// `/` 分隔、纯推导零 IO、不接 root 入参——唯一消费者为架构会话知识文本（模型可见
+// 文本）。
 // ---------------------------------------------------------------------------
 
-/// 正向：三函数前缀同源——后两者皆以 `archi_rel_dir()` 为前缀，尾段恰为
-/// `models` / `decisions`（不互相串位）。
+/// 正向：前缀同源——`archi_models_rel_dir()` 以 `archi_rel_dir()` 为前缀，尾段恰为
+/// `models`。
 #[test]
 fn archi_rel族前缀同源且尾段不串位() {
-    use super::{archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir};
+    use super::{archi_models_rel_dir, archi_rel_dir};
 
     let base = archi_rel_dir();
     let models = archi_models_rel_dir();
-    let decisions = archi_decisions_rel_dir();
 
-    for (label, rel) in [("models", &models), ("decisions", &decisions)] {
-        assert!(
-            rel.starts_with(&base),
-            "{label} 相对路径应以 archi_rel_dir() 为前缀（实得 {rel}）"
-        );
-    }
+    assert!(
+        models.starts_with(&base),
+        "models 相对路径应以 archi_rel_dir() 为前缀（实得 {models}）"
+    );
     assert!(
         models.ends_with("/models"),
         "模型目录尾段恰为 models（实得 {models}）"
-    );
-    assert!(
-        decisions.ends_with("/decisions"),
-        "决策记录目录尾段恰为 decisions（实得 {decisions}）"
-    );
-    assert_ne!(models, decisions, "两子目录不互相串位");
-    assert!(
-        !models.contains("decisions") && !decisions.contains("models"),
-        "子目录名不交叉出现"
     );
 }
 
@@ -1023,10 +1004,7 @@ fn archi_rel族前缀同源且尾段不串位() {
 /// （root 取三形态：绝对 tempdir 路径 / 尾分隔符 root / 空 root）。
 #[test]
 fn archi_rel族与绝对族join一致三形态root() {
-    use super::{
-        archi_decisions_dir, archi_decisions_rel_dir, archi_dir, archi_models_dir,
-        archi_models_rel_dir, archi_rel_dir,
-    };
+    use super::{archi_dir, archi_models_dir, archi_models_rel_dir, archi_rel_dir};
 
     let absolute = std::env::temp_dir().join("foundation-layout-archi-rel-绝对");
     let trailing = {
@@ -1046,11 +1024,6 @@ fn archi_rel族与绝对族join一致三形态root() {
             root.join(archi_models_rel_dir()),
             archi_models_dir(&root),
             "root = {root:?}: join(archi_models_rel_dir()) == archi_models_dir(root)"
-        );
-        assert_eq!(
-            root.join(archi_decisions_rel_dir()),
-            archi_decisions_dir(&root),
-            "root = {root:?}: join(archi_decisions_rel_dir()) == archi_decisions_dir(root)"
         );
         // 逐段相等（strip_prefix 后段数与段名全同）
         let absolute_models = archi_models_dir(&root);
@@ -1072,17 +1045,12 @@ fn archi_rel族与绝对族join一致三形态root() {
 /// 两子目录恰 2 个；零前导 `./`、零尾 `/`、零连续 `//`、零空段。
 #[test]
 fn archi_rel族分隔符与前后缀() {
-    use super::{archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir};
+    use super::{archi_models_rel_dir, archi_rel_dir};
 
     let base = archi_rel_dir();
     let models = archi_models_rel_dir();
-    let decisions = archi_decisions_rel_dir();
 
-    for (label, rel) in [
-        ("archi_rel_dir", &base),
-        ("archi_models_rel_dir", &models),
-        ("archi_decisions_rel_dir", &decisions),
-    ] {
+    for (label, rel) in [("archi_rel_dir", &base), ("archi_models_rel_dir", &models)] {
         assert!(!rel.contains('\\'), "{label}: 应为 `/` 分隔（实得 {rel}）");
         assert!(
             !rel.starts_with("./") && !rel.starts_with('/'),
@@ -1104,11 +1072,6 @@ fn archi_rel族分隔符与前后缀() {
         models.matches('/').count(),
         2,
         "模型目录相对路径恰三段（实得 {models}）"
-    );
-    assert_eq!(
-        decisions.matches('/').count(),
-        2,
-        "决策记录目录相对路径恰三段（实得 {decisions}）"
     );
 }
 
@@ -1147,23 +1110,11 @@ fn archi_rel族常量组派生两段() {
 /// 调用逐字相等，不存在的磁盘状态下同样成立（零 `exists()` 调用面）。
 #[test]
 fn archi_rel族零io纯函数() {
-    use super::{archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir};
+    use super::{archi_models_rel_dir, archi_rel_dir};
 
-    let first = (
-        archi_rel_dir(),
-        archi_models_rel_dir(),
-        archi_decisions_rel_dir(),
-    );
-    let second = (
-        archi_rel_dir(),
-        archi_models_rel_dir(),
-        archi_decisions_rel_dir(),
-    );
-    let third = (
-        archi_rel_dir(),
-        archi_models_rel_dir(),
-        archi_decisions_rel_dir(),
-    );
+    let first = (archi_rel_dir(), archi_models_rel_dir());
+    let second = (archi_rel_dir(), archi_models_rel_dir());
+    let third = (archi_rel_dir(), archi_models_rel_dir());
     assert_eq!(first, second, "同参两次调用逐字相等");
     assert_eq!(second, third, "第三次调用同样逐字相等");
     // 零 IO：函数不触盘、不查存在性（签名即全部输入——三个函数均无 root 入参，
@@ -1179,12 +1130,11 @@ fn archi_rel族零io纯函数() {
 /// （派生族与判据单点互证）。
 #[test]
 fn archi_rel族与is_archi_rel_path互证() {
-    use super::{archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir, is_archi_rel_path};
+    use super::{archi_models_rel_dir, archi_rel_dir, is_archi_rel_path};
 
     for (label, rel) in [
         ("archi_rel_dir", archi_rel_dir()),
         ("archi_models_rel_dir", archi_models_rel_dir()),
-        ("archi_decisions_rel_dir", archi_decisions_rel_dir()),
     ] {
         assert!(
             is_archi_rel_path(&rel),
@@ -1193,18 +1143,16 @@ fn archi_rel族与is_archi_rel_path互证() {
     }
 }
 
-/// 回归：既有绝对族四函数逐字不变（`archi_dir` / `archi_models_dir` /
-/// `archi_decisions_dir` / `is_archi_rel_path` 的派生口径与判据零漂移）——新增三
-/// 个相对路径函数不改既有面。
+/// 回归：既有绝对族三函数逐字不变（`archi_dir` / `archi_models_dir` /
+/// `is_archi_rel_path` 的派生口径与判据零漂移）——新增相对路径函数不改既有面。
 #[test]
 fn archi既有绝对族零回归() {
-    use super::{archi_decisions_dir, archi_dir, archi_models_dir, is_archi_rel_path};
+    use super::{archi_dir, archi_models_dir, is_archi_rel_path};
 
     let root = Path::new("C:\\工作区\\alpha");
     let dir = archi_dir(root);
     assert_eq!(dir, root.join(".dev-team").join("architecture"));
     assert_eq!(archi_models_dir(root), dir.join("models"));
-    assert_eq!(archi_decisions_dir(root), dir.join("decisions"));
     assert!(is_archi_rel_path(".dev-team/architecture/models/01.toml"));
     assert!(!is_archi_rel_path("openspec/archived/changes"));
 }
@@ -1274,19 +1222,15 @@ fn archi_config_path纯推导零IO() {
     assert!(!path.exists(), "零 IO：推导不触盘");
 }
 
-/// 边界：架构域三子项（配置 / 模型 / 决策记录）同源于 `archi_dir(root)`。
+/// 边界：架构域两子项（配置 / 模型）同源于 `archi_dir(root)`。
 #[test]
-fn archi域三子项同源() {
-    use super::{archi_config_path, archi_decisions_dir, archi_dir, archi_models_dir};
+fn archi域两子项同源() {
+    use super::{archi_config_path, archi_dir, archi_models_dir};
 
     let root = Path::new("/ws");
     let base = archi_dir(root);
-    for child in [
-        archi_config_path(root),
-        archi_models_dir(root),
-        archi_decisions_dir(root),
-    ] {
-        assert_eq!(child.parent(), Some(base.as_path()), "三子项父链同源");
+    for child in [archi_config_path(root), archi_models_dir(root)] {
+        assert_eq!(child.parent(), Some(base.as_path()), "子项父链同源");
     }
 }
 
@@ -1294,8 +1238,7 @@ fn archi域三子项同源() {
 #[test]
 fn 槽位archi派生两入口同值() {
     use super::{
-        archi_config_path, archi_decisions_dir, archi_models_dir, change_reports,
-        change_reports_in, ReportSlot,
+        archi_config_path, archi_models_dir, change_reports, change_reports_in, ReportSlot,
     };
 
     let root = Path::new("/ws");
@@ -1311,12 +1254,8 @@ fn 槽位archi派生两入口同值() {
             .join("archi"),
         "逐段形态：<changes_root>/demo/reports/archi"
     );
-    // 同源面回归：配置 / 模型 / 决策记录三子项不受槽位影响。
-    let _ = (
-        archi_config_path(root),
-        archi_models_dir(root),
-        archi_decisions_dir(root),
-    );
+    // 同源面回归：配置 / 模型两子项不受槽位影响。
+    let _ = (archi_config_path(root), archi_models_dir(root));
 }
 
 /// 辅助：change 目录（`<changes_root>/<name>`）。
@@ -1503,17 +1442,16 @@ fn archi_graph_dir纯推导零io() {
     assert_eq!(before, after, "调用前后临时目录根零变化");
 }
 
-/// 边界：互不遮蔽——`graph` 与 `models` / `decisions` / `config.json` 平行，两两不相等
-/// 且互不为前缀（索引与契约目录分家后仍同层不嵌套）。
+/// 边界：互不遮蔽——`graph` 与 `models` / `config.json` 平行，两两不相等且互不为前缀
+/// （索引与契约目录分家后仍同层不嵌套）。
 #[test]
 fn archi_graph_dir互不遮蔽() {
-    use super::{archi_config_path, archi_decisions_dir, archi_graph_dir, archi_models_dir};
+    use super::{archi_config_path, archi_graph_dir, archi_models_dir};
 
     let root = Path::new("/ws");
     let graph = archi_graph_dir(root);
     let others = [
         ("models", archi_models_dir(root)),
-        ("decisions", archi_decisions_dir(root)),
         ("config", archi_config_path(root)),
     ];
     for (label, other) in &others {
@@ -1554,15 +1492,12 @@ fn archi_graph_rel_dir形态() {
 /// 随动，以「共同前缀长度相等」表达）。
 #[test]
 fn archi_graph_rel_dir相对族前缀一致() {
-    use super::{
-        archi_decisions_rel_dir, archi_graph_rel_dir, archi_models_rel_dir, archi_rel_dir,
-    };
+    use super::{archi_graph_rel_dir, archi_models_rel_dir, archi_rel_dir};
 
     let base = archi_rel_dir();
     let values = [
         ("graph", archi_graph_rel_dir()),
         ("models", archi_models_rel_dir()),
-        ("decisions", archi_decisions_rel_dir()),
     ];
     for (label, value) in &values {
         assert!(
@@ -1602,14 +1537,12 @@ fn graph_dir_name零字面量纪律() {
     );
 }
 
-/// 边界：既有族零变化——`archi_dir` / `archi_models_dir` / `archi_decisions_dir` /
-/// `archi_config_path` / `archi_rel_dir` / `archi_models_rel_dir` /
-/// `archi_decisions_rel_dir` 对同一 root 的返回值与改动前逐字相等（新增 api 族为纯追加）。
+/// 边界：既有族零变化——`archi_dir` / `archi_models_dir` / `archi_config_path` /
+/// `archi_rel_dir` / `archi_models_rel_dir` 对同一 root 的返回值与改动前逐字相等。
 #[test]
 fn 既有族零变化() {
     use super::{
-        archi_config_path, archi_decisions_dir, archi_decisions_rel_dir, archi_dir,
-        archi_models_dir, archi_models_rel_dir, archi_rel_dir,
+        archi_config_path, archi_dir, archi_models_dir, archi_models_rel_dir, archi_rel_dir,
     };
 
     let root = Path::new("/ws");
@@ -1622,11 +1555,6 @@ fn 既有族零变化() {
         archi_models_dir(root),
         archi_dir(root).join("models"),
         "archi_models_dir 逐字"
-    );
-    assert_eq!(
-        archi_decisions_dir(root),
-        archi_dir(root).join("decisions"),
-        "archi_decisions_dir 逐字"
     );
     assert_eq!(
         archi_config_path(root),
@@ -1642,11 +1570,6 @@ fn 既有族零变化() {
         archi_models_dir(root),
         root.join(archi_models_rel_dir()),
         "models 相对 / 绝对一致"
-    );
-    assert_eq!(
-        archi_decisions_dir(root),
-        root.join(archi_decisions_rel_dir()),
-        "decisions 相对 / 绝对一致"
     );
 
     // Layout 三字段语义零变化（字段名与派生同源）
@@ -2028,4 +1951,103 @@ fn scan_for_symbol(dir: &Path, needle: &str, out: &mut Vec<PathBuf>) {
             out.push(path);
         }
     }
+}
+
+// ===========================================================================
+// 决策记录目录派生的退役（两个派生函数 + 私有段名常量）
+//
+// 唯一非测试消费者（文档关联实现与知识骨架派生）已随能力删除，故符号面整体退场：
+// 产品 `.rs` 零命中、零改指别名、零兼容壳。
+// ===========================================================================
+
+/// 正向：既有派生族（`archi_dir` / `archi_models_dir` / `archi_models_rel_dir` /
+/// `archi_graph_dir` / `archi_graph_rel_dir` / `archi_config_path` / `is_archi_rel_path`）
+/// 返回值零变化（退役只删一段派生，不动既有段）。
+#[test]
+fn 退役后既有派生族取值零变化() {
+    use super::{
+        archi_config_path, archi_dir, archi_graph_dir, archi_graph_rel_dir, archi_models_dir,
+        archi_models_rel_dir, is_archi_rel_path,
+    };
+
+    let root = Path::new("/ws");
+    assert_eq!(archi_dir(root), root.join(".dev-team/architecture"));
+    assert_eq!(
+        archi_models_dir(root),
+        root.join(".dev-team/architecture/models")
+    );
+    assert_eq!(archi_models_rel_dir(), ".dev-team/architecture/models");
+    assert_eq!(
+        archi_graph_dir(root),
+        root.join(".dev-team/architecture/graph")
+    );
+    assert_eq!(archi_graph_rel_dir(), ".dev-team/architecture/graph");
+    assert_eq!(
+        archi_config_path(root),
+        root.join(".dev-team/architecture/config.json")
+    );
+    assert!(is_archi_rel_path(
+        ".dev-team/architecture/models/01-app.toml"
+    ));
+    assert!(!is_archi_rel_path("src/models/01-app.toml"));
+}
+
+/// 异常：三符号在 `mod.rs` / 本测试文件 / 全包产品 `.rs` 内零命中（标识符运行时拼出，
+/// 断言自身不命中）。
+#[test]
+fn 退役符号全包零命中() {
+    let retired = [
+        format!("{}{}", "archi_decisions", "_dir"),
+        format!("{}{}", "archi_decisions", "_rel_dir"),
+        format!("{}{}", "DECISIONS", "_DIR_NAME"),
+    ];
+
+    let source = include_str!("mod.rs");
+    let this_file = include_str!("mod_test.rs");
+    for name in &retired {
+        assert!(
+            !source.contains(name.as_str()),
+            "`layout/mod.rs` 内零命中：{name}"
+        );
+        assert!(!this_file.contains(name.as_str()), "测试面零命中：{name}");
+    }
+
+    let mut src_tauri = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for _ in 0..3 {
+        src_tauri.pop();
+    }
+    for name in &retired {
+        let mut hits: Vec<PathBuf> = Vec::new();
+        scan_for_symbol(&src_tauri.join("crates"), name.as_str(), &mut hits);
+        scan_for_symbol(&src_tauri.join("src"), name.as_str(), &mut hits);
+        assert!(
+            hits.is_empty(),
+            "全包产品 `.rs` 内零 `{name}`（含 `*_test.rs` 之外的实现面）：{hits:?}"
+        );
+    }
+}
+
+/// 边界：零兼容壳——`mod.rs` 内零 `pub use` 再导出、零 `#[deprecated]` 别名、零
+/// `archi_adr_*` 转发函数；`pub fn archi_` 集合内零 `decisions` / `adr` 项。
+#[test]
+fn 退役零兼容壳() {
+    let source = include_str!("mod.rs");
+    assert!(!source.contains("#[deprecated]"), "零 `#[deprecated]` 别名");
+    assert!(!source.contains("archi_adr_"), "零 `archi_adr_*` 转发函数");
+    assert!(
+        !source.contains("pub use"),
+        "零再导出兼容壳（派生族只在本模块定义）"
+    );
+
+    let derived: Vec<&str> = source
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("pub fn archi_"))
+        .map(|rest| rest.split('(').next().unwrap_or(""))
+        .collect();
+    assert!(
+        !derived
+            .iter()
+            .any(|name| name.contains("decision") || name.contains("adr")),
+        "派生族内零 decisions / adr 项：{derived:?}"
+    );
 }

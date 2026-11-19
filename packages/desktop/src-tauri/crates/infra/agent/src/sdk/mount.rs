@@ -11,7 +11,7 @@
 
 use std::sync::OnceLock;
 
-use archi::dto::{ElementKind, GateTier, WarningKind};
+use archi::dto::{ElementKind, GateTier};
 use rig::completion::ToolDefinition;
 
 /// 七通用工具封闭集（**定义作者处**：`[`build_registry`]` 前七项与
@@ -214,19 +214,17 @@ fn vocabulary(words: impl IntoIterator<Item = &'static str>) -> String {
     words.into_iter().collect::<Vec<&str>>().join(" / ")
 }
 
-/// `archi_module` 定义（定位：邻接 / 直接子元素 / 文档引用 / 声明位置）。
+/// `archi_module` 定义（定位：邻接 / 直接子元素 / 入口文档 / 声明位置）。
 fn archi_module_definition() -> ToolDefinition {
     ToolDefinition {
         name: ARCHI_MODULE_TOOL.to_owned(),
         description: format!(
             "查询架构模型里的模块（定位：已知道在看哪个模块）。指定 element 返回该元素的\
              kind（{}）/ gate（{}）/ path / metadata、声明位置（modelFile + modelLine，可直接 edit 到该行）、\
-             出边与入边（对端 FQN + 说明）、直接子元素与关联文档（四字段条目，正文用 read 自取）；\
-             省略 element 返回全部元素的薄概览。模型写坏时返回结构化诊断（先修模型）；\
-             docs 指向的文件不存在时以 {} 警告给出（只报不拦）",
+             出边与入边（对端 FQN + 说明）、直接子元素与入口文档单值 doc（仅 api = none 元素有值；declared 走 api.contractPath，正文用 read 自取）；\
+             省略 element 返回全部元素的薄概览。模型写坏时返回结构化诊断（先修模型）",
             vocabulary(ElementKind::ALL.map(ElementKind::as_str)),
             vocabulary(GateTier::ALL.map(GateTier::as_str)),
-            WarningKind::DocNotFound.as_str(),
         ),
         parameters: serde_json::json!({
             "type": "object",
@@ -245,13 +243,13 @@ fn archi_search_definition() -> ToolDefinition {
         description: "在架构模型里按关键词检索元素与文档路径（发现：还不知道这功能归谁管时先搜）。\
              匹配对象为元素 FQN / summary / metadata 值 / 文档路径与文件名（不搜文档正文——\
              正文用 grep），大小写不敏感且支持驼峰分词（AuthToken → auth / token）。返回元素\
-             薄条目与四字段文档条目"
+             薄条目与入口文档路径"
             .to_owned(),
         parameters: serde_json::json!({
             "type": "object",
             "properties": {
                 "query": { "type": "string", "description": "关键词 / 元素名片段 / 文档路径片段（不得为空白）" },
-                "scope": { "type": "string", "enum": ["elements", "docs", "all"], "description": "检索范围（缺省 all）" }
+                "scope": { "type": "string", "enum": ["elements", "doc", "all"], "description": "检索范围（缺省 all）" }
             },
             "required": ["query"]
         }),

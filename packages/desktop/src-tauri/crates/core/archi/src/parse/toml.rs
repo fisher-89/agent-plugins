@@ -41,8 +41,11 @@ struct RawElement {
     entry: Option<String>,
     #[serde(default)]
     path: Vec<::toml::Spanned<String>>,
+    /// 入口文档指针（缺省 `None`）：`doc` 是单值，数组形态由 serde `invalid type` 归
+    /// `invalidValue`（MUST NOT 静默取首条）；旧的多值文档字段已出白名单，写了即
+    /// `unknownField`
     #[serde(default)]
-    docs: Vec<::toml::Spanned<String>>,
+    doc: Option<String>,
     #[serde(default)]
     summary: Option<String>,
     #[serde(default)]
@@ -103,11 +106,7 @@ fn to_model(raw: RawDocument, source: &str) -> Model {
                 .into_iter()
                 .map(::toml::Spanned::into_inner)
                 .collect(),
-            docs: raw_element
-                .docs
-                .into_iter()
-                .map(::toml::Spanned::into_inner)
-                .collect(),
+            doc: raw_element.doc,
             summary: raw_element.summary,
             metadata: raw_element.metadata,
             file: String::new(),

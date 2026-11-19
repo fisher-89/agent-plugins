@@ -145,6 +145,7 @@ function element(fqn: string, overrides: Partial<ArchiElement> = {}): ArchiEleme
     modelFile: '.dev-team/architecture/models/01-core.toml',
     modelLine: 2,
     entry: null,
+    doc: null,
     mark: 'none',
     ...overrides,
   };

@@ -1,4 +1,4 @@
-//! 模块 API 契约面：手写 `<FQN>.md`（唯一真相）→ 四类生成物 → 十条判据的
+//! 模块 API 契约面：手写 `<FQN>.md`（唯一真相）→ 四类生成物 → 十三条判据的
 //! 判定与装配层。
 //!
 //! **纯读盘、零写盘、零 spawn**（沿本 crate 既有纪律）：契约解析、`$defs` 规则、
@@ -7,10 +7,11 @@
 //! （`archi-api-gen`）与两条 IPC（检查 / 生成）两个驱动面同源；本 crate 零写盘
 //! 纪律 MUST NOT 反向稀释。
 //!
-//! **契约面启用条件（冷启动纪律）**：契约资产目录（`<archi_models_dir>`）缺席或其中
-//! 递归零份 `*.md` ⇒ 未启用，判据返回空集且既有漂移语料逐字不变；一级 `NN-<域>.toml`
-//! （模型声明）**不是**启用证据——「有模型、零契约 md」必须是未启用。目录一旦存在即
-//! **全部 `path` 非空元素**纳入判据，无白名单、无开关、无部分豁免。
+//! **契约面启用条件（冷启动纪律）**：`path` 非空元素的入口文档载体全都不在盘、或
+//! 在盘者正文皆无 api fence 语言标 ⇒ 未启用，判据返回空集且既有漂移语料逐字不变；
+//! 一级 `NN-<域>.toml`（模型声明）与 `models/` 里的杂项 md **不是**启用证据。载体
+//! 派生单点在 [`paths::carrier_path`]（`declared` → 派生契约 md / `none` → `doc`
+//! 声明）。一旦启用即**全部 `path` 非空元素**纳入判据，无白名单、无开关、无部分豁免。
 //!
 //! 边界：零 UI 框架 / 零库句柄 / 零子进程 / 零工作流与编排 crate 依赖 / 零工作区
 //! 配置读取。
@@ -107,7 +108,29 @@ pub struct GeneratedFile {
     pub content: String,
 }
 
-/// 一次装载的只读快照（契约 / 内存 schema / 代码符号集）。
+/// 载体事实（进程内三态，不进 IPC）：`path` 非空元素的入口文档载体的盘上事实。
+///
+/// 三态互斥且穷尽：
+/// - [`DocFact::Absent`]：`api = none` 且未声明 `doc`（没有载体，合法但产出 `docMissing`）；
+/// - [`DocFact::Missing`]：载体已派生（`declared`）或已声明（`none`）但指不到盘——
+///   不在盘，或声明值形态越根（绝对路径 / 盘符 / `~` / `..` / 空段）而派生不出路径；
+///   两种成因同属「声明在案」，故同报 `docNotFound`，MUST NOT 混进 `Absent`；
+/// - [`DocFact::Present`]：载体在盘 + 正文是否含 api fence 语言标（只判有无，不判
+///   fence 合法性——那是 `contract::parse` 的 `Err` 面）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocFact {
+    /// 无载体（`api = none` 且未声明 `doc`）
+    Absent,
+    /// 载体声明在案但指不到盘（不在盘 / 声明值形态越根）
+    Missing,
+    /// 载体在盘；`has_api_fence` = 正文含 `api-op` / `api-types` 语言标
+    Present {
+        /// 正文是否含 api fence 语言标
+        has_api_fence: bool,
+    },
+}
+
+/// 一次装载的只读快照（契约 / 内存 schema / 代码符号集 / 载体事实）。
 ///
 /// **无「缺契约清单」字段**：`api = declared` 而契约文件缺失是判据 ② 的求值结果
 /// （[`check::check`] 逐元素比对 `contracts` 与模型意图即得），装载期再存一份
@@ -120,6 +143,8 @@ pub struct ApiSnapshot {
     pub schemas: BTreeMap<String, Value>,
     /// FQN → 代码符号集（取数器产出，判据的「代码导出集」一侧）
     pub symbols: BTreeMap<String, Vec<ApiSymbol>>,
+    /// FQN → 载体事实（与契约装载同批产出；启用判据与 `apiDocMissing` 的唯一来源）
+    pub doc_facts: BTreeMap<String, DocFact>,
 }
 
 /// 判据求值入参（全部借用；零 clone 大结构）。
@@ -134,6 +159,8 @@ pub struct ApiCheckInput<'a> {
     pub schemas: &'a BTreeMap<String, Value>,
     /// FQN → 代码符号集
     pub symbols: &'a BTreeMap<String, Vec<ApiSymbol>>,
+    /// FQN → 载体事实（check 侧唯一读取面：零读盘）
+    pub doc_facts: &'a BTreeMap<String, DocFact>,
     /// 契约面是否启用（`false` ⇒ 判据空集）
     pub enabled: bool,
 }
@@ -229,7 +256,7 @@ pub(crate) fn protocol_key(name: &str) -> String {
     name.to_ascii_lowercase()
 }
 
-/// 十条契约判据的**对外唯一入口**：`enabled == false` → 空 `Vec`（契约面未启用）；
+/// 十三条契约判据的**对外唯一入口**：`enabled == false` → 空 `Vec`（契约面未启用）；
 /// 否则委托 [`check::check`] 单点求值，再按 `(kind, element, target)` 稳定排序（可逐字
 /// diff 的报告）。
 ///
@@ -258,8 +285,10 @@ pub fn check(input: ApiCheckInput<'_>) -> Vec<crate::drift::report::ArchiApiFind
 pub fn artifact_check(root: &Path) -> Result<ArchiApiCheck, ApiError> {
     let diff = diff::compare(root)?;
     let meta = meta();
+    // 启用判据需元素表（经 `elements_of` 单点取数；模型结构诊断 ⇒ `ApiError::Element`）
+    let elements = elements_of(root)?;
     Ok(ArchiApiCheck {
-        enabled: enabled(root),
+        enabled: enabled(root, &elements),
         meta: ArchiApiMeta {
             tool_version: meta.tool_version.to_owned(),
             common_digest: meta.common_digest,
@@ -270,31 +299,36 @@ pub fn artifact_check(root: &Path) -> Result<ArchiApiCheck, ApiError> {
     })
 }
 
-/// 契约判据装配单点：`enabled` 短路 → 装载契约 → 十条判据（稳定排序）。
+/// 契约判据装配单点：一次装载 → 由快照的载体事实派生启用 → 十三判据（稳定排序）。
 ///
 /// [`crate::drift::check`] 与 agent 工具 `archi_api` 共用本函数，MUST NOT 出现第二份
-/// 「契约输入装配」（两份必然在契约资产非法时分叉）。错误映射由调用方按既有面处置
-/// （`drift` → `CheckError::Config`）。
+/// 「契约输入装配」（两份必然在契约资产非法时分叉）。`enabled` 不再前置独立判定——
+/// 事实装配只有 [`load_contracts`] 一处，`api::check` 的对外入口仍保留
+/// `enabled == false → 空集` 短路。
 pub fn findings(root: &Path, elements: &[ArchiElement]) -> Result<Vec<ArchiApiFinding>, ApiError> {
-    if !enabled(root) {
-        return Ok(Vec::new());
-    }
     let snapshot = load_contracts(root, elements)?;
+    let enabled = facts_enabled(&snapshot.doc_facts);
     Ok(check(ApiCheckInput {
         root,
         elements,
         contracts: &snapshot.contracts,
         schemas: &snapshot.schemas,
         symbols: &snapshot.symbols,
-        enabled: true,
+        doc_facts: &snapshot.doc_facts,
+        enabled,
     }))
 }
 
-/// `status` 纳管子集筛选单点：口径 = **契约即承诺**（`api = declared` 且契约 md 在案）。
+/// `status` 纳管子集筛选单点：口径 = **入口文档承诺已成立**。
 ///
-/// 「契约文件在案」判据与 [`api_ref_of`] 同源（同一 [`paths::contract_path`] +
-/// `is_file`）——`drift` 侧 MUST NOT 自行判 `is_file`（纳管口径只有这一个落点）。
-/// `element = None` 的条目落选（无归属即无承诺可对）。
+/// 入选 = `element` 非空 ∧（`api = declared`：派生的契约 md 在盘 / `api = none`：
+/// `doc` 字段已声明——声明本身即承诺，`docNotFound` 判的正是它）。`docMissing` 两侧
+/// 都不成立 ⇒ 永不纳管（否则存量入口文档债会把状态词常规化为永久 `warnings`）。
+///
+/// 「载体在盘」的判定只在本函数一次性发生——载体经 [`paths::carrier_path`] 单点派生，
+/// MUST NOT 在此另写 `declared` / `none` 的旁路派生；`drift` 侧 MUST NOT 自行判
+/// `is_file`，前端 / 命令层 MUST NOT 二次筛选。`element = None` 的条目落选（无归属即
+/// 无承诺可对）。
 pub fn gating_findings(
     root: &Path,
     elements: &[ArchiElement],
@@ -302,9 +336,11 @@ pub fn gating_findings(
 ) -> Vec<ArchiApiFinding> {
     let gating: BTreeSet<&str> = elements
         .iter()
-        .filter(|element| element.api == ApiStatus::Declared)
-        .filter(|element| {
-            paths::contract_path(root, &element.fqn).is_some_and(|path| path.is_file())
+        .filter(|element| match element.api {
+            ApiStatus::Declared => {
+                paths::carrier_path(root, element).is_some_and(|path| path.is_file())
+            }
+            ApiStatus::None => element.doc.is_some(),
         })
         .map(|element| element.fqn.as_str())
         .collect();
@@ -320,49 +356,88 @@ pub fn gating_findings(
         .collect()
 }
 
-/// 契约面启用判定：契约资产目录（`<archi_models_dir>`，与模型目录同址）存在且**递归**
-/// 含 ≥1 份 `*.md`（手写 walk，不跟随符号链接——零 `ignore` crate 依赖）。
-pub fn enabled(root: &Path) -> bool {
-    has_markdown(&paths::directory(root), 0)
+/// 契约面启用的唯一判据：任一 `path` 非空元素的入口文档载体在盘且正文含 api fence
+/// 语言标（= [`doc_facts`] 中至少一个 `Present { has_api_fence: true }`）。
+///
+/// MUST NOT 退化为「`<archi_models_dir>` 递归任意 `*.md`」——`models/` 里放一份笔记
+/// （非任何元素的载体）或一份无 fence 的 `<Domain>/notes.md` MUST NOT 误判为启用。
+/// 判据与判据面同源（同一 `doc_facts`、同一 fence 语言标常量），命令层 MUST NOT 另
+/// 判一套。
+pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+    facts_enabled(&doc_facts(root, elements))
 }
 
-/// 递归找 `*.md`（深度上限防环；符号链接不跟随）。
-fn has_markdown(directory: &Path, depth: usize) -> bool {
-    if depth > MAX_API_WALK_DEPTH {
-        return false;
-    }
-    let Ok(reader) = fs::read_dir(directory) else {
-        return false;
-    };
-    for entry in reader.flatten() {
-        let path = entry.path();
-        let Ok(metadata) = fs::symlink_metadata(&path) else {
+/// 启用判据本体（[`enabled`] 与 [`findings`] 共用的唯一判定）：任一载体在盘且含 api
+/// fence 语言标。
+fn facts_enabled(facts: &BTreeMap<String, DocFact>) -> bool {
+    facts.values().any(|fact| {
+        matches!(
+            fact,
+            DocFact::Present {
+                has_api_fence: true
+            }
+        )
+    })
+}
+
+/// 载体事实装配（**唯一装配点**）：每份载体至多读一次即弃（不缓存全文）。
+///
+/// **「派生不出路径」不直接等于「无载体」**：`doc` 已声明而形态越根 ⇒ 声明在案、指不到
+/// 盘（`Missing`），`doc` 未声明 ⇒ 真无载体（`Absent`）——判据面对两者分档、分纳管结论。
+///
+/// 读失败按 `Present { has_api_fence: false }` 处置——启用判定是探针，不得因一个坏
+/// 文件把 `archi_api_check` 整条打成 `Err`；契约解析的读失败仍是既有 `ApiError::Io`。
+fn doc_facts(root: &Path, elements: &[ArchiElement]) -> BTreeMap<String, DocFact> {
+    let mut facts: BTreeMap<String, DocFact> = BTreeMap::new();
+    for element in elements.iter().filter(|element| !element.path.is_empty()) {
+        // 派生不出载体有两种成因，分流依据是「`doc` 声明在不在」而不是「路径派生成没成」：
+        // 未声明 ⇒ 真无载体（`Absent` ⇒ `docMissing`，warn 不纳管）；已声明而形态越根
+        // ⇒ 声明在案、指不到盘（`Missing` ⇒ `docNotFound`，error 且纳管）。归并成
+        // `Absent` 会让「把 `doc` 指向不存在文件」降级为「还没写」，`docNotFound` 的
+        // error 档与纳管口径同时失效——那正是本档要堵的消红后门。
+        let Some(carrier) = paths::carrier_path(root, element) else {
+            let fact = if element.doc.is_some() {
+                DocFact::Missing
+            } else {
+                DocFact::Absent
+            };
+            facts.insert(element.fqn.clone(), fact);
             continue;
         };
-        if metadata.is_symlink() {
+        if !carrier.is_file() {
+            facts.insert(element.fqn.clone(), DocFact::Missing);
             continue;
         }
-        if metadata.is_dir() {
-            if has_markdown(&path, depth + 1) {
-                return true;
-            }
-            continue;
-        }
-        if metadata.is_file()
-            && path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.ends_with(MARKDOWN_SUFFIX))
-        {
-            return true;
-        }
+        let has_api_fence = match fs::read_to_string(&carrier) {
+            Ok(source) => has_api_fence(&source),
+            Err(_) => false,
+        };
+        facts.insert(element.fqn.clone(), DocFact::Present { has_api_fence });
     }
-    false
+    facts
+}
+
+/// 正文是否含 api fence（只看语言标有无，不判 fence 合法性——那是 `contract::parse`
+/// 的 `Err` 面）。
+///
+/// 语言标与切分单点复用 [`contract::FENCE_OP`] / [`contract::FENCE_TYPES`] /
+/// [`contract::info_tokens`]：MUST NOT 抄第二份字面量、MUST NOT 补写半个 markdown
+/// 解析器。
+fn has_api_fence(source: &str) -> bool {
+    source.lines().any(|raw| {
+        let trimmed_start = raw.trim_end().trim_start();
+        if !trimmed_start.starts_with("```") {
+            return false;
+        }
+        let info = trimmed_start.trim_start_matches("```").trim();
+        let tokens = contract::info_tokens(info);
+        tokens.contains(&contract::FENCE_OP) || tokens.contains(&contract::FENCE_TYPES)
+    })
 }
 
 /// 逐元素装载契约：`api = none` 跳过（留 `apiUnexpected` 自判）；契约文件存在 →
-/// 解析 → 装配 schema → 双向 gate → `$defs` 规则；不存在 → 跳过（缺口由判据 ②
-/// 从模型意图与 `contracts` 的差集直接得出，不在此另记一份清单）。
+/// 解析 → 装配 schema → 双向 gate → `$defs` 规则；不存在 → 跳过（缺口由 `docMissing`
+/// 判据从载体事实直接得出，不在此另记一份清单）。
 ///
 /// 任一契约非法即 `Err`（MUST NOT 静默跳过坏契约、MUST NOT 返回部分快照）。
 pub fn load_contracts(root: &Path, elements: &[ArchiElement]) -> Result<ApiSnapshot, ApiError> {
@@ -370,6 +445,8 @@ pub fn load_contracts(root: &Path, elements: &[ArchiElement]) -> Result<ApiSnaps
     // `ApiError::Contract`（静默跳过不允许——形态坏的资产会让渲染器落回硬编码）。
     parse_common(COMMON_JSON)?;
     let meta = meta();
+    // 载体事实与契约装载同批产出（`facts` 与函数同名会遮蔽，故先命名清楚）
+    let facts = doc_facts(root, elements);
     let mut contracts: Vec<Contract> = Vec::new();
     let mut schemas: BTreeMap<String, Value> = BTreeMap::new();
     let mut symbols: BTreeMap<String, Vec<ApiSymbol>> = BTreeMap::new();
@@ -405,6 +482,7 @@ pub fn load_contracts(root: &Path, elements: &[ArchiElement]) -> Result<ApiSnaps
         contracts,
         schemas,
         symbols,
+        doc_facts: facts,
     })
 }
 
@@ -1005,9 +1083,6 @@ const GENERATED_NOTICE: &str = "本文件由元素的契约 markdown 生成，�
 
 /// 契约资产与契约索引两处有界枚举共用的深度上限（`<Domain>/<Sub>/` 级足够；防环）。
 const MAX_API_WALK_DEPTH: usize = 4;
-
-/// 契约文件扩展名（启用判定的唯一收面判据）。
-const MARKDOWN_SUFFIX: &str = ".md";
 
 /// `$ref` 的 `$defs` 片段（[`ref_name`] 的切分点，schema 装配与两渲染器同源）。
 pub(crate) const DEFS_FRAGMENT: &str = "#/$defs/";

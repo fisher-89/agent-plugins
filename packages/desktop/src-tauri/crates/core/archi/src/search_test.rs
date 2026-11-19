@@ -1,17 +1,16 @@
 //! `search` 的单元测试：分词（驼峰 / 数字 / 大小写）、多词 AND、匹配对象面
-//! （FQN / `summary` / `metadata` 值 / 文档路径与文件名）、不搜正文、不碰规约语料
-//! 与三 scope 收窄。
+//! （FQN / `summary` / `metadata` 值 / 入口文档路径与文件名）、不搜正文、不碰规约
+//! 语料与三 scope 收窄。
 //!
-//! 零 mock：真实临时目录 + 真实 `ModelGraph` / `docs::all_docs` 组合（检索面 =
-//! 索引来源之和，替身会抹掉来源口径）。
+//! 零 mock：真实临时目录 + 真实 `ModelGraph` 组合（检索语料 = `path` 非空元素的在盘
+//! 入口文档载体，替身会抹掉载体派生口径）。
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::docs;
-use crate::dto::{ApiStatus, DocRef, ElementKind, GateTier, SearchScope};
+use crate::dto::{ApiStatus, ElementKind, GateTier, SearchScope};
 use crate::graph::ModelGraph;
 use crate::model::{Element, Model};
 
@@ -64,10 +63,10 @@ fn element(fqn: &str) -> Element {
         fqn: fqn.to_owned(),
         kind: ElementKind::Module,
         gate: GateTier::Off,
-        api: ApiStatus::Declared,
+        api: ApiStatus::None,
         entry: None,
         path: Vec::new(),
-        docs: Vec::new(),
+        doc: None,
         summary: None,
         metadata: BTreeMap::new(),
         file: ".dev-team/architecture/models/01-core.toml".to_owned(),
@@ -94,10 +93,7 @@ fn hits(graph: &ModelGraph, root: &Path, query: &str, scope: SearchScope) -> Vec
 fn doc_hits(graph: &ModelGraph, root: &Path, query: &str) -> Vec<String> {
     search(graph, root, query, SearchScope::All)
         .expect("检索成功")
-        .docs
-        .into_iter()
-        .map(|doc| doc.path)
-        .collect()
+        .doc
 }
 
 // ---------------------------------------------------------------------------
@@ -105,17 +101,22 @@ fn doc_hits(graph: &ModelGraph, root: &Path, query: &str) -> Vec<String> {
 // ---------------------------------------------------------------------------
 
 /// 正向：`query = "auth"`、`scope = All` → 命中 FQN 含 `auth` 的元素（薄条目由
-/// dto 面组装）+ 文件名含 `auth` 的文档（四字段条目）；元素按 FQN、文档按「来源
-/// 强度 → `path`」稳定序。
+/// dto 面组装）+ 文件名含 `auth` 的入口文档（路径串）；元素按 FQN、文档按路径
+/// 字典序稳定序。
+///
+/// 语料只收 `path` 非空元素的在盘载体（与判据面同一集合），故夹具给两元素各补
+/// 一条 `path`。
 #[test]
 fn 检索命中元素与文档并按稳定序返回() {
     let temp = TempDir::new("all-scope");
     temp.write("src/auth/README.md", "# 认证\n");
     temp.write("src/billing/README.md", "# 计费\n");
     let mut auth = element("App.Auth");
-    auth.docs = vec!["./src/auth/README.md".to_owned()];
+    auth.path = vec!["./src/auth/".to_owned()];
+    auth.doc = Some("./src/auth/README.md".to_owned());
     let mut billing = element("App.Billing");
-    billing.docs = vec!["./src/billing/README.md".to_owned()];
+    billing.path = vec!["./src/billing/".to_owned()];
+    billing.doc = Some("./src/billing/README.md".to_owned());
     let graph = graph_of(vec![billing, auth]);
 
     let outcome = search(&graph, temp.root(), "auth", SearchScope::All).expect("检索成功");
@@ -125,18 +126,10 @@ fn 检索命中元素与文档并按稳定序返回() {
         "只命中 FQN 含 auth 的元素且按字典序"
     );
     assert_eq!(
-        outcome
-            .docs
-            .iter()
-            .map(|doc| doc.path.as_str())
-            .collect::<Vec<_>>(),
-        vec!["src/auth/README.md"],
-        "只命中路径 / 文件名含 auth 的文档"
+        outcome.doc,
+        vec!["src/auth/README.md".to_owned()],
+        "只命中路径 / 文件名含 auth 的入口文档"
     );
-    // 四字段条目（无正文）
-    let doc: &DocRef = &outcome.docs[0];
-    assert_eq!(doc.title, "认证");
-    assert_eq!(doc.source, crate::dto::DocSource::Explicit);
 }
 
 /// 正向：驼峰分词——`AuthToken` / `auth token`（空格）/ `AUTH`（大写）三者命中
@@ -154,19 +147,20 @@ fn 驼峰分词与空格与大小写三形态等价() {
     }
 }
 
-/// 正向：匹配对象面——`summary` 命中、`metadata` **值**命中（键名不算）、文档
+/// 正向：匹配对象面——`summary` 命中、`metadata` **值**命中（键名不算）、入口文档
 /// `path` 段命中、文件名命中各一条。
 #[test]
 fn 匹配对象面覆盖summary与metadata值与文档路径与文件名() {
     let temp = TempDir::new("haystack");
     temp.write("docs/rate-limit.md", "# 限流\n");
     let mut target = element("App.Auth");
+    target.path = vec!["./docs/".to_owned()];
     target.summary = Some("令牌收口与限流".to_owned());
     target.metadata = BTreeMap::from([
         ("owner".to_owned(), "billing-team".to_owned()),
         ("secretkey".to_owned(), "zzz".to_owned()),
     ]);
-    target.docs = vec!["./docs/rate-limit.md".to_owned()];
+    target.doc = Some("./docs/rate-limit.md".to_owned());
     let graph = graph_of(vec![target]);
 
     // summary
@@ -211,7 +205,8 @@ fn 仅正文含关键词不命中() {
     let temp = TempDir::new("body-only");
     temp.write("docs/guide.md", "# 指南\n\n认证（auth）流程说明。\n");
     let mut target = element("App.Billing");
-    target.docs = vec!["./docs/guide.md".to_owned()];
+    target.path = vec!["./docs/".to_owned()];
+    target.doc = Some("./docs/guide.md".to_owned());
     let graph = graph_of(vec![target]);
 
     assert!(
@@ -235,7 +230,8 @@ fn 规约语料目录不参与检索() {
     );
     temp.write("docs/auth.md", "# 认证\n");
     let mut target = element("App.Auth");
-    target.docs = vec!["./docs/auth.md".to_owned()];
+    target.path = vec!["./docs/".to_owned()];
+    target.doc = Some("./docs/auth.md".to_owned());
     let graph = graph_of(vec![target]);
 
     let docs_hit = doc_hits(&graph, temp.root(), "auth");
@@ -279,30 +275,31 @@ fn 空query返回err且特殊字符query不panic() {
 // 边界：scope / 多词 / 分词 / 空结果 / 规模
 // ---------------------------------------------------------------------------
 
-/// 边界：scope 收窄——`Elements` 时 `docs` 恒空数组；`Docs` 时 `element_fqns` 恒
-/// 空数组；`All` 两数组均可非空。
+/// 边界：scope 收窄——`Elements` 时 `doc` 恒空数组；`Doc` 时 `element_fqns` 恒空
+/// 数组；`All` 两数组均可非空。
 #[test]
 fn scope三值收窄语义() {
     let temp = TempDir::new("scope");
     temp.write("docs/auth.md", "# 认证\n");
     let mut target = element("App.Auth");
-    target.docs = vec!["./docs/auth.md".to_owned()];
+    target.path = vec!["./docs/".to_owned()];
+    target.doc = Some("./docs/auth.md".to_owned());
     let graph = graph_of(vec![target]);
 
     let elements_only = search(&graph, temp.root(), "auth", SearchScope::Elements).expect("成功");
     assert_eq!(elements_only.element_fqns, vec!["App.Auth"]);
-    assert!(elements_only.docs.is_empty(), "Elements 时 docs 恒空");
+    assert!(elements_only.doc.is_empty(), "Elements 时 doc 恒空");
 
-    let docs_only = search(&graph, temp.root(), "auth", SearchScope::Docs).expect("成功");
+    let docs_only = search(&graph, temp.root(), "auth", SearchScope::Doc).expect("成功");
     assert!(
         docs_only.element_fqns.is_empty(),
-        "Docs 时 element_fqns 恒空"
+        "Doc 时 element_fqns 恒空"
     );
-    assert_eq!(docs_only.docs.len(), 1);
+    assert_eq!(docs_only.doc.len(), 1);
 
     let all = search(&graph, temp.root(), "auth", SearchScope::All).expect("成功");
     assert!(
-        !all.element_fqns.is_empty() && !all.docs.is_empty(),
+        !all.element_fqns.is_empty() && !all.doc.is_empty(),
         "All 两数组皆非空"
     );
 }
@@ -366,15 +363,15 @@ fn 无命中与空模型返回空数组不报错() {
     let graph = graph_of(vec![element("App.Auth")]);
     let outcome = search(&graph, temp.root(), "zzz", SearchScope::All).expect("无命中仍 Ok");
     assert!(outcome.element_fqns.is_empty());
-    assert!(outcome.docs.is_empty());
+    assert!(outcome.doc.is_empty());
 
     let empty = graph_of(Vec::new());
     let outcome = search(&empty, temp.root(), "auth", SearchScope::All).expect("空模型仍 Ok");
-    assert!(outcome.element_fqns.is_empty() && outcome.docs.is_empty());
+    assert!(outcome.element_fqns.is_empty() && outcome.doc.is_empty());
 }
 
-/// 边界：`str` / 规模面——超长 query（>1000 chars）正常返回；500 元素 / 200 文档
-/// → 结果序稳定、两次调用逐字相同。
+/// 边界：`str` / 规模面——超长 query（>1000 chars）正常返回；500 元素 / 200 入口
+/// 文档 → 结果序稳定、两次调用逐字相同。
 #[test]
 fn 超长query与规模面结果稳定() {
     let temp = TempDir::new("scale");
@@ -385,7 +382,8 @@ fn 超长query与规模面结果稳定() {
     for index in 0..500 {
         let mut item = element(&format!("App.Auth.Mod{index:03}"));
         if index < 200 {
-            item.docs = vec![format!("./docs/note{index:03}.md")];
+            item.path = vec![format!("./docs/note{index:03}/")];
+            item.doc = Some(format!("./docs/note{index:03}.md"));
         }
         elements.push(item);
     }
@@ -401,41 +399,52 @@ fn 超长query与规模面结果稳定() {
     let second = search(&graph, temp.root(), "auth", SearchScope::All).expect("成功");
     assert_eq!(first, second, "两次调用结果逐字相同");
     assert_eq!(first.element_fqns.len(), 500, "500 元素全部命中 auth");
-    assert!(first.docs.is_empty(), "无文档路径含 auth");
+    assert!(first.doc.is_empty(), "无文档路径含 auth");
 
-    // 文档侧：文件名命中 200 条，序为「来源强度 → 路径」稳定序
+    // 文档侧：文件名命中 200 条，序为路径字典序
     let docs_hit = search(&graph, temp.root(), "note", SearchScope::All).expect("成功");
     assert!(docs_hit.element_fqns.is_empty(), "元素 FQN 不含 note");
-    let paths: Vec<&str> = docs_hit.docs.iter().map(|doc| doc.path.as_str()).collect();
+    let paths: Vec<&str> = docs_hit.doc.iter().map(String::as_str).collect();
     assert_eq!(paths.len(), 200, "200 文档按文件名命中 note");
     let mut sorted = paths.clone();
     sorted.sort_unstable();
     assert_eq!(paths, sorted, "文档命中按路径字典序");
 }
 
-/// 边界：`docs::all_docs` 与检索同源——检索命中文档即 `all_docs` 的子集（无第二
-/// 事实源）。
+/// 边界：语料 = `path` 非空元素的在盘载体（与判据面同一集合——`path` 空的元素不入
+/// 语料，载体不在盘亦不入语料）。
 #[test]
-fn 检索文档面为关联面的子集() {
+fn 检索文档语料为path非空元素的在盘载体() {
     let temp = TempDir::new("same-source");
-    temp.write("src/auth/README.md", "# 认证\n");
+    temp.write("src/auth/README.md", "# 认证");
     let mut target = element("App.Auth");
     target.path = vec!["./src/auth/".to_owned()];
-    let graph = graph_of(vec![target]);
+    target.doc = Some("src/auth/README.md".to_owned());
+    // `path` 为空：同一条 doc 不入语料
+    let mut container = element("App");
+    container.doc = Some("src/auth/README.md".to_owned());
+    let graph = graph_of(vec![target, container]);
 
-    let all = docs::all_docs(&graph, temp.root());
-    let outcome = search(&graph, temp.root(), "auth", SearchScope::Docs).expect("成功");
-    for doc in &outcome.docs {
-        assert!(
-            all.docs.iter().any(|candidate| candidate.path == doc.path),
-            "命中条目 {} 应来自关联面",
-            doc.path
-        );
-    }
+    let outcome = search(&graph, temp.root(), "auth", SearchScope::Doc).expect("成功");
+    assert_eq!(
+        outcome.doc,
+        vec!["src/auth/README.md".to_owned()],
+        "只取 `path` 非空元素的在盘载体"
+    );
+
+    // 载体不在盘：不入语料
+    let missing = graph_of(vec![{
+        let mut only = element("App.Missing");
+        only.path = vec!["src/missing/".to_owned()];
+        only.doc = Some("src/missing/README.md".to_owned());
+        only
+    }]);
+    let outcome = search(&missing, temp.root(), "missing", SearchScope::Doc).expect("成功");
+    assert!(outcome.doc.is_empty(), "不在盘的载体不入语料");
 }
 
 /// 边界（`entry` 零敏感面）：两元素仅 `entry` 不同 → 命中集与文档条目逐值相同（检索面
-/// 只看 FQN / `summary` / `metadata` / `docs`，不搜 `path` / `api` / `entry`）。
+/// 只看 FQN / `summary` / `metadata` / 入口文档路径，不搜 `path` / `entry`）。
 #[test]
 fn 检索面对entry零敏感() {
     let temp = TempDir::new("search-entry-blind");
@@ -462,7 +471,7 @@ fn 检索面对entry零敏感() {
         baseline.element_fqns, decorated.element_fqns,
         "元素命中集与 `entry` 无关"
     );
-    assert_eq!(baseline.docs, decorated.docs, "文档条目与 `entry` 无关");
+    assert_eq!(baseline.doc, decorated.doc, "文档条目与 `entry` 无关");
 
     // 反例校准：`entry` 的文本不是检索目标（搜入口串的末段不命中元素）
     let by_entry = search(
@@ -480,5 +489,94 @@ fn 检索面对entry零敏感() {
         by_entry.element_fqns.is_empty(),
         "检索面不含 `entry` 文本：{:?}",
         by_entry.element_fqns
+    );
+}
+
+// ===========================================================================
+// `doc` 语料的投影单点 / `file_stem` 形态 / ADR 退役
+// ===========================================================================
+
+/// 边界（事实校准 16）：语料的 `doc` 事实只经 `dto::to_element` 投影取数——`search.rs`
+/// 内 `dto::to_element(` 恰一处、`ArchiElement {` 字面量零命中（MUST NOT 另拼第二份元素
+/// 投影，否则判据面与检索面会各造一份 `doc` 归一）。
+#[test]
+fn 语料投影走元素单点() {
+    let source = include_str!("search.rs");
+    assert_eq!(
+        source.matches("crate::dto::to_element(").count(),
+        1,
+        "元素投影单点恰一处"
+    );
+    assert!(
+        !source.contains("ArchiElement {"),
+        "零第二份 `ArchiElement` 拼装"
+    );
+    assert_eq!(
+        source.matches("carrier_path(").count(),
+        1,
+        "载体派生单点（与判据面同一函数）"
+    );
+}
+
+/// 边界：`file_stem` 已从退役的文档关联实现迁入本文件（源码自证恰一处），且无扩展名与
+/// 多点文件名的语料仍按主干命中（形态不经归一、不丢文件名）。
+#[test]
+fn 文件名主干迁入本文件且形态不变() {
+    let source = include_str!("search.rs");
+    assert_eq!(
+        source.matches("fn file_stem(").count(),
+        1,
+        "`file_stem` 在检索面恰一处（迁移后零第二份）"
+    );
+
+    let temp = TempDir::new("stem-forms");
+    temp.write(
+        "docs/README",
+        "# 认证
+",
+    );
+    temp.write(
+        "docs/a.b.md",
+        "# 认证
+",
+    );
+    let mut plain = element("App.Plain");
+    plain.path = vec!["./docs/".to_owned()];
+    plain.doc = Some("docs/README".to_owned());
+    let mut dotted = element("App.Dotted");
+    dotted.path = vec!["./docs/".to_owned()];
+    dotted.doc = Some("docs/a.b.md".to_owned());
+    let graph = graph_of(vec![plain, dotted]);
+
+    let hits = doc_hits(&graph, temp.root(), "a.b");
+    assert_eq!(
+        hits,
+        vec!["docs/a.b.md".to_owned()],
+        "多点文件名按主干分词命中"
+    );
+    let hits = doc_hits(&graph, temp.root(), "readme");
+    assert_eq!(
+        hits,
+        vec!["docs/README".to_owned()],
+        "无扩展名文件仍按全名命中"
+    );
+}
+
+/// 异常：`decisions/*.md`（ADR）即便正文与文件名含关键词 → 零条目（旧 `text` 源随文档
+/// 关联能力退役）。
+#[test]
+fn adr语料不参与检索() {
+    let temp = TempDir::new("adr-retired");
+    temp.write(
+        ".dev-team/architecture/decisions/0001-auth-choice.md",
+        "# auth 决策\n",
+    );
+    let mut target = element("App.Billing");
+    target.path = vec!["./src/billing/".to_owned()];
+    let graph = graph_of(vec![target]);
+
+    assert!(
+        doc_hits(&graph, temp.root(), "auth").is_empty(),
+        "ADR 文件不入语料（`text` 源已退役）"
     );
 }

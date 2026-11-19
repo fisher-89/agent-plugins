@@ -783,13 +783,13 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         type_only_occurrences: 0,
         api_findings: 0,
     },
-    // 新增：契约判据非空金样（`apiSignatureMismatch`；契约在案 ⇒ 判据纳管 ⇒ `warnings`，
-    // `passed` 不受影响——与 design D8 / spec「契约在案判据把被 status 拉到 warnings」同口径）
+    // 契约判据非空金样（`apiSignatureMismatch`；契约在案 ⇒ 判据纳管 ⇒ error 档 ⇒
+    // `status = errors` 且 `passed == false`——首错改写后的新口径）
     DriftExpectation {
         case: "api-mismatch",
         mode: "full",
         changed: &[],
-        status: "warnings",
+        status: "errors",
         changed_files: 0,
         scanned_files: 1,
         excluded: &[],
@@ -1147,7 +1147,7 @@ fn 判定语料逐case匹配登记面() {
         assert_eq!(
             report.status.as_str(),
             expectation.status,
-            "{label}：status 不受 apiFindings 影响"
+            "{label}：status 与登记面一致（error 档判据可抬档）"
         );
 
         // 零写盘：判定纯读盘（同一暂存树字节快照前后相等）
@@ -1345,9 +1345,9 @@ fn 判定语料快照均含apiFindings键且版本为三() {
     }
 }
 
-/// 正向（AC-7 / AC-6）：非空 `apiFindings` 金样在案——`api-mismatch` 快照含一条
+/// 正向（AC-3 / AC-10）：非空 `apiFindings` 金样在案——`api-mismatch` 快照含一条
 /// `apiSignatureMismatch`（`category = signature`），`occurrences` 逐项且 `status`
-/// 为 `warnings`（契约在案的判据纳管进 `status`；判据条数与 kind 不变）。
+/// 为 `errors`（error 档判据纳管进门禁）。
 #[test]
 #[allow(non_snake_case)]
 fn 非空apiFindings金样在案() {
@@ -1394,8 +1394,8 @@ fn 非空apiFindings金样在案() {
     );
     assert_eq!(
         snapshot["status"],
-        serde_json::json!("warnings"),
-        "契约在案的判据把 status 拉到 warnings（passed 不受影响）"
+        serde_json::json!("errors"),
+        "error 档判据把 status 抬到 errors（passed == false）"
     );
 }
 
@@ -1549,8 +1549,8 @@ fn 契约判据语料注释与金样自洽() {
     }
 }
 
-/// 边界（AC-7）：`api-mismatch` 的判据条数与 `kind` / `category` 不变——纳管只改 `status`，
-/// 不改判据条数 / 顺序；登记面 `api_findings == 1`。
+/// 边界（AC-3 / AC-10）：`api-mismatch` 的判据条数与 `kind` / `category` 不变——首错短路
+/// 只改 `status`，不改判据条数 / 顺序；登记面 `api_findings == 1` 且 `status = errors`。
 #[test]
 fn api_mismatch判据条数与类别不变() {
     let expectation = DRIFT_CASES
@@ -1558,7 +1558,10 @@ fn api_mismatch判据条数与类别不变() {
         .find(|expectation| expectation.case == "api-mismatch" && expectation.mode == "full")
         .expect("api-mismatch 的 full 行在册");
     assert_eq!(expectation.api_findings, 1, "登记面恰一条");
-    assert_eq!(expectation.status, "warnings", "登记面 status 为纳管口径");
+    assert_eq!(
+        expectation.status, "errors",
+        "登记面 status 为纳管口径（error 档）"
+    );
 
     let snapshot = read_expected_snapshot(&drift_expected_path(expectation)).expect("快照可读");
     let findings = snapshot["apiFindings"].as_array().expect("数组");

@@ -18,7 +18,7 @@ use crate::api::contract::{parse, Contract};
 use crate::api::extract::{ApiParam, ApiSymbol, ApiSymbolKind, ApiType, Visibility};
 use crate::api::paths;
 use crate::api::schema::build_schema;
-use crate::drift::report::{ArchiApiFinding, ArchiApiFindingKind};
+use crate::drift::report::{ApiFindingSeverity, ArchiApiFinding, ArchiApiFindingKind};
 use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
 
 use super::check::{category_of, check};
@@ -92,6 +92,7 @@ fn element(fqn: &str, paths: &[&str]) -> ArchiElement {
         model_file: ".dev-team/architecture/models/01-test.toml".to_owned(),
         model_line: 1,
         mark: NodeMark::None,
+        doc: None,
     }
 }
 
@@ -188,6 +189,9 @@ struct Fixture {
     contracts: Vec<Contract>,
     schemas: BTreeMap<String, Value>,
     symbols: BTreeMap<String, Vec<ApiSymbol>>,
+    /// 载体事实覆写（缺表项按「在盘且含 fence」折算——用例只关心判据面，
+    /// 不重复驱动一遍契约落盘；`doc` 三条判据的用例在此显式覆写）。
+    doc_overrides: BTreeMap<String, super::DocFact>,
 }
 
 impl Fixture {
@@ -198,7 +202,14 @@ impl Fixture {
             contracts: Vec::new(),
             schemas: BTreeMap::new(),
             symbols: BTreeMap::new(),
+            doc_overrides: BTreeMap::new(),
         }
+    }
+
+    /// 覆写某元素的载体事实（`doc` 三条判据的取数路）。
+    fn with_doc_fact(mut self, fqn: &str, fact: super::DocFact) -> Self {
+        self.doc_overrides.insert(fqn.to_owned(), fact);
+        self
     }
 
     fn with_element(mut self, element: ArchiElement) -> Self {
@@ -220,12 +231,49 @@ impl Fixture {
     }
 
     fn run(&self) -> Vec<ArchiApiFinding> {
+        let doc_facts = self.doc_facts();
         check(ApiCheckInput {
             root: self.temp.root(),
             elements: &self.elements,
             contracts: &self.contracts,
             schemas: &self.schemas,
             symbols: &self.symbols,
+            doc_facts: &doc_facts,
+            enabled: true,
+        })
+    }
+
+    /// 载体事实（`api::doc_facts` 的夹具等价）：缺省按「在盘且含 fence」折算，`doc`
+    /// 三条判据的用例经 [`Fixture::with_doc_fact`] 显式覆写。
+    fn doc_facts(&self) -> BTreeMap<String, super::DocFact> {
+        let mut facts: BTreeMap<String, super::DocFact> = self
+            .elements
+            .iter()
+            .map(|element| {
+                (
+                    element.fqn.clone(),
+                    super::DocFact::Present {
+                        has_api_fence: true,
+                    },
+                )
+            })
+            .collect();
+        facts.extend(self.doc_overrides.clone());
+        facts
+    }
+
+    /// 以真实 `api::doc_facts` 装配的事实求值（不经 [`Fixture::with_doc_fact`] 折算）：
+    /// 钉「派生不出载体」的两种成因（未声明 / 声明在案却形态越根）在事实装配与判据面
+    /// 之间不分叉——分流只在 `doc_facts` 一处，判据面 MUST NOT 各判一套。
+    fn run_with_real_doc_facts(&self) -> Vec<ArchiApiFinding> {
+        let doc_facts = super::doc_facts(self.temp.root(), &self.elements);
+        check(ApiCheckInput {
+            root: self.temp.root(),
+            elements: &self.elements,
+            contracts: &self.contracts,
+            schemas: &self.schemas,
+            symbols: &self.symbols,
+            doc_facts: &doc_facts,
             enabled: true,
         })
     }
@@ -310,14 +358,14 @@ fn 判据一单文件根解析成功零判据() {
     );
 }
 
-/// 正向（AC-4 可见收益 / test-design:124）：单文件根 + `api = declared` + **无契约** →
-/// ① 零条、② 恰一条 `apiMissing`——同一批前端单文件元素从此由「假报无入口」转为真话
-/// 「缺契约」。
+/// 正向（AC-2 / AC-4 可见收益）：单文件根 + `api = declared` + **载体不在盘** → ① 零条、
+/// ④ 恰一条 `docMissing`（原 `apiMissing` 形态① 改名不改事实）。
 #[test]
-fn 判据一单文件根缺契约转真话() {
+fn 判据一单文件根缺载体转真话() {
     let fqn = "App.Frontend.Views.Welcome";
     let fixture = Fixture::new("entry-single-file-declared")
-        .with_element(element(fqn, &["views/welcome-view.tsx"]));
+        .with_element(element(fqn, &["views/welcome-view.tsx"]))
+        .with_doc_fact(fqn, super::DocFact::Missing);
     fixture.temp.write(
         "views/welcome-view.tsx",
         "export const welcome = () => null;\n",
@@ -331,15 +379,15 @@ fn 判据一单文件根缺契约转真话() {
         findings.iter().map(|f| &f.message).collect::<Vec<_>>()
     );
     assert_eq!(
-        count(&findings, ArchiApiFindingKind::ApiMissing),
+        count(&findings, ArchiApiFindingKind::DocMissing),
         1,
-        "② 转真话：`api = declared` 而无契约文件"
+        "④ 转真话：`api = declared` 而派生契约 md 不在盘"
     );
     let missing = findings
         .iter()
-        .find(|finding| finding.kind == ArchiApiFindingKind::ApiMissing)
-        .expect("② 条目在案");
-    assert_eq!(missing.category, "contract", "分类 = contract");
+        .find(|finding| finding.kind == ArchiApiFindingKind::DocMissing)
+        .expect("④ 条目在案");
+    assert_eq!(missing.category, "doc", "分类 = doc");
     assert!(
         missing.message.contains(fqn),
         "文案点名元素：{}",
@@ -348,13 +396,13 @@ fn 判据一单文件根缺契约转真话() {
     assert_eq!(
         findings.len(),
         1,
-        "除 ② 外零判据：{:?}",
+        "除 ④ 外零判据：{:?}",
         findings.iter().map(|f| &f.message).collect::<Vec<_>>()
     );
 }
 
-/// 边界（AC-7 / D16）：同一元素同时具备「无入口」+「declared 但 md 缺失」+「代码有未
-/// 声明导出」→ 只报 1 条 `ApiEntryMissing`；⑤ `apiUnexpected` 仍独立判。
+/// 边界（AC-3 两支互斥）：`api = none` 的元素**零** `apiEntryMissing`（入口判据只在
+/// `declared` 支求值），契约在案 ⇒ 只报 1 条 `apiUnexpected`，其余判据全不可达。
 #[test]
 fn 入口缺失与二三四互斥() {
     let mut entry_missing = element("App.Core.NoEntry", &["src/missing/"]);
@@ -372,7 +420,11 @@ fn 入口缺失与二三四互斥() {
     );
 
     let findings = fixture.run();
-    assert_eq!(count(&findings, ArchiApiFindingKind::ApiEntryMissing), 1);
+    assert_eq!(
+        count(&findings, ArchiApiFindingKind::ApiEntryMissing),
+        0,
+        "留白支零 `apiEntryMissing`（R-4 语义变化）"
+    );
     assert_eq!(
         count(&findings, ArchiApiFindingKind::ApiMissing),
         0,
@@ -391,8 +443,9 @@ fn 入口缺失与二三四互斥() {
     assert_eq!(
         count(&findings, ArchiApiFindingKind::ApiUnexpected),
         1,
-        "⑤ 独立判：api = none 而 md 存在"
+        "① 命中：api = none 而派生契约在盘"
     );
+    assert_eq!(findings.len(), 1, "首错短路：只此一条");
 }
 
 /// 边界（test-design:136 规模面）：12 个无入口元素 → `ApiEntryMissing` 恰 12 条，且
@@ -607,8 +660,8 @@ fn 判据一零落点派生与零根自取() {
 // ② apiMissing：契约文件缺失 / 实现缺失
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-7）：`api = declared` + 契约文件缺失 → 1 条 `ApiMissing`、
-/// `category == "contract"`、文案含应有的契约路径；13 条等价构造 → 恰 13 条。
+/// 正向（AC-2）：`api = declared` + 派生契约 md 缺失 → 1 条 `docMissing`、
+/// `category == "doc"`、文案含应有的契约路径；13 条等价构造 → 恰 13 条。
 #[test]
 fn 契约文件缺失命中() {
     let mut fixture = Fixture::new("missing-contract");
@@ -616,13 +669,20 @@ fn 契约文件缺失命中() {
         let fqn = format!("App.Core.Deferred{index:02}");
         let root = format!("src/deferred{index:02}/");
         fixture.temp.write(&format!("{root}src/lib.rs"), "");
-        fixture = fixture.with_element(element(&fqn, &[&root]));
+        fixture = fixture
+            .with_element(element(&fqn, &[&root]))
+            .with_doc_fact(&fqn, super::DocFact::Missing);
     }
     let findings = fixture.run();
     assert_eq!(
-        count(&findings, ArchiApiFindingKind::ApiMissing),
+        count(&findings, ArchiApiFindingKind::DocMissing),
         13,
-        "13 条缺契约逐条命中"
+        "13 条缺载体逐条命中"
+    );
+    assert_eq!(
+        count(&findings, ArchiApiFindingKind::ApiMissing),
+        0,
+        "契约缺失不再挂 `apiMissing`（改名不改事实）"
     );
     assert_eq!(
         count(&findings, ArchiApiFindingKind::ApiEntryMissing),
@@ -631,7 +691,7 @@ fn 契约文件缺失命中() {
     );
 
     let first = &findings[0];
-    assert_eq!(first.category, "contract", "分类 = contract");
+    assert_eq!(first.category, "doc", "分类 = doc");
     assert!(
         first.message.contains(".md"),
         "文案含契约路径：{}",
@@ -851,7 +911,8 @@ fn 留白矛盾单向() {
     let blank = "App.Core.Blank";
     let fixture = Fixture::new("unexpected")
         .with_element(blank_element(blank, &["src/blank/"]))
-        .with_element(element("App.Core.Deferred", &["src/deferred/"]));
+        .with_element(element("App.Core.Deferred", &["src/deferred/"]))
+        .with_doc_fact("App.Core.Deferred", super::DocFact::Missing);
     fixture.touch_entry("src/blank");
     fixture.touch_entry("src/deferred");
     fixture
@@ -872,9 +933,9 @@ fn 留白矛盾单向() {
         unexpected[0].message
     );
     assert_eq!(
-        count(&findings, ArchiApiFindingKind::ApiMissing),
+        count(&findings, ArchiApiFindingKind::DocMissing),
         1,
-        "反方向只归 ②"
+        "反方向只归 ④（`declared` + 载体不在盘）"
     );
     assert!(
         findings
@@ -1123,6 +1184,7 @@ fn 透传漂移只对落盘不一致() {
         contracts: std::slice::from_ref(&sourced),
         schemas: &schemas,
         symbols: &fixture.symbols,
+        doc_facts: &fixture.doc_facts(),
         enabled: true,
     });
     let drift: Vec<&ArchiApiFinding> = findings
@@ -1142,9 +1204,9 @@ fn 透传漂移只对落盘不一致() {
 // ⑩ apiConstructorDeclared
 // ---------------------------------------------------------------------------
 
-/// 异常（AC-13 / D11）：契约 `### new` / `### from_str` / `### with_capacity` → 各 1 条
-/// `ApiConstructorDeclared`、`category == "constructor"`、`target` 点名该 op；
-/// `### file_stem` → 零条。
+/// 异常（AC-3 / D11）：契约 `### new` / `### from_str` / `### with_capacity` 三个构造器 →
+/// **元素锚点首错短路**只出一条 `ApiConstructorDeclared`（`target` 点名首个构造器
+/// `new`）；`### file_stem` 不入本判据。
 #[test]
 fn 构造器声明判据() {
     let fqn = "App.Core.Alpha";
@@ -1175,7 +1237,10 @@ fn 构造器声明判据() {
         ))
         .with_symbols(
             fqn,
-            vec![function("file_stem", vec![], ApiType::OwnedString)],
+            vec![
+                function("file_stem", vec![], ApiType::OwnedString),
+                type_symbol("T", ApiSymbolKind::Type),
+            ],
         );
     fixture.touch_entry("src/alpha");
 
@@ -1184,7 +1249,12 @@ fn 构造器声明判据() {
         .iter()
         .filter(|finding| finding.kind == ArchiApiFindingKind::ApiConstructorDeclared)
         .collect();
-    assert_eq!(declared.len(), 3, "三个构造器各一条：{:?}", declared);
+    assert_eq!(
+        declared.len(),
+        1,
+        "元素锚点每元素一条（首错短路）：{:?}",
+        declared
+    );
     for finding in &declared {
         assert_eq!(finding.category, "constructor", "分类 = constructor");
     }
@@ -1192,12 +1262,11 @@ fn 构造器声明判据() {
         .iter()
         .map(|finding| finding.target.as_deref())
         .collect();
-    for name in ["new", "from_str", "with_capacity"] {
-        assert!(
-            targets.contains(&Some(name)),
-            "target 点名 {name}：{targets:?}"
-        );
-    }
+    assert_eq!(
+        targets,
+        vec![Some("new")],
+        "target 点名首个声明的构造器：{targets:?}"
+    );
     assert!(
         !targets.contains(&Some("file_stem")),
         "非构造器 op 零条：{targets:?}"
@@ -1205,15 +1274,15 @@ fn 构造器声明判据() {
 }
 
 // ---------------------------------------------------------------------------
-// 十 kind 各至少一条 / category 单点
+// 十三 kind 全值 / category 单点
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-8）：构造覆盖全十值的输入 → `kind` 去重后恰 10 个；每个 `category` 与
-/// `category_of(kind)` 逐字相等。
+/// 正向（AC-3 / AC-8）：`ALL` 十三值逐值可取 `category_of` → 恰七个分类；行为面返回集里
+/// 每个 `category` 与 `category_of(kind)` 逐字相等。
 #[test]
-fn 十kind各至少一条() {
+fn 十三kind各至少一条() {
     // 覆盖全十值：见各专项用例的构造（此处以词汇面 + 单点打标对拍表达完备性）
-    assert_eq!(ArchiApiFindingKind::ALL.len(), 10, "词汇十值封闭");
+    assert_eq!(ArchiApiFindingKind::ALL.len(), 13, "词汇十三值封闭");
     let categories: Vec<&str> = ArchiApiFindingKind::ALL
         .iter()
         .map(|kind| category_of(*kind))
@@ -1221,7 +1290,7 @@ fn 十kind各至少一条() {
     let mut unique = categories.clone();
     unique.sort_unstable();
     unique.dedup();
-    assert_eq!(unique.len(), 6, "十 kind 映射到恰六个分类");
+    assert_eq!(unique.len(), 7, "十三 kind 映射到恰七个分类");
 
     // 行为面：一次覆盖多 kind 的输入，返回集里每个 category 都由 category_of 复算得到
     let fqn = "App.Core.Alpha";
@@ -1256,7 +1325,7 @@ fn 十kind各至少一条() {
         );
         assert!(
             allowed.contains(&finding.category.as_str()),
-            "category 落在六值集合内：{}",
+            "category 落在七值集合内：{}",
             finding.category
         );
     }
@@ -1267,8 +1336,8 @@ fn 十kind各至少一条() {
         kinds
     };
     assert!(
-        kinds.len() >= 3,
-        "该输入至少覆盖 3 个 kind（签名 / 构造器 / 缺失等）：{kinds:?}"
+        kinds.len() >= 2,
+        "该输入至少覆盖 2 个 kind（入口缺失 / 实现缺失等）：{kinds:?}"
     );
 }
 
@@ -1395,6 +1464,7 @@ fn 定义只读内存schema() {
         contracts: &contracts,
         schemas: &fixture.schemas,
         symbols: &fixture.symbols,
+        doc_facts: &fixture.doc_facts(),
         enabled: true,
     });
     assert_eq!(
@@ -1491,12 +1561,14 @@ fn 稳定排序由对外入口保证() {
         .with_element(element("App.Core.Zeta", &["src/missing/"]))
         .with_element(element("App.Core.Alpha", &["src/missing2/"]))
         .with_element(element("App.Core.Beta", &["src/missing3/"]));
+    let doc_facts = fixture.doc_facts();
     let first = crate::api::check(ApiCheckInput {
         root: fixture.temp.root(),
         elements: &fixture.elements,
         contracts: &fixture.contracts,
         schemas: &fixture.schemas,
         symbols: &fixture.symbols,
+        doc_facts: &doc_facts,
         enabled: true,
     });
     let second = crate::api::check(ApiCheckInput {
@@ -1505,6 +1577,7 @@ fn 稳定排序由对外入口保证() {
         contracts: &fixture.contracts,
         schemas: &fixture.schemas,
         symbols: &fixture.symbols,
+        doc_facts: &doc_facts,
         enabled: true,
     });
     assert_eq!(first, second, "两次运行逐字段相等");
@@ -1585,12 +1658,14 @@ fn 空输入() {
     let schemas: BTreeMap<String, Value> = BTreeMap::new();
     let symbols: BTreeMap<String, Vec<ApiSymbol>> = BTreeMap::new();
 
+    let doc_facts: BTreeMap<String, super::DocFact> = BTreeMap::new();
     let enabled_findings = check(ApiCheckInput {
         root: temp.root(),
         elements: &empty,
         contracts: &contracts,
         schemas: &schemas,
         symbols: &symbols,
+        doc_facts: &doc_facts,
         enabled: true,
     });
     assert!(enabled_findings.is_empty(), "空元素表零条目");
@@ -1601,6 +1676,7 @@ fn 空输入() {
         contracts: &contracts,
         schemas: &schemas,
         symbols: &symbols,
+        doc_facts: &doc_facts,
         enabled: false,
     });
     assert!(disabled_findings.is_empty(), "未启用零条目");
@@ -1619,18 +1695,22 @@ fn 规模边界() {
         if index < 100 {
             fixture = fixture.with_contract(contract(&fqn, &[], &["T"], &[]));
             fixture = fixture.with_symbols(&fqn, vec![type_symbol("T", ApiSymbolKind::Type)]);
+        } else {
+            fixture = fixture.with_doc_fact(&fqn, super::DocFact::Missing);
         }
     }
     let findings = fixture.run();
     assert_eq!(
-        count(&findings, ArchiApiFindingKind::ApiMissing),
+        count(&findings, ArchiApiFindingKind::DocMissing),
         200,
-        "200 条缺契约逐条命中"
+        "200 条缺载体逐条命中"
     );
 
     // 超长类型名（>1000 chars）不截断
     let long = format!("App.Core.{}", "X".repeat(1200));
-    let long_fixture = Fixture::new("long-message").with_element(element(&long, &["src/long/"]));
+    let long_fixture = Fixture::new("long-message")
+        .with_element(element(&long, &["src/long/"]))
+        .with_doc_fact(&long, super::DocFact::Missing);
     long_fixture.touch_entry("src/long");
     let findings = long_fixture.run();
     assert!(
@@ -1667,7 +1747,7 @@ fn x_class不进判据面() {
         "未标 x-class 的提示 MUST NOT 成为判据：{:?}",
         findings.iter().map(|f| &f.message).collect::<Vec<_>>()
     );
-    assert_eq!(ArchiApiFindingKind::ALL.len(), 10, "MUST NOT 扩第十一 kind");
+    assert_eq!(ArchiApiFindingKind::ALL.len(), 13, "MUST NOT 扩第十四 kind");
 
     let source = include_str!("check.rs");
     assert!(
@@ -2083,13 +2163,13 @@ fn 落点闸不落check() {
     // 十判据值域不扩（MUST NOT 造第十一 kind 承载「深层 x-function」）
     let report = include_str!("../drift/report.rs");
     assert!(
-        report.contains("[ArchiApiFindingKind; 10]"),
-        "`ArchiApiFindingKind::ALL` 仍十值封闭（零第十一 kind）"
+        report.contains("[ArchiApiFindingKind; 13]"),
+        "`ArchiApiFindingKind::ALL` 仍十三值封闭（零第十四个 kind）"
     );
     assert_eq!(
-        report.matches("    ApiConstructorDeclared,").count(),
+        report.matches("    ApiDocMissing,").count(),
         1,
-        "十值的末位变体在案（新增变体未补即语料红）"
+        "十三值的末位变体在案（新增变体未补即语料红）"
     );
 }
 
@@ -2229,4 +2309,614 @@ fn 两类缺口各一条且不拆第二kind() {
         body.contains("for op in &contract.ops") && body.contains("for name in declared_types("),
         "op 面与类型面在同一次求值内（缺一即不成 D44）"
     );
+}
+
+// ===========================================================================
+// 十三判据：`api` 两支三段首错短路 + 三条 pair 锚点
+//
+// 元素锚点两支：`none` 支 `apiUnexpected → docMissing → docNotFound`；`declared` 支
+// `docMissing → apiDocMissing → apiUnexpected（写了 doc）→ apiEntryMissing → apiMissing
+// → 一致性首条即停`。三条 pair 锚点在元素循环之外，序恒 `nested → ref → shadowing`。
+// ===========================================================================
+
+/// 正向（留白支）：`api = none` + `doc` 在盘 → 零判据（本支不判 fence：无约定与有示例
+/// 约定都是合法态）。
+#[test]
+fn 留白支正向_载体在盘零判据() {
+    for (index, has_api_fence) in [false, true].into_iter().enumerate() {
+        let fqn = "App.Core.Blank";
+        let mut blank = blank_element(fqn, &["src/blank/"]);
+        blank.doc = Some("guides/blank.md".to_owned());
+        let fixture = Fixture::new(&format!("blank-doc-present-{index}"))
+            .with_element(blank)
+            .with_doc_fact(fqn, super::DocFact::Present { has_api_fence });
+        assert!(
+            fixture.run().is_empty(),
+            "留白 + 载体在盘（fence = {has_api_fence}）⇒ 零判据"
+        );
+    }
+}
+
+/// 异常（判据 ②）：`api = none` 且未声明 `doc` → 一条 `docMissing`、`category == "doc"`、
+/// 文案点名元素、给出写法，且成因句只讲「未声明」（MUST NOT 借用 ③ 的「指不到盘」）。
+#[test]
+fn 判据二留白未声明doc产出docmissing() {
+    let fqn = "App.Core.Blank";
+    let fixture = Fixture::new("doc-missing-none")
+        .with_element(blank_element(fqn, &["src/blank/"]))
+        .with_doc_fact(fqn, super::DocFact::Absent);
+
+    let findings = fixture.run();
+    assert_eq!(count(&findings, ArchiApiFindingKind::DocMissing), 1);
+    assert_eq!(findings.len(), 1, "首错短路：只此一条");
+    assert_eq!(findings[0].category, "doc", "分类 = doc");
+    assert_eq!(findings[0].element.as_deref(), Some(fqn));
+    assert!(
+        findings[0].message.contains("api = none") && findings[0].message.contains("doc"),
+        "文案给出写法：{}",
+        findings[0].message
+    );
+    assert!(
+        findings[0].message.contains("未声明"),
+        "文案成因 = 未声明 `doc`：{}",
+        findings[0].message
+    );
+    assert!(
+        !findings[0].message.contains("指不到盘"),
+        "`docMissing` MUST NOT 借用 `docNotFound` 的成因文案：{}",
+        findings[0].message
+    );
+}
+
+/// 异常（判据 ③）：`api = none` + `doc` 声明在案却指不到盘 → 一条 `docNotFound`
+/// （`category == "doc"`），文案点名声明值。
+#[test]
+fn 判据三留白doc指不到盘产出docnotfound() {
+    let fqn = "App.Core.Blank";
+    let mut blank = blank_element(fqn, &["src/blank/"]);
+    blank.doc = Some("guides/nowhere.md".to_owned());
+    let fixture = Fixture::new("doc-not-found")
+        .with_element(blank)
+        .with_doc_fact(fqn, super::DocFact::Missing);
+
+    let findings = fixture.run();
+    assert_eq!(count(&findings, ArchiApiFindingKind::DocNotFound), 1);
+    assert_eq!(findings.len(), 1, "首错短路：只此一条");
+    assert_eq!(findings[0].category, "doc", "分类 = doc");
+    assert!(
+        findings[0].message.contains("guides/nowhere.md"),
+        "文案点名声明值：{}",
+        findings[0].message
+    );
+    assert!(
+        findings[0].message.contains("指不到盘") && !findings[0].message.contains("未声明"),
+        "文案成因 = 声明在案却指不到盘（MUST NOT 降级成「未声明」）：{}",
+        findings[0].message
+    );
+}
+
+/// 异常（判据 ③ 的事实装配分叉）：`api = none` + `doc` 声明在案但**形态越根**（绝对
+/// 路径 / 盘符 / `~` / `..` / 空串）⇒ 载体派生出 `None`，事实装配按「声明在案、指不到
+/// 盘」归 `Missing`，判据面恰一条 `docNotFound`（`error` 档、纳管），零 `docMissing`。
+///
+/// 反向：同一元素未声明 `doc` ⇒ 真无载体，归 `docMissing`（`warn` 档）。两态都经真实
+/// `api::doc_facts` 装配——把「写错了」并进「还没写」会让 `docNotFound` 的 `error` 档与
+/// 纳管口径同时失效，这正是判据 ③ 要堵的消红后门。
+#[test]
+fn 判据三留白越根doc归docnotfound而非docmissing() {
+    let fqn = "App.Core.Malformed";
+
+    for (index, doc) in ["/etc/passwd", "C:/win.md", "~/home.md", "../outside.md", ""]
+        .into_iter()
+        .enumerate()
+    {
+        let mut escaped = blank_element(fqn, &["src/m/"]);
+        escaped.doc = Some(doc.to_owned());
+        let fixture = Fixture::new(&format!("doc-escapes-root-{index}")).with_element(escaped);
+
+        let findings = fixture.run_with_real_doc_facts();
+        assert_eq!(
+            count(&findings, ArchiApiFindingKind::DocNotFound),
+            1,
+            "声明 `{doc}` 越根 ⇒ 恰一条 docNotFound：{findings:?}"
+        );
+        assert_eq!(
+            count(&findings, ArchiApiFindingKind::DocMissing),
+            0,
+            "越根 MUST NOT 降级为 docMissing（`{doc}`）"
+        );
+        assert_eq!(findings.len(), 1, "首错短路：只此一条");
+        assert_eq!(findings[0].category, "doc", "分类 = doc");
+        assert_eq!(findings[0].element.as_deref(), Some(fqn));
+        assert_eq!(
+            findings[0].kind.severity(),
+            ApiFindingSeverity::Error,
+            "`docNotFound` 恒 `error` 档（纳管）"
+        );
+    }
+
+    // 反向：真未声明 ⇒ `Absent` ⇒ `docMissing`（`warn` 档、不纳管）
+    let undeclared =
+        Fixture::new("doc-truly-undeclared").with_element(blank_element(fqn, &["src/m/"]));
+    let findings = undeclared.run_with_real_doc_facts();
+    assert_eq!(count(&findings, ArchiApiFindingKind::DocMissing), 1);
+    assert_eq!(count(&findings, ArchiApiFindingKind::DocNotFound), 0);
+    assert_eq!(
+        findings[0].kind.severity(),
+        ApiFindingSeverity::Warn,
+        "`docMissing` 恒 `warn` 档（永不纳管）"
+    );
+}
+
+/// 边界（① 先于 ②）：`api = none` 的派生契约路径上冒出契约、且 `doc` 未声明 → 只一条
+/// `apiUnexpected`（`category == "entry"`），`docMissing` 零条（同元素首错即停）。
+#[test]
+fn 判据一留白契约在盘时不叠加docmissing() {
+    let fqn = "App.Core.Blank";
+    let fixture = Fixture::new("doc-priority").with_element(blank_element(fqn, &["src/blank/"]));
+    fixture
+        .temp
+        .write_contract(fqn, &format!("# {fqn}\n\n## 职能\n\n正文。\n"));
+
+    let findings = fixture.run_with_real_doc_facts();
+    assert_eq!(
+        count(&findings, ArchiApiFindingKind::ApiUnexpected),
+        1,
+        "留白 + 派生契约在盘 ⇒ ① 命中：{findings:?}"
+    );
+    assert_eq!(
+        count(&findings, ArchiApiFindingKind::DocMissing),
+        0,
+        "① 命中即短路，② MUST NOT 叠加"
+    );
+    assert_eq!(findings.len(), 1, "首错短路：只此一条");
+    assert_eq!(findings[0].category, "entry", "分类 = entry");
+}
+
+/// 异常（判据 ⑤）：`api = declared` + 契约 md 在盘但正文无 api fence → 一条
+/// `apiDocMissing`（`category == "doc"`），文案点名载体路径。
+#[test]
+fn 判据五有文档无约定产出apidocmissing() {
+    let fqn = "App.Core.Alpha";
+    let fixture = Fixture::new("api-doc-missing")
+        .with_element(element(fqn, &["src/alpha/"]))
+        .with_doc_fact(
+            fqn,
+            super::DocFact::Present {
+                has_api_fence: false,
+            },
+        );
+    fixture.touch_entry("src/alpha");
+
+    let findings = fixture.run();
+    assert_eq!(count(&findings, ArchiApiFindingKind::ApiDocMissing), 1);
+    assert_eq!(findings.len(), 1, "首错短路：只此一条");
+    assert_eq!(findings[0].category, "doc", "分类 = doc");
+    assert!(
+        findings[0].message.contains("api-op") && findings[0].message.contains(".md"),
+        "文案点名缺 fence 与载体路径：{}",
+        findings[0].message
+    );
+}
+
+/// 异常（判据 ⑥）：`api = declared` 却写了 `doc` → 一条 `apiUnexpected`
+/// （`category == "entry"`，提示第二个事实）。
+#[test]
+fn 判据六声明支写doc产出apiunexpected() {
+    let fqn = "App.Core.Alpha";
+    let mut subject = element(fqn, &["src/alpha/"]);
+    subject.doc = Some("guides/alpha.md".to_owned());
+    let fixture = Fixture::new("declared-doc-unexpected").with_element(subject);
+    fixture.touch_entry("src/alpha");
+
+    let findings = fixture.run();
+    assert_eq!(count(&findings, ArchiApiFindingKind::ApiUnexpected), 1);
+    assert_eq!(findings.len(), 1, "首错短路：只此一条");
+    assert_eq!(findings[0].category, "entry", "分类 = entry");
+    assert!(
+        findings[0].message.contains("api = declared")
+            && findings[0].message.contains("第二个事实"),
+        "文案点明矛盾：{}",
+        findings[0].message
+    );
+}
+
+/// 边界（首错短路 · 声明支）：载体事实缺省 + 入口不可解析 + 一致性三个问题同场 → 各档
+/// 只留首个命中，MUST NOT 叠加。
+#[test]
+fn 声明支首错短路逐档一条() {
+    // ④ 先于 ⑦：载体不在盘 + 入口不可解析 + 写了 doc
+    let fqn = "App.Core.Alpha";
+    let mut subject = element(fqn, &["src/missing/"]);
+    subject.doc = Some("guides/alpha.md".to_owned());
+    let fixture = Fixture::new("short-circuit-doc-missing")
+        .with_element(subject)
+        .with_doc_fact(fqn, super::DocFact::Missing);
+    let findings = fixture.run();
+    assert_eq!(findings.len(), 1, "只一条：{findings:?}");
+    assert_eq!(findings[0].kind, ArchiApiFindingKind::DocMissing);
+
+    // ⑤ 先于 ⑧⑨：有文档无约定 + 契约声明了 op 与构造器
+    let fqn = "App.Core.Beta";
+    let fixture = Fixture::new("short-circuit-api-doc-missing")
+        .with_element(element(fqn, &["src/beta/"]))
+        .with_doc_fact(
+            fqn,
+            super::DocFact::Present {
+                has_api_fence: false,
+            },
+        )
+        .with_contract(contract(
+            fqn,
+            &[
+                (
+                    "ghost",
+                    json!({"params": [], "returns": {"type": "string"}}),
+                ),
+                ("new", json!({"params": [], "returns": {"type": "object"}})),
+            ],
+            &["T"],
+            &[],
+        ));
+    fixture.touch_entry("src/beta");
+    let findings = fixture.run();
+    assert_eq!(findings.len(), 1, "只一条：{findings:?}");
+    assert_eq!(findings[0].kind, ArchiApiFindingKind::ApiDocMissing);
+
+    // ⑦ 先于 ⑧：载体带 fence + 入口不可解析
+    let fqn = "App.Core.Gamma";
+    let fixture = Fixture::new("short-circuit-entry-missing")
+        .with_element(element(fqn, &["src/missing-gamma/"]))
+        .with_contract(contract(
+            fqn,
+            &[(
+                "ghost",
+                json!({"params": [], "returns": {"type": "string"}}),
+            )],
+            &[],
+            &[],
+        ));
+    let findings = fixture.run();
+    assert_eq!(findings.len(), 1, "只一条：{findings:?}");
+    assert_eq!(findings[0].kind, ArchiApiFindingKind::ApiEntryMissing);
+}
+
+/// 边界（首错短路 · 一致性序）：`apiMissing` + `apiReexportDrift` + `apiConstructorDeclared`
+/// 同场 → 只留 `apiMissing`；三者各自单独在场时各一条。
+#[test]
+fn 一致性三档首错即停() {
+    let fqn = "App.Core.Alpha";
+    let fixture = Fixture::new("consistency-first-hit")
+        .with_element(element(fqn, &["src/alpha/"]))
+        .with_contract(contract(
+            fqn,
+            &[
+                (
+                    "ghost",
+                    json!({"params": [], "returns": {"type": "string"}}),
+                ),
+                ("new", json!({"params": [], "returns": {"type": "object"}})),
+            ],
+            &["T"],
+            &[("Pass", "../Core/App.Core.Other.schema.json#/$defs/Pass")],
+        ))
+        .with_element(element("App.Core.Other", &["src/other/"]))
+        .with_symbols(fqn, vec![type_symbol("T", ApiSymbolKind::Type)]);
+    fixture.touch_entry("src/alpha");
+    fixture.touch_entry("src/other");
+
+    let findings = fixture.run();
+    let element_anchor: Vec<&ArchiApiFinding> = findings
+        .iter()
+        .filter(|finding| {
+            finding.element.as_deref() == Some(fqn)
+                && !matches!(
+                    finding.kind,
+                    ArchiApiFindingKind::ApiNestedCrossCrate
+                        | ArchiApiFindingKind::ApiRefMissing
+                        | ArchiApiFindingKind::ApiShadowing
+                )
+        })
+        .collect();
+    assert_eq!(
+        element_anchor.len(),
+        1,
+        "元素锚点每元素一条（首错短路）：{element_anchor:?}"
+    );
+    assert_eq!(
+        element_anchor[0].kind,
+        ArchiApiFindingKind::ApiMissing,
+        "⑧ 先于 ⑨⑪：{element_anchor:?}"
+    );
+}
+
+/// 边界（两支互斥）：同一元素表里 `none` 元素与 `declared` 元素各报本支判据，互不串档；
+/// `none` 元素零 `apiEntryMissing`；`path` 空元素零判据。
+#[test]
+fn 两支互斥且容器零参与() {
+    let blank = "App.Core.Blank";
+    let declared = "App.Core.Alpha";
+    let fixture = Fixture::new("two-branches")
+        .with_element(blank_element(blank, &["src/blank/"]))
+        .with_element(element(declared, &["src/alpha/"]))
+        .with_element(element("App.Core.Container", &[]))
+        .with_doc_fact(blank, super::DocFact::Absent)
+        .with_doc_fact(declared, super::DocFact::Missing);
+
+    let findings = fixture.run();
+    assert_eq!(
+        count(&findings, ArchiApiFindingKind::ApiEntryMissing),
+        0,
+        "`none` 支零 `apiEntryMissing`：{findings:?}"
+    );
+    let doc_missing: Vec<&ArchiApiFinding> = findings
+        .iter()
+        .filter(|finding| finding.kind == ArchiApiFindingKind::DocMissing)
+        .collect();
+    assert_eq!(
+        doc_missing.len(),
+        2,
+        "两支各一条 docMissing：{doc_missing:?}"
+    );
+    assert_ne!(
+        doc_missing[0].message, doc_missing[1].message,
+        "两支文案可辨（成因不同）：{doc_missing:?}"
+    );
+    assert!(
+        findings
+            .iter()
+            .all(|finding| finding.element.as_deref() != Some("App.Core.Container")),
+        "`path` 空元素零判据"
+    );
+}
+
+/// 边界（`doc` 取数路唯一）：③ 与 ⑥ 的 `doc` 事实只来自 `input.elements[*].doc`——同一夹具
+/// 把投影 `doc` 置 `None` 则两条判据均不可达（反向证明无第三条取数路）。
+#[test]
+fn doc事实只来自元素投影() {
+    let fqn = "App.Core.Alpha";
+    let mut with_doc = element(fqn, &["src/alpha/"]);
+    with_doc.doc = Some("guides/alpha.md".to_owned());
+
+    let unexpected = Fixture::new("doc-unexpected-arm")
+        .with_element(with_doc.clone())
+        .run();
+    assert_eq!(
+        count(&unexpected, ArchiApiFindingKind::ApiUnexpected),
+        1,
+        "投影带 `doc` ⇒ ⑥ 可产出：{unexpected:?}"
+    );
+
+    let clean = Fixture::new("doc-cleared-arm")
+        .with_element(element(fqn, &["src/alpha/"]))
+        .run();
+    assert!(
+        count(&clean, ArchiApiFindingKind::ApiUnexpected) == 0
+            && count(&clean, ArchiApiFindingKind::DocNotFound) == 0,
+        "投影 `doc` 清零 ⇒ 两判据均不可达：{clean:?}"
+    );
+
+    let mut blank = blank_element(fqn, &["src/blank/"]);
+    blank.doc = Some("guides/nowhere.md".to_owned());
+    let not_found = Fixture::new("doc-notfound-arm")
+        .with_element(blank)
+        .with_doc_fact(fqn, super::DocFact::Missing)
+        .run();
+    assert_eq!(
+        count(&not_found, ArchiApiFindingKind::DocNotFound),
+        1,
+        "留白投影带 `doc` ⇒ ③ 可产出：{not_found:?}"
+    );
+}
+
+/// 正向（pair 锚点序）：三条 pair 判据同场 → 各一条且序恒 `nested → ref → shadowing`
+/// （跨锚点不比较、不互相短路）。
+#[test]
+fn pair锚点序恒三值() {
+    let parent = "App.Backend.Infra.ArchiRuntime";
+    let child = "App.Backend.Infra.ArchiRuntime.Inner";
+    let source = format!(
+        "# {parent}\n\n```json api-types\n{{\
+         \"Shared\": {{\"type\": \"object\", \"properties\": {{}}}}, \
+         \"Dangling\": {{\"$ref\": \"../Core/App.Core.Unknown.schema.json#/$defs/Dangling\"}}\
+         }}\n```\n"
+    );
+    let parsed = parse(&source, parent, &format!("{parent}.md")).expect("结构合法");
+
+    let fixture = Fixture::new("pair-order")
+        .with_element(element(parent, &["crates/infra/archi/"]))
+        .with_element(element(child, &["crates/core/archi/"]))
+        .with_contract(parsed)
+        .with_contract(contract(child, &[], &["Shared"], &[]));
+    fixture.touch_entry("crates/infra/archi");
+    fixture.touch_entry("crates/core/archi");
+
+    let findings = fixture.run();
+    let kinds: Vec<ArchiApiFindingKind> = findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.kind,
+                ArchiApiFindingKind::ApiNestedCrossCrate
+                    | ArchiApiFindingKind::ApiRefMissing
+                    | ArchiApiFindingKind::ApiShadowing
+            )
+        })
+        .map(|finding| finding.kind)
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            ArchiApiFindingKind::ApiNestedCrossCrate,
+            ArchiApiFindingKind::ApiRefMissing,
+            ArchiApiFindingKind::ApiShadowing
+        ],
+        "pair 序恒 nested → ref → shadowing：{findings:?}"
+    );
+    for finding in &findings {
+        if kinds.contains(&finding.kind) {
+            assert!(
+                matches!(finding.category.as_str(), "nesting" | "reexport"),
+                "pair 判据分类落在 nesting / reexport：{}",
+                finding.category
+            );
+        }
+    }
+}
+
+/// 边界（pair 与元素锚点互不挤占）：元素锚点满额（每元素一条）时 pair 判据仍独立产出；
+/// 同一元素既出元素锚点判据又作为 pair 起点；两次求值逐条相等。
+#[test]
+fn pair与元素锚点互不挤占() {
+    let parent = "App.Backend.Infra.ArchiRuntime";
+    let child = "App.Backend.Infra.ArchiRuntime.Inner";
+    let fixture = Fixture::new("pair-independent")
+        .with_element(element(parent, &["crates/infra/archi/"]))
+        .with_element(element(child, &["crates/core/archi/"]))
+        .with_doc_fact(parent, super::DocFact::Missing)
+        .with_doc_fact(child, super::DocFact::Missing);
+    fixture.touch_entry("crates/infra/archi");
+    fixture.touch_entry("crates/core/archi");
+
+    let first = fixture.run();
+    assert_eq!(
+        count(&first, ArchiApiFindingKind::DocMissing),
+        2,
+        "两个元素各一条元素锚点判据：{first:?}"
+    );
+    assert_eq!(
+        count(&first, ArchiApiFindingKind::ApiNestedCrossCrate),
+        1,
+        "pair 判据仍独立产出（不吃元素名额）：{first:?}"
+    );
+    assert_eq!(fixture.run(), first, "两次求值逐条相等（序稳定）");
+}
+
+/// 边界（pair 零命中）：结构全合法 → 三条 pair 判据零条；元素锚点也零条。
+#[test]
+fn pair锚点零命中() {
+    let parent = "App.Core.Alpha";
+    let child = "App.Core.Alpha.Beta";
+    let fixture = Fixture::new("pair-clean")
+        .with_element(element(parent, &["src/alpha/"]))
+        .with_element(element(child, &["src/alpha/beta/"]))
+        .with_contract(contract(parent, &[], &["ParentOnly"], &[]))
+        .with_contract(contract(child, &[], &["ChildOnly"], &[]))
+        .with_symbols(parent, vec![type_symbol("ParentOnly", ApiSymbolKind::Type)])
+        .with_symbols(child, vec![type_symbol("ChildOnly", ApiSymbolKind::Type)]);
+    fixture.touch_entry("src/alpha");
+    fixture.touch_entry("src/alpha/beta");
+
+    assert!(fixture.run().is_empty(), "结构全合法 ⇒ 零判据");
+}
+
+/// 正向（`category_of` 七值）：六个既有分类逐字不变，三新值全落 `"doc"`；`ALL` 逐值取
+/// 分类后集合恰七值、返回词全小写零空白。
+#[test]
+fn category_of七值封闭() {
+    let cases = [
+        (ArchiApiFindingKind::ApiEntryMissing, "entry"),
+        (ArchiApiFindingKind::ApiUnexpected, "entry"),
+        (ArchiApiFindingKind::ApiMissing, "contract"),
+        (ArchiApiFindingKind::ApiUndeclared, "contract"),
+        (ArchiApiFindingKind::ApiSignatureMismatch, "signature"),
+        (ArchiApiFindingKind::ApiReexportDrift, "reexport"),
+        (ArchiApiFindingKind::ApiShadowing, "reexport"),
+        (ArchiApiFindingKind::ApiRefMissing, "reexport"),
+        (ArchiApiFindingKind::ApiNestedCrossCrate, "nesting"),
+        (ArchiApiFindingKind::ApiConstructorDeclared, "constructor"),
+        (ArchiApiFindingKind::DocMissing, "doc"),
+        (ArchiApiFindingKind::DocNotFound, "doc"),
+        (ArchiApiFindingKind::ApiDocMissing, "doc"),
+    ];
+    assert_eq!(cases.len(), 13, "十三 kind 全覆盖");
+    for (kind, expected) in cases {
+        assert_eq!(category_of(kind), expected, "{kind:?} 的分类");
+    }
+
+    let mut categories: Vec<&str> = ArchiApiFindingKind::ALL
+        .iter()
+        .map(|kind| category_of(*kind))
+        .collect();
+    categories.sort_unstable();
+    categories.dedup();
+    assert_eq!(
+        categories,
+        vec![
+            "constructor",
+            "contract",
+            "doc",
+            "entry",
+            "nesting",
+            "reexport",
+            "signature"
+        ],
+        "值域恰七值"
+    );
+    for kind in ArchiApiFindingKind::ALL {
+        let word = category_of(kind);
+        assert_eq!(word, word.to_lowercase(), "分类词全小写：{word}");
+        assert_eq!(word.trim(), word, "分类词零空白：{word:?}");
+    }
+}
+
+// ===========================================================================
+// pair 锚点不占 `relation` 槽位（判据面与漂移条目面结构分离）
+// ===========================================================================
+
+/// 异常：三条 pair 判据只产 `ArchiApiFinding`——`check.rs` 内零 `ArchiDriftEntry`、
+/// 零 `DependsOnAncestor` / `unknownReference`（图形诊断），`relation` 槽位结构上无法
+/// 被占用（判据类型与漂移条目类型分立）。
+#[test]
+fn pair判据不落relation槽位() {
+    let source = include_str!("check.rs");
+    for forbidden in ["ArchiDriftEntry", "DependsOnAncestor", "unknownReference"] {
+        assert!(
+            !source.contains(forbidden),
+            "判据侧零 {forbidden}（pair 不写漂移条目 / 图诊断）"
+        );
+    }
+    assert!(
+        source.contains("Vec<ArchiApiFinding>"),
+        "判据侧产出类型为 `Vec<ArchiApiFinding>`"
+    );
+
+    // 行为面：三条 pair 判据同时在场时，返回值里零非 `ArchiApiFinding` 形态（类型即证，
+    // 这里以「三条 pair 与元素锚点并存」再钉一次数量关系）
+    let parent = "App.Backend.Infra.ArchiRuntime";
+    let child = "App.Backend.Infra.ArchiRuntime.Inner";
+    let source_text = format!(
+        "# {parent}\n\n```json api-types\n{{\
+         \"Shared\": {{\"type\": \"object\", \"properties\": {{}}}}, \
+         \"Dangling\": {{\"$ref\": \"../Core/App.Core.Unknown.schema.json#/$defs/Dangling\"}}\
+         }}\n```\n"
+    );
+    let parsed = parse(&source_text, parent, &format!("{parent}.md")).expect("结构合法");
+    let fixture = Fixture::new("pair-no-relation")
+        .with_element(element(parent, &["crates/infra/archi/"]))
+        .with_element(element(child, &["crates/core/archi/"]))
+        .with_contract(parsed)
+        .with_contract(contract(child, &[], &["Shared"], &[]));
+    fixture.touch_entry("crates/infra/archi");
+    fixture.touch_entry("crates/core/archi");
+
+    let findings = fixture.run();
+    let mut pair_findings = 0;
+    for finding in &findings {
+        if !matches!(
+            finding.kind,
+            ArchiApiFindingKind::ApiNestedCrossCrate
+                | ArchiApiFindingKind::ApiRefMissing
+                | ArchiApiFindingKind::ApiShadowing
+        ) {
+            continue;
+        }
+        pair_findings += 1;
+        assert!(
+            matches!(finding.category.as_str(), "nesting" | "reexport"),
+            "pair 判据分类只落 nesting / reexport（不进 relation 面）：{}",
+            finding.category
+        );
+    }
+    assert_eq!(pair_findings, 3, "三条 pair 判据各一条：{findings:?}");
 }

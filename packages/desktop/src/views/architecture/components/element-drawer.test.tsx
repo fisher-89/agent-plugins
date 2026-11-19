@@ -34,6 +34,7 @@ function element(overrides: Partial<ArchiElement> = {}): ArchiElement {
     modelFile: '.dev-team/architecture/models/01-core.toml',
     modelLine: 6,
     entry: null,
+    doc: null,
     mark: 'none',
     ...overrides,
   };
@@ -50,29 +51,16 @@ function relation(overrides: Partial<ArchiRelation> = {}): ArchiRelation {
   };
 }
 
-/** 文档条目 fixture（强度序：explicit → adjacent → text）。 */
-function docsFixture() {
-  return [
-    {
-      path: 'src/auth/README.md',
-      title: '认证说明',
-      kind: 'md' as const,
-      source: 'explicit' as const,
-    },
-    {
-      path: 'src/auth/guide.md',
-      title: '指南',
-      kind: 'md' as const,
-      source: 'adjacent' as const,
-    },
-    {
-      path: '.dev-team/architecture/decisions/0007-token-sink.md',
-      title: '令牌收口',
-      kind: 'adr' as const,
-      source: 'text' as const,
-    },
-  ];
-}
+/** 入口文档载体 fixture（`doc` 单值、repo 相对 POSIX）。 */
+const ENTRY_DOC = 'src/auth/README.md';
+
+/** 契约段三路径 fixture（`contractPath` 落在 models 段：契约资产即入口文档）。 */
+const DECLARED_API = {
+  status: 'declared',
+  contractPath: '.dev-team/architecture/models/Core/App.Auth.md',
+  schemaPath: '.dev-team/architecture/models/Core/App.Auth.schema.json',
+  generatedPath: 'src/auth.i.ts',
+};
 
 function callsOf(command: string): Record<string, unknown>[] {
   return invokeMock.mock.calls
@@ -90,8 +78,7 @@ beforeEach(() => {
         dependsOn: [{ target: 'App.Billing', description: '认证调用计费' }],
         dependedBy: [],
         children: [],
-        docs: docsFixture(),
-        warnings: [],
+        doc: ENTRY_DOC,
         // 契约状态投影：既有用例不涉契约段，取「无契约」事实态（契约段呈一行空态）
         api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
       });
@@ -174,122 +161,109 @@ describe('抽屉概览', () => {
   });
 });
 
-describe('文档关联段', () => {
-  it('应按强度序渲染四字段条目（路径经 title 属性透出，不含正文）', async () => {
+describe('入口文档段', () => {
+  it('应在 api = none 时渲单值路径行（路径经 title 透出，未点击零 invoke）', async () => {
     render(
       <ElementDrawer
         root={'C:\\demo\\alpha'}
         mode="full"
-        element={element()}
+        element={element({ api: 'none' })}
         relations={[]}
         findings={[]}
         onChanged={vi.fn()}
       />,
     );
-    await waitFor(() => expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(3));
-    const items = screen.queryAllByTestId('archi-doc-item');
-    expect(items.map((item) => item.getAttribute('data-source'))).toEqual([
-      'explicit',
-      'adjacent',
-      'text',
-    ]);
-    expect(items[0]?.textContent).toContain('认证说明');
-    expect(screen.getByTitle('src/auth/README.md')).toBeTruthy();
+    await waitFor(() => expect(screen.queryAllByTestId('archi-entry-doc')).toHaveLength(1));
+    const row = screen.getByTestId('archi-entry-doc');
+    expect(row.getAttribute('title')).toBe(ENTRY_DOC);
+    expect(row.textContent).toContain(ENTRY_DOC);
     expect(callsOf('read_file')).toHaveLength(0);
+    // 旧四字段条目面零残留（source / kind 不再出线）
+    expect(row.hasAttribute('data-source')).toBe(false);
   });
 
-  it('应在 docs 为空时呈现空态且不告警', async () => {
-    invokeMock.mockImplementation(() =>
-      Promise.resolve({
-        element: element(),
-        dependsOn: [],
-        dependedBy: [],
-        children: [],
-        docs: [],
-        warnings: [],
-        api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
-      }),
-    );
+  it('应在 declared 元素上整段不渲（入口文档由契约段承担，零重复）', async () => {
     render(
       <ElementDrawer
         root={'C:\\demo\\alpha'}
         mode="full"
-        element={element()}
+        element={element({ api: 'declared' })}
         relations={[]}
         findings={[]}
         onChanged={vi.fn()}
       />,
     );
-    await waitFor(() => expect(screen.getByTestId('archi-docs-empty')).toBeTruthy());
-    expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(0);
-    expect(screen.getByTestId('archi-docs-empty').textContent).toBe('无关联文档');
+    await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
+    expect(screen.queryAllByTestId('archi-entry-doc')).toHaveLength(0);
+    expect(screen.queryByTestId('archi-entry-doc-empty')).toBeNull();
+    expect(
+      screen.queryAllByRole('heading', { level: 3 }).map((node) => node.textContent),
+    ).not.toContain('入口文档');
   });
 
-  it('应在点击 ADR 条目时打开预览抽屉并取该路径正文，默认页签渲染 markdown（未点击零 invoke）', async () => {
-    render(
-      <ElementDrawer
-        root={'C:\\demo\\alpha'}
-        mode="full"
-        element={element()}
-        relations={[]}
-        findings={[]}
-        onChanged={vi.fn()}
-      />,
-    );
-    await waitFor(() => expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(3));
-    expect(callsOf('read_file')).toHaveLength(0);
-
-    const adrButton = screen.getByTitle('.dev-team/architecture/decisions/0007-token-sink.md');
-    fireEvent.click(adrButton);
-    await waitFor(() => expect(screen.getByTestId('file-content-markdown')).toBeTruthy());
-    expect(callsOf('read_file')).toEqual([
-      {
-        path: 'C:\\demo\\alpha/.dev-team/architecture/decisions/0007-token-sink.md',
-        offset: null,
-        limit: null,
-      },
-    ]);
-    const body = screen.getByTestId('file-content-markdown');
-    expect(body.textContent).toContain('令牌收口');
-    expect(body.textContent).toContain('收口到 Token 模块');
-    expect(body.querySelector('h1')).toBeTruthy();
-    expect(body.querySelector('li')).toBeTruthy();
-    expect(body.querySelector('code')).toBeTruthy();
-  });
-
-  it('应在 ADR 取数失败时抽屉内行内呈现错误且抽屉其余区块不变', async () => {
-    invokeMock.mockImplementation((command: string) => {
+  it('应在 doc 为 null 时呈现空态文案（不渲空串）', async () => {
+    invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
       if (command === 'archi_module') {
+        const fqn = typeof params?.element === 'string' ? params.element : '';
         return Promise.resolve({
-          element: element(),
+          element: element({ fqn, api: 'none' }),
           dependsOn: [],
           dependedBy: [],
           children: [],
-          docs: docsFixture(),
-          warnings: [],
-          // 契约状态投影：本组用例不涉契约段，取「无契约」事实态（契约段呈一行空态）
+          doc: null,
           api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
         });
       }
-      return Promise.reject(new Error('路径不在模块文档关联集内：a.md'));
+      return Promise.reject(new Error(`未预期命令: ${command}`));
     });
     render(
       <ElementDrawer
         root={'C:\\demo\\alpha'}
         mode="full"
-        element={element()}
+        element={element({ api: 'none' })}
         relations={[]}
         findings={[]}
         onChanged={vi.fn()}
       />,
     );
-    await waitFor(() => expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(3));
-    fireEvent.click(screen.getByTitle('.dev-team/architecture/decisions/0007-token-sink.md'));
-    await waitFor(() => expect(screen.getByTestId('file-content-error')).toBeTruthy());
-    expect(screen.getByTestId('file-content-error').textContent).toContain(
-      '路径不在模块文档关联集内',
+    await waitFor(() => expect(screen.getByTestId('archi-entry-doc-empty')).toBeTruthy());
+    expect(screen.getByTestId('archi-entry-doc-empty').textContent).toBe('无入口文档');
+    expect(screen.queryAllByTestId('archi-entry-doc')).toHaveLength(0);
+  });
+
+  it('应在 doc 含越界形态时把路径原样交给查看面（父层零二次校验）', async () => {
+    const exotic = '../outside/入口 🚀.md';
+    invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
+      if (command === 'archi_module') {
+        const fqn = typeof params?.element === 'string' ? params.element : '';
+        return Promise.resolve({
+          element: element({ fqn, api: 'none' }),
+          dependsOn: [],
+          dependedBy: [],
+          children: [],
+          doc: exotic,
+          api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
+        });
+      }
+      return Promise.reject(new Error('路径越界（读盘失败）'));
+    });
+    render(
+      <ElementDrawer
+        root={'/ws'}
+        mode="full"
+        element={element({ api: 'none' })}
+        relations={[]}
+        findings={[]}
+        onChanged={vi.fn()}
+      />,
     );
-    expect(screen.getByTestId('archi-drawer')).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId('archi-entry-doc')).toBeTruthy());
+    expect(screen.getByTestId('archi-entry-doc').getAttribute('title')).toBe(exotic);
+    fireEvent.click(screen.getByRole('button', { name: '查看' }));
+    await waitFor(() => expect(screen.getByTestId('file-content-error')).toBeTruthy());
+    expect(callsOf('read_file')).toEqual([
+      { path: `${'/ws'}/${exotic}`, offset: null, limit: null },
+    ]);
   });
 });
 
@@ -342,8 +316,7 @@ describe('incremental 改档', () => {
           dependsOn: [],
           dependedBy: [],
           children: [],
-          docs: [],
-          warnings: [],
+          doc: null,
           api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
         });
       }
@@ -425,7 +398,7 @@ describe('full 只读与本期边界', () => {
 });
 
 describe('抽屉取数态与 gate 编辑边界', () => {
-  it('应在 ADR 正文取数未回时呈加载行（不空白、不提前显错误）', async () => {
+  it('应在入口文档正文取数未回时呈加载行（不空白、不提前显错误）', async () => {
     let resolveDoc: ((body: string) => void) | undefined;
     invokeMock.mockImplementation((command: string) => {
       if (command === 'archi_module') {
@@ -434,8 +407,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
           dependsOn: [],
           dependedBy: [],
           children: [],
-          docs: docsFixture(),
-          warnings: [],
+          doc: ENTRY_DOC,
           // 契约状态投影：本组用例不涉契约段，取「无契约」事实态（契约段呈一行空态）
           api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
         });
@@ -448,15 +420,15 @@ describe('抽屉取数态与 gate 编辑边界', () => {
       <ElementDrawer
         root={'C:\\demo\\alpha'}
         mode="full"
-        element={element()}
+        element={element({ api: 'none' })}
         relations={[]}
         findings={[]}
         onChanged={vi.fn()}
       />,
     );
-    await waitFor(() => expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(3));
+    await waitFor(() => expect(screen.queryAllByTestId('archi-entry-doc')).toHaveLength(1));
 
-    fireEvent.click(screen.getByTitle('.dev-team/architecture/decisions/0007-token-sink.md'));
+    fireEvent.click(screen.getByRole('button', { name: '查看' }));
     await waitFor(() => expect(screen.getByTestId('file-content-loading')).toBeTruthy());
     expect(screen.queryByTestId('file-content-markdown')).toBeNull();
     expect(screen.queryByTestId('file-content-error')).toBeNull();
@@ -477,8 +449,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
           dependsOn: [],
           dependedBy: [],
           children: [],
-          docs: [],
-          warnings: [],
+          doc: null,
           api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
         });
       }
@@ -580,50 +551,49 @@ describe('抽屉取数态与 gate 编辑边界', () => {
   });
 });
 
-describe('文档条目交互', () => {
-  it('应只让 ADR 条目可展开（md / adjacent 条目按钮禁用）', async () => {
+describe('入口文档查看交互', () => {
+  it('应在点击查看时取该路径正文（载荷 = root + doc 单值，默认零 invoke）', async () => {
     render(
       <ElementDrawer
         root={'C:\\demo\\alpha'}
         mode="full"
-        element={element()}
+        element={element({ api: 'none' })}
         relations={[]}
         findings={[]}
         onChanged={vi.fn()}
       />,
     );
-    await waitFor(() => expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(3));
-    expect(screen.getByTitle('src/auth/README.md').hasAttribute('disabled')).toBe(true);
-    expect(screen.getByTitle('src/auth/guide.md').hasAttribute('disabled')).toBe(true);
-    expect(
-      screen
-        .getByTitle('.dev-team/architecture/decisions/0007-token-sink.md')
-        .hasAttribute('disabled'),
-    ).toBe(false);
+    await waitFor(() => expect(screen.queryAllByTestId('archi-entry-doc')).toHaveLength(1));
+    expect(callsOf('read_file')).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: '查看' }));
+    await waitFor(() => expect(screen.getByTestId('file-content-markdown')).toBeTruthy());
+    expect(callsOf('read_file')).toEqual([
+      { path: `C:\\demo\\alpha/${ENTRY_DOC}`, offset: null, limit: null },
+    ]);
+    expect(screen.getByTestId('file-content-markdown').textContent).toContain('令牌收口');
   });
 
-  it('应再次点击同一条目重新打开预览（抽屉关闭后正文卸载，取数不重复累积）', async () => {
+  it('应在关闭后重开再取一次（关闭即卸载，零跨开合缓存）', async () => {
     render(
       <ElementDrawer
         root={'C:\\demo\\alpha'}
         mode="full"
-        element={element()}
+        element={element({ api: 'none' })}
         relations={[]}
         findings={[]}
         onChanged={vi.fn()}
       />,
     );
-    await waitFor(() => expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(3));
-    const adr = screen.getByTitle('.dev-team/architecture/decisions/0007-token-sink.md');
-    fireEvent.click(adr);
+    await waitFor(() => expect(screen.queryAllByTestId('archi-entry-doc')).toHaveLength(1));
+    fireEvent.click(screen.getByRole('button', { name: '查看' }));
     await waitFor(() => expect(screen.getByTestId('file-content-markdown')).toBeTruthy());
 
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     await waitFor(() => expect(screen.queryByTestId('file-content-markdown')).toBeNull());
 
-    fireEvent.click(adr);
+    fireEvent.click(screen.getByRole('button', { name: '查看' }));
     await waitFor(() => expect(screen.getByTestId('file-content-markdown')).toBeTruthy());
-    // 每次打开各取一次（关闭即卸载，无跨开合的缓存复用）
     expect(callsOf('read_file')).toHaveLength(2);
   });
 });
@@ -690,7 +660,7 @@ describe('取数异常', () => {
     );
     await waitFor(() => expect(screen.getByTestId('archi-drawer-error')).toBeTruthy());
     expect(screen.getByTestId('archi-drawer-error').textContent).toContain('元素不存在');
-    expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(0);
+    expect(screen.queryAllByTestId('archi-entry-doc')).toHaveLength(0);
   });
 
   it('应在未选中元素时零 invoke 并列空态', async () => {
@@ -717,17 +687,19 @@ describe('取数异常', () => {
 // ---------------------------------------------------------------------------
 
 /** 契约段 detail 覆盖（`api` 投影可指定；其余字段取既有缺省）。 */
-function serveModuleWithApi(api: Record<string, unknown>): void {
+function serveModuleWithApi(
+  api: Record<string, unknown>,
+  elementApi: ArchiElement['api'] = 'declared',
+): void {
   invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
     if (command === 'archi_module') {
       const fqn = typeof params?.element === 'string' ? params.element : '';
       return Promise.resolve({
-        element: element({ fqn }),
+        element: element({ fqn, api: elementApi }),
         dependsOn: [],
         dependedBy: [],
         children: [],
-        docs: docsFixture(),
-        warnings: [],
+        doc: ENTRY_DOC,
         api,
       });
     }
@@ -760,14 +732,18 @@ function finding(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** 渲染抽屉（契约段语料由 `api` 指定）。 */
-function renderWith(findings: Record<string, unknown>[], api: Record<string, unknown>) {
-  serveModuleWithApi(api);
+/** 渲染抽屉（契约段语料由 `api` 指定；元素 `api` 态可覆写）。 */
+function renderWith(
+  findings: Record<string, unknown>[],
+  api: Record<string, unknown>,
+  elementApi: ArchiElement['api'] = 'declared',
+) {
+  serveModuleWithApi(api, elementApi);
   render(
     <ElementDrawer
       root={'/ws'}
       mode="full"
-      element={element()}
+      element={element({ api: elementApi })}
       relations={[]}
       findings={findings as never}
       onChanged={vi.fn()}
@@ -775,16 +751,9 @@ function renderWith(findings: Record<string, unknown>[], api: Record<string, unk
   );
 }
 
-const DECLARED_API = {
-  status: 'declared',
-  contractPath: '.dev-team/architecture/api/Core/App.Auth.md',
-  schemaPath: '.dev-team/architecture/api/Core/App.Auth.schema.json',
-  generatedPath: 'src/auth.i.ts',
-};
-
 describe('抽屉契约段', () => {
-  it('应在概览与文档之间插入契约段（段标题为 h3）', async () => {
-    renderWith([], DECLARED_API);
+  it('应按概览 → 契约 → 入口文档 → 豁免的段序渲染（段标题为 h3）', async () => {
+    renderWith([], DECLARED_API, 'none');
     await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
     await waitFor(() =>
       expect(screen.getAllByRole('heading', { level: 3 }).length).toBeGreaterThan(0),
@@ -796,9 +765,10 @@ describe('抽屉契约段', () => {
     const text = drawer.textContent ?? '';
     const overviewIndex = text.indexOf('App.Auth');
     const contractIndex = text.indexOf('契约');
-    const docsIndex = text.indexOf('文档');
+    const entryDocIndex = text.indexOf('入口文档');
+    expect(headings).toContain('入口文档');
     expect(overviewIndex).toBeLessThan(contractIndex);
-    expect(contractIndex).toBeLessThan(docsIndex);
+    expect(contractIndex).toBeLessThan(entryDocIndex);
   });
 
   it('应让 declared 三路径行各自可打开（read_file 载荷 = root + 该 repo 相对串）', async () => {

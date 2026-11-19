@@ -1,0 +1,1173 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-doc-field-docs-retirement\packages\desktop\src-tauri\crates\core\foundation)
+    Checking workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-doc-field-docs-retirement\packages\desktop\src-tauri\crates\core\workflow)
+    Checking archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-doc-field-docs-retirement\packages\desktop\src-tauri\crates\core\archi)
+    Checking config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-doc-field-docs-retirement\packages\desktop\src-tauri\crates\core\config)
+    Checking exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-doc-field-docs-retirement\packages\desktop\src-tauri\crates\infra\exec)
+error[E0432]: unresolved import `super::archi_decisions_dir`
+   --> crates\core\foundation\src\layout\mod_test.rs:809:17
+    |
+809 |     use super::{archi_decisions_dir, archi_dir, archi_models_dir};
+    |                 ^^^^^^^^^^^^^^^^^^^ no `archi_decisions_dir` in `layout`
+
+error[E0432]: unresolved import `super::archi_decisions_dir`
+   --> crates\core\foundation\src\layout\mod_test.rs:838:17
+    |
+838 |     use super::{archi_decisions_dir, archi_dir, archi_models_dir};
+    |                 ^^^^^^^^^^^^^^^^^^^ no `archi_decisions_dir` in `layout`
+
+error[E0432]: unresolved import `super::archi_decisions_rel_dir`
+   --> crates\core\foundation\src\layout\mod_test.rs:995:17
+    |
+995 |     use super::{archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir};
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^ no `archi_decisions_rel_dir` in `layout`
+
+error[E0432]: unresolved imports `super::archi_decisions_dir`, `super::archi_decisions_rel_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1027:9
+     |
+1027 |         archi_decisions_dir, archi_decisions_rel_dir, archi_dir, archi_models_dir,
+     |         ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^ no `archi_decisions_rel_dir` in `layout`
+     |         |
+     |         no `archi_decisions_dir` in `layout`
+
+error[E0432]: unresolved import `super::archi_decisions_rel_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1075:17
+     |
+1075 |     use super::{archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir};
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^ no `archi_decisions_rel_dir` in `layout`
+
+error[E0432]: unresolved import `super::archi_decisions_rel_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1150:17
+     |
+1150 |     use super::{archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir};
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^ no `archi_decisions_rel_dir` in `layout`
+
+error[E0432]: unresolved import `super::archi_decisions_rel_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1182:17
+     |
+1182 |     use super::{archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir, is_archi_rel_path};
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^ no `archi_decisions_rel_dir` in `layout`
+
+error[E0432]: unresolved import `super::archi_decisions_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1201:17
+     |
+1201 |     use super::{archi_decisions_dir, archi_dir, archi_models_dir, is_archi_rel_path};
+     |                 ^^^^^^^^^^^^^^^^^^^ no `archi_decisions_dir` in `layout`
+
+error[E0432]: unresolved import `super::archi_decisions_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1280:36
+     |
+1280 |     use super::{archi_config_path, archi_decisions_dir, archi_dir, archi_models_dir};
+     |                                    ^^^^^^^^^^^^^^^^^^^ no `archi_decisions_dir` in `layout`
+
+error[E0432]: unresolved import `super::archi_decisions_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1297:28
+     |
+1297 |         archi_config_path, archi_decisions_dir, archi_models_dir, change_reports,
+     |                            ^^^^^^^^^^^^^^^^^^^ no `archi_decisions_dir` in `layout`
+
+error[E0432]: unresolved import `super::archi_decisions_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1510:36
+     |
+1510 |     use super::{archi_config_path, archi_decisions_dir, archi_graph_dir, archi_models_dir};
+     |                                    ^^^^^^^^^^^^^^^^^^^ no `archi_decisions_dir` in `layout`
+
+error[E0432]: unresolved import `super::archi_decisions_rel_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1558:9
+     |
+1558 |         archi_decisions_rel_dir, archi_graph_rel_dir, archi_models_rel_dir, archi_rel_dir,
+     |         ^^^^^^^^^^^^^^^^^^^^^^^ no `archi_decisions_rel_dir` in `layout`
+
+error[E0432]: unresolved imports `super::archi_decisions_dir`, `super::archi_decisions_rel_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1611:28
+     |
+1611 |         archi_config_path, archi_decisions_dir, archi_decisions_rel_dir, archi_dir,
+     |                            ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^ no `archi_decisions_rel_dir` in `layout`
+     |                            |
+     |                            no `archi_decisions_dir` in `layout`
+
+For more information about this error, try `rustc --explain E0432`.
+error: could not compile `foundation` (lib test) due to 13 previous errors
+warning: build failed, waiting for other jobs to finish...
+warning: this function has too many arguments (8/7)
+   --> crates\core\workflow\src\write\create.rs:441:1
+    |
+441 | / fn compensate_tree_failure(
+442 | |     store: &dyn ChangeStateStore,
+443 | |     vcs: &dyn WorktreePort,
+444 | |     main_root: &Path,
+...   |
+449 | |     fs_error: &str,
+450 | | ) -> String {
+    | |___________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#too_many_arguments
+    = note: `#[warn(clippy::too_many_arguments)]` on by default
+
+warning: `workflow` (lib) generated 1 warning
+error[E0432]: unresolved import `crate::docs`
+  --> crates\core\archi\src\search_test.rs:13:5
+   |
+13 | use crate::docs;
+   |     ^^^^^^^^^^^ no `docs` in the root
+
+error[E0432]: unresolved imports `crate::dto::DocKind`, `crate::dto::DocSource`, `crate::dto::WarningKind`
+  --> crates\core\archi\src\dto_test.rs:18:5
+   |
+18 |     DocKind, DocSource, EdgeMark, ElementKind, FileEntryKind, FileTreeMark, GateTier, NodeMark,
+   |     ^^^^^^^  ^^^^^^^^^ no `DocSource` in `dto`
+   |     |
+   |     no `DocKind` in `dto`
+19 |     SearchScope, WarningKind,
+   |                  ^^^^^^^^^^^ no `WarningKind` in `dto`
+
+error[E0432]: unresolved import `crate::dto::DocRef`
+  --> crates\core\archi\src\search_test.rs:14:29
+   |
+14 | use crate::dto::{ApiStatus, DocRef, ElementKind, GateTier, SearchScope};
+   |                             ^^^^^^ no `DocRef` in `dto`
+
+error[E0433]: cannot find `DocSource` in `dto`
+   --> crates\core\archi\src\search_test.rs:139:40
+    |
+139 |     assert_eq!(doc.source, crate::dto::DocSource::Explicit);
+    |                                        ^^^^^^^^^ could not find `DocSource` in `dto`
+
+error[E0425]: cannot find function `archi_decisions_dir` in module `foundation::layout`
+   --> crates\core\archi\src\dto_test.rs:568:44
+    |
+568 |     fs::create_dir_all(foundation::layout::archi_decisions_dir(temp.root()))
+    |                                            ^^^^^^^^^^^^^^^^^^^ not found in `foundation::layout`
+
+error[E0425]: cannot find function `archi_decisions_dir` in module `foundation::layout`
+   --> crates\core\archi\src\dto_test.rs:571:29
+    |
+571 |         foundation::layout::archi_decisions_dir(temp.root()).join("0001-auth.md"),
+    |                             ^^^^^^^^^^^^^^^^^^^ not found in `foundation::layout`
+
+error[E0425]: cannot find function `linked_doc_paths` in module `dto`
+   --> crates\core\archi\src\dto_test.rs:585:23
+    |
+585 |     let linked = dto::linked_doc_paths(temp.root()).expect("Ok");
+    |                       ^^^^^^^^^^^^^^^^ not found in `dto`
+
+error[E0425]: cannot find function `linked_doc_paths` in module `dto`
+   --> crates\core\archi\src\dto_test.rs:607:14
+    |
+607 |         dto::linked_doc_paths(empty.root())
+    |              ^^^^^^^^^^^^^^^^ not found in `dto`
+
+error[E0425]: cannot find function `linked_doc_paths` in module `dto`
+   --> crates\core\archi\src\dto_test.rs:616:14
+    |
+616 |         dto::linked_doc_paths(broken.root()).is_err(),
+    |              ^^^^^^^^^^^^^^^^ not found in `dto`
+
+error[E0063]: missing field `doc` in initializer of `dto::ArchiElement`
+  --> crates\core\archi\src\api\extract\mod_test.rs:33:5
+   |
+33 |     ArchiElement {
+   |     ^^^^^^^^^^^^ missing `doc`
+
+error[E0063]: missing field `doc` in initializer of `dto::ArchiElement`
+  --> crates\core\archi\src\api\check_test.rs:83:5
+   |
+83 |     ArchiElement {
+   |     ^^^^^^^^^^^^ missing `doc`
+
+error[E0063]: missing field `doc_facts` in initializer of `api::ApiCheckInput<'_>`
+   --> crates\core\archi\src\api\check_test.rs:223:15
+    |
+223 |         check(ApiCheckInput {
+    |               ^^^^^^^^^^^^^ missing `doc_facts`
+
+error[E0063]: missing field `doc_facts` in initializer of `api::ApiCheckInput<'_>`
+    --> crates\core\archi\src\api\check_test.rs:1120:26
+     |
+1120 |     let findings = check(ApiCheckInput {
+     |                          ^^^^^^^^^^^^^ missing `doc_facts`
+
+error[E0063]: missing field `doc_facts` in initializer of `api::ApiCheckInput<'_>`
+    --> crates\core\archi\src\api\check_test.rs:1392:26
+     |
+1392 |     let findings = check(ApiCheckInput {
+     |                          ^^^^^^^^^^^^^ missing `doc_facts`
+
+error[E0063]: missing field `doc_facts` in initializer of `api::ApiCheckInput<'_>`
+    --> crates\core\archi\src\api\check_test.rs:1494:35
+     |
+1494 |     let first = crate::api::check(ApiCheckInput {
+     |                                   ^^^^^^^^^^^^^ missing `doc_facts`
+
+error[E0063]: missing field `doc_facts` in initializer of `api::ApiCheckInput<'_>`
+    --> crates\core\archi\src\api\check_test.rs:1502:36
+     |
+1502 |     let second = crate::api::check(ApiCheckInput {
+     |                                    ^^^^^^^^^^^^^ missing `doc_facts`
+
+error[E0063]: missing field `doc_facts` in initializer of `api::ApiCheckInput<'_>`
+    --> crates\core\archi\src\api\check_test.rs:1588:34
+     |
+1588 |     let enabled_findings = check(ApiCheckInput {
+     |                                  ^^^^^^^^^^^^^ missing `doc_facts`
+
+error[E0063]: missing field `doc_facts` in initializer of `api::ApiCheckInput<'_>`
+    --> crates\core\archi\src\api\check_test.rs:1598:35
+     |
+1598 |     let disabled_findings = check(ApiCheckInput {
+     |                                   ^^^^^^^^^^^^^ missing `doc_facts`
+
+error[E0063]: missing field `doc` in initializer of `dto::ArchiElement`
+   --> crates\core\archi\src\api\mod_test.rs:173:5
+    |
+173 |     ArchiElement {
+    |     ^^^^^^^^^^^^ missing `doc`
+
+error[E0063]: missing field `doc_facts` in initializer of `api::ApiSnapshot`
+   --> crates\core\archi\src\api\mod_test.rs:201:5
+    |
+201 |     ApiSnapshot {
+    |     ^^^^^^^^^^^ missing `doc_facts`
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates\core\archi\src\api\mod_test.rs:218:13
+    |
+218 |     assert!(enabled(temp.root()), "递归含 md 即启用");
+    |             ^^^^^^^------------- argument #2 of type `&[dto::ArchiElement]` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:362:8
+    |
+362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+    |        ^^^^^^^              -------------------------
+help: provide the argument
+    |
+218 |     assert!(enabled(temp.root(), /* &[dto::ArchiElement] */), "递归含 md 即启用");
+    |                                ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates\core\archi\src\api\mod_test.rs:227:10
+    |
+227 |         !enabled(only_index.root()),
+    |          ^^^^^^^------------------- argument #2 of type `&[dto::ArchiElement]` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:362:8
+    |
+362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+    |        ^^^^^^^              -------------------------
+help: provide the argument
+    |
+227 |         !enabled(only_index.root(), /* &[dto::ArchiElement] */),
+    |                                   ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates\core\archi\src\api\mod_test.rs:237:14
+    |
+237 |     assert!(!enabled(bare.root()), "无 .dev-team → false（零 panic）");
+    |              ^^^^^^^------------- argument #2 of type `&[dto::ArchiElement]` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:362:8
+    |
+362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+    |        ^^^^^^^              -------------------------
+help: provide the argument
+    |
+237 |     assert!(!enabled(bare.root(), /* &[dto::ArchiElement] */), "无 .dev-team → false（零 panic）");
+    |                                 ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates\core\archi\src\api\mod_test.rs:241:14
+    |
+241 |     assert!(!enabled(empty.root()), "空契约目录 → false");
+    |              ^^^^^^^-------------- argument #2 of type `&[dto::ArchiElement]` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:362:8
+    |
+362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+    |        ^^^^^^^              -------------------------
+help: provide the argument
+    |
+241 |     assert!(!enabled(empty.root(), /* &[dto::ArchiElement] */), "空契约目录 → false");
+    |                                  ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates\core\archi\src\api\mod_test.rs:248:13
+    |
+248 |     assert!(enabled(nested.root()), "两层深仍递归命中");
+    |             ^^^^^^^--------------- argument #2 of type `&[dto::ArchiElement]` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:362:8
+    |
+362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+    |        ^^^^^^^              -------------------------
+help: provide the argument
+    |
+248 |     assert!(enabled(nested.root(), /* &[dto::ArchiElement] */), "两层深仍递归命中");
+    |                                  ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates\core\archi\src\api\mod_test.rs:257:13
+    |
+257 |     assert!(enabled(readme.root()), "README.md 仍算 md 在场");
+    |             ^^^^^^^--------------- argument #2 of type `&[dto::ArchiElement]` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:362:8
+    |
+362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+    |        ^^^^^^^              -------------------------
+help: provide the argument
+    |
+257 |     assert!(enabled(readme.root(), /* &[dto::ArchiElement] */), "README.md 仍算 md 在场");
+    |                                  ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates\core\archi\src\api\mod_test.rs:261:14
+    |
+261 |     assert!(!enabled(upper.root()), "x.MD 大小写敏感 → false");
+    |              ^^^^^^^-------------- argument #2 of type `&[dto::ArchiElement]` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:362:8
+    |
+362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+    |        ^^^^^^^              -------------------------
+help: provide the argument
+    |
+261 |     assert!(!enabled(upper.root(), /* &[dto::ArchiElement] */), "x.MD 大小写敏感 → false");
+    |                                  ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates\core\archi\src\api\mod_test.rs:265:14
+    |
+265 |     assert!(!enabled(doubled.root()), "x.md.txt 不以 .md 结尾 → false");
+    |              ^^^^^^^---------------- argument #2 of type `&[dto::ArchiElement]` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:362:8
+    |
+362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+    |        ^^^^^^^              -------------------------
+help: provide the argument
+    |
+265 |     assert!(!enabled(doubled.root(), /* &[dto::ArchiElement] */), "x.md.txt 不以 .md 结尾 → false");
+    |                                    ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates\core\archi\src\api\mod_test.rs:269:14
+    |
+269 |     assert!(!enabled(dir_named_md.root()), "同名目录不是文件 → false");
+    |              ^^^^^^^--------------------- argument #2 of type `&[dto::ArchiElement]` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:362:8
+    |
+362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+    |        ^^^^^^^              -------------------------
+help: provide the argument
+    |
+269 |     assert!(!enabled(dir_named_md.root(), /* &[dto::ArchiElement] */), "同名目录不是文件 → false");
+    |                                         ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates\core\archi\src\api\mod_test.rs:297:18
+    |
+297 |                 !enabled(linked.root()),
+    |                  ^^^^^^^--------------- argument #2 of type `&[dto::ArchiElement]` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:362:8
+    |
+362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+    |        ^^^^^^^              -------------------------
+help: provide the argument
+    |
+297 |                 !enabled(linked.root(), /* &[dto::ArchiElement] */),
+    |                                       ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates\core\archi\src\api\mod_test.rs:301:21
+    |
+301 |             let _ = enabled(linked.root());
+    |                     ^^^^^^^--------------- argument #2 of type `&[dto::ArchiElement]` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:362:8
+    |
+362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+    |        ^^^^^^^              -------------------------
+help: provide the argument
+    |
+301 |             let _ = enabled(linked.root(), /* &[dto::ArchiElement] */);
+    |                                          ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates\core\archi\src\api\mod_test.rs:318:9
+    |
+318 |         enabled(at_limit.root()),
+    |         ^^^^^^^----------------- argument #2 of type `&[dto::ArchiElement]` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:362:8
+    |
+362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+    |        ^^^^^^^              -------------------------
+help: provide the argument
+    |
+318 |         enabled(at_limit.root(), /* &[dto::ArchiElement] */),
+    |                                ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates\core\archi\src\api\mod_test.rs:324:10
+    |
+324 |         !enabled(beyond_limit.root()),
+    |          ^^^^^^^--------------------- argument #2 of type `&[dto::ArchiElement]` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:362:8
+    |
+362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+    |        ^^^^^^^              -------------------------
+help: provide the argument
+    |
+324 |         !enabled(beyond_limit.root(), /* &[dto::ArchiElement] */),
+    |                                     ++++++++++++++++++++++++++++
+
+error[E0063]: missing field `doc_facts` in initializer of `api::ApiCheckInput<'_>`
+    --> crates\core\archi\src\api\mod_test.rs:1720:17
+     |
+1720 |     let extra = ApiCheckInput {
+     |                 ^^^^^^^^^^^^^ missing `doc_facts`
+
+error[E0063]: missing field `doc_facts` in initializer of `api::ApiCheckInput<'_>`
+    --> crates\core\archi\src\api\mod_test.rs:1825:26
+     |
+1825 |     let findings = check(ApiCheckInput {
+     |                          ^^^^^^^^^^^^^ missing `doc_facts`
+
+error[E0063]: missing field `doc_facts` in initializer of `api::ApiCheckInput<'_>`
+    --> crates\core\archi\src\api\mod_test.rs:1878:20
+     |
+1878 |     let input = || ApiCheckInput {
+     |                    ^^^^^^^^^^^^^ missing `doc_facts`
+
+error[E0063]: missing field `doc_facts` in initializer of `api::ApiCheckInput<'_>`
+    --> crates\core\archi\src\api\mod_test.rs:1947:20
+     |
+1947 |     let build = || ApiCheckInput {
+     |                    ^^^^^^^^^^^^^ missing `doc_facts`
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+    --> crates\core\archi\src\api\mod_test.rs:3888:29
+     |
+3888 |     assert_eq!(dto.enabled, super::enabled(temp.root()), "enabled 同源");
+     |                             ^^^^^^^^^^^^^^------------- argument #2 of type `&[dto::ArchiElement]` is missing
+     |
+note: function defined here
+    --> crates\core\archi\src\api\mod.rs:362:8
+     |
+ 362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+     |        ^^^^^^^              -------------------------
+help: provide the argument
+     |
+3888 |     assert_eq!(dto.enabled, super::enabled(temp.root(), /* &[dto::ArchiElement] */), "enabled 同源");
+     |                                                       ++++++++++++++++++++++++++++
+
+error[E0063]: missing field `doc_facts` in initializer of `api::ApiCheckInput<'_>`
+    --> crates\core\archi\src\api\mod_test.rs:4165:24
+     |
+4165 |     let direct = check(ApiCheckInput {
+     |                        ^^^^^^^^^^^^^ missing `doc_facts`
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+    --> crates\core\archi\src\api\mod_test.rs:5055:10
+     |
+5055 |         !enabled(temp.root()),
+     |          ^^^^^^^------------- argument #2 of type `&[dto::ArchiElement]` is missing
+     |
+note: function defined here
+    --> crates\core\archi\src\api\mod.rs:362:8
+     |
+ 362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+     |        ^^^^^^^              -------------------------
+help: provide the argument
+     |
+5055 |         !enabled(temp.root(), /* &[dto::ArchiElement] */),
+     |                             ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+    --> crates\core\archi\src\api\mod_test.rs:5081:9
+     |
+5081 |         enabled(mixed.root()),
+     |         ^^^^^^^-------------- argument #2 of type `&[dto::ArchiElement]` is missing
+     |
+note: function defined here
+    --> crates\core\archi\src\api\mod.rs:362:8
+     |
+ 362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+     |        ^^^^^^^              -------------------------
+help: provide the argument
+     |
+5081 |         enabled(mixed.root(), /* &[dto::ArchiElement] */),
+     |                             ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+    --> crates\core\archi\src\api\mod_test.rs:5090:10
+     |
+5090 |         !enabled(cold.root()),
+     |          ^^^^^^^------------- argument #2 of type `&[dto::ArchiElement]` is missing
+     |
+note: function defined here
+    --> crates\core\archi\src\api\mod.rs:362:8
+     |
+ 362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+     |        ^^^^^^^              -------------------------
+help: provide the argument
+     |
+5090 |         !enabled(cold.root(), /* &[dto::ArchiElement] */),
+     |                             ++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+    --> crates\core\archi\src\api\mod_test.rs:5146:9
+     |
+5146 |         enabled(temp.root()),
+     |         ^^^^^^^------------- argument #2 of type `&[dto::ArchiElement]` is missing
+     |
+note: function defined here
+    --> crates\core\archi\src\api\mod.rs:362:8
+     |
+ 362 | pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
+     |        ^^^^^^^              -------------------------
+help: provide the argument
+     |
+5146 |         enabled(temp.root(), /* &[dto::ArchiElement] */),
+     |                            ++++++++++++++++++++++++++++
+
+error[E0063]: missing field `doc` in initializer of `dto::ArchiElement`
+   --> crates\core\archi\src\api\paths_test.rs:104:5
+    |
+104 |     ArchiElement {
+    |     ^^^^^^^^^^^^ missing `doc`
+
+error[E0609]: no field `docs` on type `&model::Element`
+   --> crates\core\archi\src\parse\toml_test.rs:103:17
+    |
+103 |     assert!(app.docs.is_empty(), "缺省 docs 为空数组");
+    |                 ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+103 -     assert!(app.docs.is_empty(), "缺省 docs 为空数组");
+103 +     assert!(app.doc.is_empty(), "缺省 docs 为空数组");
+    |
+
+error[E0609]: no field `docs` on type `&model::Element`
+   --> crates\core\archi\src\parse\toml_test.rs:119:21
+    |
+119 |     assert_eq!(auth.docs, vec!["./src/auth/README.md".to_owned()]);
+    |                     ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+119 -     assert_eq!(auth.docs, vec!["./src/auth/README.md".to_owned()]);
+119 +     assert_eq!(auth.doc, vec!["./src/auth/README.md".to_owned()]);
+    |
+
+error[E0609]: no field `docs` on type `&model::Element`
+   --> crates\core\archi\src\parse\toml_test.rs:423:20
+    |
+423 |     assert_eq!(app.docs, vec!["./a/README.md".to_owned()], "单元素 docs");
+    |                    ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+423 -     assert_eq!(app.docs, vec!["./a/README.md".to_owned()], "单元素 docs");
+423 +     assert_eq!(app.doc, vec!["./a/README.md".to_owned()], "单元素 docs");
+    |
+
+error[E0609]: no field `docs` on type `&model::Element`
+   --> crates\core\archi\src\parse\toml_test.rs:436:20
+    |
+436 |     assert_eq!(app.docs.len(), 200, "200 项 docs 全量保留");
+    |                    ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+436 -     assert_eq!(app.docs.len(), 200, "200 项 docs 全量保留");
+436 +     assert_eq!(app.doc.len(), 200, "200 项 docs 全量保留");
+    |
+
+error[E0609]: no field `docs` on type `&model::Element`
+   --> crates\core\archi\src\parse\toml_test.rs:663:17
+    |
+663 |         element.docs,
+    |                 ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+663 -         element.docs,
+663 +         element.doc,
+    |
+
+error[E0063]: missing field `doc` in initializer of `dto::ArchiElement`
+  --> crates\core\archi\src\scan\mod_test.rs:95:5
+   |
+95 |     ArchiElement {
+   |     ^^^^^^^^^^^^ missing `doc`
+
+error[E0063]: missing field `doc` in initializer of `dto::ArchiElement`
+  --> crates\core\archi\src\scan\owner_test.rs:16:5
+   |
+16 |     ArchiElement {
+   |     ^^^^^^^^^^^^ missing `doc`
+
+error[E0560]: struct `model::Element` has no field named `docs`
+  --> crates\core\archi\src\diff_test.rs:21:9
+   |
+21 |         docs: Vec::new(),
+   |         ^^^^ unknown field
+   |
+help: a field with a similar name exists
+   |
+21 -         docs: Vec::new(),
+21 +         doc: Vec::new(),
+   |
+
+error[E0609]: no field `docs` on type `dto::ArchiModuleDetail`
+   --> crates\core\archi\src\dto_test.rs:397:14
+    |
+397 |             .docs
+    |              ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+397 -             .docs
+397 +             .doc
+    |
+
+error[E0609]: no field `warnings` on type `dto::ArchiModuleDetail`
+   --> crates\core\archi\src\dto_test.rs:404:20
+    |
+404 |     assert!(detail.warnings.is_empty());
+    |                    ^^^^^^^^ unknown field
+    |
+    = note: available fields are: `element`, `depends_on`, `depended_by`, `children`, `doc`, `api`
+
+error[E0609]: no field `docs` on type `dto::ArchiSearchResult`
+   --> crates\core\archi\src\dto_test.rs:539:42
+    |
+539 |         !all.elements.is_empty() && !all.docs.is_empty(),
+    |                                          ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+539 -         !all.elements.is_empty() && !all.docs.is_empty(),
+539 +         !all.elements.is_empty() && !all.doc.is_empty(),
+    |
+
+error[E0609]: no field `docs` on type `dto::ArchiSearchResult`
+   --> crates\core\archi\src\dto_test.rs:544:22
+    |
+544 |     assert!(elements.docs.is_empty(), "Elements → docs 空");
+    |                      ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+544 -     assert!(elements.docs.is_empty(), "Elements → docs 空");
+544 +     assert!(elements.doc.is_empty(), "Elements → docs 空");
+    |
+
+error[E0599]: no variant or associated item named `Docs` found for enum `dto::SearchScope` in the current scope
+   --> crates\core\archi\src\dto_test.rs:546:62
+    |
+546 |     let docs = dto::search(temp.root(), "auth", SearchScope::Docs).expect("Ok");
+    |                                                              ^^^^ variant or associated item not found in `dto::SearchScope`
+    |
+   ::: crates\core\archi\src\dto.rs:264:1
+    |
+264 | pub enum SearchScope {
+    | -------------------- variant or associated item `Docs` not found for this enum
+    |
+help: there is a variant with a similar name
+    |
+546 -     let docs = dto::search(temp.root(), "auth", SearchScope::Docs).expect("Ok");
+546 +     let docs = dto::search(temp.root(), "auth", SearchScope::Doc).expect("Ok");
+    |
+
+error[E0599]: no variant or associated item named `Docs` found for enum `dto::SearchScope` in the current scope
+   --> crates\core\archi\src\dto_test.rs:761:60
+    |
+761 |     assert_eq!(SearchScope::parse("docs"), Ok(SearchScope::Docs));
+    |                                                            ^^^^ variant or associated item not found in `dto::SearchScope`
+    |
+   ::: crates\core\archi\src\dto.rs:264:1
+    |
+264 | pub enum SearchScope {
+    | -------------------- variant or associated item `Docs` not found for this enum
+    |
+help: there is a variant with a similar name
+    |
+761 -     assert_eq!(SearchScope::parse("docs"), Ok(SearchScope::Docs));
+761 +     assert_eq!(SearchScope::parse("docs"), Ok(SearchScope::Doc));
+    |
+
+error[E0063]: missing field `doc` in initializer of `dto::ArchiElement`
+   --> crates\core\archi\src\dto_test.rs:927:19
+    |
+927 |     let element = ArchiElement {
+    |                   ^^^^^^^^^^^^ missing `doc`
+
+error[E0063]: missing field `doc` in initializer of `dto::ArchiElement`
+    --> crates\core\archi\src\dto_test.rs:1111:19
+     |
+1111 |     let element = crate::dto::ArchiElement {
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^ missing `doc`
+
+error[E0063]: missing field `doc` in initializer of `dto::ArchiElement`
+    --> crates\core\archi\src\dto_test.rs:1457:16
+     |
+1457 |     let base = ArchiElement {
+     |                ^^^^^^^^^^^^ missing `doc`
+
+error[E0063]: missing field `doc` in initializer of `dto::ArchiElement`
+    --> crates\core\archi\src\dto_test.rs:1545:27
+     |
+1545 |         let mut element = ArchiElement {
+     |                           ^^^^^^^^^^^^ missing `doc`
+
+error[E0599]: no variant or associated item named `Docs` found for enum `dto::SearchScope` in the current scope
+    --> crates\core\archi\src\dto_test.rs:2031:57
+     |
+2031 |         line_words([SearchScope::Elements, SearchScope::Docs, SearchScope::All].to_vec()),
+     |                                                         ^^^^ variant or associated item not found in `dto::SearchScope`
+     |
+    ::: crates\core\archi\src\dto.rs:264:1
+     |
+ 264 | pub enum SearchScope {
+     | -------------------- variant or associated item `Docs` not found for this enum
+     |
+help: there is a variant with a similar name
+     |
+2031 -         line_words([SearchScope::Elements, SearchScope::Docs, SearchScope::All].to_vec()),
+2031 +         line_words([SearchScope::Elements, SearchScope::Doc, SearchScope::All].to_vec()),
+     |
+
+error[E0063]: missing field `doc` in initializer of `dto::ArchiElement`
+    --> crates\core\archi\src\dto_test.rs:2050:46
+     |
+2050 |     let element_value = serde_json::to_value(ArchiElement {
+     |                                              ^^^^^^^^^^^^ missing `doc`
+
+error[E0560]: struct `model::Element` has no field named `docs`
+  --> crates\core\archi\src\graph_test.rs:24:9
+   |
+24 |         docs: Vec::new(),
+   |         ^^^^ unknown field
+   |
+help: a field with a similar name exists
+   |
+24 -         docs: Vec::new(),
+24 +         doc: Vec::new(),
+   |
+
+error[E0560]: struct `model::Element` has no field named `docs`
+  --> crates\core\archi\src\model_test.rs:28:9
+   |
+28 |         docs: Vec::new(),
+   |         ^^^^ unknown field
+   |
+help: a field with a similar name exists
+   |
+28 -         docs: Vec::new(),
+28 +         doc: Vec::new(),
+   |
+
+error[E0609]: no field `docs` on type `model::Element`
+  --> crates\core\archi\src\model_test.rs:42:10
+   |
+42 |     auth.docs = vec!["./src/auth/README.md".to_owned()];
+   |          ^^^^ unknown field
+   |
+help: a field with a similar name exists
+   |
+42 -     auth.docs = vec!["./src/auth/README.md".to_owned()];
+42 +     auth.doc = vec!["./src/auth/README.md".to_owned()];
+   |
+
+error[E0609]: no field `docs` on type `&model::Element`
+  --> crates\core\archi\src\model_test.rs:72:22
+   |
+72 |     assert_eq!(found.docs, vec!["./src/auth/README.md".to_owned()]);
+   |                      ^^^^ unknown field
+   |
+help: a field with a similar name exists
+   |
+72 -     assert_eq!(found.docs, vec!["./src/auth/README.md".to_owned()]);
+72 +     assert_eq!(found.doc, vec!["./src/auth/README.md".to_owned()]);
+   |
+
+error[E0609]: no field `docs` on type `model::Element`
+   --> crates\core\archi\src\model_test.rs:277:22
+    |
+277 |     assert_eq!(blank.docs, declared.docs);
+    |                      ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+277 -     assert_eq!(blank.docs, declared.docs);
+277 +     assert_eq!(blank.doc, declared.docs);
+    |
+
+error[E0609]: no field `docs` on type `model::Element`
+   --> crates\core\archi\src\model_test.rs:277:37
+    |
+277 |     assert_eq!(blank.docs, declared.docs);
+    |                                     ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+277 -     assert_eq!(blank.docs, declared.docs);
+277 +     assert_eq!(blank.docs, declared.doc);
+    |
+
+error[E0609]: no field `docs` on type `&model::Element`
+   --> crates\core\archi\src\model_test.rs:595:23
+    |
+595 |         assert!(found.docs.is_empty(), "省略 docs 即空数组");
+    |                       ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+595 -         assert!(found.docs.is_empty(), "省略 docs 即空数组");
+595 +         assert!(found.doc.is_empty(), "省略 docs 即空数组");
+    |
+
+error[E0609]: no field `docs` on type `&model::Element`
+   --> crates\core\archi\src\model_test.rs:623:15
+    |
+623 |         found.docs,
+    |               ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+623 -         found.docs,
+623 +         found.doc,
+    |
+
+error[E0560]: struct `model::Element` has no field named `docs`
+  --> crates\core\archi\src\search_test.rs:70:9
+   |
+70 |         docs: Vec::new(),
+   |         ^^^^ unknown field
+   |
+help: a field with a similar name exists
+   |
+70 -         docs: Vec::new(),
+70 +         doc: Vec::new(),
+   |
+
+error[E0609]: no field `docs` on type `search::SearchOutcome`
+  --> crates\core\archi\src\search_test.rs:97:10
+   |
+97 |         .docs
+   |          ^^^^ unknown field
+   |
+help: a field with a similar name exists
+   |
+97 -         .docs
+97 +         .doc
+   |
+
+error[E0609]: no field `docs` on type `model::Element`
+   --> crates\core\archi\src\search_test.rs:116:10
+    |
+116 |     auth.docs = vec!["./src/auth/README.md".to_owned()];
+    |          ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+116 -     auth.docs = vec!["./src/auth/README.md".to_owned()];
+116 +     auth.doc = vec!["./src/auth/README.md".to_owned()];
+    |
+
+error[E0609]: no field `docs` on type `model::Element`
+   --> crates\core\archi\src\search_test.rs:118:13
+    |
+118 |     billing.docs = vec!["./src/billing/README.md".to_owned()];
+    |             ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+118 -     billing.docs = vec!["./src/billing/README.md".to_owned()];
+118 +     billing.doc = vec!["./src/billing/README.md".to_owned()];
+    |
+
+error[E0609]: no field `docs` on type `search::SearchOutcome`
+   --> crates\core\archi\src\search_test.rs:129:14
+    |
+129 |             .docs
+    |              ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+129 -             .docs
+129 +             .doc
+    |
+
+error[E0609]: no field `docs` on type `search::SearchOutcome`
+   --> crates\core\archi\src\search_test.rs:137:33
+    |
+137 |     let doc: &DocRef = &outcome.docs[0];
+    |                                 ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+137 -     let doc: &DocRef = &outcome.docs[0];
+137 +     let doc: &DocRef = &outcome.doc[0];
+    |
+
+error[E0609]: no field `docs` on type `model::Element`
+   --> crates\core\archi\src\search_test.rs:169:12
+    |
+169 |     target.docs = vec!["./docs/rate-limit.md".to_owned()];
+    |            ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+169 -     target.docs = vec!["./docs/rate-limit.md".to_owned()];
+169 +     target.doc = vec!["./docs/rate-limit.md".to_owned()];
+    |
+
+error[E0609]: no field `docs` on type `model::Element`
+   --> crates\core\archi\src\search_test.rs:214:12
+    |
+214 |     target.docs = vec!["./docs/guide.md".to_owned()];
+    |            ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+214 -     target.docs = vec!["./docs/guide.md".to_owned()];
+214 +     target.doc = vec!["./docs/guide.md".to_owned()];
+    |
+
+error[E0609]: no field `docs` on type `model::Element`
+   --> crates\core\archi\src\search_test.rs:238:12
+    |
+238 |     target.docs = vec!["./docs/auth.md".to_owned()];
+    |            ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+238 -     target.docs = vec!["./docs/auth.md".to_owned()];
+238 +     target.doc = vec!["./docs/auth.md".to_owned()];
+    |
+
+error[E0609]: no field `docs` on type `model::Element`
+   --> crates\core\archi\src\search_test.rs:289:12
+    |
+289 |     target.docs = vec!["./docs/auth.md".to_owned()];
+    |            ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+289 -     target.docs = vec!["./docs/auth.md".to_owned()];
+289 +     target.doc = vec!["./docs/auth.md".to_owned()];
+    |
+
+error[E0609]: no field `docs` on type `search::SearchOutcome`
+   --> crates\core\archi\src\search_test.rs:294:27
+    |
+294 |     assert!(elements_only.docs.is_empty(), "Elements 时 docs 恒空");
+    |                           ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+294 -     assert!(elements_only.docs.is_empty(), "Elements 时 docs 恒空");
+294 +     assert!(elements_only.doc.is_empty(), "Elements 时 docs 恒空");
+    |
+
+error[E0599]: no variant or associated item named `Docs` found for enum `dto::SearchScope` in the current scope
+   --> crates\core\archi\src\search_test.rs:296:70
+    |
+296 |     let docs_only = search(&graph, temp.root(), "auth", SearchScope::Docs).expect("成功");
+    |                                                                      ^^^^ variant or associated item not found in `dto::SearchScope`
+    |
+   ::: crates\core\archi\src\dto.rs:264:1
+    |
+264 | pub enum SearchScope {
+    | -------------------- variant or associated item `Docs` not found for this enum
+    |
+help: there is a variant with a similar name
+    |
+296 -     let docs_only = search(&graph, temp.root(), "auth", SearchScope::Docs).expect("成功");
+296 +     let docs_only = search(&graph, temp.root(), "auth", SearchScope::Doc).expect("成功");
+    |
+
+error[E0609]: no field `docs` on type `search::SearchOutcome`
+   --> crates\core\archi\src\search_test.rs:301:26
+    |
+301 |     assert_eq!(docs_only.docs.len(), 1);
+    |                          ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+301 -     assert_eq!(docs_only.docs.len(), 1);
+301 +     assert_eq!(docs_only.doc.len(), 1);
+    |
+
+error[E0609]: no field `docs` on type `search::SearchOutcome`
+   --> crates\core\archi\src\search_test.rs:305:46
+    |
+305 |         !all.element_fqns.is_empty() && !all.docs.is_empty(),
+    |                                              ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+305 -         !all.element_fqns.is_empty() && !all.docs.is_empty(),
+305 +         !all.element_fqns.is_empty() && !all.doc.is_empty(),
+    |
+
+error[E0609]: no field `docs` on type `search::SearchOutcome`
+   --> crates\core\archi\src\search_test.rs:369:21
+    |
+369 |     assert!(outcome.docs.is_empty());
+    |                     ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+369 -     assert!(outcome.docs.is_empty());
+369 +     assert!(outcome.doc.is_empty());
+    |
+
+error[E0609]: no field `docs` on type `search::SearchOutcome`
+   --> crates\core\archi\src\search_test.rs:373:56
+    |
+373 |     assert!(outcome.element_fqns.is_empty() && outcome.docs.is_empty());
+    |                                                        ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+373 -     assert!(outcome.element_fqns.is_empty() && outcome.docs.is_empty());
+373 +     assert!(outcome.element_fqns.is_empty() && outcome.doc.is_empty());
+    |
+
+error[E0609]: no field `docs` on type `model::Element`
+   --> crates\core\archi\src\search_test.rs:388:18
+    |
+388 |             item.docs = vec![format!("./docs/note{index:03}.md")];
+    |                  ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+388 -             item.docs = vec![format!("./docs/note{index:03}.md")];
+388 +             item.doc = vec![format!("./docs/note{index:03}.md")];
+    |
+
+error[E0609]: no field `docs` on type `search::SearchOutcome`
+   --> crates\core\archi\src\search_test.rs:404:19
+    |
+404 |     assert!(first.docs.is_empty(), "无文档路径含 auth");
+    |                   ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+404 -     assert!(first.docs.is_empty(), "无文档路径含 auth");
+404 +     assert!(first.doc.is_empty(), "无文档路径含 auth");
+    |
+
+error[E0609]: no field `docs` on type `search::SearchOutcome`
+   --> crates\core\archi\src\search_test.rs:409:37
+    |
+409 |     let paths: Vec<&str> = docs_hit.docs.iter().map(|doc| doc.path.as_str()).collect();
+    |                                     ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+409 -     let paths: Vec<&str> = docs_hit.docs.iter().map(|doc| doc.path.as_str()).collect();
+409 +     let paths: Vec<&str> = docs_hit.doc.iter().map(|doc| doc.path.as_str()).collect();
+    |
+
+error[E0599]: no variant or associated item named `Docs` found for enum `dto::SearchScope` in the current scope
+   --> crates\core\archi\src\search_test.rs:427:68
+    |
+427 |     let outcome = search(&graph, temp.root(), "auth", SearchScope::Docs).expect("成功");
+    |                                                                    ^^^^ variant or associated item not found in `dto::SearchScope`
+    |
+   ::: crates\core\archi\src\dto.rs:264:1
+    |
+264 | pub enum SearchScope {
+    | -------------------- variant or associated item `Docs` not found for this enum
+    |
+help: there is a variant with a similar name
+    |
+427 -     let outcome = search(&graph, temp.root(), "auth", SearchScope::Docs).expect("成功");
+427 +     let outcome = search(&graph, temp.root(), "auth", SearchScope::Doc).expect("成功");
+    |
+
+error[E0609]: no field `docs` on type `search::SearchOutcome`
+   --> crates\core\archi\src\search_test.rs:428:25
+    |
+428 |     for doc in &outcome.docs {
+    |                         ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+428 -     for doc in &outcome.docs {
+428 +     for doc in &outcome.doc {
+    |
+
+error[E0609]: no field `docs` on type `search::SearchOutcome`
+   --> crates\core\archi\src\search_test.rs:465:25
+    |
+465 |     assert_eq!(baseline.docs, decorated.docs, "文档条目与 `entry` 无关");
+    |                         ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+465 -     assert_eq!(baseline.docs, decorated.docs, "文档条目与 `entry` 无关");
+465 +     assert_eq!(baseline.doc, decorated.docs, "文档条目与 `entry` 无关");
+    |
+
+error[E0609]: no field `docs` on type `search::SearchOutcome`
+   --> crates\core\archi\src\search_test.rs:465:41
+    |
+465 |     assert_eq!(baseline.docs, decorated.docs, "文档条目与 `entry` 无关");
+    |                                         ^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+465 -     assert_eq!(baseline.docs, decorated.docs, "文档条目与 `entry` 无关");
+465 +     assert_eq!(baseline.docs, decorated.doc, "文档条目与 `entry` 无关");
+    |
+
+error[E0004]: non-exhaustive patterns: `drift::report::ApiFindingSeverity::Error` not covered
+   --> crates\core\archi\src\drift\report_test.rs:669:31
+    |
+669 |     let from_severity = match ApiFindingSeverity::Off {
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^ pattern `drift::report::ApiFindingSeverity::Error` not covered
+    |
+note: `drift::report::ApiFindingSeverity` defined here
+   --> crates\core\archi\src\drift\report.rs:159:10
+    |
+159 | pub enum ApiFindingSeverity {
+    |          ^^^^^^^^^^^^^^^^^^
+...
+165 |     Error,
+    |     ----- not covered
+    = note: the matched value is of type `drift::report::ApiFindingSeverity`
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+    |
+671 ~         ApiFindingSeverity::Warn => "warn",
+672 ~         drift::report::ApiFindingSeverity::Error => todo!(),
+    |
+
+Some errors have detailed explanations: E0004, E0061, E0063, E0425, E0432, E0433, E0560, E0599, E0609.
+For more information about an error, try `rustc --explain E0004`.
+error: could not compile `archi` (lib test) due to 96 previous errors
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

@@ -99,6 +99,7 @@ function element(fqn: string): ArchiElement {
     modelFile: '.dev-team/architecture/models/01-core.toml',
     modelLine: 2,
     entry: null,
+    doc: null,
     mark: 'none',
   };
 }
