@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义架构漂移的**判定域**：扫哪些文件（默认排除与测试 scope 正交、配置可追加）、怎么归属（元素 `path` 最长前缀单点，同长不任选）、什么算漂移（声明未兑现 / 未声明依赖 / path 失效三类，定级只看引入方）、什么时候豁免（两层、元素对粒度封闭、留痕可审计）、两模式观察根（全量不落盘 / 增量落盘，变更集经唯一入口）、报告唯一形状（`status` 五值、`occurrences` 聚合、`observations` 与 `warnings` 分界、`modelHash`、并列槽位 `apiFindings` 的纳管子集与 `error` 档进 `passed`）、架构域看护配置（`<archi_dir>/config.json`，缺失即空、未知键拒绝）、判定单源（命令面与门禁面同一纯函数）与运行期预算（release p95 ≤ 3 s、语料对拍、依赖成本回退序）。判定只读盘：零写盘、零 spawn、零 Tauri、零 store、零 `workflow`、零 `config`；`desktop-archi-model` 的模型语义（`kind` / `gate` / `path` 形状）由该能力定义，本能力只**消费** `ModelGraph`。
+定义架构漂移的**判定域**：扫哪些文件（默认排除与测试 scope 正交、配置可追加）、怎么归属（元素 `path` 最长前缀单点，同长不任选）、什么算漂移（声明未兑现 / 未声明依赖 / path 失效三类，定级只看引入方）、什么时候豁免（两层、元素对粒度封闭、留痕可审计）、两模式观察根（判定域零写盘、落盘归消费面——命令面不落盘 / 门禁面两模式均落盘，变更集经唯一入口）、报告唯一形状（`status` 五值、`occurrences` 聚合、`observations` 与 `warnings` 分界、`modelHash`、并列槽位 `apiFindings` 的纳管子集与 `error` 档进 `passed`）、架构域看护配置（`<archi_dir>/config.json`，缺失即空、未知键拒绝）、判定单源（命令面与门禁面同一纯函数）与运行期预算（release p95 ≤ 3 s、语料对拍、依赖成本回退序）。判定只读盘：零写盘、零 spawn、零 Tauri、零 store、零 `workflow`、零 `config`；`desktop-archi-model` 的模型语义（`kind` / `gate` / `path` 形状）由该能力定义，本能力只**消费** `ModelGraph`。
 
 ## Requirements
 
@@ -168,8 +168,9 @@
   缺省基准 = 无（当前工作区就是全部）
   扫描 = 整个观察根的源文件（遍历 + 排除约定）
   产出 = ①②④ 全部
-  落盘 = 否（一次可重算的观测，落盘只会积累垃圾）
-  用途 = 架构全景 / ratchet 决策 / 一次性体检
+  落盘 = 由消费面决定：命令面（archi_drift）不落盘（一次可重算的观测）；
+         门禁面（initialize 基线检查）落盘 reports/archi/<timestamp>.json（审计面）
+  用途 = 架构全景 / ratchet 决策 / 一次性体检 / 变更流程启动前的基线绿门
 
 增量模式（change 级）
   基准 = 本 change 编辑集（`ArchiveVcsPort::change_edit_set(root, "HEAD")`，worktree 语义下即本 change 改动；唯一入口，MUST NOT 自算 diff）
@@ -178,15 +179,22 @@
   落盘 = 是（`reports/archi/<timestamp>.json`，门禁审计面）
 ```
 
-- **观察根显式**：命令签名 SHALL 带 `root`，由调用方给定（workspace 级 = 主仓根、change 级 = `detail.worktree`，归档 change 回落主仓根）；MUST NOT 引入「当前选中 change」一类隐式上下文。
+- **模式由消费面声明**：判定纯函数收模式入参（`CheckInput.mode`），MUST NOT 按变更集是否为空、按相位名或按调用方类型推断。门禁面经 port 的 `ArchiCheckMode { Full, Incremental }` 声明（映射见 desktop-archi-gate「ArchiCheck runner port 与报告落盘」）：initialize 表头恒 `full`、implement 恒 `incremental`。
+- **落盘者恒为调用方**：判定域本身（`crates/core/archi`）**零写盘**（两种模式同）——全量报告是否落盘不是判定语义，而是消费面的审计需要；落盘实现单点驻 `crates/infra/archi`（报告文件名与目录派生见 desktop-archi-gate）。
+- **观察根显式**：命令签名 SHALL 带 `root`，由调用方给定（workspace 级 = 主仓根、change 级 = `detail.worktree`，归档 change 回落主仓根；initialize 基线检查 = 该 change 的 worktree）；MUST NOT 引入「当前选中 change」一类隐式上下文。
 - **模型与源码同根**：模型 SHALL 从同一 `root` 派生读盘（架构域路径经 `foundation::layout`），MUST NOT 出现「模型读主仓、源码读 worktree」的混根。
 - **一致性**：同一 commit、同一模型下，增量报告 SHALL 为全量报告在变更集上的子集（同一元素对不因模式不同而级别不同）。
-- **零改代码面**：两种模式 MUST NOT 写源码或模型（唯一写动作是增量模式的报告落盘）。
+- **零改代码面**：两种模式 MUST NOT 写源码或模型（判定域零写盘；唯一写动作是消费面对报告的落盘）。
 
 #### Scenario: 增量只覆盖变更文件
 
 - **WHEN** change 编辑集含 12 个源文件（其中 5 个被排除约定排除），执行增量检查
 - **THEN** `scan.changedFiles = 12`、`scan.scannedFiles = 5`、`scan.excluded[]` 含那 5 条；未变更文件的违例不出现
+
+#### Scenario: 全量由门禁面落盘
+
+- **WHEN** 以同一 root 分别触发一次命令面全量检查（`archi_drift(root, "full")`）与一次 initialize 基线门禁全量检查
+- **THEN** 两次判定结果逐字段相同（`mode` / `scan` / `errors` / `warnings` / `status` 全等，除 `timestamp` / `change`）；命令面零写盘，门禁面在 `reports/archi/` 落一份 `mode = "full"` 的报告
 
 #### Scenario: 两模式级别一致
 
@@ -196,11 +204,11 @@
 #### Scenario: 无变更文件不算通过
 
 - **WHEN** 增量模式下变更集内无源文件（如只改了文档）
-- **THEN** 报告 `status = noChanges`（MUST NOT 为 `clean`），扫描计数为零、`errors` 为空
+- **THEN** 报告 `status = noChanges`（MUST NOT 为 `clean`），扫描计数为零、`errors` 为空；该形态正是「initialize 不能复用增量口径」的判据（基线时刻变更集只含本 change 的未跟踪文档与报告树，见 desktop-archi-gate「门禁挂载点」）
 
 ### Requirement: 报告结构与 status 五值
 
-检查 SHALL 产出单一报告结构（增量模式落 `reports/archi/<timestamp>.json`，全量模式仅进程内返回），字段面 SHALL 覆盖：
+检查 SHALL 产出单一报告结构（两模式共用同一形状；落盘与否由消费面决定——命令面全量仅进程内返回、门禁面全量 / 增量均落 `reports/archi/<timestamp>.json`），字段面 SHALL 覆盖：
 
 ```jsonc
 {
@@ -208,7 +216,7 @@
   "timestamp": "2026-10-20T08:31:12Z",
   "mode": "incremental",              // incremental | full
   "root": "/abs/path",
-  "change": "add-billing-gate",       // 无 change 上下文（full 模式 / 命令面无 change）时为 null
+  "change": "add-billing-gate",       // 无 change 上下文（命令面）时为 null；门禁面两模式均携 change 名
   "base": "HEAD",                     // full 模式为 null（增量恒 HEAD 差，见「全量与增量两模式」）
   "modelHash": "sha256:…",            // models/*.toml 聚合哈希
 
@@ -231,7 +239,7 @@
 }
 ```
 
-- **`status` 五值封闭**：`clean`（有扫描、零 errors 零 warnings 且纳管的契约判据为空）、`errors`（`errors` 非空**或纳管子集含任一 `error` 档判据**）、`warnings`（零 errors，且 `warnings` 非空**或**纳管子集非空且其中无 `error` 档）、`noChanges`（无文件可判）、`skipped`（无模型）。`skipped` 与 `noChanges` MUST NOT 被呈现或消费为「通过」——UI 与门禁日志 SHALL 显式区分，否则「没检查」被误读成「检查过了没问题」。
+- **`status` 五值封闭**：`clean`（有扫描、零 errors 零 warnings 且纳管的契约判据为空）、`errors`（`errors` 非空**或纳管子集含任一 `error` 档判据**）、`warnings`（零 errors，且 `warnings` 非空**或**纳管子集非空且其中无 `error` 档）、`noChanges`（无文件可判）、`skipped`（无模型）。**`status` 推导与模式无关**：全量模式在零可判文件时同样落 `noChanges`、无模型时同样落 `skipped`。`skipped` 与 `noChanges` MUST NOT 被呈现或消费为「通过」——UI 与门禁日志 SHALL 显式区分，否则「没检查」被误读成「检查过了没问题」。
 - **`observations` 与 `warnings` 分界**：`warnings` 是「有问题的依赖」（方向 / 目标 / 可解析性 / 归属不确定），随 `status` 影响提示强度；`observations` 是「设计态陈述」（声明未兑现 / 长期未使用），永不影响 `status`、永不进 `passed`。
 - **`occurrences` 聚合**：同元素对的全部命中点聚合在一条记录内（按 `(from, to)` 聚合，逐条带 `file` / `line` / `specifier` / `typeOnly`），不按行铺开。
 - **`suppressed` 必留痕**：豁免不等于不存在——保留被抑制条目 + 理由 + 来源，豁免了什么才可审计。
@@ -282,6 +290,16 @@
 - **WHEN** 分别读取 `version = 3` 的新报告与 `version = 3` 的历史报告
 - **THEN** 两者字段面相同；差异只在 `apiFindings` 的取值 / 档位与 `status` 推导结论（历史报告由旧口径产生，不回写、不重算）；消费方 MUST NOT 期望靠 `version` 区分两种口径——本次口径变化由 `desktop-archi-api-check` 的 spec 与 change 留痕承载
 
+#### Scenario: 全量报告形状与增量同构
+
+- **WHEN** 取一份 initialize 基线全量报告与一份 implement 增量报告
+- **THEN** 两者字段集完全一致（无「全量独有 / 增量独有」字段），差异只在字段值：`mode`（`full` / `incremental`）、`base`（`null` / `HEAD`）、`scan.changedFiles`（`0` / 变更数）与扫描清单
+
+#### Scenario: 无模型与零可判文件两态可辨
+
+- **WHEN** 分别以「模型目录缺席」与「模型在但零源文件通过排除约定」的观察根执行全量检查
+- **THEN** 前者 `status = skipped`、后者 `status = noChanges`；两者 `errors` 皆空但 MUST NOT 呈 `clean`，消费方（门禁 / UI）按各自文案分列「未检查（无模型）」与「未检查（无可判文件）」
+
 ### Requirement: 架构域看护配置（豁免与扫描排除）
 
 架构域配置 SHALL 落 `<archi_dir>/config.json`（路径经 `foundation::layout` 派生，MUST NOT 行内字面量），字段面封闭为两项：
@@ -321,17 +339,22 @@
 
 ### Requirement: 判定单源与消费面同源
 
-架构漂移的判定 SHALL 只有一处实现（`crates/core/archi` 的漂移判定纯函数：输入 = 观察根 + 模式 + 变更集 + 配置 + 模型，输出 = 报告）。IPC 命令面（`archi_drift(root, mode)`）与相位门禁 runner SHALL 都调用同一实现，MUST NOT 各写一份归属 / 定级 / 状态推导；报告结构体 SHALL 为两消费面共用的唯一形状（命令面出线经同一 DTO 投影，门禁面从同一结构派生 `passed` / 诊断文本）。
+架构漂移的判定 SHALL 只有一处实现（`crates/core/archi` 的漂移判定纯函数：输入 = 观察根 + 模式 + 变更集 + 配置 + 模型，输出 = 报告）。消费面 SHALL 为三处调用点——IPC 命令面（`archi_drift(root, mode)`）、implement 相位门禁 runner（增量）、initialize 基线门禁 runner（全量）——后两者为**同一 runner 的两次挂载**（见 desktop-archi-gate「门禁挂载点」），MUST NOT 各写一份归属 / 定级 / 状态推导；报告结构体 SHALL 为全部消费面共用的唯一形状（命令面出线经同一 DTO 投影，门禁面从同一结构派生 `passed` / 诊断文本）。
 
 #### Scenario: 命令面与门禁面逐字段同源
 
 - **WHEN** 以同一 root、同一模式（增量）与同一变更集分别经 `archi_drift` 命令与门禁 runner 触发检查
 - **THEN** 两份报告除 `timestamp` / `change`（命令面无 change 上下文）与落盘路径外逐字段相等（`model` / `scan` / `errors` / `warnings` / `suppressed` / `observations` / `status` 全等）
 
+#### Scenario: 全量面同源
+
+- **WHEN** 以同一 root 分别经 `archi_drift(root, "full")` 与 initialize 基线门禁触发全量检查
+- **THEN** 两份报告除 `timestamp` / `change` / 落盘与否外逐字段相等；`passed` 派生面（`errors.is_empty() && model.structuralErrors.is_empty()`）两处一致——MUST NOT 出现「命令面 clean 而基线门禁红」的同根分歧
+
 #### Scenario: 零第二套判定
 
 - **WHEN** 审查命令面与 infra runner 的源码
-- **THEN** 两者均只做「取输入 → 调判定纯函数 → 投影 / 落盘」，无归属匹配、无定级分支、无 status 推导的第二份实现
+- **THEN** 三者调用点均只做「取输入 → 调判定纯函数 → 投影 / 落盘」，无归属匹配、无定级分支、无 status 推导的第二份实现；模式差异只体现为入参，不体现为实现分支
 
 ### Requirement: 运行期预算与语料
 
@@ -424,3 +447,13 @@
 | `crates/infra/archi/src/runner.rs`（`LocalArchiCheck`） | 门禁执行体 | 结论只取报告既有字段；`passed` 的口径变化经 `drift::check` 单点传导，执行体 MUST NOT 自行改写（本文件零逻辑改动，只随同源语义变化） |
 | `crates/core/archi/src/drift/config.rs` | 看护配置 | 零改动：`ignore` / `exclude` 两键封闭 + `deny_unknown_fields`；求值顺序写死在 `check.rs`，MUST NOT 引入配置键 |
 | `crates/core/archi/tests/golden_test.rs` + `corpus/drift/**` | 报告面语料 | 十六份金样随「首错短路 + 纳管分档」显式重录并逐份留痕成因；`DESKTOP_GOLDEN_REWRITE=1` 显式重写 |
+
+### 模块增量：initialize 基线架构检查（init-check-archi）
+
+| 模块 | 职责 | 关键契约（Function / API） |
+|------|------|------|
+| `crates/core/archi/src/drift/mod.rs` | 判定单点（零逻辑改动） | `check(CheckInput) -> Result<Report, CheckError>`：`mode` 为入参、`changed` 全量模式忽略；`derive_status` 与模式无关；零写盘、零 spawn |
+| `crates/core/archi/src/drift/report.rs` | 报告形状（零改动） | `ArchiDriftMode { Full, Incremental }`（`as_str` → `full` / `incremental`）、`ArchiDriftReport.mode` / `.change` / `.base` 字段面与 `version = 3` 不变 |
+| `crates/core/archi/src/scan/**` | 扫描与归属（零改动） | 全量 / 增量共用同一遍历、排除矩阵与 `OwnerIndex` |
+| `crates/infra/archi/src/runner.rs` | 落盘消费面 | port `ArchiCheckMode` → `ArchiDriftMode` 唯一映射；全量 / 增量同树落 `reports/archi/<timestamp>.json`（目录经 `foundation::layout::change_reports(root, name, ReportSlot::Archi)`） |
+| `src-tauri/src/commands/archi/mod.rs` | 命令面（零改动） | `archi_drift(root, mode)` 两模式语义不变：`full` → 空变更集、进程内返回、零写盘 |
