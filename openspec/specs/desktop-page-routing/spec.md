@@ -14,7 +14,7 @@ desktop 前端壳态页面导航 SHALL 以 react-router（v7 declarative 模式�
 - `/changes` → 变更清单页
 - `/changes/:id` → 变更详情页（`id` 为 change id 路由参数——身份锚，见 desktop-change-state-store「change 身份锚与 name 属性分离」）
 - `/info` → 工作区基础信息页（当前根的代码统计，desktop-workspace-code-stats）
-- `/config` → 工作区配置页（当前根的 config.json 只读解析，desktop-workspace-config）
+- `/config` → 工作区配置页（当前根的 config.json 解析与呈现，写回语义归 desktop-workspace-config）
 - `/agent` → Agent 调试页
 - `/explores` → 探索清单页
 - `/explores/:name` → 探索详情页（`name` 为路由参数）
@@ -53,7 +53,7 @@ Router 类型 SHALL 为 HashRouter：Tauri 生产构建经自定义协议以静�
 #### Scenario: 配置页按当前根渲染
 
 - **WHEN** URL 为 `/config` 且壳态存在当前工作区根
-- **THEN** 渲染配置页，`workspace_config` 以当前根发起解析；根不来自 URL 参数（路由不新增根段），只读语义随 desktop-workspace-config 承载
+- **THEN** 渲染配置页，`workspace_config` 以当前根发起解析；根不来自 URL 参数（路由不新增根段），呈现与写回语义随 desktop-workspace-config 承载
 
 #### Scenario: 管理页不依赖当前根
 
