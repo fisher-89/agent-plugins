@@ -5,7 +5,7 @@
   "root": "<root>",
   "change": "api-declared-exact",
   "base": null,
-  "modelHash": "sha256:d654d0215f2d879dd19b130a15d9f9e4477dc3d3a8d3620149978ec0cb0e65d1",
+  "modelHash": "sha256:230ff8f047376bda316dc659930b85bce29fd03eeb8bfcbbc5adf6a840d4b63b",
   "model": {
     "elements": 3,
     "relations": 1,
