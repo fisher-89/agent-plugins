@@ -7,14 +7,16 @@
 //!    `ApiStatus::ALL` / `DiagnosticKind::ALL`），目录路径取自 `foundation::layout`
 //!    的相对路径派生族——产品源码与静态骨架 MUST NOT 手抄一份词表或目录字面量；
 //! 2. **骨架自证**：骨架内零 `<>` 占位符（占位符即「路径未派生」的形态，[`build`]
-//!    显式拒绝），示例 TOML 由测试侧解析面自证可解析；
+//!    显式拒绝）；字段形态的可解析自证归 `archi_scaffold` 的草稿（本文件不承载示例
+//!    TOML）；
 //! 3. **尽力增强、不炸 run**：拼装失败（骨架为空 / 含占位符）降级 [`knowledge`]
 //!    为 `None`，装配层只丢 `preamble` 位，工具面与 run 不受影响。
 
 use archi::dto::{ApiStatus, DiagnosticKind, ElementKind, GateTier};
 
-/// 静态骨架（键形 / 字段面 / 层级推导 / 边界 / 自检 / 写面与可见性 / 历史会话
-/// 续接 + 一段可解析示例 TOML）。
+/// 静态骨架（位置与键形 / 字段纪律 / `kind` 语义 / 层级、缺省与读数 /
+/// 边界与自检 / 写面）：只留不可脚本化的散文与一行工具指路，示例 TOML 与字段形态
+/// 归 `archi_scaffold`。
 const SKELETON: &str = include_str!("archi-knowledge.md");
 
 /// 架构会话知识（唯一入口）：`build(SKELETON).ok()`——`None` = 降级（装配层只丢
@@ -25,7 +27,7 @@ pub(crate) fn knowledge() -> Option<String> {
 
 /// 骨架 + 派生段拼装：骨架 trim 后为空 / 含 `<>` 占位符即 `Err`（触发点写进文案），
 /// 否则以 `skeleton.trim_end()` 起手追加派生段（kind 四值 / gate 三值 + 缺省档 /
-/// api 状态二值 + 缺省档 / 结构诊断九词 / 模型、契约资产与契约索引的相对路径）。
+/// api 状态二值 + 缺省档 / 结构诊断九词 / 模型与契约资产两处相对路径）。
 pub(crate) fn build(skeleton: &str) -> Result<String, String> {
     if skeleton.trim().is_empty() {
         return Err("知识骨架为空".to_owned());
@@ -44,13 +46,12 @@ pub(crate) fn build(skeleton: &str) -> Result<String, String> {
          api 状态：{api}（缺省 {}）\n\
          结构诊断：{diagnostics}\n\
          模型目录：{}（按文件名字典序聚合）；\
-         契约资产：{}/<分层目录…>/<FQN>.md（手写真相）；契约索引：{}/INDEX.toml",
+         契约资产：{}/<分层目录…>/<FQN>.md（手写真相）",
         skeleton.trim_end(),
         GateTier::default().as_str(),
         ApiStatus::default().as_str(),
         foundation::layout::archi_graph_model_rel_dir(),
         foundation::layout::archi_models_rel_dir(),
-        foundation::layout::archi_graph_rel_dir(),
     ))
 }
 

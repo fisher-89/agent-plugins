@@ -14,6 +14,8 @@ use std::sync::OnceLock;
 use archi::dto::{ElementKind, GateTier};
 use rig::completion::ToolDefinition;
 
+use crate::sdk::archi_drift_view::DRIFT_SCOPES;
+
 /// 七通用工具封闭集（**定义作者处**：`[`build_registry`]` 前七项与
 /// [`generic_definition`] 的 match 臂由它驱动）。MUST NOT 参与任何判定——准入
 /// 档与成员校验全查挂载清单。
@@ -50,11 +52,21 @@ pub(crate) const ARCHI_SEARCH_TOOL: &str = "archi_search";
 /// `agent-runtime` 依赖），重生成仍由会话经既有 `bash` 命令完成。
 pub(crate) const ARCHI_API_TOOL: &str = "archi_api";
 
+/// `archi_drift` 专用只读工具名（漂移判据读数：写完模型 / 改完代码后自查覆盖、归属
+/// 与契约面）。执行体同上；**恒全量、零写盘**——报告落盘者恒为门禁 runner。
+pub(crate) const ARCHI_DRIFT_TOOL: &str = "archi_drift";
+
+/// `archi_scaffold` 专用只读工具名（新元素 TOML 模板：字段序 / 内联 `metadata` /
+/// `path` 必填提示 / 关系模板）。执行体同上；**只读零写盘**——写面仍是既有 `write` /
+/// `edit`，故本工具不在「专用写工具」之列。
+pub(crate) const ARCHI_SCAFFOLD_TOOL: &str = "archi_scaffold";
+
 /// 挂载项的准入档：`Protocol` 与 `Read` 三档恒放行，`Write` / `Execute` 需非
 /// Default 档（与改造前三张按名常量表逐格等价）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolTier {
-    /// 只读面（read / grep / glob / ls / archi_module / archi_search / archi_api）
+    /// 只读面（read / grep / glob / ls / archi_module / archi_search / archi_api /
+    /// archi_drift / archi_scaffold）
     Read,
     /// 写面（write / edit / create_explore_note）
     Write,
@@ -71,7 +83,7 @@ pub(crate) enum ToolExec {
     Pure,
     /// `create_explore_note`：`LoopTurn.explore_note` 上下文
     ExploreNote,
-    /// 三个 archi 只读工具：`LoopTurn.archi` 上下文
+    /// 五个 archi 只读工具：`LoopTurn.archi` 上下文
     Archi,
     /// 两个 DB 只读工具：`LoopTurn.db` 上下文（两工具共用一个执行体，工具名
     /// 由 loop 侧传入——与 `Archi` 同形）
@@ -95,18 +107,18 @@ pub(crate) struct ToolMount {
 /// 构造）。
 static REGISTRY: OnceLock<Vec<ToolMount>> = OnceLock::new();
 
-/// 十三项静态挂载清单（唯一工具事实源）。**前七项仍是七内建**——`tools: None`
+/// 十五项静态挂载清单（唯一工具事实源）。**前七项仍是七内建**——`tools: None`
 /// 的语义载体（[`definitions`] 直接取前七项）。
 pub(crate) fn registry() -> &'static [ToolMount] {
     REGISTRY.get_or_init(build_registry)
 }
 
-/// 十三个字面构造项按序：七内建（Read ×4 / Write ×2 / Execute ×1 + `Pure`）→
-/// `create_explore_note`（Write / `ExploreNote`）→ 三 archi 只读（Read / `Archi`）
+/// 十五个字面构造项按序：七内建（Read ×4 / Write ×2 / Execute ×1 + `Pure`）→
+/// `create_explore_note`（Write / `ExploreNote`）→ 五 archi 只读（Read / `Archi`）
 /// → 两 DB 只读（Read / `Db`，定义见 [`db_tables_definition`] /
 /// [`db_query_definition`]）。
 fn build_registry() -> Vec<ToolMount> {
-    let mut mounts: Vec<ToolMount> = Vec::with_capacity(13);
+    let mut mounts: Vec<ToolMount> = Vec::with_capacity(15);
     for name in TOOL_NAMES {
         mounts.push(ToolMount {
             definition: generic_definition(name),
@@ -135,6 +147,16 @@ fn build_registry() -> Vec<ToolMount> {
     });
     mounts.push(ToolMount {
         definition: archi_api_definition(),
+        tier: ToolTier::Read,
+        exec: ToolExec::Archi,
+    });
+    mounts.push(ToolMount {
+        definition: archi_drift_definition(),
+        tier: ToolTier::Read,
+        exec: ToolExec::Archi,
+    });
+    mounts.push(ToolMount {
+        definition: archi_scaffold_definition(),
         tier: ToolTier::Read,
         exec: ToolExec::Archi,
     });
@@ -222,7 +244,9 @@ fn archi_module_definition() -> ToolDefinition {
             "查询架构模型里的模块（定位：已知道在看哪个模块）。指定 element 返回该元素的\
              kind（{}）/ gate（{}）/ path / metadata、声明位置（modelFile + modelLine，可直接 edit 到该行）、\
              出边与入边（对端 FQN + 说明）、直接子元素与入口文档单值 doc（仅 api = none 元素有值；declared 走 api.contractPath，正文用 read 自取）；\
-             省略 element 返回全部元素的薄概览。模型写坏时返回结构化诊断（先修模型）",
+             省略 element 返回全部元素的薄概览，每条含 hasPath（缺 path 的元素一次判出）；\
+             单元素响应另给 resolvedEntry（入口解析结果：显式命中 / 约定默认命中 / 不可用成因）；\
+             新元素的字段形态用 archi_scaffold 取模板。模型写坏时返回结构化诊断（先修模型）",
             vocabulary(ElementKind::ALL.map(ElementKind::as_str)),
             vocabulary(GateTier::ALL.map(GateTier::as_str)),
         ),
@@ -276,6 +300,55 @@ fn archi_api_definition() -> ToolDefinition {
                 "element": { "type": "string", "description": "元素 FQN（bootstrap 必填，如 App.Auth）" }
             },
             "required": ["action"]
+        }),
+    }
+}
+
+/// `archi_drift` 定义（漂移判据读数：写完模型 / 改完代码后自查覆盖、归属与契约面）。
+///
+/// 描述里的两句是**读数口径**而非免责声明：本仓基线 `gate` 全 `off`，`unmatchedFiles`
+/// 是数百条量级的常态（直出即 15–25 KB 噪声），故明细只在 `scope = files` 出现。
+fn archi_drift_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: ARCHI_DRIFT_TOOL.to_owned(),
+        description: format!(
+            "读架构漂移判据（写完模型 / 改完代码后自查覆盖、归属与契约面）。恒全量、零写盘。\
+             本仓 gate 全 off 时 unmatchedFiles 是数百条量级的常态不是错误（明细只在 scope = files 出现，\
+             摘要里只有计数位）。errors / warnings 通常为空，非空即逐条修；files 只在排查归属问题时用。\
+             scope 三值：{}（缺省 summary）。每次调用都重新全量判定、零跨调用缓存——durationMs 让\
+             重复调用的浪费可见",
+            DRIFT_SCOPES.join(" / "),
+        ),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "scope": { "type": "string", "enum": DRIFT_SCOPES, "description": "'summary'（缺省）| 'entries' | 'files'" }
+            },
+            "required": []
+        }),
+    }
+}
+
+/// `archi_scaffold` 定义（新元素模板：字段序 + 内联 `metadata` + `path` 必填提示 +
+/// 关系模板；零写盘）。
+///
+/// `kind` 的 enum 由元素种类词表派生（词汇单点，零第二份字面量）；草稿本身
+/// 过 `TomlParser` 零诊断——这是「示例 TOML 从知识骨架删除」的自证锚。
+fn archi_scaffold_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: ARCHI_SCAFFOLD_TOOL.to_owned(),
+        description: concat!(
+            "取新元素 TOML 模板（字段序 / 内联 metadata / path 必填提示 / 关系模板），",
+            "只读零写盘——写面仍是既有 write / edit。kind 省略取 domain，值集见 enum。",
+            "草稿可直接抄改（单段占位 FQN，多段时先声明祖先），改完用 archi_drift 自查",
+        )
+        .to_owned(),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "kind": { "type": "string", "enum": ElementKind::ALL.map(ElementKind::as_str), "description": "元素 kind 四值之一（省略取 domain）" }
+            },
+            "required": []
         }),
     }
 }
@@ -505,5 +578,6 @@ pub(crate) fn injected_finish(
         tools: Some(names.iter().map(|name| (*name).to_owned()).collect()),
         finish,
         ask: None,
+        protect: None,
     }
 }

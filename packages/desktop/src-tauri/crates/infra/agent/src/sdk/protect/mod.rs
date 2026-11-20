@@ -9,7 +9,9 @@
 //
 // **装配 / 判定分工**：
 // - [`ProtectRules::load`] 是唯一 IO 点（读工作区配置 + 内置规则合并 + 相对
-//   glob 归一），每 run 一次（泵起播时），随 `LoopTurn.protect` 下发；
+//   glob 归一），每 run 一次（泵起播时）；[`ProtectRules::with_session`] 随后把
+//   会话级规则（相位锁）并入同一结构——两者同一次装配，随 `LoopTurn.protect`
+//   下发；
 // - [`ProtectRules::evaluate`] 是零 IO 零副作用纯函数（无文件系统访问 / 无路径
 //   二次规范化 / 无事件通道 / 不 panic），每 tool_call 一次。
 //   故 run 内改配置不改变本轮行为（下一 run 重读）。
@@ -24,7 +26,7 @@
 // | 面 | 方向 | 语义 |
 // |---|---|---|
 // | 配置读取（缺失 / 坏 JSON / 字段违例） | fail-open（配置面） | 只用内置规则 |
-// | 用户 glob 非法 / 展开超限 | fail-open（防护面） | 该条不命中（方言层收敛） |
+// | 用户 / 会话 glob 非法 / 展开超限 | fail-open（防护面） | 该条不命中（方言层收敛） |
 // | `path` / `command` 缺失或非字符串 | fail-open | 放行，错误归属执行体 |
 // | 提取出无法解析的 token（含 `$` / 空串） | fail-open | 跳过该 op，其余照判 |
 // | 内置规则 | fail-closed | 恒在，不受任何配置状态影响 |
@@ -38,12 +40,16 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use agent::SessionProtectRule;
+
 use crate::sdk::protect::rules::Rule;
 
 mod inline;
 mod reason;
 mod rules;
 mod shell;
+
+pub(crate) use reason::session_lock_template;
 
 /// 保护规则集（装配产出的纯数据；位次即优先级——内置在前、首个命中即定）。
 /// 字段私有：只由 [`ProtectRules::load`] 构造。
@@ -59,6 +65,17 @@ impl ProtectRules {
     pub(crate) fn load(workspace_root: Option<&Path>) -> ProtectRules {
         ProtectRules {
             rules: rules::load(workspace_root),
+        }
+    }
+
+    /// 会话规则追加（**纯数据、零 IO**）：会话规则插在内置之后、用户之前——位次即
+    /// 优先级、首个命中即定，故相位锁串不会被用户自选 `reason` 盖掉。
+    ///
+    /// 与内置规则同一次装配、同一 `ProtectRules` 结构参与判定——**不是第五段闸**。
+    /// 会话规则值非法时与用户规则同向收敛（不命中、不 panic）。
+    pub(crate) fn with_session(self, session: Option<Vec<SessionProtectRule>>) -> ProtectRules {
+        ProtectRules {
+            rules: rules::with_session_rules(self.rules, session.as_deref()),
         }
     }
 
@@ -158,6 +175,27 @@ impl ProtectRules {
 /// 用同一变量合成）。
 fn deny_for(rule: &Rule, path: &str, tool: &str) -> String {
     reason::deny_reason(&rule.reason, path, tool)
+}
+
+/// 命令文本的写入落点（**与保护闸同一写面提取面**）：分隔符归一 → `shell` 的三态
+/// 提取 → 只留 `Write` + `Path` → 经 [`rules::resolve`] 归一。
+///
+/// 消费方只有收口自检的 T1 判据（MUST NOT 第二份写面解析）。`Revert` / `Delete` 不入
+/// ——删除与撤销对架构资产的影响由 `archi::drift::assets_hash` 兜底；inline /
+/// 重定向之外的写面同样由哈希兜底。
+pub(crate) fn written_paths(command: &str, cwd: &Path) -> Vec<String> {
+    if command.trim().is_empty() {
+        return Vec::new();
+    }
+    let normalized = command.replace('\\', "/");
+    shell::extract_file_ops(&normalized)
+        .into_iter()
+        .filter(|op| op.kind == shell::OpKind::Write)
+        .filter_map(|op| match op.target {
+            shell::OpTarget::Path(raw) => rules::resolve(cwd, &raw),
+            shell::OpTarget::Tree(_) => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]

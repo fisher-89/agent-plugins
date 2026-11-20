@@ -3399,53 +3399,6 @@ fn api_bit(injections: &agent::SessionInjections) -> bool {
         .any(|name| name == crate::sdk::mount::ARCHI_API_TOOL)
 }
 
-/// 正向：矩阵七行逐行命中（每行 = 七工具名 + 矩阵勾选的 archi 名）。
-#[test]
-fn 注入矩阵七行逐行命中() {
-    // 三位 =（archi_module, archi_search, archi_api）；矩阵仅 `implement/executor` 勾 `archi_api`
-    let rows: [(&str, &str, (bool, bool, bool)); 7] = [
-        ("proposal", "executor", (false, true, false)),
-        ("dev-design", "executor", (true, true, false)),
-        ("dev-design", "evaluator", (true, true, false)),
-        ("test-design", "executor", (false, true, false)),
-        ("implement", "executor", (true, false, true)),
-        ("code-review", "evaluator", (true, false, false)),
-        ("acceptance", "evaluator", (true, false, false)),
-    ];
-    for (phase, role, expected) in rows {
-        let source_ref = format!("add-feature/{phase}/{role}/1");
-        let injections = injections_of("change", Some(&source_ref));
-        assert_eq!(
-            archi_bits(&injections),
-            Some((expected.0, expected.1)),
-            "矩阵行 {phase}/{role} 的 module / search 两位"
-        );
-        assert_eq!(
-            api_bit(&injections),
-            expected.2,
-            "矩阵行 {phase}/{role} 的 api 位"
-        );
-        let mut expected_names = seven();
-        if expected.0 {
-            expected_names.push(crate::sdk::mount::ARCHI_MODULE_TOOL.to_owned());
-        }
-        if expected.1 {
-            expected_names.push(crate::sdk::mount::ARCHI_SEARCH_TOOL.to_owned());
-        }
-        if expected.2 {
-            expected_names.push(crate::sdk::mount::ARCHI_API_TOOL.to_owned());
-        }
-        expected_names.push(DB_TABLES_TOOL.to_owned());
-        expected_names.push(DB_QUERY_TOOL.to_owned());
-        assert_eq!(
-            injections.tools,
-            Some(expected_names),
-            "命中行名字清单 = 七工具名 + 矩阵勾选 + 两 DB 名: {phase}/{role}"
-        );
-        assert!(injections.preamble.is_none(), "preamble 维持不消费");
-    }
-}
-
 /// 异常：矩阵外相位 / role → `SessionInjections::default()`（零 archi 工具），不 Err。
 #[test]
 fn 矩阵外相位回落default() {
@@ -3594,10 +3547,12 @@ fn archi臂全字段() {
     expected_names.push(crate::sdk::mount::ARCHI_MODULE_TOOL.to_owned());
     expected_names.push(crate::sdk::mount::ARCHI_SEARCH_TOOL.to_owned());
     expected_names.push(crate::sdk::mount::ARCHI_API_TOOL.to_owned());
+    expected_names.push(crate::sdk::mount::ARCHI_DRIFT_TOOL.to_owned());
+    expected_names.push(crate::sdk::mount::ARCHI_SCAFFOLD_TOOL.to_owned());
     assert_eq!(
         injections.tools,
         Some(expected_names),
-        "archi 臂名字清单 = 七工具名 + 三 archi 名"
+        "archi 臂名字清单 = 七工具名 + 五 archi 名"
     );
     assert_eq!(injections.finish, None, "archi 臂无收口档位");
 }
@@ -3629,8 +3584,8 @@ fn archi臂source_ref形态无关() {
         );
         assert_eq!(
             injections.tools.as_ref().map(Vec::len),
-            Some(10),
-            "工具面十名"
+            Some(12),
+            "工具面十二名（七内建 + 五 archi 名）"
         );
     }
 
@@ -3742,8 +3697,8 @@ fn 降级范围单字段preamble独立() {
     );
     assert_eq!(
         injections.tools.as_ref().map(Vec::len),
-        Some(TOOL_NAMES.len() + 3),
-        "七内建 + 三 archi 名（`archi_module` / `archi_search` / `archi_api`）"
+        Some(TOOL_NAMES.len() + 5),
+        "七内建 + 五 archi 名（`archi_module` / `archi_search` / `archi_api` / `archi_drift` / `archi_scaffold`）"
     );
     assert_eq!(
         archi_bits(&injections),
@@ -4010,10 +3965,10 @@ fn 装配explore臂ask位generic且清单零ask工具名() {
     );
 }
 
-/// archi 臂（正向，参数化 2 形态 source_ref）：`ask == Some(Generic)`；十名（七内建 +
-/// 三 archi 工具）+ `preamble` 在场；`source_ref` 取任意值不改变该臂。
+/// archi 臂（正向，参数化 2 形态 source_ref）：`ask == Some(Generic)`；十二名（七内建 +
+/// 五 archi 工具）+ `preamble` 在场；`source_ref` 取任意值不改变该臂。
 #[test]
-fn 装配archi臂ask位generic且十名与preamble在场() {
+fn 装配archi臂ask位generic且十二名与preamble在场() {
     for source_ref in [None, Some("add-feature/dev-design/executor/1")] {
         let injections = injections_of("archi", source_ref);
         assert_eq!(
@@ -4023,13 +3978,25 @@ fn 装配archi臂ask位generic且十名与preamble在场() {
         );
         assert!(injections.preamble.is_some(), "archi 臂 preamble 在场");
         let names = injections.tools.as_deref().expect("archi 臂下发名字清单");
-        assert_eq!(names.len(), 10, "七件 + 三 archi 名");
+        assert_eq!(names.len(), 12, "七件 + 五 archi 名");
         assert_eq!(
             archi_bits(&injections),
             Some((true, true)),
             "module / search 双开"
         );
         assert!(api_bit(&injections), "archi 臂 api 名在场");
+        assert!(
+            names
+                .iter()
+                .any(|name| name == crate::sdk::mount::ARCHI_DRIFT_TOOL),
+            "archi 臂含 archi_drift"
+        );
+        assert!(
+            names
+                .iter()
+                .any(|name| name == crate::sdk::mount::ARCHI_SCAFFOLD_TOOL),
+            "archi 臂含 archi_scaffold"
+        );
     }
 }
 
@@ -4149,6 +4116,7 @@ fn 装配非法名err语义零改() {
             tools: Some(vec!["no_such_tool".to_owned()]),
             finish: None,
             ask: Some(agent::AskMode::Generic),
+            protect: None,
         },
         "",
     )
@@ -4383,7 +4351,7 @@ async fn compose_turn的ask_port两形态均贯通执行体() {
 /// （按位追加、不占名字清单）。
 #[tokio::test(start_paused = true)]
 async fn 装配产物真实驱动_change来源runstarted含ask工具() {
-    use crate::sdk::mount::{ARCHI_API_TOOL, ARCHI_MODULE_TOOL};
+    use crate::sdk::mount::{ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_MODULE_TOOL};
 
     let env = DualEnv::new("drive-change-ask");
     let stores = env.stores();
@@ -4427,6 +4395,7 @@ async fn 装配产物真实驱动_change来源runstarted含ask工具() {
         .map(|name| (*name).to_owned())
         .chain(std::iter::once(ARCHI_MODULE_TOOL.to_owned()))
         .chain(std::iter::once(ARCHI_API_TOOL.to_owned()))
+        .chain(std::iter::once(ARCHI_DRIFT_TOOL.to_owned()))
         .chain(std::iter::once(DB_TABLES_TOOL.to_owned()))
         .chain(std::iter::once(DB_QUERY_TOOL.to_owned()))
         .chain(std::iter::once("AskUserQuestion".to_owned()))
@@ -4453,6 +4422,7 @@ fn 手工构造ask位none的注入面零ask名单项() {
         tools: None,
         finish: None,
         ask: None,
+        protect: None,
     };
     let mounts = mount::definitions(&injections, "").expect("内建名单装配应成功");
     let names: Vec<String> = mounts
@@ -4773,13 +4743,13 @@ fn change臂全矩阵每行恒含两db名各恰一次() {
     assert_eq!(db_name_counts(names), (1, 1), "source_ref 缺席亦含两名");
 }
 
-/// 异常（AC-9 / AC-11）：archi 臂十名与 debug 臂（`tools = None`）**都不含**两 DB
+/// 异常（AC-9 / AC-11）：archi 臂十二名与 debug 臂（`tools = None`）**都不含**两 DB
 /// 名（archi / debug 会话调 db_query 走成员校验拒绝臂）。
 #[test]
 fn archi臂与debug臂均不含两db名() {
     let archi = injections_of("archi", None);
     let archi_names = archi.tools.as_ref().expect("archi 臂 tools 在场");
-    assert_eq!(archi_names.len(), 10, "archi 臂十名（七内建 + 三 archi）");
+    assert_eq!(archi_names.len(), 12, "archi 臂十二名（七内建 + 五 archi）");
     assert_eq!(db_name_counts(archi_names), (0, 0), "archi 臂不含两 DB 名");
     assert!(
         archi.preamble.is_some(),
@@ -5262,4 +5232,346 @@ async fn compose_turn门面链接入efforts后_new会话open照常成功() {
         )
         .expect("begin 应成功（effort 非空是合法装配态）");
     drop(running);
+}
+
+// ===========================================================================
+// 本变更：五 archi 工具面（矩阵扩维 / 相位锁 / 第五位 protect）
+// ===========================================================================
+
+/// archi 工具名的完整清单（五值，序即 archi 臂下发序）。
+fn archi_names() -> [&'static str; 5] {
+    [
+        crate::sdk::mount::ARCHI_MODULE_TOOL,
+        crate::sdk::mount::ARCHI_SEARCH_TOOL,
+        crate::sdk::mount::ARCHI_API_TOOL,
+        crate::sdk::mount::ARCHI_DRIFT_TOOL,
+        crate::sdk::mount::ARCHI_SCAFFOLD_TOOL,
+    ]
+}
+
+/// 名字清单内出现的 archi 工具（按出现序）。
+fn archi_of(injections: &agent::SessionInjections) -> Vec<String> {
+    let names = injections.tools.as_deref().unwrap_or_default();
+    names
+        .iter()
+        .filter(|name| archi_names().contains(&name.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// 正向：8 行注入矩阵逐格（每行 = 七内建 + 该行下发的 archi 名 + 两 DB 名）。
+#[test]
+fn 注入矩阵八行逐行命中() {
+    // `(phase, role, 下发的 archi 名序)`——序即 `compose::archi_matrix` 的向量序
+    let rows: [(&str, &str, &[&str]); 7] = [
+        (
+            "proposal",
+            "executor",
+            &[
+                crate::sdk::mount::ARCHI_SEARCH_TOOL,
+                crate::sdk::mount::ARCHI_MODULE_TOOL,
+                crate::sdk::mount::ARCHI_SCAFFOLD_TOOL,
+            ],
+        ),
+        (
+            "dev-design",
+            "executor",
+            &[
+                crate::sdk::mount::ARCHI_MODULE_TOOL,
+                crate::sdk::mount::ARCHI_SEARCH_TOOL,
+                crate::sdk::mount::ARCHI_DRIFT_TOOL,
+                crate::sdk::mount::ARCHI_SCAFFOLD_TOOL,
+            ],
+        ),
+        (
+            "dev-design",
+            "evaluator",
+            &[
+                crate::sdk::mount::ARCHI_MODULE_TOOL,
+                crate::sdk::mount::ARCHI_SEARCH_TOOL,
+            ],
+        ),
+        (
+            "test-design",
+            "executor",
+            &[crate::sdk::mount::ARCHI_SEARCH_TOOL],
+        ),
+        (
+            "implement",
+            "executor",
+            &[
+                crate::sdk::mount::ARCHI_MODULE_TOOL,
+                crate::sdk::mount::ARCHI_API_TOOL,
+                crate::sdk::mount::ARCHI_DRIFT_TOOL,
+            ],
+        ),
+        (
+            "code-review",
+            "evaluator",
+            &[crate::sdk::mount::ARCHI_MODULE_TOOL],
+        ),
+        (
+            "acceptance",
+            "evaluator",
+            &[crate::sdk::mount::ARCHI_MODULE_TOOL],
+        ),
+    ];
+    for (phase, role, expected_archi) in rows {
+        let source_ref = format!("add-feature/{phase}/{role}/1");
+        let injections = injections_of("change", Some(&source_ref));
+        assert_eq!(
+            archi_of(&injections),
+            expected_archi
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect::<Vec<String>>(),
+            "矩阵行 {phase}/{role} 的 archi 工具面"
+        );
+        let mut expected_names = seven();
+        expected_names.extend(expected_archi.iter().map(|name| (*name).to_owned()));
+        expected_names.push(DB_TABLES_TOOL.to_owned());
+        expected_names.push(DB_QUERY_TOOL.to_owned());
+        assert_eq!(
+            injections.tools,
+            Some(expected_names),
+            "命中行名字清单 = 七内建 + 矩阵命中 + 两 DB 名: {phase}/{role}"
+        );
+        assert!(injections.preamble.is_none(), "preamble 维持不消费");
+    }
+}
+
+/// 正向（表驱动）：archi 臂 = 七内建 + 五 archi 名（12 名，序 = module / search /
+/// api / drift / scaffold）；不含 `create_explore_note` 与两 DB 工具。
+#[test]
+fn archi臂七内建加五archi名() {
+    for source_ref in [None, Some(""), Some("chg-1/implement/executor/1")] {
+        let injections = injections_of("archi", source_ref);
+        let mut expected = seven();
+        expected.extend(archi_names().iter().map(|name| (*name).to_owned()));
+        assert_eq!(
+            injections.tools,
+            Some(expected),
+            "archi 臂名字清单 = 七内建 + 五 archi 名（source_ref = {source_ref:?}）"
+        );
+        let names = injections.tools.clone().unwrap_or_default();
+        assert!(
+            !names.iter().any(|name| name == EXPLORE_NOTE_TOOL),
+            "archi 臂不含 create_explore_note"
+        );
+        for db in [DB_TABLES_TOOL, DB_QUERY_TOOL] {
+            assert!(!names.iter().any(|name| name == db), "archi 臂不含 {db}");
+        }
+    }
+}
+
+/// 正向（表驱动）：`model_write_lock` 无锁格——`source = "archi"`（任意
+/// `source_ref`）、`change` + `proposal/executor`、`change` + `dev-design/executor`
+/// → `protect = None`。
+#[test]
+fn 模型写权无锁格() {
+    for (source, source_ref) in [
+        ("archi", None),
+        ("archi", Some("anything")),
+        ("archi", Some("chg-1/implement/executor/1")),
+        ("change", Some("chg-1/proposal/executor/1")),
+        ("change", Some("chg-1/dev-design/executor/1")),
+    ] {
+        let injections = injections_of(source, source_ref);
+        assert!(
+            injections.protect.is_none(),
+            "无锁格 {source} / {source_ref:?} 应 protect = None"
+        );
+    }
+}
+
+/// 异常（表驱动）：挂锁格——`dev-design/evaluator`、`implement/executor`、
+/// `test-design/executor`、`code-review/evaluator`、`acceptance/evaluator`、
+/// `explore`、`debug`、未知 source → `Some(恰一条)`。
+#[test]
+fn 模型写权挂锁格() {
+    let mut cases: Vec<(&str, Option<String>)> =
+        vec![("explore", None), ("debug", None), ("unknown-source", None)];
+    for source_ref in [
+        "chg-1/dev-design/evaluator/1",
+        "chg-1/implement/executor/1",
+        "chg-1/test-design/executor/1",
+        "chg-1/code-review/evaluator/1",
+        "chg-1/acceptance/evaluator/1",
+    ] {
+        cases.push(("change", Some(source_ref.to_owned())));
+    }
+    for (source, source_ref) in cases {
+        let injections = injections_of(source, source_ref.as_deref());
+        let protect = injections
+            .protect
+            .unwrap_or_else(|| panic!("挂锁格 {source} / {source_ref:?} 应 protect = Some"));
+        assert_eq!(protect.len(), 1, "恰一条会话规则");
+    }
+}
+
+/// 异常（表驱动）：畸形 / 缺失 `source_ref`（`""` / `"a/b"` / `"a/implement"` /
+/// `"a/weird/executor/1"` / `None`）→ fail-closed 一律挂锁。
+#[test]
+fn 模型写权畸形source_ref即挂锁() {
+    for source_ref in [
+        None,
+        Some(""),
+        Some("a/b"),
+        Some("a/implement"),
+        Some("a/weird/executor/1"),
+    ] {
+        let injections = injections_of("change", source_ref);
+        assert!(
+            injections.protect.is_some(),
+            "畸形 source_ref {source_ref:?} 应 fail-closed 挂锁"
+        );
+    }
+}
+
+/// 正向：锁规则内容——`glob` 指向 `graph/model` 目录（经 layout 复算）、
+/// `reason` 与 `protect::session_lock_template()` 逐字相等。
+#[test]
+fn 模型写权锁规则内容() {
+    let injections = injections_of("explore", None);
+    let protect = injections.protect.expect("explore 恒挂锁");
+    assert_eq!(
+        protect[0].glob,
+        format!("**/{}/**", foundation::layout::archi_graph_model_rel_dir()),
+        "glob 由 layout 派生"
+    );
+    assert_eq!(
+        protect[0].reason,
+        crate::sdk::protect::session_lock_template().to_owned(),
+        "reason 取文案单点"
+    );
+}
+
+/// 边界（AC-5）：该 glob 只锁模型声明目录——契约资产 md / 索引生成物 / 架构域看护
+/// 配置三条路径不在锁面（经真实 glob 匹配面判定）。
+#[test]
+fn 模型写权锁面只覆盖模型声明目录() {
+    let injections = injections_of("explore", None);
+    let protect = injections.protect.expect("explore 恒挂锁");
+    let rules = crate::sdk::protect::ProtectRules::load(None)
+        .with_session(Some(protect))
+        .clone();
+    let root = std::path::Path::new("/repo");
+
+    let blocked = rules.evaluate(
+        "write",
+        &serde_json::json!({
+            "path": format!(
+                "/repo/{}/01-core.toml",
+                foundation::layout::archi_graph_model_rel_dir()
+            )
+        }),
+        root,
+    );
+    assert!(blocked.is_some(), "模型声明文件被拒");
+
+    for relative in [
+        format!("{}/App/Auth.md", foundation::layout::archi_models_rel_dir()),
+        format!("{}/INDEX.toml", foundation::layout::archi_graph_rel_dir()),
+        format!("{}/config.json", foundation::layout::archi_rel_dir()),
+    ] {
+        let verdict = rules.evaluate(
+            "write",
+            &serde_json::json!({ "path": format!("/repo/{relative}") }),
+            root,
+        );
+        assert!(verdict.is_none(), "锁面不覆盖 {relative}");
+    }
+}
+
+/// 位间解耦：矩阵未命中但锁在位（`implement/evaluator`）；archi 臂零锁但五工具全在。
+#[test]
+fn 工具面与写权两位解耦() {
+    let locked = injections_of("change", Some("chg-1/implement/evaluator/1"));
+    assert!(archi_of(&locked).is_empty(), "矩阵未命中即零 archi 工具");
+    assert!(locked.protect.is_some(), "锁仍在位");
+
+    let archi_arm = injections_of("archi", None);
+    assert_eq!(archi_of(&archi_arm).len(), 5, "archi 臂五工具全在");
+    assert!(archi_arm.protect.is_none(), "archi 臂零锁");
+}
+
+/// 端到端写权（AC-5）：装配面产出 → `ProtectRules::load().with_session()` → 写入模型
+/// 目录被拒，拒绝串含相位指路与「不要改用其他命令或工具尝试绕过」。
+#[test]
+fn 端到端写权拒绝串含指路与禁止绕过() {
+    let injections = injections_of("change", Some("chg-1/implement/executor/1"));
+    let rules =
+        crate::sdk::protect::ProtectRules::load(None).with_session(injections.protect.clone());
+    let root = std::path::Path::new("/repo");
+    let reason = rules
+        .evaluate(
+            "write",
+            &serde_json::json!({
+                "path": format!(
+                    "/repo/{}/01-core.toml",
+                    foundation::layout::archi_graph_model_rel_dir()
+                )
+            }),
+            root,
+        )
+        .expect("implement 相位写模型应被拒");
+    for piece in ["proposal / dev-design", "不要改用其他命令或工具尝试绕过"] {
+        assert!(reason.contains(piece), "拒绝串含 `{piece}`：{reason}");
+    }
+}
+
+/// 边界（源码自证，AC-5 / AC-7）：三个单点骨架——`archi_graph_model_rel_dir` 在
+/// `compose.rs` 恰一处；`"proposal"` / `"dev-design"` 两个写权相位字面量只落在
+/// `archi_matrix` 与 `model_write_lock` 两区；会话规则构造
+/// （`Some(vec![agent::SessionProtectRule`）只在 `model_write_lock` 内。
+#[test]
+fn 写权与矩阵单点源码骨架() {
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/compose.rs"),
+    )
+    .expect("读取 compose.rs");
+
+    // ① 模型目录相对路径只在锁规则处派生一次（目录名不散落）。
+    assert_eq!(
+        source.matches("archi_graph_model_rel_dir").count(),
+        1,
+        "archi_graph_model_rel_dir 恰一处"
+    );
+
+    // ② 两处写权相位字面量只落在矩阵与 model_write_lock 两区（不散落到别处）。
+    let matrix_start = source.find("fn archi_matrix").expect("archi_matrix 在场");
+    let lock_start = source
+        .find("fn model_write_lock")
+        .expect("model_write_lock 在场");
+    let lock_end = source[lock_start..]
+        .find("struct ResolvedEngine")
+        .map(|offset| lock_start + offset)
+        .unwrap_or(source.len());
+    for literal in ["\"proposal\"", "\"dev-design\""] {
+        let mut from = 0;
+        while let Some(offset) = source[from..].find(literal) {
+            let at = from + offset;
+            assert!(
+                (matrix_start..lock_start).contains(&at) || (lock_start..lock_end).contains(&at),
+                "{literal} 只允许出现在矩阵与 model_write_lock 内，实际偏移 {at}"
+            );
+            from = at + literal.len();
+        }
+    }
+
+    // ③ 会话规则构造只在 model_write_lock 内（锁规则单点，矩阵不造规则）。
+    assert_eq!(
+        source
+            .matches("Some(vec![agent::SessionProtectRule")
+            .count(),
+        1,
+        "会话规则构造单点"
+    );
+    let rule_at = source
+        .find("Some(vec![agent::SessionProtectRule")
+        .expect("规则构造在场");
+    assert!(
+        rule_at >= lock_start && rule_at < lock_end,
+        "会话规则构造在 model_write_lock 内"
+    );
 }

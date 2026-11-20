@@ -1199,6 +1199,8 @@ export type ArchiModuleDetail = {
 	doc: string | null,
 	/**  契约状态与三路径的并列字段 */
 	api: ArchiApiRef,
+	/**  入口解析结果（显式命中 / 约定默认命中 / 不可用成因） */
+	resolvedEntry: ArchiResolvedEntry,
 };
 
 /**
@@ -1223,6 +1225,21 @@ export type ArchiRelation = {
 	mark: EdgeMark,
 	/**  豁免理由（本期恒 `null`） */
 	reason: string | null,
+};
+
+/**
+ *  入口解析结果（`resolvedEntry`；三字段皆不省略）。
+ * 
+ *  判据单点在 `api::paths::entry_state`；`EntryForm`（crate / subdir / single-file）
+ *  不出线——本类型只回答「入口在哪、凭什么判定」，形态位无消费方。
+ */
+export type ArchiResolvedEntry = {
+	/**  repo 相对 POSIX 入口路径（不可用 / 不存在时 `null`） */
+	path: string | null,
+	/**  解析来源（`explicit` / `convention`；不可用 / 不存在时 `null`） */
+	via: EntryVia | null,
+	/**  不可用或缺席的人读成因（可用时 `null`） */
+	problem: string | null,
 };
 
 /**  扫描面事实（枚举 / 排除 / 归属 / 留痕）。 */
@@ -1836,6 +1853,17 @@ export type ElementKind =
 "module" | 
 /**  组件级 */
 "component";
+
+/**
+ *  入口解析的来源（封闭二值）。
+ * 
+ *  约定默认与显式命中之外无第三来源，MUST NOT 增设第三值。
+ */
+export type EntryVia = 
+/**  模型显式声明的 `entry` */
+"explicit" | 
+/**  约定默认候选命中 */
+"convention";
 
 /**
  *  运行中增量读的出线载荷（`exec::ExecOutputDelta` 的 1:1 映射）。

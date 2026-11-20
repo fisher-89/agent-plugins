@@ -276,6 +276,7 @@ fn request(session: SessionRef) -> TurnRequest {
             tools: None,
             finish: None,
             ask: None,
+            protect: None,
         },
         ctx: SessionCtx {
             workspace_root: std::path::PathBuf::from("D:\\工作区"),

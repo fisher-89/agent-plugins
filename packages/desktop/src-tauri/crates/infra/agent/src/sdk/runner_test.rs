@@ -758,6 +758,7 @@ fn explore_injections() -> SessionInjections {
         ]),
         finish: None,
         ask: None,
+        protect: None,
     }
 }
 
@@ -2639,6 +2640,22 @@ async fn archi铸造判据精确名表驱动() {
             expect_present: true,
         },
         Case {
+            tag: "含 archi_drift",
+            names: vec![
+                "read".to_owned(),
+                crate::sdk::mount::ARCHI_DRIFT_TOOL.to_owned(),
+            ],
+            expect_present: true,
+        },
+        Case {
+            tag: "含 archi_scaffold",
+            names: vec![
+                "read".to_owned(),
+                crate::sdk::mount::ARCHI_SCAFFOLD_TOOL.to_owned(),
+            ],
+            expect_present: true,
+        },
+        Case {
             tag: "脏名（archi_api_typo / 尾空格 / 大写）",
             names: vec![
                 "archi_api_typo".to_owned(),
@@ -2942,6 +2959,7 @@ async fn flow档未注入port时open仍成功() {
             tools: None,
             finish: None,
             ask: Some(agent::AskMode::Flow),
+            protect: None,
         },
         ..open_new()
     };
@@ -3255,6 +3273,7 @@ async fn 泵内铸ask上下文_泛用档键为core会话id且port为none() {
             tools: None,
             finish: None,
             ask: Some(agent::AskMode::Generic),
+            protect: None,
         },
         session_id: "core-session-1".to_owned(),
         ..open_new()
@@ -3343,6 +3362,7 @@ async fn 泵内铸ask上下文_流程档携带注入的port() {
             tools: None,
             finish: None,
             ask: Some(agent::AskMode::Flow),
+            protect: None,
         },
         session_id: "core-session-flow".to_owned(),
         ..open_new()
@@ -3407,6 +3427,7 @@ async fn 泵内ask位为none时不铸上下文且硬调即拒() {
             tools: None,
             finish: None,
             ask: None,
+            protect: None,
         },
         session_id: "core-session-none".to_owned(),
         ..open_new()
@@ -3473,6 +3494,7 @@ async fn 泵内铸造流程档无port时调用以is_error回灌() {
             tools: None,
             finish: None,
             ask: Some(agent::AskMode::Flow),
+            protect: None,
         },
         session_id: "core-session-no-port".to_owned(),
         ..open_new()
@@ -3542,6 +3564,7 @@ fn names_of(names: &[&str]) -> SessionInjections {
         tools: Some(names.iter().map(|name| (*name).to_owned()).collect()),
         finish: None,
         ask: None,
+        protect: None,
     }
 }
 
@@ -3559,6 +3582,7 @@ fn change_arm_injections() -> SessionInjections {
         tools: Some(names),
         finish: None,
         ask: None,
+        protect: None,
     }
 }
 
@@ -3707,6 +3731,7 @@ fn mint_db_context位置与重复无关() {
         tools: Some(many),
         finish: None,
         ask: None,
+        protect: None,
     };
     assert!(
         mint_db_context(
@@ -4015,4 +4040,136 @@ async fn 四参构造器签名零改锚定函数指针可达() {
             .to_string(),
         "函数指针构造与直构错误面逐字一致"
     );
+}
+
+// ===========================================================================
+// 本变更：会话规则由注入面传导至 `LoopTurn.protect`（行为面）
+// ===========================================================================
+
+/// 与泵内同形的一条相位锁会话规则（glob 经 `layout` 派生、串取模板单点）。
+fn session_lock_rule() -> agent::SessionProtectRule {
+    agent::SessionProtectRule {
+        glob: format!("**/{}/**", foundation::layout::archi_graph_model_rel_dir()),
+        reason: crate::sdk::protect::session_lock_template().to_owned(),
+    }
+}
+
+/// 与泵内同形的装配：`ProtectRules::load(root).with_session(injections.protect)`。
+fn assemble_protect(
+    root: Option<&Path>,
+    session: Option<Vec<agent::SessionProtectRule>>,
+) -> crate::sdk::protect::ProtectRules {
+    crate::sdk::protect::ProtectRules::load(root).with_session(session)
+}
+
+/// 模型目录内某 `.toml` 的绝对路径（原样 + 归一形态两用）。
+fn model_dir_file(root: &Path) -> (String, String) {
+    let raw = root
+        .join(format!(
+            "{}/01-core.toml",
+            foundation::layout::archi_graph_model_rel_dir()
+        ))
+        .to_string_lossy()
+        .into_owned();
+    let normalized = raw.replace('\\', "/");
+    (raw, normalized)
+}
+
+/// 组合（AC-6 行为面）：`injections.protect = Some([模型目录一条])` → 泵内装配
+/// 出的规则集拒绝写入模型路径，拒绝串 = 模板 `%s` / `%t` 全量替换（**双面同串**：
+/// loop 侧同一变量同时进 notice 载荷与 is_error ToolResult）。
+#[test]
+fn 会话规则由注入面传导_写入模型路径被拒且双面同串() {
+    let dir = workspace_root("session-protect-deny");
+    let (raw, normalized) = model_dir_file(dir.path());
+    let injections = agent::SessionInjections {
+        protect: Some(vec![session_lock_rule()]),
+        ..agent::SessionInjections::default()
+    };
+
+    let rules = assemble_protect(None, injections.protect.clone());
+    let reason = rules
+        .evaluate("write", &serde_json::json!({ "path": raw }), dir.path())
+        .expect("会话规则应拒绝模型路径写入");
+
+    let expected = crate::sdk::protect::session_lock_template()
+        .replace("%s", &normalized)
+        .replace("%t", "write");
+    assert_eq!(
+        reason, expected,
+        "拒绝串 = 模板替换（双面同串，零第二份文案）"
+    );
+    assert!(reason.contains(normalized.as_str()), "串含实际路径");
+    assert!(reason.contains("不要改用其他命令或工具尝试绕过"));
+}
+
+/// 边界（AC-6）：`protect = None` → 模型路径不被会话规则拦（内置规则面不变）。
+#[test]
+fn 会话规则缺席时模型路径不被拦() {
+    let dir = workspace_root("session-protect-none");
+    let (raw, _) = model_dir_file(dir.path());
+    let injections = agent::SessionInjections {
+        protect: None,
+        ..agent::SessionInjections::default()
+    };
+
+    let rules = assemble_protect(None, injections.protect.clone());
+    assert!(
+        rules
+            .evaluate("write", &serde_json::json!({ "path": raw }), dir.path())
+            .is_none(),
+        "无会话规则即不拦模型路径"
+    );
+}
+
+/// 边界（AC-6）：`protect = Some([])` 与 `None` 判定同效（空装配层不产空数组，
+/// 取值面如实表达）。
+#[test]
+fn 空会话规则与缺席判定同效() {
+    let dir = workspace_root("session-protect-empty");
+    let (raw, _) = model_dir_file(dir.path());
+
+    let with_none = assemble_protect(None, None).evaluate(
+        "write",
+        &serde_json::json!({ "path": raw.clone() }),
+        dir.path(),
+    );
+    let with_empty = assemble_protect(None, Some(Vec::new())).evaluate(
+        "write",
+        &serde_json::json!({ "path": raw }),
+        dir.path(),
+    );
+    assert_eq!(with_none, with_empty, "空数组与 None 对判定同效");
+    assert!(with_empty.is_none());
+}
+
+/// 异常（AC-6）：会话规则 glob 畸形（非法括号）→ 不命中、不 panic；空串 / `**`
+/// 归一后是全命中形态，只断言不 panic（与用户规则同一 fail-open 失败面）。
+#[test]
+fn 畸形会话规则glob不命中不panic() {
+    let dir = workspace_root("session-protect-malformed");
+    let (raw, _) = model_dir_file(dir.path());
+
+    let invalid = agent::SessionProtectRule {
+        glob: "**/[/**".to_owned(),
+        reason: crate::sdk::protect::session_lock_template().to_owned(),
+    };
+    let verdict = assemble_protect(None, Some(vec![invalid])).evaluate(
+        "write",
+        &serde_json::json!({ "path": raw.clone() }),
+        dir.path(),
+    );
+    assert!(verdict.is_none(), "非法括号 glob 不命中：{verdict:?}");
+
+    for glob in ["", "**"] {
+        let rule = agent::SessionProtectRule {
+            glob: glob.to_owned(),
+            reason: crate::sdk::protect::session_lock_template().to_owned(),
+        };
+        let _ = assemble_protect(None, Some(vec![rule])).evaluate(
+            "write",
+            &serde_json::json!({ "path": raw.clone() }),
+            dir.path(),
+        );
+    }
 }

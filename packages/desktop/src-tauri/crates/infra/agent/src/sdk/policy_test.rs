@@ -84,13 +84,13 @@ fn 同一mode与tier连续两次调用同判且12格全覆盖() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 十三项挂载逐工具三档等价于原三张按名常量表() {
+fn 十五项挂载逐工具三档等价于原三张按名常量表() {
     for mount in mount::registry() {
         let name = mount.definition.name.as_str();
         let expected = match name {
-            // 原 READONLY_TOOLS：三档全放（`archi_api` / 两 DB 只读工具属 Read 档）
+            // 原 READONLY_TOOLS：三档全放（五 archi 只读 / 两 DB 只读俱属 Read 档）
             "read" | "grep" | "glob" | "ls" | "archi_module" | "archi_search" | "archi_api"
-            | "db_tables" | "db_query" => [true, true, true],
+            | "archi_drift" | "archi_scaffold" | "db_tables" | "db_query" => [true, true, true],
             // 原 WRITE_TOOLS（含 create_explore_note）
             "write" | "edit" | "create_explore_note" => [false, true, true],
             // 原 EXECUTE_TOOLS

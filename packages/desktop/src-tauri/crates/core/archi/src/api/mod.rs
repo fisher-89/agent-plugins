@@ -734,7 +734,9 @@ pub fn bootstrap(root: &Path, element: &str) -> Result<String, ApiError> {
 
 /// `EntryProblem` 的一句话理由（「为什么这个入口不可用」）——[`bootstrap`] 失败文案的
 /// 素材，与 `check::entry_missing_message` 同源（同一 `EntryProblem` 四值，零第二份判据）。
-fn entry_problem_reason(problem: &paths::EntryProblem) -> String {
+///
+/// `dto` 的 `resolvedEntry.problem` 复用本函数，MUST NOT 另抄四值措辞。
+pub(crate) fn entry_problem_reason(problem: &paths::EntryProblem) -> String {
     match problem {
         paths::EntryProblem::Malformed { entry } => {
             format!("`{entry}` 形态非法（MUST 是 repo 相对 POSIX 路径）")

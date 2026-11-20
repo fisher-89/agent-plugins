@@ -23,7 +23,9 @@ use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::log::append_engine_log;
 use crate::sdk::mount::{self, ToolExec};
 use crate::sdk::protect::ProtectRules;
-use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools, web_search};
+use crate::sdk::{
+    compact, context, normalize, policy, preamble, preclose, sandbox, tools, web_search,
+};
 
 /// 正常收敛 / 失败收敛的 `TurnDone.subtype`（core 协议收敛事件口径）。
 const SUBTYPE_SUCCESS: &str = "success";
@@ -277,6 +279,10 @@ pub(crate) async fn run(
     }
     history.push(Message::user(turn.question.clone()));
 
+    // 收口自检的资产哈希起点（非 archi 会话直接 `None`，零 IO）；T1 的
+    // 「本轮写过架构域」标记跨轮累积——写入常发生在收口前的另一轮
+    let archi_baseline = preclose::baseline(turn).await;
+    let mut archi_touched = false;
     // 轮驱动主循环：不设轮数上限（change 任务重型 phase agent 的工具轮数
     // 远超手数启发，熔断误伤正常收敛）；失控防护交停止信号、活性护栏与
     // 空轮收敛三线。每轮内含**续跑循环**（`pause_turn` 独立计数轴：续跑不
@@ -543,8 +549,11 @@ pub(crate) async fn run(
             if !tool_calls.is_empty() {
                 break 'continuation tool_calls;
             }
-            // 非 `pause_turn` 终局：本轮自然收敛
+            // 非 `pause_turn` 终局：本轮自然收敛。收口自检先于
+            // `finish_success`（`TurnDone`）——事件序是可视面的唯一保证；自检
+            // 零请求增量、零历史追加（只发一条 notice + 引擎日志）
             if !is_pause_turn(finish_reason.as_ref()) {
+                preclose::run(&sender, turn, archi_touched, archi_baseline.as_deref()).await;
                 finish_success(&sender, turn_index, started, &usage, turn).await;
                 return history;
             }
@@ -667,6 +676,9 @@ pub(crate) async fn run(
                 results.push(outcome_result(tool_call, reason));
                 continue;
             }
+            // 收口自检的 T1 判据（沙箱通过 ∧ 保护闸放行 ∧ 执行之前——此时
+            // `sandboxed` 在手，零额外 IO）
+            archi_touched |= preclose::touched(&name, &sandboxed, &turn.cwd);
             // 执行臂路由（按挂载项的 exec 分派，零按工具名的条件链）：专用工具走
             // `LoopTurn` 携带的执行上下文（per-turn 铸造——store 句柄 / 轮 root +
             // 会话指针，`tools::execute` 纯函数签名零侵入）；七通用工具走纯函数

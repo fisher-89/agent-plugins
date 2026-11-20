@@ -27,12 +27,14 @@ pub(super) struct Rule {
     pub(super) reason: ReasonKind,
 }
 
-/// 规则来源三态：`BuiltinConfig` 走内置模板，`User(Some(_))` 透传配置文案，
-/// `User(None)` 落通用回落串。
+/// 规则来源三态：`BuiltinConfig` 走内置模板，`Session(_)` 持会话级模板串，
+/// `User(Some(_))` 透传配置文案，`User(None)` 落通用回落串。
 #[derive(Debug, Clone)]
 pub(super) enum ReasonKind {
     /// 内置工作区配置锁定（不可配置、不可移除）
     BuiltinConfig,
+    /// 会话级相位锁（持模板串；`deny_reason` 做 `%s` / `%t` 替换）
+    Session(String),
     /// 用户规则（`reason` 缺席 → `None`）
     User(Option<String>),
 }
@@ -49,12 +51,40 @@ pub(super) struct BulkGlobs {
 }
 
 /// 规则合并单点：内置恒在首位；（root 在场时）追加用户规则。
+///
+/// 会话规则不经本函数（[`with_session_rules`] 追加位）——`load` 签名与「每 run 一次
+/// 装配」的 IO 点因此零改动。
 pub(super) fn load(workspace_root: Option<&Path>) -> Vec<Rule> {
     let mut rules = builtin_rules();
     if let Some(root) = workspace_root {
         rules.extend(user_rules(root));
     }
     rules
+}
+
+/// 会话规则合并位（纯数据）：插在**内置段之后、用户段之前**。
+///
+/// 位次即优先级、首个命中即定（判定侧零优先级分支），故会话串不会被用户自选
+/// `reason` 盖掉；插入位由 [`builtin_rules`] 的长度派生，MUST NOT 硬编码条数。
+/// 多条会话规则同段内按原序排列，MUST NOT 拼接多条 `reason`。
+pub(super) fn with_session_rules(
+    rules: Vec<Rule>,
+    session: Option<&[agent::SessionProtectRule]>,
+) -> Vec<Rule> {
+    let Some(session) = session else {
+        return rules;
+    };
+    let mut merged = rules;
+    let at = builtin_rules().len().min(merged.len());
+    let session_rules: Vec<Rule> = session
+        .iter()
+        .map(|rule| Rule {
+            glob: normalize_user_glob(&rule.glob),
+            reason: ReasonKind::Session(rule.reason.clone()),
+        })
+        .collect();
+    merged.splice(at..at, session_rules);
+    merged
 }
 
 /// 内置锁定：恒一条「`**/` + 配置文件名路径」规则。

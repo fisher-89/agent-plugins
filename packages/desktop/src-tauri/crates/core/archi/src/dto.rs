@@ -476,6 +476,36 @@ pub struct ArchiElementBrief {
     pub api: ApiStatus,
     /// 一行摘要
     pub summary: Option<String>,
+    /// `path` 面是否有值（`path` 数组非空；纯投影——不补默认值、不替模型兜底）。
+    /// 字段不省略：一次无参调用即可判出「谁缺 `path`」。
+    pub has_path: bool,
+}
+
+/// 入口解析的来源（封闭二值）。
+///
+/// 约定默认与显式命中之外无第三来源，MUST NOT 增设第三值。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum EntryVia {
+    /// 模型显式声明的 `entry`
+    Explicit,
+    /// 约定默认候选命中
+    Convention,
+}
+
+/// 入口解析结果（`resolvedEntry`；三字段皆不省略）。
+///
+/// 判据单点在 `api::paths::entry_state`；`EntryForm`（crate / subdir / single-file）
+/// 不出线——本类型只回答「入口在哪、凭什么判定」，形态位无消费方。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiResolvedEntry {
+    /// repo 相对 POSIX 入口路径（不可用 / 不存在时 `null`）
+    pub path: Option<String>,
+    /// 解析来源（`explicit` / `convention`；不可用 / 不存在时 `null`）
+    pub via: Option<EntryVia>,
+    /// 不可用或缺席的人读成因（可用时 `null`）
+    pub problem: Option<String>,
 }
 
 /// 出边对端（`dependsOn` 条目）。
@@ -515,6 +545,8 @@ pub struct ArchiModuleDetail {
     pub doc: Option<String>,
     /// 契约状态与三路径的并列字段
     pub api: ArchiApiRef,
+    /// 入口解析结果（显式命中 / 约定默认命中 / 不可用成因）
+    pub resolved_entry: ArchiResolvedEntry,
 }
 
 /// 检索结果（薄条目 + 入口文档路径串）。
@@ -626,6 +658,7 @@ fn to_brief(element: &Element) -> ArchiElementBrief {
         gate: element.gate,
         api: element.api,
         summary: element.summary.clone(),
+        has_path: !element.path.is_empty(),
     }
 }
 
@@ -753,7 +786,37 @@ pub fn module_detail(root: &Path, fqn: &str) -> Result<ArchiModuleDetail, String
             .flatten(),
         // 契约状态的定位与投影单点在 `crate::api`（本层零路径拼接、零二次读模型）
         api: crate::api::api_ref_of(root, &projected, current),
+        resolved_entry: resolve_entry(root, &projected, current),
     })
+}
+
+/// 入口解析结果的投影（判据单点在 `api::paths::entry_state`；本函数只做三态映射）。
+fn resolve_entry(
+    root: &Path,
+    elements: &[ArchiElement],
+    element: &ArchiElement,
+) -> ArchiResolvedEntry {
+    match crate::api::paths::entry_state(root, elements, element) {
+        crate::api::paths::EntryState::Resolved { entry, .. } => ArchiResolvedEntry {
+            path: Some(entry),
+            via: Some(if element.entry.is_some() {
+                EntryVia::Explicit
+            } else {
+                EntryVia::Convention
+            }),
+            problem: None,
+        },
+        crate::api::paths::EntryState::Invalid(problem) => ArchiResolvedEntry {
+            path: None,
+            via: None,
+            problem: Some(crate::api::entry_problem_reason(&problem)),
+        },
+        crate::api::paths::EntryState::Absent => ArchiResolvedEntry {
+            path: None,
+            via: None,
+            problem: Some("未声明 entry，且约定默认候选皆不在盘".to_owned()),
+        },
+    }
 }
 
 /// 全元素薄概览（FQN 字典序；结构错 → `Err`）。

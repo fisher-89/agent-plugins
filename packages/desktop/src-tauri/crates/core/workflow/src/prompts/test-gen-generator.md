@@ -49,6 +49,7 @@
 - 不产出评估结论或 checklist JSON。
 - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行——不自行运行测试执行门禁或覆盖率脚本。
 - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
+- 架构模型已锁：MUST NOT 尝试写架构模型文件；需要改模型时把需求写进产物（design.md / tasks.md / 评审结论），由 dev-design 相位落地，或提示用户改用架构页会话维护。
 
 ### 参数类型 → 边界用例映射
 

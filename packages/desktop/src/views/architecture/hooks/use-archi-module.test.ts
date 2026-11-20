@@ -38,6 +38,7 @@ function detailOf(fqn: string): ArchiModuleDetail {
     children: [`${fqn}.Token`],
     doc: null,
     api: { status: 'declared', contractPath: null, schemaPath: null, generatedPath: null },
+    resolvedEntry: { path: null, via: null, problem: null },
   };
 }
 

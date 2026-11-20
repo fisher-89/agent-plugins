@@ -1,0 +1,61 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:5540:
+ 
+     // ② 两处写权相位字面量只落在矩阵与 model_write_lock 两区（不散落到别处）。
+     let matrix_start = source.find("fn archi_matrix").expect("archi_matrix 在场");
+[31m-    let lock_start = source.find("fn model_write_lock").expect("model_write_lock 在场");
+[0m[32m+    let lock_start = source
+[0m[32m+        .find("fn model_write_lock")
+[0m[32m+        .expect("model_write_lock 在场");
+[0m     let lock_end = source[lock_start..]
+         .find("struct ResolvedEngine")
+         .map(|offset| lock_start + offset)
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\preclose_test.rs:601:
+             "to = \"Root\"\n",
+         ),
+     );
+[31m-    write_file(root.path(), "src/auth/token.ts", "export const token = 1;\n");
+[0m[32m+    write_file(
+[0m[32m+        root.path(),
+[0m[32m+        "src/auth/token.ts",
+[0m[32m+        "export const token = 1;\n",
+[0m[32m+    );
+[0m     let turn = loop_turn(root.path(), Some("架构知识"));
+     let baseline = preclose::baseline(&turn).await.expect("起点值");
+     let events = collect_events(&turn, true, Some(&baseline)).await;
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\runner_test.rs:4095:
+     let expected = crate::sdk::protect::session_lock_template()
+         .replace("%s", &normalized)
+         .replace("%t", "write");
+[31m-    assert_eq!(reason, expected, "拒绝串 = 模板替换（双面同串，零第二份文案）");
+[0m[32m+    assert_eq!(
+[0m[32m+        reason, expected,
+[0m[32m+        "拒绝串 = 模板替换（双面同串，零第二份文案）"
+[0m[32m+    );
+[0m     assert!(reason.contains(normalized.as_str()), "串含实际路径");
+     assert!(reason.contains("不要改用其他命令或工具尝试绕过"));
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\runner_test.rs:4126:
+     let dir = workspace_root("session-protect-empty");
+     let (raw, _) = model_dir_file(dir.path());
+ 
+[31m-    let with_none = assemble_protect(None, None)
+[0m[31m-        .evaluate("write", &serde_json::json!({ "path": raw.clone() }), dir.path());
+[0m[31m-    let with_empty = assemble_protect(None, Some(Vec::new()))
+[0m[31m-        .evaluate("write", &serde_json::json!({ "path": raw }), dir.path());
+[0m[32m+    let with_none = assemble_protect(None, None).evaluate(
+[0m[32m+        "write",
+[0m[32m+        &serde_json::json!({ "path": raw.clone() }),
+[0m[32m+        dir.path(),
+[0m[32m+    );
+[0m[32m+    let with_empty = assemble_protect(None, Some(Vec::new())).evaluate(
+[0m[32m+        "write",
+[0m[32m+        &serde_json::json!({ "path": raw }),
+[0m[32m+        dir.path(),
+[0m[32m+    );
+[0m     assert_eq!(with_none, with_empty, "空数组与 None 对判定同效");
+     assert!(with_empty.is_none());
+ }
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

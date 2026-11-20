@@ -1,0 +1,672 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:6122:
+             reason_source.contains(&format!("EntryProblem::{variant}")),
+             "reason 侧覆盖 {variant}"
+         );
+[31m-        assert!(
+[0m[31m-            check_source.contains(needle),
+[0m[31m-            "check 侧文案含「{needle}」"
+[0m[31m-        );
+[0m[32m+        assert!(check_source.contains(needle), "check 侧文案含「{needle}」");
+[0m         assert!(
+             reason_source.contains(needle),
+             "reason 侧文案含「{needle}」"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:2612:
+     let cases: [(&str, &str); 4] = [
+         (".dev-team/architecture/graph/model/02-more.toml", "x = 1\n"),
+         (".dev-team/architecture/models/App/More.md", "# More\n"),
+[31m-        (
+[0m[31m-            ".dev-team/architecture/models/App/More.schema.json",
+[0m[31m-            "{}\n",
+[0m[31m-        ),
+[0m[32m+        (".dev-team/architecture/models/App/More.schema.json", "{}\n"),
+[0m         (".dev-team/architecture/graph/INDEX.toml", "version = 1\n"),
+     ];
+     for (relative, content) in cases {
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:2651:
+     let expected = super::assets_hash(empty.root());
+ 
+     let zero_entries = empty_root("assets-hash-filter-zero");
+[31m-    std::fs::create_dir_all(foundation::layout::archi_graph_model_dir(zero_entries.root()))
+[0m[31m-        .expect("建空模型目录");
+[0m[32m+    std::fs::create_dir_all(foundation::layout::archi_graph_model_dir(
+[0m[32m+        zero_entries.root(),
+[0m[32m+    ))
+[0m[32m+    .expect("建空模型目录");
+[0m     std::fs::create_dir_all(foundation::layout::archi_models_dir(zero_entries.root()))
+         .expect("建空契约目录");
+     assert_eq!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:2738:
+     with_index.write_model("[element.\"App\"]\nkind = \"package\"\n");
+     with_index.write(".dev-team/architecture/graph/INDEX.toml", "version = 1\n");
+ 
+[31m-    assert_ne!(before, super::assets_hash(with_index.root()), "索引在场即变");
+[0m     assert_ne!(
+[32m+        before,
+[0m         super::assets_hash(with_index.root()),
+[32m+        "索引在场即变"
+[0m[32m+    );
+[0m[32m+    assert_ne!(
+[0m[32m+        super::assets_hash(with_index.root()),
+[0m         super::assets_hash(without.root()),
+         "两态可辨"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:2754:
+ 
+     let nested = TempDir::new("assets-hash-dir-nested");
+     nested.write(".dev-team/architecture/graph/model/01.toml", "x = 1\n");
+[31m-    std::fs::create_dir_all(nested.root().join(".dev-team/architecture/graph/model/nested"))
+[0m[31m-        .expect("建子目录");
+[0m[32m+    std::fs::create_dir_all(
+[0m[32m+        nested
+[0m[32m+            .root()
+[0m[32m+            .join(".dev-team/architecture/graph/model/nested"),
+[0m[32m+    )
+[0m[32m+    .expect("建子目录");
+[0m 
+     let expected = super::assets_hash(plain.root());
+     assert_eq!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:3184:
+ /// 矩阵命中面（7 份 md × 五维勾选：`archi_module` / `archi_search` / `archi_api` /
+ /// `archi_drift` / `archi_scaffold`——矩阵单源逐文件对拍）。
+ const ARCHI_PROMPT_MATRIX: [(&str, [bool; 5]); 7] = [
+[31m-    (
+[0m[31m-        "proposal-planner",
+[0m[31m-        [true, true, false, false, true],
+[0m[31m-    ),
+[0m[31m-    (
+[0m[31m-        "dev-design-planner",
+[0m[31m-        [true, true, false, true, true],
+[0m[31m-    ),
+[0m[32m+    ("proposal-planner", [true, true, false, false, true]),
+[0m[32m+    ("dev-design-planner", [true, true, false, true, true]),
+[0m     ("dev-design-evaluator", [true, true, false, false, false]),
+     ("test-design-planner", [false, true, false, false, false]),
+     ("implementation-generator", [true, false, true, true, false]),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:3875:
+             text.contains("只为已确定的元素"),
+             "{name} 应含「只为已确定元素落笔」：{text}"
+         );
+[32m+        assert!(text.contains("写完"), "{name} 应含写完自查句：{text}");
+[0m         assert!(
+[31m-            text.contains("写完"),
+[0m[31m-            "{name} 应含写完自查句：{text}"
+[0m[31m-        );
+[0m[31m-        assert!(
+[0m             text.contains("架构模型可写"),
+             "{name} 应显式声明写权（与锁定侧措辞区分）：{text}"
+         );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:3976:
+         outside += 1;
+         let text = prompt_text(&name);
+         for tool in ARCHI_TOOLS {
+[31m-            assert!(
+[0m[31m-                !text.contains(tool),
+[0m[31m-                "{name} 未命中矩阵却含 {tool}"
+[0m[31m-            );
+[0m[32m+            assert!(!text.contains(tool), "{name} 未命中矩阵却含 {tool}");
+[0m         }
+     }
+     assert_eq!(outside, 7, "矩阵外恰 7 份（14 − 7 命中）");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\archi_knowledge_test.rs:62:
+         "MUST 是 repo 相对 POSIX",
+         "apiUnexpected 的两条判据",
+     ] {
+[31m-        assert!(
+[0m[31m-            !source.contains(piece),
+[0m[31m-            "零字段形态教学句：`{piece}`"
+[0m[31m-        );
+[0m[32m+        assert!(!source.contains(piece), "零字段形态教学句：`{piece}`");
+[0m     }
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\archi_knowledge_test.rs:190:
+         "派生段零契约索引（索引与契约分家）"
+     );
+     assert!(
+[31m-        !text.contains(&format!("{}/INDEX.toml", foundation::layout::archi_graph_rel_dir())),
+[0m[32m+        !text.contains(&format!(
+[0m[32m+            "{}/INDEX.toml",
+[0m[32m+            foundation::layout::archi_graph_rel_dir()
+[0m[32m+        )),
+[0m         "派生段零索引文件路径"
+     );
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\archi_knowledge_test.rs:200:
+ fn 派生段四面词表逐值() {
+     let text = text();
+     for value in ElementKind::ALL {
+[31m-        assert!(text.contains(value.as_str()), "kind 词 {} 在场", value.as_str());
+[0m[32m+        assert!(
+[0m[32m+            text.contains(value.as_str()),
+[0m[32m+            "kind 词 {} 在场",
+[0m[32m+            value.as_str()
+[0m[32m+        );
+[0m     }
+     for value in GateTier::ALL {
+[31m-        assert!(text.contains(value.as_str()), "gate 词 {} 在场", value.as_str());
+[0m[32m+        assert!(
+[0m[32m+            text.contains(value.as_str()),
+[0m[32m+            "gate 词 {} 在场",
+[0m[32m+            value.as_str()
+[0m[32m+        );
+[0m     }
+     for value in ApiStatus::ALL {
+[31m-        assert!(text.contains(value.as_str()), "api 状态 {} 在场", value.as_str());
+[0m[32m+        assert!(
+[0m[32m+            text.contains(value.as_str()),
+[0m[32m+            "api 状态 {} 在场",
+[0m[32m+            value.as_str()
+[0m[32m+        );
+[0m     }
+     for value in DiagnosticKind::ALL {
+[31m-        assert!(text.contains(value.as_str()), "诊断词 {} 在场", value.as_str());
+[0m[32m+        assert!(
+[0m[32m+            text.contains(value.as_str()),
+[0m[32m+            "诊断词 {} 在场",
+[0m[32m+            value.as_str()
+[0m[32m+        );
+[0m     }
+     assert_eq!(DiagnosticKind::ALL.len(), 9, "结构诊断九词封闭");
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\archi_knowledge_test.rs:247:
+ #[test]
+ fn 骨架保留写面可见性与续接() {
+     let source = skeleton();
+[31m-    for needle in ["git diff", "禁止改架构目录之外的文件", "不会自动更新", "续接历史会话"] {
+[0m[32m+    for needle in [
+[0m[32m+        "git diff",
+[0m[32m+        "禁止改架构目录之外的文件",
+[0m[32m+        "不会自动更新",
+[0m[32m+        "续接历史会话",
+[0m[32m+    ] {
+[0m         assert!(source.contains(needle), "保留项 `{needle}` 在场");
+     }
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\archi_knowledge_test.rs:270:
+ #[test]
+ fn 全文体量锚() {
+     let bytes = text().len();
+[31m-    assert!(
+[0m[31m-        bytes <= 2867,
+[0m[31m-        "全文体量 {bytes} B 超过冻结上限 2867 B"
+[0m[31m-    );
+[0m[32m+    assert!(bytes <= 2867, "全文体量 {bytes} B 超过冻结上限 2867 B");
+[0m }
+ 
+ /// 边界：骨架零 `<>` 占位符（占位符即「路径未派生 / 字段未定」的形态）。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\archi_knowledge_test.rs:301:
+     let head = skeleton().trim_end();
+     assert!(full.starts_with(head), "全文以骨架 trim_end 起手");
+     assert!(full.len() > head.len(), "派生段确有追加");
+[31m-    assert!(
+[0m[31m-        full.contains("结构诊断："),
+[0m[31m-        "派生段含四面词表段头"
+[0m[31m-    );
+[0m[32m+    assert!(full.contains("结构诊断："), "派生段含四面词表段头");
+[0m }
+ 
+ /// 异常（表驱动）：骨架为空 / 仅空白 → `Err`（文案含「知识骨架为空」）；`knowledge()`
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\archi_knowledge_test.rs:315:
+         let error = crate::archi_knowledge::build(skeleton).expect_err("空骨架应 Err");
+         assert!(error.contains("知识骨架为空"), "文案含成因：{error}");
+     }
+[31m-    assert!(crate::archi_knowledge::knowledge().is_some(), "真实骨架不降级");
+[0m[32m+    assert!(
+[0m[32m+        crate::archi_knowledge::knowledge().is_some(),
+[0m[32m+        "真实骨架不降级"
+[0m[32m+    );
+[0m }
+ 
+ /// 异常：骨架含 `<>` → `build` 返回 `Err`（文案含「占位符」）。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\archi_knowledge_test.rs:322:
+ #[test]
+ fn build占位符err含触发点() {
+[31m-    let error = crate::archi_knowledge::build("# 标题\n\n路径 <> 未派生\n").expect_err("占位符应 Err");
+[0m[32m+    let error =
+[0m[32m+        crate::archi_knowledge::build("# 标题\n\n路径 <> 未派生\n").expect_err("占位符应 Err");
+[0m     assert!(error.contains("占位符"), "文案含占位符：{error}");
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\archi_knowledge_test.rs:337:
+         source.contains("include_str!(\"archi-knowledge.md\")"),
+         "骨架经 `include_str!` 内嵌（编译期静态资产）"
+     );
+[31m-    assert!(
+[0m[31m-        !source.contains("契约索引"),
+[0m[31m-        "模块 doc 零契约索引残留"
+[0m[31m-    );
+[0m[32m+    assert!(!source.contains("契约索引"), "模块 doc 零契约索引残留");
+[0m }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:3986:
+         );
+         assert!(api_bit(&injections), "archi 臂 api 名在场");
+         assert!(
+[31m-            names.iter().any(|name| name == crate::sdk::mount::ARCHI_DRIFT_TOOL),
+[0m[32m+            names
+[0m[32m+                .iter()
+[0m[32m+                .any(|name| name == crate::sdk::mount::ARCHI_DRIFT_TOOL),
+[0m             "archi 臂含 archi_drift"
+         );
+         assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:5387:
+ /// `explore`、`debug`、未知 source → `Some(恰一条)`。
+ #[test]
+ fn 模型写权挂锁格() {
+[31m-    let mut cases: Vec<(&str, Option<String>)> = vec![
+[0m[31m-        ("explore", None),
+[0m[31m-        ("debug", None),
+[0m[31m-        ("unknown-source", None),
+[0m[31m-    ];
+[0m[32m+    let mut cases: Vec<(&str, Option<String>)> =
+[0m[32m+        vec![("explore", None), ("debug", None), ("unknown-source", None)];
+[0m     for source_ref in [
+         "chg-1/dev-design/evaluator/1",
+         "chg-1/implement/executor/1",
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:5437:
+     let protect = injections.protect.expect("explore 恒挂锁");
+     assert_eq!(
+         protect[0].glob,
+[31m-        format!(
+[0m[31m-            "**/{}/**",
+[0m[31m-            foundation::layout::archi_graph_model_rel_dir()
+[0m[31m-        ),
+[0m[32m+        format!("**/{}/**", foundation::layout::archi_graph_model_rel_dir()),
+[0m         "glob 由 layout 派生"
+     );
+     assert_eq!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:5476:
+     for relative in [
+         format!("{}/App/Auth.md", foundation::layout::archi_models_rel_dir()),
+         format!("{}/INDEX.toml", foundation::layout::archi_graph_rel_dir()),
+[31m-        format!(
+[0m[31m-            "{}/config.json",
+[0m[31m-            foundation::layout::archi_rel_dir()
+[0m[31m-        ),
+[0m[32m+        format!("{}/config.json", foundation::layout::archi_rel_dir()),
+[0m     ] {
+         let verdict = rules.evaluate(
+             "write",
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:5507:
+ #[test]
+ fn 端到端写权拒绝串含指路与禁止绕过() {
+     let injections = injections_of("change", Some("chg-1/implement/executor/1"));
+[31m-    let rules = crate::sdk::protect::ProtectRules::load(None)
+[0m[31m-        .with_session(injections.protect.clone());
+[0m[32m+    let rules =
+[0m[32m+        crate::sdk::protect::ProtectRules::load(None).with_session(injections.protect.clone());
+[0m     let root = std::path::Path::new("/repo");
+     let reason = rules
+         .evaluate(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_drift_view_test.rs:122:
+         "observations",
+         "modelWarnings",
+     ] {
+[31m-        assert!(
+[0m[31m-            summary["counts"][key].is_u64(),
+[0m[31m-            "counts.{key} 为计数字段"
+[0m[31m-        );
+[0m[32m+        assert!(summary["counts"][key].is_u64(), "counts.{key} 为计数字段");
+[0m     }
+     assert_eq!(
+         summary["counts"]["errors"],
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_drift_view_test.rs:160:
+         "unmatched 只以计数位出现"
+     );
+     assert_eq!(
+[31m-        summary["counts"]["scan"]["scannedFiles"],
+[0m[31m-        report.scan.scanned_files,
+[0m[32m+        summary["counts"]["scan"]["scannedFiles"], report.scan.scanned_files,
+[0m         "扫描文件数与报告同源"
+     );
+     assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_drift_view_test.rs:217:
+         Value::from(0),
+         "空报告零契约判据"
+     );
+[31m-    assert_eq!(
+[0m[31m-        summary["model"]["structuralErrorCount"],
+[0m[31m-        Value::from(0)
+[0m[31m-    );
+[0m[32m+    assert_eq!(summary["model"]["structuralErrorCount"], Value::from(0));
+[0m     assert_eq!(summary["status"], "skipped");
+     assert!(
+         summary.get("observations").is_none() && summary.get("files").is_none(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_drift_view_test.rs:316:
+         "passed 与 report.passed() 同源"
+     );
+     assert!(
+[31m-        summary["errors"].as_array().is_some_and(|items| !items.is_empty()),
+[0m[32m+        summary["errors"]
+[0m[32m+            .as_array()
+[0m[32m+            .is_some_and(|items| !items.is_empty()),
+[0m         "errors 明细在场"
+     );
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_drift_view_test.rs:371:
+     let entries = drift_entries(&report, 5);
+ 
+     for key in keys(&summary) {
+[31m-        assert!(
+[0m[31m-            entries.get(&key).is_some(),
+[0m[31m-            "entries 应含 summary 键 {key}"
+[0m[31m-        );
+[0m[32m+        assert!(entries.get(&key).is_some(), "entries 应含 summary 键 {key}");
+[0m     }
+     assert_eq!(
+         entries["observations"].as_array().map(Vec::len),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_drift_view_test.rs:390:
+         entries["apiFindings"]["byKind"].is_object(),
+         "byKind 计数位仍在（增补不重算）"
+     );
+[31m-    assert!(
+[0m[31m-        entries.get("files").is_none(),
+[0m[31m-        "entries 不含 files 清单"
+[0m[31m-    );
+[0m[32m+    assert!(entries.get("files").is_none(), "entries 不含 files 清单");
+[0m }
+ 
+ /// 组合：三份盘面下 `entries` 与 `summary` 的同名计数字段逐字段相等（追加不重算）。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs:1119:
+             value.get("observations").is_none(),
+             "summary 不含 observations"
+         );
+[32m+        assert!(value.get("files").is_none(), "summary 不含 files 清单");
+[0m         assert!(
+[31m-            value.get("files").is_none(),
+[0m[31m-            "summary 不含 files 清单"
+[0m[31m-        );
+[0m[31m-        assert!(
+[0m             value["apiFindings"].get("items").is_none(),
+             "summary 不含判据条目明细（只有 byKind 计数）"
+         );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs:1155:
+     )
+     .await;
+ 
+[31m-    assert!(entries["observations"].is_array(), "entries 含 observations");
+[0m[31m-    assert!(entries["apiFindings"]["items"].is_array(), "entries 含判据条目");
+[0m[32m+    assert!(
+[0m[32m+        entries["observations"].is_array(),
+[0m[32m+        "entries 含 observations"
+[0m[32m+    );
+[0m[32m+    assert!(
+[0m[32m+        entries["apiFindings"]["items"].is_array(),
+[0m[32m+        "entries 含判据条目"
+[0m[32m+    );
+[0m     for key in summary.as_object().expect("对象").keys() {
+         assert!(entries.get(key).is_some(), "entries 含 summary 键 {key}");
+     }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs:1233:
+         "[element.\"App]\nkind = \"package\"\n",
+     );
+     let broken_context = ArchiContext::new(broken.path().to_path_buf());
+[31m-    let value = execute_json(&broken_context, crate::sdk::tools::ARCHI_DRIFT_TOOL, json!({})).await;
+[0m[32m+    let value = execute_json(
+[0m[32m+        &broken_context,
+[0m[32m+        crate::sdk::tools::ARCHI_DRIFT_TOOL,
+[0m[32m+        json!({}),
+[0m[32m+    )
+[0m[32m+    .await;
+[0m     assert_eq!(value["status"], "errors", "坏模型即 errors");
+     assert_eq!(value["passed"], serde_json::Value::Bool(false));
+     assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs:1255:
+         .execute(crate::sdk::tools::ARCHI_DRIFT_TOOL, &json!({}))
+         .await
+         .expect_err("配置非法应 Err");
+[31m-    assert!(
+[0m[31m-        error.contains("unknownKey"),
+[0m[31m-        "文案含配置成因：{error}"
+[0m[31m-    );
+[0m[32m+    assert!(error.contains("unknownKey"), "文案含配置成因：{error}");
+[0m }
+ 
+ /// 边界：`gate` 全 `off` 常态盘面 → 返回文本只在计数位含 `unmatched` 数，零
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs:1297:
+     }
+     let context = ArchiContext::new(dir.path().to_path_buf());
+     let text = context
+[31m-        .execute(crate::sdk::tools::ARCHI_DRIFT_TOOL, &json!({ "scope": "files" }))
+[0m[32m+        .execute(
+[0m[32m+            crate::sdk::tools::ARCHI_DRIFT_TOOL,
+[0m[32m+            &json!({ "scope": "files" }),
+[0m[32m+        )
+[0m         .await
+         .expect("应 Ok");
+     assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\loop_test.rs:8403:
+ // ===========================================================================
+ 
+ /// 携 `preamble` 的轮参数（archi 会话判据 = `preamble` 位在场）。
+[31m-fn loop_turn_with_preamble(cwd: &Path, mode: AgentPermissionMode, preamble: Option<&str>) -> LoopTurn {
+[0m[32m+fn loop_turn_with_preamble(
+[0m[32m+    cwd: &Path,
+[0m[32m+    mode: AgentPermissionMode,
+[0m[32m+    preamble: Option<&str>,
+[0m[32m+) -> LoopTurn {
+[0m     LoopTurn {
+         injections: agent::SessionInjections {
+             preamble: preamble.map(str::to_owned),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\loop_test.rs:8706:
+         .to_string_lossy()
+         .into_owned();
+     let lock = agent::SessionProtectRule {
+[31m-        glob: format!(
+[0m[31m-            "**/{}/**",
+[0m[31m-            foundation::layout::archi_graph_model_rel_dir()
+[0m[31m-        ),
+[0m[32m+        glob: format!("**/{}/**", foundation::layout::archi_graph_model_rel_dir()),
+[0m         reason: "该路径受相位锁保护：%s（经 %t 工具）。不要改用其他命令或工具尝试绕过。".to_owned(),
+     };
+     let turn = LoopTurn {
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\loop_test.rs:8741:
+         "被拒写入不置位 T1、盘面未变 ⇒ 零 notice"
+     );
+     assert!(
+[31m-        !dir
+[0m[31m-            .path()
+[0m[32m+        !dir.path()
+[0m             .join(format!(
+                 "{}/02-new.toml",
+                 foundation::layout::archi_graph_model_rel_dir()
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:110:
+     }
+     // 计数面：Read 九 / Write 三 / Execute 一 / Protocol 零
+     let count = |tier: ToolTier| registry().iter().filter(|mount| mount.tier == tier).count();
+[31m-    assert_eq!(count(ToolTier::Read), 11, "Read 十一项（五 archi + 两 DB + 四内建）");
+[0m[32m+    assert_eq!(
+[0m[32m+        count(ToolTier::Read),
+[0m[32m+        11,
+[0m[32m+        "Read 十一项（五 archi + 两 DB + 四内建）"
+[0m[32m+    );
+[0m     assert_eq!(count(ToolTier::Write), 3, "Write 三项");
+     assert_eq!(count(ToolTier::Execute), 1, "Execute 一项");
+     assert_eq!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:1616:
+ fn archi_module描述补三句指路() {
+     let definition = lookup(ARCHI_MODULE_TOOL).expect("定义在案");
+     let description = &definition.description;
+[31m-    for piece in [
+[0m[31m-        "hasPath",
+[0m[31m-        "resolvedEntry",
+[0m[31m-        "archi_scaffold",
+[0m[31m-    ] {
+[0m[32m+    for piece in ["hasPath", "resolvedEntry", "archi_scaffold"] {
+[0m         assert!(
+             description.contains(piece),
+             "描述含新指路 `{piece}`：{description}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\preclose_test.rs:13:
+ use tokio::sync::mpsc;
+ 
+ use crate::sdk::archi_drift_view::drift_summary;
+[31m-use crate::sdk::r#loop::{LoopTurn, StreamLiveness, StreamRetry};
+[0m use crate::sdk::preclose;
+ use crate::sdk::protect::ProtectRules;
+[32m+use crate::sdk::r#loop::{LoopTurn, StreamLiveness, StreamRetry};
+[0m 
+ // ---------------------------------------------------------------------------
+ // 装置：真实 tempdir 盘面 + 真实 LoopTurn
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\preclose_test.rs:85:
+ }
+ 
+ /// 跑一次自检并把事件流取空（收端在用例侧 drain——「发了什么」即被测面）。
+[31m-async fn collect_events(turn: &LoopTurn, touched: bool, baseline: Option<&str>) -> Vec<AgentEventKind> {
+[0m[32m+async fn collect_events(
+[0m[32m+    turn: &LoopTurn,
+[0m[32m+    touched: bool,
+[0m[32m+    baseline: Option<&str>,
+[0m[32m+) -> Vec<AgentEventKind> {
+[0m     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(32);
+     preclose::run(&sender, turn, touched, baseline).await;
+     drop(sender);
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\preclose_test.rs:101:
+     events
+         .iter()
+         .filter_map(|event| match event {
+[31m-            AgentEventKind::SystemNotice { subtype, payload } => {
+[0m[31m-                Some((subtype.as_str(), payload))
+[0m[31m-            }
+[0m[32m+            AgentEventKind::SystemNotice { subtype, payload } => Some((subtype.as_str(), payload)),
+[0m             _ => None,
+         })
+         .collect()
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\preclose_test.rs:129:
+ async fn baseline取起点资产哈希() {
+     let root = healthy_root("baseline-hit");
+     let turn = loop_turn(root.path(), Some("架构知识"));
+[31m-    let value = preclose::baseline(&turn).await.expect("archi 会话应有起点值");
+[0m[32m+    let value = preclose::baseline(&turn)
+[0m[32m+        .await
+[0m[32m+        .expect("archi 会话应有起点值");
+[0m     assert_eq!(
+         value,
+         archi::drift::assets_hash(root.path()),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\preclose_test.rs:276:
+ #[test]
+ fn touched_bash只读命令不命中() {
+     let root = healthy_root("touched-bash-read");
+[31m-    for command in ["ls src", "cat src/auth/lib.rs", "grep -n login src/auth/lib.rs"] {
+[0m[32m+    for command in [
+[0m[32m+        "ls src",
+[0m[32m+        "cat src/auth/lib.rs",
+[0m[32m+        "grep -n login src/auth/lib.rs",
+[0m[32m+    ] {
+[0m         let input = serde_json::json!({ "command": command });
+         assert!(
+             !preclose::touched("bash", &input, root.path()),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\protect\mod_test.rs:940:
+ fn with_session_none零追加() {
+     let root = tempdir("session-none");
+     let loaded = ProtectRules::load(Some(root.path())).rules;
+[31m-    let merged = ProtectRules::load(Some(root.path())).with_session(None).rules;
+[0m[32m+    let merged = ProtectRules::load(Some(root.path()))
+[0m[32m+        .with_session(None)
+[0m[32m+        .rules;
+[0m     assert_eq!(merged.len(), loaded.len(), "规则条数不变");
+     for (left, right) in merged.iter().zip(loaded.iter()) {
+         assert_eq!(left.glob, right.glob, "glob 逐条相等");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\protect\mod_test.rs:1136:
+         paths.iter().all(|path| path.ends_with("notes/a.toml")),
+         "全部落点都指向同一目标：{paths:?}"
+     );
+[32m+    assert!(!paths[0].contains('\\'), "反斜杠已归一为 `/`：{}", paths[0]);
+[0m     assert!(
+[31m-        !paths[0].contains('\\'),
+[0m[31m-        "反斜杠已归一为 `/`：{}",
+[0m[31m-        paths[0]
+[0m[31m-    );
+[0m[31m-    assert!(
+[0m         paths[0].ends_with("notes/a.toml"),
+         "落点为目标路径：{}",
+         paths[0]
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\protect\mod_test.rs:1187:
+ #[test]
+ fn written_paths只读命令空数组() {
+     let root = tempdir("written-read");
+[31m-    for command in ["ls src", "cat notes/a.toml", "grep -n login src/auth/lib.rs"] {
+[0m[32m+    for command in [
+[0m[32m+        "ls src",
+[0m[32m+        "cat notes/a.toml",
+[0m[32m+        "grep -n login src/auth/lib.rs",
+[0m[32m+    ] {
+[0m         assert!(
+             super::written_paths(command, root.path()).is_empty(),
+             "只读命令零落点：{command}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\protect\mod_test.rs:1242:
+ fn written_paths与保护闸同源() {
+     let root = tempdir("written-same-source");
+     let rules = ProtectRules::load(Some(root.path())).with_session(Some(vec![session_lock_rule()]));
+[31m-    let command = format!(
+[0m[31m-        "cat > {}/01-core.toml",
+[0m[31m-        layout::archi_graph_model_rel_dir()
+[0m[31m-    );
+[0m[32m+    let command = format!("cat > {}/01-core.toml", layout::archi_graph_model_rel_dir());
+[0m     let paths = super::written_paths(&command, root.path());
+     assert!(
+[31m-        paths
+[0m[31m-            .iter()
+[0m[31m-            .any(|path| path.ends_with(&format!("{}/01-core.toml", layout::archi_graph_model_rel_dir()))),
+[0m[32m+        paths.iter().any(|path| path.ends_with(&format!(
+[0m[32m+            "{}/01-core.toml",
+[0m[32m+            layout::archi_graph_model_rel_dir()
+[0m[32m+        ))),
+[0m         "写面提取命中模型目录：{paths:?}"
+     );
+     assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\protect\reason_test.rs:288:
+         "架构页会话",
+         NO_BYPASS_SENTENCE,
+     ] {
+[31m-        assert!(
+[0m[31m-            template.contains(piece),
+[0m[31m-            "模板含要素 `{piece}`：{template}"
+[0m[31m-        );
+[0m[32m+        assert!(template.contains(piece), "模板含要素 `{piece}`：{template}");
+[0m     }
+[31m-    assert!(
+[0m[31m-        template.contains("相位锁"),
+[0m[31m-        "事实串点明相位锁：{template}"
+[0m[31m-    );
+[0m[32m+    assert!(template.contains("相位锁"), "事实串点明相位锁：{template}");
+[0m }
+ 
+ /// 边界：模板零架构域路径字面量（路径只经 `%s` 携入）；同值两次调用返回同一
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\protect\rules_test.rs:969:
+         source.contains("let at = builtin_rules().len().min(merged.len());"),
+         "插入位由内置段长度派生"
+     );
+[31m-    assert!(
+[0m[31m-        !source.contains("splice(1..1"),
+[0m[31m-        "零硬编码插入位"
+[0m[31m-    );
+[0m[32m+    assert!(!source.contains("splice(1..1"), "零硬编码插入位");
+[0m }
+ 
+ /// 异常（表驱动）：畸形 glob（非法括号 / 空串归一为全命中形态）→ 装配不 panic，且
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\runner_test.rs:2641:
+         },
+         Case {
+             tag: "含 archi_drift",
+[31m-            names: vec!["read".to_owned(), crate::sdk::mount::ARCHI_DRIFT_TOOL.to_owned()],
+[0m[32m+            names: vec![
+[0m[32m+                "read".to_owned(),
+[0m[32m+                crate::sdk::mount::ARCHI_DRIFT_TOOL.to_owned(),
+[0m[32m+            ],
+[0m             expect_present: true,
+         },
+         Case {
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\runner_test.rs:2648:
+             tag: "含 archi_scaffold",
+[31m-            names: vec!["read".to_owned(), crate::sdk::mount::ARCHI_SCAFFOLD_TOOL.to_owned()],
+[0m[32m+            names: vec![
+[0m[32m+                "read".to_owned(),
+[0m[32m+                crate::sdk::mount::ARCHI_SCAFFOLD_TOOL.to_owned(),
+[0m[32m+            ],
+[0m             expect_present: true,
+         },
+         Case {
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

@@ -29,7 +29,7 @@ const ARCHI_SOURCE: &str = "archi";
 /// 不命中矩阵，收口档位不得随矩阵 `None` 一并丢）：
 /// - `explore` 来源 = 六工具名（write 移除）+ `create_explore_note` + 两只只读
 ///   DB 工具（单源见 desktop-agent-db-tools）；
-/// - `archi` 来源 = 七工具名 + 两 archi 名 + 架构会话知识 preamble；该臂以
+/// - `archi` 来源 = 七工具名 + 五 archi 名 + 架构会话知识 preamble；该臂以
 ///   `source` 短路命中，零 `source_ref` 读取（不碰相位解析，`source_ref` 取任意
 ///   值下发面不变）；
 /// - `change` 来源按 `source_ref` 尾三段解析 `(phase, role)` 查 archi 工具面
@@ -38,6 +38,10 @@ const ARCHI_SOURCE: &str = "archi";
 /// - 其余来源（debug 等）显式构造 `tools = None`（内建七件）+ 零 archi 工具 +
 ///   `ask = Some(Generic)`——MUST NOT 以默认构造兜底（默认值的 `ask = None` 即
 ///   静默禁用，通用会话会失去 ask）。
+///
+/// `protect` 位由单点 [`model_write_lock`] 逐臂置位（模型写权的相位锁；判定矩阵归
+/// `desktop-write-protection`）：archi 臂与两处写权相位 `None`（不挂锁），其余一切
+/// `Some(一条)`。
 ///
 /// 三臂的每个名字 SHALL 经 [`mount::lookup`] 成员校验（未知名 `Err`）。`ask` 位
 /// 逐臂显式置位：explore / archi / 其余来源 → `Generic`，change（**不分 role /
@@ -68,6 +72,8 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
         names.push(mount::ARCHI_MODULE_TOOL);
         names.push(mount::ARCHI_SEARCH_TOOL);
         names.push(mount::ARCHI_API_TOOL);
+        names.push(mount::ARCHI_DRIFT_TOOL);
+        names.push(mount::ARCHI_SCAFFOLD_TOOL);
         // 知识为尽力增强项：拼装失败（`None`）只丢 preamble 位，工具面不变。
         return injected(
             &names,
@@ -84,6 +90,7 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
             tools: None,
             finish: None,
             ask: Some(agent::AskMode::Generic),
+            protect: model_write_lock(provenance),
         });
     }
     let mut names: Vec<&'static str> = mount::builtin().to_vec();
@@ -114,6 +121,7 @@ fn injected(
     ask: Option<agent::AskMode>,
     provenance: &SessionProvenance,
 ) -> Result<agent::SessionInjections, String> {
+    let protect = model_write_lock(provenance);
     for name in names {
         if mount::lookup(name).is_none() {
             return Err(format!(
@@ -127,6 +135,7 @@ fn injected(
         tools: Some(names.iter().map(|name| (*name).to_owned()).collect()),
         finish,
         ask,
+        protect,
     })
 }
 
@@ -147,20 +156,67 @@ fn change_phase_role(source_ref: &str) -> Option<(&str, &str)> {
     Some((phase, role))
 }
 
-/// archi 工具面注入矩阵单源（7 行，`(phase, role)` → 下发工具名清单；未命中即
-/// 零 archi 工具）。矩阵只决定**下发面**，不决定 prompt 文本。
+/// archi 工具面注入矩阵单源（8 行含兜底行，`(phase, role)` → 下发工具名清单；
+/// 未命中即零 archi 工具）。矩阵只决定**下发面**，不决定 prompt 文本。
+///
+/// `drift` 只给两处**直接产出漂移**的相位（写完模型 / 改完代码）；`scaffold` 只给
+/// 两处写权相位与 archi 臂。`code-review` / `acceptance` 仍只读模型面（保守案：时机
+/// 差是理由，不是给 evaluator 发读数工具的充分理由）。
 fn archi_matrix(phase: &str, role: &str) -> Option<Vec<&'static str>> {
     match (phase, role) {
-        ("proposal", "executor") => Some(vec![mount::ARCHI_SEARCH_TOOL]),
-        ("dev-design", "executor") | ("dev-design", "evaluator") => {
+        ("proposal", "executor") => Some(vec![
+            mount::ARCHI_SEARCH_TOOL,
+            mount::ARCHI_MODULE_TOOL,
+            mount::ARCHI_SCAFFOLD_TOOL,
+        ]),
+        ("dev-design", "executor") => Some(vec![
+            mount::ARCHI_MODULE_TOOL,
+            mount::ARCHI_SEARCH_TOOL,
+            mount::ARCHI_DRIFT_TOOL,
+            mount::ARCHI_SCAFFOLD_TOOL,
+        ]),
+        ("dev-design", "evaluator") => {
             Some(vec![mount::ARCHI_MODULE_TOOL, mount::ARCHI_SEARCH_TOOL])
         }
         ("test-design", "executor") => Some(vec![mount::ARCHI_SEARCH_TOOL]),
-        ("implement", "executor") => Some(vec![mount::ARCHI_MODULE_TOOL, mount::ARCHI_API_TOOL]),
+        ("implement", "executor") => Some(vec![
+            mount::ARCHI_MODULE_TOOL,
+            mount::ARCHI_API_TOOL,
+            mount::ARCHI_DRIFT_TOOL,
+        ]),
         ("code-review", "evaluator") => Some(vec![mount::ARCHI_MODULE_TOOL]),
         ("acceptance", "evaluator") => Some(vec![mount::ARCHI_MODULE_TOOL]),
         _ => None,
     }
+}
+
+/// 模型写权的装配单点（相位锁）：`None` = 不挂锁（允许写模型），`Some(一条)` = 挂
+/// 会话级禁区规则。
+///
+/// 政策：可写 ⟺ 架构页会话（`source = "archi"`） ∨ (`source = "change"` ∧
+/// `(phase, role) = (proposal|dev-design, executor)`)。其余一切锁定——含
+/// `dev-design/evaluator` 与 `explore` / `debug`。fail-closed 方向：畸形
+/// `source_ref` / 未知 phase / 非 change 来源一律挂锁。
+///
+/// 锁面只 `graph/model/**`：契约资产 md 不锁（`implement/executor` 持有
+/// `archi_api`，改代码相位必须能同步契约）、索引生成物（「MUST NOT 手改」已足够）、
+/// 架构域看护配置（不是模型）不锁。
+fn model_write_lock(provenance: &SessionProvenance) -> Option<Vec<agent::SessionProtectRule>> {
+    if provenance.source == ARCHI_SOURCE {
+        return None;
+    }
+    if provenance.source == CHANGE_SOURCE {
+        let phase_role = change_phase_role(provenance.source_ref.as_deref().unwrap_or(""));
+        if let Some((phase, "executor")) = phase_role {
+            if phase == "proposal" || phase == "dev-design" {
+                return None;
+            }
+        }
+    }
+    Some(vec![agent::SessionProtectRule {
+        glob: format!("**/{}/**", foundation::layout::archi_graph_model_rel_dir()),
+        reason: crate::sdk::protect::session_lock_template().to_owned(),
+    }])
 }
 
 /// 解析产物（组合根内聚）：引擎 kind + 组装好的连接配置 + 快照定型双面 +

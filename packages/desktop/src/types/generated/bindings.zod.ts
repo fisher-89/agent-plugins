@@ -885,6 +885,7 @@ export const ArchiModuleDetailSchema = z.strictObject({
 	get children() { return z.array(z.string()); },
 	get doc() { return z.string().nullable(); },
 	get api() { return ArchiApiRefSchema; },
+	get resolvedEntry() { return ArchiResolvedEntrySchema; },
 });
 
 export const ArchiObservationKindSchema = z.union([z.literal("unfulfilledDeclaration"), z.literal("unusedDeclaration")]);
@@ -895,6 +896,12 @@ export const ArchiRelationSchema = z.strictObject({
 	get description() { return z.string().nullable(); },
 	get mark() { return EdgeMarkSchema; },
 	get reason() { return z.string().nullable(); },
+});
+
+export const ArchiResolvedEntrySchema = z.strictObject({
+	get path() { return z.string().nullable(); },
+	get via() { return EntryViaSchema.nullable(); },
+	get problem() { return z.string().nullable(); },
 });
 
 export const ArchiScanReportSchema = z.strictObject({
@@ -1150,6 +1157,8 @@ export const DirNodeSchema = z.strictObject({
 export const EdgeMarkSchema = z.union([z.literal("none"), z.literal("unfulfilled"), z.literal("crossKind"), z.literal("exempt")]);
 
 export const ElementKindSchema = z.union([z.literal("package"), z.literal("domain"), z.literal("module"), z.literal("component")]);
+
+export const EntryViaSchema = z.union([z.literal("explicit"), z.literal("convention")]);
 
 export const ExecOutputChunkSchema = z.strictObject({
 	get text() { return z.string(); },

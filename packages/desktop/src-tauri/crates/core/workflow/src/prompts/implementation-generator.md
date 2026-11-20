@@ -36,4 +36,5 @@
 - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行——不自行运行静态检查或测试门禁脚本。
 - 不产出评估结论或 checklist JSON。
 - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
-- 额外可用只读工具 `archi_module`（定位）：改动前先确认模块边界与依赖方向——返回该元素的邻接、直接子元素、文档引用与声明位置 `modelFile` + `modelLine`。另有 `archi_api`（契约面自检）：改完代码可自查生成物新鲜度与契约判据；生成物过期用既有命令重生成，MUST NOT 手改生成物。
+- 额外可用只读工具 `archi_module`（定位）：改动前先确认模块边界与依赖方向——返回该元素的邻接、直接子元素、文档引用与声明位置 `modelFile` + `modelLine`。另有 `archi_api`（契约面自检）：改完代码可自查生成物新鲜度与契约判据；生成物过期用既有命令重生成，MUST NOT 手改生成物。`archi_drift`（读数）：改完代码自查是否有未声明依赖。
+- 架构模型已锁：MUST NOT 尝试写架构模型文件；需要改模型时把需求写进产物，由 `dev-design` 相位落地。

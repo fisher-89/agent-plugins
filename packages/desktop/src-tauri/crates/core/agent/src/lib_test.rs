@@ -446,6 +446,7 @@ fn crate根路径ask_mode可达且可赋给注入面ask位() {
         tools: None,
         finish: None,
         ask: Some(flow),
+        protect: None,
     };
     assert_eq!(injections.ask, Some(AskMode::Flow), "ask 位承接档位");
 

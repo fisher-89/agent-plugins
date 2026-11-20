@@ -1976,10 +1976,30 @@ fn archi出线类型逐名命中产物() {
             "dependedBy",
             "children",
             "doc",
-            "api"
+            "api",
+            "resolvedEntry"
         ],
-        "ArchiModuleDetail 字段面按声明序出线（`doc` 单值），实际段:\n{detail}"
+        "ArchiModuleDetail 字段面按声明序出线（`doc` 单值 + `resolvedEntry` 末位），实际段:\n{detail}"
     );
+    // 薄条目不出线：`hasPath` 只服务 agent 工具（IPC 面无消费方 ⇒ 零声明）
+    assert!(
+        !content.contains("export type ArchiElementBrief ="),
+        "`ArchiElementBrief` 零出线（AC-10：产物增面恰为 resolvedEntry 三件）"
+    );
+
+    // 入口解析结果：三字段皆不省略（`via` 封闭二值）
+    let resolved = type_section(&content, "ArchiResolvedEntry");
+    assert_eq!(
+        field_names(&resolved),
+        vec!["path", "via", "problem"],
+        "ArchiResolvedEntry 三字段按声明序出线，实际段:
+{resolved}"
+    );
+    assert!(
+        content.contains("export type EntryVia ="),
+        "`EntryVia` 二值封闭类型出线"
+    );
+
     let element = type_section(&content, "ArchiElement");
     let element_fields = field_names(&element);
     let entry_at = element_fields

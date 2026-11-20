@@ -6000,3 +6000,132 @@ fn gating_findings留白矛盾仍纳管且保序() {
     assert_eq!(gated.len(), 3, "载体在盘 ⇒ 矛盾判据仍纳管");
     assert_eq!(gated, findings, "过滤不改序");
 }
+
+// ===========================================================================
+// `entry_problem_reason`：四值成因措辞单点（`resolvedEntry.problem` 与
+// `bootstrap` 失败文案同源）
+// ===========================================================================
+
+/// 正向（表驱动）：四变体逐值 → 文案含对应关键片段（入口串 / 另一 FQN / 「形态非法」
+/// /「不在盘」/「之外」）。
+#[test]
+fn entry_problem_reason四变体关键片段() {
+    use crate::api::paths::EntryProblem;
+
+    let cases: [(EntryProblem, &str); 4] = [
+        (
+            EntryProblem::Malformed {
+                entry: "C:/abs/lib.rs".to_owned(),
+            },
+            "形态非法",
+        ),
+        (
+            EntryProblem::OutsidePath {
+                entry: "src/other/lib.rs".to_owned(),
+            },
+            "之外",
+        ),
+        (
+            EntryProblem::NotOnDisk {
+                entry: "src/auth/lib.rs".to_owned(),
+            },
+            "不在盘",
+        ),
+        (
+            EntryProblem::Duplicated {
+                entry: "src/auth/lib.rs".to_owned(),
+                other_fqn: "App.AuthCopy".to_owned(),
+            },
+            "同一个文件",
+        ),
+    ];
+    for (problem, needle) in cases {
+        let reason = super::entry_problem_reason(&problem);
+        assert!(reason.contains(needle), "成因含「{needle}」：{reason}");
+        match &problem {
+            EntryProblem::Duplicated {
+                other_fqn, entry, ..
+            } => {
+                assert!(reason.contains(other_fqn), "冒泡另一元素 FQN：{reason}");
+                assert!(reason.contains(entry), "含入口串：{reason}");
+            }
+            EntryProblem::Malformed { entry }
+            | EntryProblem::OutsidePath { entry }
+            | EntryProblem::NotOnDisk { entry } => {
+                assert!(reason.contains(entry), "含入口串：{reason}");
+            }
+        }
+    }
+}
+
+/// 边界：同值两次调用文案逐字相等（纯函数确定性）。
+#[test]
+fn entry_problem_reason确定性() {
+    use crate::api::paths::EntryProblem;
+
+    let problem = EntryProblem::NotOnDisk {
+        entry: "src/auth/lib.rs".to_owned(),
+    };
+    assert_eq!(
+        super::entry_problem_reason(&problem),
+        super::entry_problem_reason(&problem),
+        "同值两次调用逐字相等"
+    );
+}
+
+/// 边界（表驱动）：入口串含特殊字符（`\n` / emoji / `：`）→ 原样插入、不转义不 panic。
+#[test]
+fn entry_problem_reason特殊字符原样插入() {
+    use crate::api::paths::EntryProblem;
+
+    for entry in ["src/a\nb/lib.rs", "src/认证🎉/lib.rs", "src/a：b/lib.rs"] {
+        let reason = super::entry_problem_reason(&EntryProblem::NotOnDisk {
+            entry: entry.to_owned(),
+        });
+        assert!(reason.contains(entry), "原样插入：{reason}");
+        assert!(
+            !reason.contains("\\n") && !reason.contains("\\\\"),
+            "不转义特殊字符：{reason}"
+        );
+    }
+}
+
+/// 异常：入口串为空串 → 文案仍完整（`` `` `` 包裹形态），零 panic。
+#[test]
+fn entry_problem_reason空入口串仍完整() {
+    use crate::api::paths::EntryProblem;
+
+    let reason = super::entry_problem_reason(&EntryProblem::OutsidePath {
+        entry: String::new(),
+    });
+    assert!(reason.contains("``"), "空串以反引号包裹：{reason}");
+    assert!(reason.contains("之外"), "结构完整：{reason}");
+}
+
+/// 组合：四值措辞与 `check::entry_missing_message` 同源——两处文案的关键片段一致
+/// （既有措辞面零漂移）。
+#[test]
+fn entry_problem_reason与check文案关键片段一致() {
+    let check_source = include_str!("check.rs");
+    let reason_source = include_str!("mod.rs");
+    for (variant, needle) in [
+        ("Malformed", "形态非法"),
+        ("OutsidePath", "之外"),
+        ("NotOnDisk", "不在盘"),
+        ("Duplicated", "同一个文件"),
+    ] {
+        assert!(
+            check_source.contains(&format!("EntryProblem::{variant}")),
+            "check 侧覆盖 {variant}"
+        );
+        assert!(
+            reason_source.contains(&format!("EntryProblem::{variant}")),
+            "reason 侧覆盖 {variant}"
+        );
+        assert!(check_source.contains(needle), "check 侧文案含「{needle}」");
+        assert!(
+            reason_source.contains(needle),
+            "reason 侧文案含「{needle}」"
+        );
+    }
+}

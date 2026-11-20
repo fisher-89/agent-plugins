@@ -501,8 +501,8 @@ fn module_overview三形态() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        vec!["api", "fqn", "gate", "kind", "summary"],
-        "既有四字段 + api（末尾追加，键集恰五）"
+        vec!["api", "fqn", "gate", "hasPath", "kind", "summary"],
+        "既有四字段 + api + hasPath（末尾追加，键集恰六）"
     );
 
     let broken = TempDir::new("overview-broken");
@@ -1150,9 +1150,10 @@ fn module_detail并列api字段() {
             "dependedBy",
             "children",
             "doc",
-            "api"
+            "api",
+            "resolvedEntry"
         ],
-        "六字段键序（doc 单值 + api 并列字段）"
+        "七字段键序（doc 单值 + api 并列字段 + resolvedEntry）"
     );
     // `doc` 是单值（字符串或 null），契约投影不进该槽位
     assert!(
@@ -1299,8 +1300,8 @@ fn 既有字段面零变化() {
             .collect();
         assert_eq!(
             keys,
-            vec!["fqn", "kind", "gate", "api", "summary"],
-            "薄条目既有四字段 + api（并列追加，顺序与 struct 字段一致）"
+            vec!["fqn", "kind", "gate", "api", "summary", "hasPath"],
+            "薄条目既有四字段 + api + hasPath（末尾追加，顺序与 struct 字段一致）"
         );
     }
 }
@@ -1589,10 +1590,26 @@ fn module_detail的api与投影单点逐字段相等() {
         .filter(|line| line.contains("ArchiApiRef {"))
         .filter(|line| !line.trim_start().starts_with("pub struct"))
         .count();
+    let code_lines: Vec<&str> = source
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("///"))
+        .collect();
+    let code_paths: usize = code_lines
+        .iter()
+        .map(|line| line.matches("paths::").count())
+        .sum();
+    let entry_only: usize = code_lines
+        .iter()
+        .map(|line| {
+            line.matches("paths::entry_state").count() + line.matches("paths::EntryState").count()
+        })
+        .sum();
+    assert_eq!(
+        code_paths, entry_only,
+        "`dto` 内 `paths::` 只用于入口判据单点（零契约路径派生）"
+    );
     assert!(
-        !source.contains("paths::")
-            && !source.contains("foundation::layout::archi_graph_dir")
-            && constructed == 0,
+        !source.contains("foundation::layout::archi_graph_dir") && constructed == 0,
         "`dto` 内零契约路径拼装 / 零 `ArchiApiRef` 构造字面量（全由投影单点产出）"
     );
 }
@@ -2716,9 +2733,10 @@ fn module_detail_doc键恒在场且序在api前() {
             "dependedBy",
             "children",
             "doc",
-            "api"
+            "api",
+            "resolvedEntry"
         ],
-        "`doc` 在 `children` 之后、`api` 之前且不省略"
+        "`doc` 在 `children` 之后、`api` 之前且不省略（`resolvedEntry` 末位）"
     );
     assert!(
         value.as_object().expect("对象").contains_key("doc"),
@@ -2946,5 +2964,426 @@ fn dto词面零docs且三处doc声明() {
     assert!(
         source.contains("pub doc: Option<String>"),
         "元素与模块详情的 `doc` 是单值可选"
+    );
+}
+
+// ===========================================================================
+// 入口解析投影（`hasPath` / `resolvedEntry`）
+// ===========================================================================
+
+/// 薄概览的 `hasPath` 三形态：声明 `path` → `true`；`path = []` → `false` 且键在场
+/// （不省略、不落 `null`）；容器元素恒空。条目序仍为 FQN 字典序。
+#[test]
+fn module_overview的has_path逐条投影() {
+    let temp = TempDir::new("has-path");
+    temp.write_model(
+        "01.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"domain\"\n",
+            "path = [\"./src/auth/\"]\n",
+            "\n",
+            "[element.\"App.Billing\"]\n",
+            "kind = \"module\"\n",
+            "path = []\n",
+        ),
+    );
+    let briefs = dto::module_overview(temp.root()).expect("健康模型应 Ok");
+    let fqns: Vec<&str> = briefs.iter().map(|brief| brief.fqn.as_str()).collect();
+    assert_eq!(
+        fqns,
+        vec!["App", "App.Auth", "App.Billing"],
+        "条目序为 FQN 字典序"
+    );
+
+    let by_fqn = |fqn: &str| {
+        briefs
+            .iter()
+            .find(|brief| brief.fqn == fqn)
+            .unwrap_or_else(|| panic!("{fqn} 应在概览内"))
+    };
+    assert!(by_fqn("App.Auth").has_path, "声明 path 即 true");
+    assert!(!by_fqn("App.Billing").has_path, "空数组即 false");
+    assert!(!by_fqn("App").has_path, "容器元素恒空即 false");
+
+    let value = serde_json::to_value(&briefs).expect("序列化成功");
+    for item in value.as_array().expect("数组形态") {
+        assert!(
+            item["hasPath"].is_boolean(),
+            "hasPath 键在场且为布尔值（不省略、不落 null）：{item}"
+        );
+    }
+}
+
+/// 异常 / 边界：坏模型 → `Err` 诊断文案（不返回部分概览）；空模型（`model/` 下零
+/// `.toml`）→ `Ok(vec![])`，零 panic。
+#[test]
+fn module_overview坏模型与空模型两臂() {
+    let broken = TempDir::new("has-path-broken");
+    broken.write_model("01.toml", "[element.\"App]\nkind = \"package\"\n");
+    let error = dto::module_overview(broken.root()).expect_err("坏模型应 Err");
+    assert!(error.contains("模型结构错"), "错误文案为诊断清单：{error}");
+
+    let empty = TempDir::with_empty_models("has-path-empty");
+    let briefs = dto::module_overview(empty.root()).expect("空模型应 Ok");
+    assert!(briefs.is_empty(), "空模型零条目");
+}
+
+/// 组合：同一盘面下 `search` 结果元素的 `hasPath` 与 `module_overview` 逐条相等
+/// （`to_brief` 单点，零第二份投影）。
+#[test]
+fn module_overview与search的has_path逐条相等() {
+    let temp = TempDir::new("has-path-search");
+    temp.write_model(
+        "01.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"domain\"\n",
+            "path = [\"./src/auth/\"]\n",
+            "\n",
+            "[element.\"App.Authen\"]\n",
+            "kind = \"module\"\n",
+        ),
+    );
+    let briefs = dto::module_overview(temp.root()).expect("概览 Ok");
+    let found = dto::search(temp.root(), "Auth", SearchScope::All).expect("检索 Ok");
+    assert!(!found.elements.is_empty(), "检索应命中");
+    for brief in &found.elements {
+        let expected = briefs
+            .iter()
+            .find(|candidate| candidate.fqn == brief.fqn)
+            .unwrap_or_else(|| panic!("{} 应在概览内", brief.fqn));
+        assert_eq!(
+            brief.has_path, expected.has_path,
+            "{} 的 hasPath 两面同源",
+            brief.fqn
+        );
+    }
+}
+
+/// 正向：显式 `entry` 声明且在盘 → `path` 有值、`via = explicit`、`problem = null`。
+#[test]
+fn module_detail的resolved_entry显式命中() {
+    let temp = TempDir::new("entry-explicit");
+    temp.write_model(
+        "01.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"./src/auth/\"]\n",
+            "entry = \"./src/auth/lib.rs\"\n",
+        ),
+    );
+    temp.write("src/auth/lib.rs", "pub fn login() {}\n");
+    let detail = dto::module_detail(temp.root(), "App.Auth").expect("详情应 Ok");
+    assert_eq!(
+        detail.resolved_entry.path.as_deref(),
+        Some("src/auth/lib.rs"),
+        "入口路径为 repo 相对 POSIX 形态"
+    );
+    assert_eq!(
+        detail.resolved_entry.via,
+        Some(crate::dto::EntryVia::Explicit),
+        "来源为显式 declared"
+    );
+    assert!(detail.resolved_entry.problem.is_none(), "命中即无成因");
+}
+
+/// 正向（表驱动）：无 `entry` 声明、约定默认候选在盘 → `via = convention`
+/// （crate 根 `src/lib.rs` / 目录型根 `index.ts`）。
+#[test]
+fn module_detail的resolved_entry约定默认命中() {
+    let crates = TempDir::new("entry-convention-crate");
+    crates.write_model(
+        "01.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Core\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"./crates/core/auth/\"]\n",
+        ),
+    );
+    crates.write("crates/core/auth/src/lib.rs", "pub fn login() {}\n");
+
+    let dirs = TempDir::new("entry-convention-dir");
+    dirs.write_model(
+        "01.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Views\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"./src/views/\"]\n",
+        ),
+    );
+    dirs.write("src/views/index.ts", "export const view = 1;\n");
+
+    for (temp, fqn, expected) in [
+        (&crates, "App.Core", "crates/core/auth/src/lib.rs"),
+        (&dirs, "App.Views", "src/views/index.ts"),
+    ] {
+        let detail = dto::module_detail(temp.root(), fqn).expect("详情应 Ok");
+        assert_eq!(
+            detail.resolved_entry.path.as_deref(),
+            Some(expected),
+            "{fqn} 约定默认候选命中"
+        );
+        assert_eq!(
+            detail.resolved_entry.via,
+            Some(crate::dto::EntryVia::Convention),
+            "{fqn} 来源为约定默认"
+        );
+        assert!(detail.resolved_entry.problem.is_none());
+    }
+}
+
+/// 异常（表驱动）：四类 `EntryProblem` 各一例 → `path` / `via` 皆 `null`、`problem`
+/// 为对应成因文案（含入口串 / 冲突方 FQN）。
+#[test]
+fn module_detail的resolved_entry四类不可用() {
+    let missing = TempDir::new("entry-not-on-disk");
+    missing.write_model(
+        "01.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"./src/auth/\"]\n",
+            "entry = \"./src/auth/lib.rs\"\n",
+        ),
+    );
+
+    let outside = TempDir::new("entry-outside-path");
+    outside.write_model(
+        "01.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"./src/auth/\"]\n",
+            "entry = \"./src/other/lib.rs\"\n",
+        ),
+    );
+    outside.write("src/other/lib.rs", "pub fn x() {}\n");
+
+    let malformed = TempDir::new("entry-malformed");
+    malformed.write_model(
+        "01.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"./src/auth/\"]\n",
+            "entry = \"./src/../auth/lib.rs\"\n",
+        ),
+    );
+
+    let duplicated = TempDir::new("entry-duplicated");
+    duplicated.write_model(
+        "01.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"./src/auth/\"]\n",
+            "entry = \"./src/auth/lib.rs\"\n",
+            "\n",
+            "[element.\"App.AuthCopy\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"./src/auth/\"]\n",
+            "entry = \"./src/auth/lib.rs\"\n",
+        ),
+    );
+    duplicated.write("src/auth/lib.rs", "pub fn login() {}\n");
+
+    for (temp, fqn, needle) in [
+        (&missing, "App.Auth", "不在盘"),
+        (&outside, "App.Auth", "之外"),
+        (&malformed, "App.Auth", "形态非法"),
+        (&duplicated, "App.Auth", "同一个文件"),
+    ] {
+        let detail = dto::module_detail(temp.root(), fqn)
+            .unwrap_or_else(|error| panic!("详情应 Ok（成因走 resolvedEntry）：{error}"));
+        assert!(
+            detail.resolved_entry.path.is_none(),
+            "{needle}：路径位为 null"
+        );
+        assert!(
+            detail.resolved_entry.via.is_none(),
+            "{needle}：来源位为 null"
+        );
+        let problem = detail
+            .resolved_entry
+            .problem
+            .unwrap_or_else(|| panic!("{needle}：成因文案在场"));
+        assert!(problem.contains(needle), "成因文案含 {needle}：{problem}");
+    }
+
+    let detail = dto::module_detail(duplicated.root(), "App.Auth").expect("详情 Ok");
+    assert!(
+        detail
+            .resolved_entry
+            .problem
+            .as_deref()
+            .is_some_and(|problem| problem.contains("App.AuthCopy")),
+        "重复成因含另一元素 FQN：{:?}",
+        detail.resolved_entry.problem
+    );
+}
+
+/// 边界：`Absent`（未声明且约定候选皆不在盘）→ 两空 + 固定文案；元素不存在 → `Err`
+/// 含元素总数；坏模型 → `Err` 结构诊断文案。
+#[test]
+fn module_detail的resolved_entry缺席与两臂错误() {
+    let absent = TempDir::new("entry-absent");
+    absent.write_model(
+        "01.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"./src/auth/\"]\n",
+        ),
+    );
+    let detail = dto::module_detail(absent.root(), "App.Auth").expect("详情应 Ok");
+    assert!(detail.resolved_entry.path.is_none());
+    assert!(detail.resolved_entry.via.is_none());
+    assert_eq!(
+        detail.resolved_entry.problem.as_deref(),
+        Some("未声明 entry，且约定默认候选皆不在盘"),
+        "Absent 为固定文案"
+    );
+
+    let error = dto::module_detail(absent.root(), "App.Nope").expect_err("元素不存在应 Err");
+    assert!(error.contains("元素不存在"), "文案含元素不存在：{error}");
+    assert!(error.contains("共 2 个元素"), "文案含元素总数：{error}");
+
+    let broken = TempDir::new("entry-broken");
+    broken.write_model("01.toml", "[element.\"App]\nkind = \"package\"\n");
+    let error = dto::module_detail(broken.root(), "App").expect_err("坏模型应 Err");
+    assert!(error.contains("模型结构错"), "坏模型给诊断清单：{error}");
+}
+
+/// 组合：`problem` 与 `crate::api::entry_problem_reason` 直调输出逐字相等（同一四值
+/// 措辞，零第二份）。
+#[test]
+fn module_detail的problem与entry_problem_reason逐字相等() {
+    use crate::api::paths::EntryProblem;
+
+    let temp = TempDir::new("entry-problem-same");
+    temp.write_model(
+        "01.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"./src/auth/\"]\n",
+            "entry = \"./src/auth/lib.rs\"\n",
+        ),
+    );
+    let detail = dto::module_detail(temp.root(), "App.Auth").expect("详情 Ok");
+    let problem = detail.resolved_entry.problem.expect("不在盘成因在场");
+    let expected = crate::api::entry_problem_reason(&EntryProblem::NotOnDisk {
+        entry: "src/auth/lib.rs".to_owned(),
+    });
+    assert_eq!(problem, expected, "成因文案与单点函数逐字相等");
+}
+
+/// 正向（表驱动）：`ArchiResolvedEntry` 线形三字段皆在场（`null` 显式出现），`via`
+/// 取 `explicit` / `convention` 两端。
+#[test]
+fn resolved_entry线形三字段与via两端() {
+    for (via, wire) in [
+        (crate::dto::EntryVia::Explicit, "explicit"),
+        (crate::dto::EntryVia::Convention, "convention"),
+    ] {
+        let entry = crate::dto::ArchiResolvedEntry {
+            path: Some("src/auth/lib.rs".to_owned()),
+            via: Some(via),
+            problem: None,
+        };
+        let value = serde_json::to_value(&entry).expect("序列化成功");
+        assert_eq!(value["path"], json!("src/auth/lib.rs"));
+        assert_eq!(value["via"], json!(wire), "via 线词逐值");
+        assert_eq!(value["problem"], json!(null), "problem 缺席显式 null");
+        assert_eq!(
+            value.as_object().map(serde_json::Map::len),
+            Some(3),
+            "三字段皆在场（零省略）"
+        );
+    }
+}
+
+/// 边界：反序列化穷举——全 `null` 形态可读回；`via` 非法串 → `Err`（枚举封闭，零
+/// 第三值）；未知字段忽略（additive 演进不破旧线）。
+#[test]
+fn resolved_entry反序列化穷举与非法via() {
+    let all_null: crate::dto::ArchiResolvedEntry = serde_json::from_value(json!({
+        "path": null,
+        "via": null,
+        "problem": null,
+    }))
+    .expect("全 null 形态可读回");
+    assert!(all_null.path.is_none() && all_null.via.is_none() && all_null.problem.is_none());
+
+    let invalid = serde_json::from_value::<crate::dto::ArchiResolvedEntry>(json!({
+        "path": "src/lib.rs",
+        "via": "inferred",
+        "problem": null,
+    }));
+    assert!(invalid.is_err(), "via 非法串应 Err（零第三值）");
+
+    let with_unknown = serde_json::from_value::<crate::dto::ArchiResolvedEntry>(json!({
+        "path": "src/lib.rs",
+        "via": "convention",
+        "problem": null,
+        "futureField": 42,
+    }));
+    assert!(with_unknown.is_ok(), "未知字段忽略（additive）");
+}
+
+/// 边界（源码自证）：`dto.rs` 内入口解析单点——`entry_state(` 恰一处调用、零
+/// `entry_candidates` / `is_file()` 第二份解析。
+#[test]
+fn dto入口解析单点源码自证() {
+    let source = include_str!("dto.rs");
+    assert_eq!(
+        source.matches("entry_state(").count(),
+        1,
+        "入口判据经 `api::paths::entry_state` 单点"
+    );
+    assert!(
+        !source.contains("entry_candidates"),
+        "零候选派生的第二份实现"
+    );
+    assert!(!source.contains("is_file()"), "零第二份存在性探测");
+    assert_eq!(
+        source.matches("has_path: !").count(),
+        1,
+        "`hasPath` 投影单点（`to_brief` 唯一赋值处）"
     );
 }

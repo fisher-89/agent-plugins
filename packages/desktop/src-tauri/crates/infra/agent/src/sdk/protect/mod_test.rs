@@ -894,3 +894,373 @@ fn 类型面_clone判定等价与空规则集恒放行() {
         );
     }
 }
+
+// ===========================================================================
+// 本变更：会话级相位锁（`with_session`）与写面提取面（`written_paths`）
+// ===========================================================================
+
+/// 会话级规则（模型写权锁）：glob 由 layout 派生、reason 取文案单点。
+fn session_lock_rule() -> agent::SessionProtectRule {
+    agent::SessionProtectRule {
+        glob: format!("**/{}/**", layout::archi_graph_model_rel_dir()),
+        reason: super::session_lock_template().to_owned(),
+    }
+}
+
+/// 模型声明目录内的一个绝对路径（用例侧「被锁路径」）。
+fn model_path_in(root: &Path) -> String {
+    rules::resolve(
+        root,
+        &format!("{}/01-core.toml", layout::archi_graph_model_rel_dir()),
+    )
+    .expect("绝对路径可归一")
+}
+
+/// 正向：`Some([模型目录一条])` → 命中该 glob 的 `write` 返回模板替换后的完整文案
+/// （含路径 + 工具名）。
+#[test]
+fn with_session命中返回模板替换文案() {
+    let root = tempdir("session-hit");
+    let rules = ProtectRules::load(Some(root.path())).with_session(Some(vec![session_lock_rule()]));
+    let target = model_path_in(root.path());
+    let reason = rules
+        .evaluate("write", &serde_json::json!({ "path": target }), root.path())
+        .expect("命中会话规则");
+    assert!(reason.contains("相位锁"), "含事实串：{reason}");
+    assert!(reason.contains("01-core.toml"), "含实际路径：{reason}");
+    assert!(reason.contains("write"), "含实际工具名：{reason}");
+    assert!(
+        !reason.contains("%s") && !reason.contains("%t"),
+        "占位符零残留：{reason}"
+    );
+}
+
+/// 边界：`None` → 规则面与 `load` 直出逐条相等（零追加）。
+#[test]
+fn with_session_none零追加() {
+    let root = tempdir("session-none");
+    let loaded = ProtectRules::load(Some(root.path())).rules;
+    let merged = ProtectRules::load(Some(root.path()))
+        .with_session(None)
+        .rules;
+    assert_eq!(merged.len(), loaded.len(), "规则条数不变");
+    for (left, right) in merged.iter().zip(loaded.iter()) {
+        assert_eq!(left.glob, right.glob, "glob 逐条相等");
+    }
+}
+
+/// 边界：`Some([])` 与 `None` 判定结果同效。
+#[test]
+fn with_session空数组与none同效() {
+    let root = tempdir("session-empty");
+    let target = model_path_in(root.path());
+    let input = serde_json::json!({ "path": target });
+    let none = ProtectRules::load(Some(root.path())).with_session(None);
+    let empty = ProtectRules::load(Some(root.path())).with_session(Some(Vec::new()));
+    assert_eq!(
+        none.evaluate("write", &input, root.path()),
+        empty.evaluate("write", &input, root.path()),
+        "空数组与 None 判定同效"
+    );
+}
+
+/// 边界：规则序（内置 → 会话 → 用户）——同一路径同时命中内置 ∧ 会话 ∧ 用户时返回
+/// **内置**文案；会话 ∧ 用户重叠（内置不覆盖）时返回**会话**文案。
+#[test]
+fn with_session位次在内置之后用户之前() {
+    let root = tempdir("session-order");
+    let config_relative = config_relative();
+    write_config(
+        root.path(),
+        serde_json::json!({
+            "write_protection": {
+                "files": [
+                    { "glob": config_relative, "reason": "用户自定义理由" },
+                    { "glob": format!("**/{}/**", layout::archi_graph_model_rel_dir()), "reason": "用户自定义理由" }
+                ]
+            }
+        }),
+    );
+    let rules = ProtectRules::load(Some(root.path())).with_session(Some(vec![session_lock_rule()]));
+
+    // 内置 ∧ 会话 ∧ 用户三命中 → 内置
+    let builtin_target = rules::resolve(root.path(), &config_relative).expect("可归一");
+    let reason = rules
+        .evaluate(
+            "write",
+            &serde_json::json!({ "path": builtin_target }),
+            root.path(),
+        )
+        .expect("内置命中");
+    assert!(
+        !reason.contains("相位锁"),
+        "内置优先于会话（首个命中即定）：{reason}"
+    );
+
+    // 会话 ∧ 用户重叠（内置不覆盖模型目录）→ 会话
+    let model_target = model_path_in(root.path());
+    let reason = rules
+        .evaluate(
+            "write",
+            &serde_json::json!({ "path": model_target }),
+            root.path(),
+        )
+        .expect("会话命中");
+    assert!(
+        reason.contains("相位锁"),
+        "会话优先于用户（位次在内置之后、用户之前）：{reason}"
+    );
+    assert!(
+        !reason.contains("用户自定义理由"),
+        "用户 reason 不覆盖会话串：{reason}"
+    );
+}
+
+/// 正向（表驱动）：bash 写入面同样命中会话规则（`cat >` / `tee` / 重定向）。
+#[test]
+fn with_session的bash写入面同样被拒() {
+    let root = tempdir("session-bash");
+    let rules = ProtectRules::load(Some(root.path())).with_session(Some(vec![session_lock_rule()]));
+    let model = model_path_in(root.path());
+    for command in [
+        format!("cat > {model}"),
+        format!("tee {model}"),
+        format!("echo 'x' >> {model}"),
+    ] {
+        let reason = rules.evaluate(
+            "bash",
+            &serde_json::json!({ "command": command }),
+            root.path(),
+        );
+        assert!(reason.is_some(), "bash 写面应被拒：{command}");
+        assert!(reason.unwrap_or_default().contains("相位锁"));
+    }
+}
+
+/// 边界（表驱动）：只读工具零介入（`read` / `grep` / `archi_module` / `ls`）→ `None`。
+#[test]
+fn with_session只读工具零介入() {
+    let root = tempdir("session-read");
+    let rules = ProtectRules::load(Some(root.path())).with_session(Some(vec![session_lock_rule()]));
+    let input = serde_json::json!({ "path": model_path_in(root.path()), "command": "ls" });
+    for tool in ["read", "grep", "archi_module", "ls"] {
+        assert!(
+            rules.evaluate(tool, &input, root.path()).is_none(),
+            "工具 {tool} 不在判定射程内"
+        );
+    }
+}
+
+/// 边界：相对形态 glob 与绝对形态 glob 均命中。
+#[test]
+fn with_session相对与绝对glob均命中() {
+    let root = tempdir("session-glob-forms");
+    let relative_rule = session_lock_rule();
+    let absolute_rule = agent::SessionProtectRule {
+        glob: format!(
+            "{}/**",
+            rules::resolve(root.path(), &layout::archi_graph_model_rel_dir()).expect("可归一")
+        ),
+        reason: super::session_lock_template().to_owned(),
+    };
+    let target = model_path_in(root.path());
+    for rule in [relative_rule, absolute_rule] {
+        let glob = rule.glob.clone();
+        let rules = ProtectRules::load(Some(root.path())).with_session(Some(vec![rule]));
+        assert!(
+            rules
+                .evaluate("write", &serde_json::json!({ "path": target }), root.path())
+                .is_some(),
+            "glob 形态 {glob} 应命中"
+        );
+    }
+}
+
+/// 异常：非法括号的 glob → 不命中、不 panic（与用户规则同一方言失败面）；空串 /
+/// `**` 归一后是「全命中」形态，只断言不 panic（失败面不吞判定）。
+#[test]
+fn with_session畸形glob不命中不panic() {
+    let root = tempdir("session-bad-glob");
+    let target = model_path_in(root.path());
+    let invalid = agent::SessionProtectRule {
+        glob: "**/[/**".to_owned(),
+        reason: super::session_lock_template().to_owned(),
+    };
+    let rules = ProtectRules::load(Some(root.path())).with_session(Some(vec![invalid]));
+    let verdict = rules.evaluate(
+        "write",
+        &serde_json::json!({ "path": target.clone() }),
+        root.path(),
+    );
+    assert!(verdict.is_none(), "非法括号 glob 不命中：{verdict:?}");
+
+    for glob in ["", "**"] {
+        let rule = agent::SessionProtectRule {
+            glob: glob.to_owned(),
+            reason: super::session_lock_template().to_owned(),
+        };
+        let rules = ProtectRules::load(Some(root.path())).with_session(Some(vec![rule]));
+        let _ = rules.evaluate(
+            "write",
+            &serde_json::json!({ "path": target.clone() }),
+            root.path(),
+        );
+    }
+}
+
+/// 边界（源码自证）：`load` 签名不变——仍只有 `workspace_root: Option<&Path>` 一个
+/// 入参，会话规则经 `with_session` 追加位（生产装配零改动）。
+#[test]
+fn load签名不变会话规则走追加位() {
+    let source = include_str!("mod.rs");
+    assert!(
+        source.contains("pub(crate) fn load(workspace_root: Option<&Path>) -> ProtectRules"),
+        "`load` 签名逐字不变"
+    );
+    assert_eq!(
+        source.matches("pub(crate) fn with_session(").count(),
+        1,
+        "会话规则合并位单点"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// `written_paths`：命令文本的写入落点（与保护闸同一写面提取面）
+// ---------------------------------------------------------------------------
+
+/// 正向：`cat > a.toml` → 一条归一后绝对路径（反斜杠归一为 `/`）。
+#[test]
+fn written_paths单条重定向写入() {
+    let root = tempdir("written-single");
+    let paths = super::written_paths("cat > notes/a.toml", root.path());
+    assert!(!paths.is_empty(), "有落点：{paths:?}");
+    assert!(
+        paths.iter().all(|path| path.ends_with("notes/a.toml")),
+        "全部落点都指向同一目标：{paths:?}"
+    );
+    assert!(!paths[0].contains('\\'), "反斜杠已归一为 `/`：{}", paths[0]);
+    assert!(
+        paths[0].ends_with("notes/a.toml"),
+        "落点为目标路径：{}",
+        paths[0]
+    );
+    assert!(
+        std::path::Path::new(&paths[0]).is_absolute(),
+        "归一为绝对形态：{}",
+        paths[0]
+    );
+}
+
+/// 正向（表驱动）：多写面（`tee a b` / 多 op 命令）→ 多条且序稳定。
+#[test]
+fn written_paths多写面多条且序稳定() {
+    let root = tempdir("written-multi");
+    for command in ["cat > a.toml; tee b.toml", "echo x >> a.toml; tee b.toml"] {
+        let first = super::written_paths(command, root.path());
+        let second = super::written_paths(command, root.path());
+        let mut distinct = first.clone();
+        distinct.sort();
+        distinct.dedup();
+        assert!(
+            distinct.len() >= 2,
+            "多写面应多条不同落点：{command} → {first:?}"
+        );
+        assert_eq!(first, second, "同命令序稳定：{command}");
+    }
+}
+
+/// 边界（表驱动）：空串 / 空白串 → 空数组。
+#[test]
+fn written_paths空命令空数组() {
+    let root = tempdir("written-empty");
+    for command in ["", "   \t\n"] {
+        assert!(
+            super::written_paths(command, root.path()).is_empty(),
+            "空命令零落点：{command:?}"
+        );
+    }
+}
+
+/// 边界（表驱动）：只读命令（`ls` / `cat x` / `grep -n x y`）→ 空数组。
+#[test]
+fn written_paths只读命令空数组() {
+    let root = tempdir("written-read");
+    for command in [
+        "ls src",
+        "cat notes/a.toml",
+        "grep -n login src/auth/lib.rs",
+    ] {
+        assert!(
+            super::written_paths(command, root.path()).is_empty(),
+            "只读命令零落点：{command}"
+        );
+    }
+}
+
+/// 边界（表驱动）：删除 / 还原形态（`rm x` / `git checkout -- x`）→ 空数组
+/// （`Delete` / `Revert` 不入，由 T2 兜底）。
+#[test]
+fn written_paths删除还原不入() {
+    let root = tempdir("written-delete");
+    for command in ["rm notes/a.toml", "git checkout -- notes/a.toml"] {
+        assert!(
+            super::written_paths(command, root.path()).is_empty(),
+            "删除 / 还原不入写面：{command}"
+        );
+    }
+}
+
+/// 边界：相对路径目标 → 按 `cwd` 解析为绝对形态。
+#[test]
+fn written_paths相对目标按cwd解析() {
+    let root = tempdir("written-relative");
+    let absolute = super::written_paths(
+        &format!("cat > {}", root.path().join("relative.toml").display()),
+        root.path(),
+    );
+    let relative = super::written_paths("cat > relative.toml", root.path());
+    assert_eq!(absolute, relative, "相对与绝对形态归一后同值");
+}
+
+/// 异常（表驱动）：不可解析目标（`~` / 空 target / 变量）→ 跳过该项、其余照返回，
+/// 零 panic。
+#[test]
+fn written_paths不可解析目标跳过() {
+    let root = tempdir("written-unparsable");
+    for command in ["cat > $TARGET", "tee ''", "cat > ${HOME}/x.toml"] {
+        assert!(
+            super::written_paths(command, root.path()).is_empty(),
+            "不可解析目标被跳过：{command}"
+        );
+    }
+    // 可解析与不可解析混排：可解析那条仍返回
+    let mixed = super::written_paths("cat > $TARGET; tee ok.toml", root.path());
+    assert_eq!(mixed.len(), 1, "其余照判：{mixed:?}");
+}
+
+/// 组合：与保护闸同一写面提取面——同一命令写入模型目录 → `written_paths` 命中且
+/// `evaluate` 拒绝（同一 `extract_file_ops` 面，零第二份解析）。
+#[test]
+fn written_paths与保护闸同源() {
+    let root = tempdir("written-same-source");
+    let rules = ProtectRules::load(Some(root.path())).with_session(Some(vec![session_lock_rule()]));
+    let command = format!("cat > {}/01-core.toml", layout::archi_graph_model_rel_dir());
+    let paths = super::written_paths(&command, root.path());
+    assert!(
+        paths.iter().any(|path| path.ends_with(&format!(
+            "{}/01-core.toml",
+            layout::archi_graph_model_rel_dir()
+        ))),
+        "写面提取命中模型目录：{paths:?}"
+    );
+    assert!(
+        rules
+            .evaluate(
+                "bash",
+                &serde_json::json!({ "command": command }),
+                root.path()
+            )
+            .is_some(),
+        "同一命令被保护闸拒绝（同一提取面）"
+    );
+}

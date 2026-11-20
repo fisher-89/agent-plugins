@@ -72,15 +72,32 @@ pub enum AskMode {
     Flow,
 }
 
-/// 会话级注入四位：`preamble`（会话级系统前导）/ `tools`（本轮下发的工具**名字
+/// 会话级写入禁区规则（相位锁的会话来源载体）。
+///
+/// 纯数据：`glob` 由装配层归一（相对形态带 `**/` 前缀、绝对形态原样），`reason` 可
+/// 携 `%s` / `%t` 占位符（拒绝串模板由装配层取单点文案）。**不派生
+/// `specta::Type`**——引擎侧会话词汇不出线 IPC。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionProtectRule {
+    /// 保护 glob（装配层已归一；会话规则位次在内置之后、用户之前）
+    pub glob: String,
+    /// 拒绝串模板（携 `%s` / `%t`；替换由 protect 判定面完成）
+    pub reason: String,
+}
+
+/// 会话级注入五位：`preamble`（会话级系统前导）/ `tools`（本轮下发的工具**名字
 /// 清单**，`None` = infra 内建七件）/ `finish`（收口档位，`None` = 本步无收口
-/// 工具）/ `ask`（ask 装配档位，`None` = 显式禁用）。工具定义与准入档唯一真源
-/// 在 infra 挂载清单——core 只承载名字与两档位词汇，非法名在装配层（compose）
-/// `Err`。serde additive：旧线 JSON 缺字段读出 `None`。
+/// 工具）/ `ask`（ask 装配档位，`None` = 显式禁用）/ `protect`（会话级写入禁区
+/// 规则，`None` = 不追加）。工具定义与准入档唯一真源在 infra 挂载清单——core 只
+/// 承载名字与档位词汇，非法名在装配层（compose）`Err`。serde additive：旧线 JSON
+/// 缺字段读出 `None`。
 ///
 /// `ask = None` 是**显式禁用**（该会话拿不到 ask 工具），非「未实现」——装配层
 /// MUST 逐臂显式置位（`SessionInjections::default()` 的 `ask = None` 是
 /// fail-closed 形态，MUST NOT 用作兜底装配）。
+///
+/// `protect = None` = 不追加会话规则；glob 由装配层从 `foundation::layout` 派生，
+/// core 不解释路径语义。本类型无 `specta::Type` ⇒ 不进 TS bindings。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionInjections {
     /// 会话级系统前导（None 即不注入；维持不消费）
@@ -93,6 +110,9 @@ pub struct SessionInjections {
     /// ask 装配档位（None = 显式禁用：该会话拿不到 ask 工具；Some = 按档挂载）
     #[serde(default)]
     pub ask: Option<AskMode>,
+    /// 会话级写入禁区规则（None = 不追加；Some = 插在内置之后、用户之前）
+    #[serde(default)]
+    pub protect: Option<Vec<SessionProtectRule>>,
 }
 
 /// 模型等级（轮级选型档位）：引擎侧按档取 provider 双档模型（High = 高能力

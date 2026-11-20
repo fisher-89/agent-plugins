@@ -3181,38 +3181,39 @@ fn prompt_names() -> Vec<String> {
     names
 }
 
-/// 矩阵命中面（7 份 md × 各自的 archi 工具勾选集合——矩阵单源逐文件对拍）。
-const ARCHI_PROMPT_MATRIX: [(&str, bool, bool, bool); 7] = [
-    ("proposal-planner", false, true, false),
-    ("dev-design-planner", true, true, false),
-    ("dev-design-evaluator", true, true, false),
-    ("test-design-planner", false, true, false),
-    ("implementation-generator", true, false, true),
-    ("code-review-evaluator", true, false, false),
-    ("acceptance-evaluator", true, false, false),
+/// 矩阵命中面（7 份 md × 五维勾选：`archi_module` / `archi_search` / `archi_api` /
+/// `archi_drift` / `archi_scaffold`——矩阵单源逐文件对拍）。
+const ARCHI_PROMPT_MATRIX: [(&str, [bool; 5]); 7] = [
+    ("proposal-planner", [true, true, false, false, true]),
+    ("dev-design-planner", [true, true, false, true, true]),
+    ("dev-design-evaluator", [true, true, false, false, false]),
+    ("test-design-planner", [false, true, false, false, false]),
+    ("implementation-generator", [true, false, true, true, false]),
+    ("code-review-evaluator", [true, false, false, false, false]),
+    ("acceptance-evaluator", [true, false, false, false, false]),
 ];
 
-/// 正向：7 份命中 md 逐文件含其勾选工具名、且不含未勾选工具名（三维：模块 / 发现 /
-/// 契约自检）。
+/// 五维工具名（序即矩阵列序）。
+const ARCHI_TOOLS: [&str; 5] = [
+    "archi_module",
+    "archi_search",
+    "archi_api",
+    "archi_drift",
+    "archi_scaffold",
+];
+
+/// 正向（7 行 × 5 列）：7 份命中 md 逐文件含其勾选工具名、且不含未勾选工具名。
 #[test]
 fn archi工具引用与注入矩阵逐文件一致() {
-    for (name, module, search, api) in ARCHI_PROMPT_MATRIX {
+    for (name, bits) in ARCHI_PROMPT_MATRIX {
         let text = prompt_text(name);
-        assert_eq!(
-            text.contains("archi_module"),
-            module,
-            "{name} 的 archi_module 勾选状态应一致"
-        );
-        assert_eq!(
-            text.contains("archi_search"),
-            search,
-            "{name} 的 archi_search 勾选状态应一致"
-        );
-        assert_eq!(
-            text.contains("archi_api"),
-            api,
-            "{name} 的 archi_api 勾选状态应一致"
-        );
+        for (tool, expected) in ARCHI_TOOLS.iter().zip(bits) {
+            assert_eq!(
+                text.contains(tool),
+                expected,
+                "{name} 的 {tool} 勾选状态应一致"
+            );
+        }
     }
 }
 
@@ -3245,8 +3246,8 @@ fn 其余md零archi_api() {
     }
     let api_rows: Vec<&str> = ARCHI_PROMPT_MATRIX
         .iter()
-        .filter(|(_, _, _, api)| *api)
-        .map(|(name, _, _, _)| *name)
+        .filter(|(_, bits)| bits[2])
+        .map(|(name, _)| *name)
         .collect();
     assert_eq!(
         api_rows,
@@ -3263,7 +3264,7 @@ fn 其余md零archi_api() {
 /// 词汇在场——由各文件的 `modelFile` + `modelLine` 逐文件守住。
 #[test]
 fn archi工具表述含何时用与返回什么() {
-    for (name, _, _, _) in ARCHI_PROMPT_MATRIX {
+    for (name, _) in ARCHI_PROMPT_MATRIX {
         let text = prompt_text(name);
         let has_when = text.contains("（发现") || text.contains("（定位");
         assert!(
@@ -3316,7 +3317,7 @@ fn 三工具名并集与矩阵一致() {
         .collect();
     let mut expected: Vec<String> = ARCHI_PROMPT_MATRIX
         .iter()
-        .map(|(name, _, _, _)| (*name).to_owned())
+        .map(|(name, _)| (*name).to_owned())
         .collect();
     expected.sort();
     assert_eq!(hit, expected, "命中面恰为矩阵七份（无遗漏 / 无越权）");
@@ -3343,7 +3344,7 @@ fn 三工具名并集与矩阵一致() {
 /// 知识归工具返回值）。
 #[test]
 fn 命中md零路径模板() {
-    for (name, _, _, _) in ARCHI_PROMPT_MATRIX {
+    for (name, _) in ARCHI_PROMPT_MATRIX {
         let text = prompt_text(name);
         assert!(
             !text.contains(".dev-team/architecture"),
@@ -3847,4 +3848,145 @@ fn doc注释旧三节点口径零残留() {
             "phase_table.rs 注释不得残留旧口径串 {stale:?}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：写权相位句 / 锁定侧一句 / 新工具分布（AC-9）
+// ---------------------------------------------------------------------------
+
+/// 两块写权相位（`proposal-planner` / `dev-design-planner`）：各含写面句三要素——
+/// 可经既有 `write` / `edit` 维护模型（无专用写工具）、**只为已确定元素落笔**、
+/// 写完自查。
+#[test]
+fn 写权相位两处含写面与自查() {
+    for name in ["proposal-planner", "dev-design-planner"] {
+        let text = prompt_text(name);
+        assert!(
+            text.contains("write") && text.contains("edit") && text.contains("无专用写工具"),
+            "{name} 的写面句应点明经既有 write / edit 维护模型：{text}"
+        );
+        assert!(
+            text.contains("只为已确定的元素"),
+            "{name} 应含「只为已确定元素落笔」：{text}"
+        );
+        assert!(text.contains("写完"), "{name} 应含写完自查句：{text}");
+        assert!(
+            text.contains("架构模型可写"),
+            "{name} 应显式声明写权（与锁定侧措辞区分）：{text}"
+        );
+    }
+}
+
+/// 锁定侧 12 份（14 份去掉两块写权相位）：各含「架构模型已锁」一句、携「写进产物
+/// 交 `dev-design` 落地」指路；该句零 ASCII `archi` 字样、不指示路由 / 落账工具调用。
+#[test]
+fn 锁定侧十二份各含锁定句() {
+    let write_phases = ["proposal-planner", "dev-design-planner"];
+    let mut locked = 0;
+    for name in prompt_names() {
+        if write_phases.contains(&name.as_str()) {
+            continue;
+        }
+        locked += 1;
+        let text = prompt_text(&name);
+        assert!(
+            text.contains("架构模型已锁"),
+            "{name} 应含「架构模型已锁」一句"
+        );
+        let line = text
+            .lines()
+            .find(|line| line.contains("架构模型已锁"))
+            .unwrap_or_else(|| panic!("{name} 的锁定句应成行"));
+        assert!(
+            line.contains("dev-design"),
+            "{name} 的锁定句应携落地指路：{line}"
+        );
+        assert!(
+            !line.contains("archi"),
+            "{name} 的锁定句零 ASCII archi 字样：{line}"
+        );
+        for forbidden in ["backtrack", "finish_step", "落账"] {
+            assert!(
+                !line.contains(forbidden),
+                "{name} 的锁定句不指示路由 / 落账工具（{forbidden}）：{line}"
+            );
+        }
+        assert!(
+            !text.contains("架构模型可写"),
+            "{name} 在锁定侧，MUST NOT 声明可写"
+        );
+    }
+    assert_eq!(locked, 12, "锁定侧恰 12 份（14 − 2 写权相位）");
+}
+
+/// 边界（AC-9 / evaluator 纪律）：8 份 evaluator md 整篇零 `backtrack` 字样——evaluator
+/// 只做评估，回溯落账由编排侧按白名单分派，角色知识里不得自述回溯指令。
+#[test]
+fn 八份evaluator_md零backtrack() {
+    let evaluators: Vec<String> = prompt_names()
+        .into_iter()
+        .filter(|name| name.ends_with("-evaluator"))
+        .collect();
+    assert_eq!(evaluators.len(), 8, "evaluator md 恰 8 份");
+    for name in evaluators {
+        let text = prompt_text(&name);
+        assert!(
+            !text.contains("backtrack"),
+            "{name} 为 evaluator 角色知识，MUST NOT 含 backtrack 字样"
+        );
+    }
+}
+
+/// 正向：`archi_drift` 命中恰 2 份（`dev-design-planner` / `implementation-generator`）——
+/// 只给「直接产出漂移」的两处相位。
+#[test]
+fn archi_drift分布恰两份() {
+    let hits: Vec<String> = prompt_names()
+        .into_iter()
+        .filter(|name| prompt_text(name).contains("archi_drift"))
+        .collect();
+    assert_eq!(
+        hits,
+        vec![
+            "dev-design-planner".to_owned(),
+            "implementation-generator".to_owned()
+        ],
+        "archi_drift 分布恰两份（序按文件名字典序）"
+    );
+}
+
+/// 正向：`archi_scaffold` 命中恰 2 份（`proposal-planner` / `dev-design-planner`）——
+/// 只在写权相位下发字段模板。
+#[test]
+fn archi_scaffold分布恰两份() {
+    let hits: Vec<String> = prompt_names()
+        .into_iter()
+        .filter(|name| prompt_text(name).contains("archi_scaffold"))
+        .collect();
+    assert_eq!(
+        hits,
+        vec![
+            "dev-design-planner".to_owned(),
+            "proposal-planner".to_owned()
+        ],
+        "archi_scaffold 分布恰两份（序按文件名字典序）"
+    );
+}
+
+/// 边界：未命中矩阵的 7 份整篇零 archi 工具名（新矩阵下仍成立）。
+#[test]
+fn 矩阵外七份整篇零archi工具名() {
+    let matrix: Vec<&str> = ARCHI_PROMPT_MATRIX.iter().map(|(name, _)| *name).collect();
+    let mut outside = 0;
+    for name in prompt_names() {
+        if matrix.contains(&name.as_str()) {
+            continue;
+        }
+        outside += 1;
+        let text = prompt_text(&name);
+        for tool in ARCHI_TOOLS {
+            assert!(!text.contains(tool), "{name} 未命中矩阵却含 {tool}");
+        }
+    }
+    assert_eq!(outside, 7, "矩阵外恰 7 份（14 − 7 命中）");
 }

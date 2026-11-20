@@ -178,8 +178,8 @@ async fn archi_module省略元素返回薄概览() {
         keys.sort_unstable();
         assert_eq!(
             keys,
-            vec!["api", "fqn", "gate", "kind", "summary"],
-            "薄概览四字段 + api（同一模型字段的纯拷贝）"
+            vec!["api", "fqn", "gate", "hasPath", "kind", "summary"],
+            "薄概览四字段 + api + hasPath（同一模型字段的纯拷贝 + `path` 布尔投影）"
         );
     }
 }
@@ -948,4 +948,408 @@ async fn archi_tool_doc边界与scope异常() {
     for legal in ["elements", "doc", "all"] {
         assert!(error.contains(legal), "文案列合法值 {legal}: {error}");
     }
+}
+
+// ===========================================================================
+// `archi_scaffold`：新元素 TOML 草稿（只读零写盘）
+// ===========================================================================
+
+/// 正向：省略 `kind` → `{ "draft": <TOML> }`，草稿含 `kind = "domain"` 实值行、
+/// 字段序注释（`gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata`）、
+/// 内联 `metadata` 纪律行与 `path` 必填提示。
+#[tokio::test]
+async fn archi_scaffold省略kind取domain且字段序齐备() {
+    let dir = healthy("scaffold-default");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let value = execute_json(&context, crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, json!({})).await;
+    let draft = value["draft"].as_str().expect("响应为 { draft: <TOML> }");
+    assert!(
+        draft.contains("kind = \"domain\""),
+        "省略 kind 取 domain 实值行：{draft}"
+    );
+    for piece in [
+        "# gate",
+        "# api",
+        "# entry",
+        "# path",
+        "# doc",
+        "# summary",
+        "# metadata",
+        "内联表",
+        "叶元素必填",
+    ] {
+        assert!(draft.contains(piece), "草稿含字段序/纪律线索 `{piece}`");
+    }
+}
+
+/// 正向（表驱动）：四种 `kind` 逐值 → 草稿实值行逐值对应。
+#[tokio::test]
+async fn archi_scaffold四kind逐值() {
+    let dir = healthy("scaffold-kinds");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    for kind in ["package", "domain", "module", "component"] {
+        let value = execute_json(
+            &context,
+            crate::sdk::tools::ARCHI_SCAFFOLD_TOOL,
+            json!({ "kind": kind }),
+        )
+        .await;
+        let draft = value["draft"].as_str().expect("草稿为字符串");
+        assert!(
+            draft.contains(&format!("kind = \"{kind}\"")),
+            "{kind} 实值行逐值对应：{draft}"
+        );
+        assert!(
+            !draft.contains("__KIND__"),
+            "占位符已替换（零残留）：{draft}"
+        );
+    }
+}
+
+/// 边界：草稿经真实模型解析零结构诊断（单段占位 FQN、关系块全注释）——把它落成盘
+/// 上唯一模型文件后，概览应 `Ok` 且恰一元素。
+#[tokio::test]
+async fn archi_scaffold草稿零结构诊断() {
+    let source = healthy("scaffold-parse");
+    let context = ArchiContext::new(source.path().to_path_buf());
+    let value = execute_json(&context, crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, json!({})).await;
+    let draft = value["draft"].as_str().expect("草稿为字符串").to_owned();
+
+    let target = tempdir("scaffold-parse-target");
+    write_model(target.path(), "01-draft.toml", &draft);
+    let briefs = archi::dto::module_overview(target.path())
+        .unwrap_or_else(|error| panic!("草稿应零结构诊断：{error}"));
+    assert_eq!(briefs.len(), 1, "草稿恰一声明（单段占位 FQN）");
+    assert!(!briefs[0].has_path, "草稿的 path 为注释（未声明）");
+}
+
+/// 边界：关系部分全为注释行（零裸 `[[relation]]` 表，避免 `missingField`）。
+#[tokio::test]
+async fn archi_scaffold关系块全注释() {
+    let dir = healthy("scaffold-relation");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let value = execute_json(&context, crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, json!({})).await;
+    let draft = value["draft"].as_str().expect("草稿为字符串");
+    assert!(draft.contains("# [[relation]]"), "关系模板以注释给出");
+    assert!(
+        !draft
+            .lines()
+            .any(|line| line.trim_start().starts_with("[[relation]]")),
+        "零裸 relation 表：{draft}"
+    );
+}
+
+/// 边界：零写盘——调用前后盘面字节快照逐一相同。
+#[tokio::test]
+async fn archi_scaffold零写盘() {
+    let dir = healthy("scaffold-no-write");
+    let before = snapshot(dir.path());
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    execute_json(&context, crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, json!({})).await;
+    assert_eq!(before, snapshot(dir.path()), "只读草稿零写盘");
+}
+
+/// 异常（表驱动）：`kind` 非法**串**（`packagex` / 大小写变体 `Domain`）→ `Err` 文案
+/// 点名四值；空串 / `null` / 非字符串按「省略」处置（取 `domain`），零静默退化。
+#[tokio::test]
+async fn archi_scaffold非法kind报错点名四值() {
+    let dir = healthy("scaffold-invalid-kind");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    for input in [json!({ "kind": "packagex" }), json!({ "kind": "Domain" })] {
+        let error = context
+            .execute(crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, &input)
+            .await
+            .expect_err("值集外应 Err");
+        for value in ["domain", "module", "component", "package"] {
+            assert!(error.contains(value), "Err 文案点名 {value}：{error}");
+        }
+    }
+    // 空串 / null / 非字符串视为省略（缺省 domain），不报错
+    for input in [
+        json!({ "kind": "" }),
+        json!({ "kind": null }),
+        json!({ "kind": 42 }),
+    ] {
+        let text = context
+            .execute(crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, &input)
+            .await
+            .expect("省略形态应 Ok");
+        assert!(text.contains("domain"), "省略取 domain：{text}");
+    }
+}
+
+// ===========================================================================
+// `archi_drift`：恒全量 + 三 scope 逐级追加
+// ===========================================================================
+
+/// 漂移盘面：一元素认领 `src/auth/`，另有多处无主源文件（常态 unmatched）。
+fn drift_dir(tag: &str, orphans: usize) -> tempfile::TempDir {
+    let dir = tempdir(tag);
+    write_model(
+        dir.path(),
+        "01-drift.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"./src/auth/\"]\n",
+        ),
+    );
+    write_file(dir.path(), "src/auth/lib.rs", "pub fn login() {}\n");
+    for index in 0..orphans {
+        let relative = format!("src/loose/orphan{index}.ts");
+        write_file(dir.path(), &relative, "export const x = 1;\n");
+    }
+    dir
+}
+
+/// 正向：省略 `scope` → `summary` 投影（含计数与 `durationMs`，无 `observations` /
+/// 判据条目 / `files` 清单）。
+#[tokio::test]
+async fn archi_drift缺省scope为summary() {
+    let dir = drift_dir("drift-default", 5);
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    for input in [json!({}), json!({ "scope": "summary" })] {
+        let value = execute_json(&context, crate::sdk::tools::ARCHI_DRIFT_TOOL, input).await;
+        assert!(value["counts"].is_object(), "含计数面");
+        assert!(value["durationMs"].is_u64(), "含 durationMs");
+        assert!(
+            value.get("observations").is_none(),
+            "summary 不含 observations"
+        );
+        assert!(value.get("files").is_none(), "summary 不含 files 清单");
+        assert!(
+            value["apiFindings"].get("items").is_none(),
+            "summary 不含判据条目明细（只有 byKind 计数）"
+        );
+    }
+}
+
+/// 正向：`scope = "entries"` → summary 键 + `observations` + 判据条目全量；
+/// `scope = "files"` → entries 键 + `files` 四类清单；三 scope 逐级包含。
+#[tokio::test]
+async fn archi_drift三scope逐级包含() {
+    let dir = drift_dir("drift-scopes", 6);
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let summary = execute_json(
+        &context,
+        crate::sdk::tools::ARCHI_DRIFT_TOOL,
+        json!({ "scope": "summary" }),
+    )
+    .await;
+    let entries = execute_json(
+        &context,
+        crate::sdk::tools::ARCHI_DRIFT_TOOL,
+        json!({ "scope": "entries" }),
+    )
+    .await;
+    let files = execute_json(
+        &context,
+        crate::sdk::tools::ARCHI_DRIFT_TOOL,
+        json!({ "scope": "files" }),
+    )
+    .await;
+
+    assert!(
+        entries["observations"].is_array(),
+        "entries 含 observations"
+    );
+    assert!(
+        entries["apiFindings"]["items"].is_array(),
+        "entries 含判据条目"
+    );
+    for key in summary.as_object().expect("对象").keys() {
+        assert!(entries.get(key).is_some(), "entries 含 summary 键 {key}");
+    }
+    for key in ["unmatched", "matched", "excluded", "unresolved"] {
+        assert!(files["files"][key].is_array(), "files.{key} 为清单");
+    }
+    for key in entries.as_object().expect("对象").keys() {
+        assert!(files.get(key).is_some(), "files 含 entries 键 {key}");
+    }
+    assert_eq!(
+        files["counts"]["scan"]["unmatched"], summary["counts"]["scan"]["unmatched"],
+        "增补不重算（计数两级相等）"
+    );
+    assert!(
+        files["files"]["unmatched"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty()),
+        "files scope 才出路径清单"
+    );
+}
+
+/// 异常（表驱动）：`scope` 值集外（`full` / 空串 / `Summary` 大小写变体）→ `Err`
+/// 点名合法值，零静默退化；`null` 与缺键同解（= 未给参数，取缺省 `summary`）。
+#[tokio::test]
+async fn archi_drift非法scope报错点名合法值() {
+    let dir = drift_dir("drift-invalid-scope", 1);
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    for input in [
+        json!({ "scope": "full" }),
+        json!({ "scope": "" }),
+        json!({ "scope": "Summary" }),
+        json!({ "scope": "FILES" }),
+    ] {
+        let error = context
+            .execute(crate::sdk::tools::ARCHI_DRIFT_TOOL, &input)
+            .await
+            .expect_err("值集外应 Err");
+        for value in ["summary", "entries", "files"] {
+            assert!(error.contains(value), "Err 点名 {value}：{error}");
+        }
+    }
+    // `null` = 未给参数 → 缺省 summary（零静默退化到其它 scope）
+    let value = execute_json(
+        &context,
+        crate::sdk::tools::ARCHI_DRIFT_TOOL,
+        json!({ "scope": null }),
+    )
+    .await;
+    assert!(value["counts"].is_object(), "null 走缺省 summary 投影");
+    assert!(value.get("files").is_none(), "缺省不是 files");
+}
+
+/// 正向：恒全量——入参仅 `scope`（零 `mode` / 零 `changed` / 零 `change`），报告
+/// `mode = "full"`，payload 零 `change` / `base` 槽位（全量模式无 change 上下文）。
+#[tokio::test]
+async fn archi_drift恒全量零change上下文() {
+    let dir = drift_dir("drift-full", 3);
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let value = execute_json(&context, crate::sdk::tools::ARCHI_DRIFT_TOOL, json!({})).await;
+    assert_eq!(value["mode"], "full", "恒全量");
+    assert!(value.get("change").is_none(), "payload 零 change 槽位");
+    assert!(value.get("base").is_none(), "payload 零 base 槽位");
+}
+
+/// 异常（表驱动）：坏模型 → `Ok` 且 `status = "errors"` + `structuralErrors` 明细
+/// （结构错是报告内槽位，不走 `is_error`）；架构域配置非法 → `Err` 文案含成因（经
+/// `CheckError::message()` 回灌），零 panic。
+#[tokio::test]
+async fn archi_drift错误面回灌成因() {
+    let broken = tempdir("drift-broken-model");
+    write_model(
+        broken.path(),
+        "01-broken.toml",
+        "[element.\"App]\nkind = \"package\"\n",
+    );
+    let broken_context = ArchiContext::new(broken.path().to_path_buf());
+    let value = execute_json(
+        &broken_context,
+        crate::sdk::tools::ARCHI_DRIFT_TOOL,
+        json!({}),
+    )
+    .await;
+    assert_eq!(value["status"], "errors", "坏模型即 errors");
+    assert_eq!(value["passed"], serde_json::Value::Bool(false));
+    assert!(
+        value["model"]["structuralErrorCount"]
+            .as_u64()
+            .is_some_and(|count| count >= 1),
+        "结构错计数在场：{}",
+        value["model"]["structuralErrorCount"]
+    );
+
+    let bad_config = drift_dir("drift-bad-config", 1);
+    write_file(
+        bad_config.path(),
+        ".dev-team/architecture/config.json",
+        "{ \"unknownKey\": [] }",
+    );
+    let config_context = ArchiContext::new(bad_config.path().to_path_buf());
+    let error = config_context
+        .execute(crate::sdk::tools::ARCHI_DRIFT_TOOL, &json!({}))
+        .await
+        .expect_err("配置非法应 Err");
+    assert!(error.contains("unknownKey"), "文案含配置成因：{error}");
+}
+
+/// 边界：`gate` 全 `off` 常态盘面 → 返回文本只在计数位含 `unmatched` 数，零
+/// unmatched 路径串。
+#[tokio::test]
+async fn archi_drift常态量只出计数() {
+    let dir = drift_dir("drift-summary-noise", 12);
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let value = execute_json(&context, crate::sdk::tools::ARCHI_DRIFT_TOOL, json!({})).await;
+    let text = value.to_string();
+    for index in 0..12 {
+        let orphan = format!("src/loose/orphan{index}.ts");
+        assert!(!text.contains(&orphan), "summary 零路径串：{orphan}");
+    }
+    assert!(
+        value["counts"]["scan"]["unmatched"]
+            .as_u64()
+            .is_some_and(|count| count >= 12),
+        "计数位仍在：{}",
+        value["counts"]["scan"]["unmatched"]
+    );
+}
+
+/// 边界：`files` scope 超大清单 → 尾部截断留痕，计数位仍在（`cap_result` 共用）。
+#[tokio::test]
+async fn archi_drift_files截断留痕() {
+    let dir = drift_dir("drift-files-truncate", 0);
+    let filler = "x".repeat(150);
+    for index in 0..400 {
+        write_file(
+            dir.path(),
+            &format!("src/loose/{index}-{filler}.ts"),
+            "export const x = 1;
+",
+        );
+    }
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let text = context
+        .execute(
+            crate::sdk::tools::ARCHI_DRIFT_TOOL,
+            &json!({ "scope": "files" }),
+        )
+        .await
+        .expect("应 Ok");
+    assert!(
+        text.contains(&format!(
+            "已截断：单结果超 {} 字节上限",
+            crate::sdk::tools::MAX_RESULT_BYTES
+        )),
+        "截断文案与 `cap_result` 同形（共用上限单点）"
+    );
+    assert!(text.contains("截断"), "截断留痕在场（尾部）");
+}
+
+/// 边界：零跨调用缓存——连调两次各自 `durationMs` 在场；两次之间改盘面 → 第二次读到
+/// 新状态（模型元素数变化）。
+#[tokio::test]
+async fn archi_drift零跨调用缓存() {
+    let dir = drift_dir("drift-no-cache", 2);
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let first = execute_json(&context, crate::sdk::tools::ARCHI_DRIFT_TOOL, json!({})).await;
+    assert!(first["durationMs"].is_u64(), "每次调用独立计时");
+
+    write_model(
+        dir.path(),
+        "02-more.toml",
+        concat!(
+            "[element.\"App.Auth.Login\"]\n",
+            "kind = \"component\"\n",
+            "path = [\"./src/auth/login.rs\"]\n",
+        ),
+    );
+    let second = execute_json(&context, crate::sdk::tools::ARCHI_DRIFT_TOOL, json!({})).await;
+    assert!(
+        second["model"]["elements"].as_u64() > first["model"]["elements"].as_u64(),
+        "第二次读到新模型状态（零跨调用缓存）"
+    );
+    assert!(second["durationMs"].is_u64(), "第二次亦独立计时");
+}
+
+/// 边界：无模型仓库 → `status = "skipped"` 正常出（不报错）。
+#[tokio::test]
+async fn archi_drift空架构域仍出报告() {
+    let dir = tempdir("drift-skipped");
+    write_file(dir.path(), "src/loose/orphan.ts", "export const x = 1;\n");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let value = execute_json(&context, crate::sdk::tools::ARCHI_DRIFT_TOOL, json!({})).await;
+    assert_eq!(value["status"], "skipped", "无模型即 skipped");
 }

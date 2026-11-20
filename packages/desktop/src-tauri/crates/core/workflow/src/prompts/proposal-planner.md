@@ -34,5 +34,6 @@
 - 沿既有代码库约定，不自造新约定。
 - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行。
 - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root，不依赖插件侧工具面。
-- 额外可用只读工具 `archi_search`（发现）：还不知道这功能归谁管时先搜——按关键词检索架构模型里的元素与文档路径（返回元素薄条目与四字段文档条目，不搜正文；正文用 grep 自取）。
+- 额外可用只读工具：`archi_search`（发现：还不知道这功能归谁管时先搜元素与文档路径）、`archi_module`（定位：给出该元素的邻接、直接子元素、文档引用与声明位置 `modelFile` + `modelLine`，可直接 `edit` 到该行）、`archi_scaffold`（取新元素的 TOML 字段模板）。
+- 架构模型可写：经既有 `read` / `write` / `edit` 维护（**无专用写工具**）。只为已确定的元素与关系落笔——设计未定的留到 `dev-design`；写完用 `archi_module` 自查结构诊断（元素与关系的落位逐条核对）。
 - 叙事内容用简体中文；代码标识符 / 文件路径 / CLI 命令 / 通用技术缩写 / spec 头 / scenario 标记 / 规范关键词保持英文。

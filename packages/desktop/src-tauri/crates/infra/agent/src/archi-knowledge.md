@@ -1,64 +1,33 @@
-# 架构模型维护须知
+# 架构模型须知
 
-## 模型位置与聚合
+## 位置与键形
 
-模型由模型目录内多份 `.toml` 构成（路径见末段），按**文件名字典序**聚合；一份文件可声明多个元素与关系，跨文件引用只看 FQN。
+模型多份 `.toml` 按文件名字典序聚合。一元素一表头，键为**带引号的完整 FQN 单键**（`[element."App.Auth"]`）；点分嵌套会读成**另一元素**。`metadata` 必须内联表（子表同样读成另一元素），关系写 `[[relation]]`（`from` / `to` / `desc`）；字段序与形态用 `archi_scaffold` 取模板。
 
-## 格式约定
+## 字段纪律
 
-- 一个元素一个表头，键是**带引号的完整 FQN 单键**：`[element."App.Auth"]`；禁点分嵌套写法。
-- 元素字段面：`kind`（必填）、`gate`、`api`、`entry`、`path`、`doc`、`summary`、`metadata`。
-- `api` 是状态指针，二值：`declared`（缺省）/ `none`（显式无 API）。
-- `entry` 是实现入口指针（**单值**、repo 相对、与 `path` 同口径）：只在约定默认指不到时写（目录壳 / 二进制包），单文件根不写（根文件即入口）。
-- `doc` 是入口文档指针（**单值**、repo 相对）：**只有 `api = none` 的元素可写**；`declared`（含缺省）的入口文档恒为派生落点（按 FQN 段链去根与叶分目录、名为 `<FQN>.md`），写了即 `apiUnexpected`。
-- 关系写 `[[relation]]`（`from` / `to` / `desc`）。
-- `metadata` 必须用**内联表**：`metadata = { owner = "..." }`；禁写 `[element."App.Auth".metadata]` 子表（会读成另一元素）。
+- `path`：叶必填，repo 相对、`./` 前缀，目录尾 `/`、文件精确到扩展名；容器恒空。缺 `path` 由 `archi_module` 的 `hasPath` 判出。
+- `entry`：单值，只在约定默认指不到时写；解析结果与成因随 `archi_module` 的 `resolvedEntry` 给出。
+- `doc`：单值，只有 `api = none` 元素可写；`declared` 写了即 `apiUnexpected`（`archi_drift` 的 `apiFindings`）。
 
-## 层级与缺省
+## kind 语义
 
-- 父子层级由 FQN 最长前缀推导；子元素必须先声明祖先。
-- 新元素的 `gate` 缺省不收紧（逐块 ratchet）。
+`package` = 包根（无 `path`）；`domain` = 容器（`path` 恒空）；`module` = crate、目录型模块或视图；`component` = 组件文件。
 
-## 边界
+## 层级、缺省与读数
 
-- 模型里不写接口 / 导出符号（函数签名、类型定义、导出清单不进模型正文）。
-- 契约权威在契约资产（末段给出路径）：模型只存状态指针 `api`，MUST NOT 抄契约正文。
-- `api` / `entry` / `doc` 是三个**指针**（有无 API / 入口在哪 / 入口文档读哪份），MUST NOT 由它们扩张出协议正文。
+层级由 FQN 最长前缀推导，子元素须先声明祖先（违反即 `orphanHierarchy`，`archi_module` 报错）。新元素 `gate` 缺省 `off`（逐块 ratchet）。
 
-## 自检纪律
+表头计数以 `archi_drift` 的 `model.elements` / `model.relations` 为准，改模型同批更新。
 
-- 写完立即复查：调 `archi_module`（不带 `element`）取薄概览，按结构诊断的 `file:line` 逐条修；写入面不校验，坏模型的唯一信号即读取面诊断。
-- 契约面调 `archi_api`（`action = "check"`）查生成物三类差异与契约判据；过期用 `pnpm api:export` 重生成，MUST NOT 手改生成物。
-- 入口文档与契约同源：`declared` 元素的契约 md 即入口文档，补 fence 前无声明集可对拍。
+架构域 `config.json` 管 `ignore` / `exclude`，未知键或缺 `reason` 即非法，`archi_drift` 报错点名。
 
-## 写面与可见性
+## 边界与自检
 
-- 直改主仓：无 worktree / 归档确认，改动随 `git diff` 评审。
-- 禁止修改架构目录之外的文件：源码 / 配置 / 脚本 / 域外文档一律不改（用户要求亦不越界；生成物重生成除外）。
-- 写盘后画布**不会自动更新**，收口提示点「刷新」。
+模型不写接口 / 导出符号；契约正文归契约资产；指针不扩张出正文。
 
-## 历史会话续接
+可提前自查：`archi_drift` 取覆盖 / 归属 / 契约读数（通常为空，非空即逐条修）；结构诊断经 `archi_module` 带 `file:line`；`archi_api`（`action = "check"`）查两轴；生成物过期用既有命令（`pnpm api:export` / `cargo run -p archi-api-gen -- generate`）重生成，MUST NOT 手改生成物。引擎收口时另有兜底自检。
 
-续接历史会话时先调 `archi_module` 取当下模型现状再作答，不依赖会话早前的描述。
+## 写面
 
-## 示例
-
-```toml
-[element."App"]
-kind = "package"
-
-[element."App.Auth"]
-kind = "domain"
-entry = "packages/desktop/src/auth/token.ts"
-metadata = { owner = "auth-team" }
-
-[element."App.Tools"]
-kind = "module"
-api = "none"
-doc = "packages/desktop/tools/export-bindings/README.md"
-
-[[relation]]
-from = "App"
-to = "App.Auth"
-desc = "包含认证域"
-```
+直改主仓、随 `git diff` 评审；禁止改架构目录之外的文件（重生成除外）。写盘后画布**不会自动更新**，提示用户「刷新」。续接历史会话先取当下模型。

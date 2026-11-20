@@ -22,8 +22,8 @@ use crate::sdk::model_spec::{
     parse_model_spec, ModelSpec, BETA_CONTEXT_1M, MILLION_CONTEXT_WINDOW,
 };
 use crate::sdk::mount::{
-    ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, DB_QUERY_TOOL, DB_TABLES_TOOL,
-    EXPLORE_NOTE_TOOL,
+    ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_MODULE_TOOL, ARCHI_SCAFFOLD_TOOL, ARCHI_SEARCH_TOOL,
+    DB_QUERY_TOOL, DB_TABLES_TOOL, EXPLORE_NOTE_TOOL,
 };
 use crate::sdk::protect::ProtectRules;
 use crate::sdk::{context, r#loop, reasoning, resume};
@@ -452,12 +452,16 @@ struct PumpPayload {
 }
 
 /// 架构只读工具执行上下文 per-turn 铸造（单点；`session_pump` 唯一调用处）：
-/// 本轮名字清单含任一 archi 工具名即铸（轮 root = 会话 cwd——change 会话即
+/// 本轮名字清单含五名任一 archi 工具名即铸（轮 root = 会话 cwd——change 会话即
 /// worktree），否则 `None`。铸造值随 `LoopTurn` 携带、loop 侧路由，不经
 /// `tools::execute`。
 pub(crate) fn mint_archi_context(names: &[String], workspace_root: &Path) -> Option<ArchiContext> {
     let present = names.iter().any(|name| {
-        name == ARCHI_MODULE_TOOL || name == ARCHI_SEARCH_TOOL || name == ARCHI_API_TOOL
+        name == ARCHI_MODULE_TOOL
+            || name == ARCHI_SEARCH_TOOL
+            || name == ARCHI_API_TOOL
+            || name == ARCHI_DRIFT_TOOL
+            || name == ARCHI_SCAFFOLD_TOOL
     });
     present.then(|| ArchiContext::new(workspace_root.to_path_buf()))
 }
@@ -572,8 +576,10 @@ async fn session_pump(
         payload.raw_model
     ));
     // 写入保护规则装配（**每 run 一次、protect 模块唯一 IO 点**）：规则随
-    // `LoopTurn` 下发，loop 内零 IO 判定（run 内改配置不改本轮行为）
-    let protect = ProtectRules::load(payload.workspace_root.as_deref());
+    // `LoopTurn` 下发，loop 内零 IO 判定（run 内改配置不改本轮行为）。会话规则
+    // （相位锁）与内置规则同一次装配、同一结构参与判定——不是第五段闸
+    let protect = ProtectRules::load(payload.workspace_root.as_deref())
+        .with_session(open.injections.protect.clone());
     let turn = r#loop::LoopTurn {
         question: question.prompt,
         cwd: open.ctx.workspace_root.clone(),

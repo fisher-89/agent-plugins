@@ -13,6 +13,7 @@ use std::path::Path;
 use checks::globmatch::match_glob;
 use foundation::layout;
 
+use super::reason;
 use super::rules::{self, BulkGlobs, ReasonKind, Rule};
 
 // ---------------------------------------------------------------------------
@@ -868,5 +869,140 @@ fn 类型面_rule_clone等价且无reason变体可辨() {
     assert!(
         format!("{globs:?}").contains("artifacts"),
         "Debug 渲染含字段名，实际: {globs:?}"
+    );
+}
+
+// ===========================================================================
+// 本变更：会话规则装配位（`with_session_rules`）与相位锁文案（`ReasonKind::Session`）
+// ===========================================================================
+
+/// 会话规则载体（装配层的显式入参）。
+fn session_rule(glob: &str) -> agent::SessionProtectRule {
+    agent::SessionProtectRule {
+        glob: glob.to_owned(),
+        reason: super::reason::session_lock_template().to_owned(),
+    }
+}
+
+/// 正向：会话规则插在**内置段之后、用户段之前**——位次 = `builtin_rules().len()..`。
+#[test]
+fn 会话规则插在内置之后用户之前() {
+    let root = tempdir("session-position");
+    write_config(
+        root.path(),
+        serde_json::json!({
+            "write_protection": { "files": [ { "glob": "docs/**", "reason": "文档冻结" } ] }
+        }),
+    );
+    let loader = rules::load(Some(root.path()));
+    assert_eq!(
+        loader.len(),
+        rules::builtin_rules().len() + 1,
+        "内置 + 一条用户规则（前置）"
+    );
+
+    let merged = rules::with_session_rules(
+        loader,
+        Some(&[session_rule(&format!(
+            "**/{}/**",
+            layout::archi_graph_model_rel_dir()
+        ))]),
+    );
+    let at = rules::builtin_rules().len();
+    assert_eq!(merged.len(), at + 2, "内置段 + 会话段 + 用户段");
+    assert!(
+        matches!(merged[at].reason, ReasonKind::Session(_)),
+        "会话规则位次 = builtin_rules().len()"
+    );
+    assert!(
+        matches!(merged[at + 1].reason, ReasonKind::User(Some(_))),
+        "用户规则位次在会话之后"
+    );
+    assert!(
+        matches!(merged[0].reason, ReasonKind::BuiltinConfig),
+        "内置恒首位"
+    );
+}
+
+/// 边界：`session = None` 与 `session = Some(&[])` 都与 `load` 直出逐条相等。
+#[test]
+fn 会话规则缺席零改动() {
+    let root = tempdir("session-absent");
+    let baseline = rules::load(Some(root.path()));
+    for session in [None, Some(&[][..])] {
+        let merged = rules::with_session_rules(rules::load(Some(root.path())), session);
+        assert_eq!(merged.len(), baseline.len(), "规则条数不变");
+        for (left, right) in merged.iter().zip(baseline.iter()) {
+            assert_eq!(left.glob, right.glob, "glob 逐条相等");
+        }
+    }
+}
+
+/// 边界：多条会话规则保序（输入序即装配序）。
+#[test]
+fn 会话规则多条保序() {
+    let root = tempdir("session-order-keep");
+    // 相对 glob 由装配面加 `**/` 前缀归一（与用户规则同一方言）
+    let session = [
+        session_rule("first/**"),
+        session_rule("second/**"),
+        session_rule("third/**"),
+    ];
+    let merged = rules::with_session_rules(rules::load(Some(root.path())), Some(&session));
+    let at = rules::builtin_rules().len();
+    let globs: Vec<&str> = merged[at..at + session.len()]
+        .iter()
+        .map(|rule| rule.glob.as_str())
+        .collect();
+    assert_eq!(
+        globs,
+        vec!["**/first/**", "**/second/**", "**/third/**"],
+        "输入序即装配序"
+    );
+}
+
+/// 边界（源码自证）：插入位由 `builtin_rules().len()` 派生，零硬编码条数。
+#[test]
+fn 会话插入位由内置长度派生() {
+    let source = include_str!("rules.rs");
+    assert!(
+        source.contains("let at = builtin_rules().len().min(merged.len());"),
+        "插入位由内置段长度派生"
+    );
+    assert!(!source.contains("splice(1..1"), "零硬编码插入位");
+}
+
+/// 异常（表驱动）：畸形 glob（非法括号 / 空串归一为全命中形态）→ 装配不 panic，且
+/// 判定侧对非法括号一律不命中（与用户规则同一方言失败面）。
+#[test]
+fn 会话规则畸形glob不命中不panic() {
+    let merged = rules::with_session_rules(
+        rules::load(None),
+        Some(&[session_rule("**/[/**"), session_rule("")]),
+    );
+    let at = rules::builtin_rules().len();
+    assert_eq!(merged.len(), at + 2, "畸形 glob 仍装配（判定侧 fail-open）");
+    assert!(
+        !match_glob("src/auth/lib.rs", &merged[at].glob),
+        "非法括号 glob 不命中：{}",
+        merged[at].glob
+    );
+}
+
+/// 正向：`ReasonKind::Session(template)` 进入判定后由 `deny_reason` 做 `%s` / `%t`
+/// 替换（与规则构造面同一实例）。
+#[test]
+fn 会话规则命中由deny_reason替换占位符() {
+    let _root = tempdir("session-substitute");
+    let rule = session_rule("**/model/**");
+    let merged = rules::with_session_rules(rules::load(None), Some(&[rule]));
+    let at = rules::builtin_rules().len();
+    assert!(matches!(merged[at].reason, ReasonKind::Session(_)));
+    let reason = reason::deny_reason(&merged[at].reason, "src/model/01.toml", "write");
+    assert!(reason.contains("src/model/01.toml"), "路径替换：{reason}");
+    assert!(reason.contains("write"), "工具名替换：{reason}");
+    assert!(
+        !reason.contains("%s") && !reason.contains("%t"),
+        "占位符零残留：{reason}"
     );
 }

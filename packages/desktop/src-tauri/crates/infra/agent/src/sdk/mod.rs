@@ -1,3 +1,4 @@
+pub(crate) mod archi_drift_view;
 pub(crate) mod archi_tool;
 pub(crate) mod bash;
 pub(crate) mod blocks;
@@ -16,6 +17,7 @@ pub(crate) mod mount;
 pub(crate) mod normalize;
 pub(crate) mod policy;
 pub(crate) mod preamble;
+pub(crate) mod preclose;
 pub(crate) mod protect;
 pub(crate) mod reasoning;
 pub(crate) mod resume;
@@ -24,6 +26,8 @@ pub(crate) mod sandbox;
 pub(crate) mod tools;
 pub(crate) mod web_search;
 
+#[cfg(test)]
+mod archi_drift_view_test;
 #[cfg(test)]
 mod archi_tool_test;
 #[cfg(test)]
@@ -56,6 +60,8 @@ mod normalize_test;
 mod policy_test;
 #[cfg(test)]
 mod preamble_test;
+#[cfg(test)]
+mod preclose_test;
 #[cfg(test)]
 mod reasoning_test;
 #[cfg(test)]

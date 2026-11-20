@@ -6,7 +6,8 @@ use serde_json::json;
 use crate::event::AgentEventKind;
 use crate::runner::{
     AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, AskMode,
-    FinishSpec, ModelLevel, RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef,
+    FinishSpec, ModelLevel, RunHandle, SessionCtx, SessionInjections, SessionOpen,
+    SessionProtectRule, SessionRef,
 };
 
 /// 假 runner：捕获 SessionOpen 入参（参数转换断言缝）、预录未盖戳事件经
@@ -85,6 +86,7 @@ fn new_open() -> SessionOpen {
             tools: Some(vec!["read".to_owned(), "grep".to_owned()]),
             finish: None,
             ask: None,
+            protect: None,
         },
         ctx: SessionCtx {
             workspace_root: PathBuf::from("D:\\工作区\\demo 🎉"),
@@ -336,6 +338,7 @@ fn session_injections默认形态tools与preamble均为none() {
         tools: Some(vec!["read".to_owned()]),
         finish: None,
         ask: None,
+        protect: None,
     };
     assert_ne!(default_injections, narrowed);
 }
@@ -602,12 +605,13 @@ fn finish_spec派生面与源码自证() {
 /// `SessionInjections` 三字段 round-trip（正向）：键面恰 `preamble` / `tools` /
 /// `finish` 三键（`toolset` 零命中）且逐字段相等。
 #[test]
-fn session_injections四字段round_trip() {
+fn session_injections五字段round_trip() {
     let injections = SessionInjections {
         preamble: Some("前导".to_owned()),
         tools: Some(vec!["read".to_owned(), "archi_module".to_owned()]),
         finish: Some(FinishSpec::Decision),
         ask: Some(AskMode::Flow),
+        protect: None,
     };
     let value = serde_json::to_value(&injections).expect("序列化");
     let mut keys: Vec<&str> = value
@@ -619,8 +623,8 @@ fn session_injections四字段round_trip() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        vec!["ask", "finish", "preamble", "tools"],
-        "键面恰四键（toolset 零命中）"
+        vec!["ask", "finish", "preamble", "protect", "tools"],
+        "键面恰五键（toolset 零命中）"
     );
     let back: SessionInjections = serde_json::from_value(value).expect("反序列化");
     assert_eq!(back, injections, "逐字段相等");
@@ -818,18 +822,16 @@ fn ask_mode派生面自证_零specta与零default() {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/runner.rs"),
     )
     .expect("读取 runner.rs");
+    // 锚点前最后一条 `#[derive(...)]` 行（doc 注释里的提法不参与判据）
     let derive_before = |anchor: &str| {
         own.split(anchor)
             .next()
             .expect("定义在场")
             .lines()
             .rev()
-            .take(3)
-            .collect::<Vec<_>>()
-            .join(
-                "
-",
-            )
+            .find(|line| line.trim_start().starts_with("#[derive"))
+            .unwrap_or_default()
+            .to_owned()
     };
     assert!(
         !derive_before("pub enum AskMode").contains("specta"),
@@ -907,6 +909,7 @@ fn session_injections缺省与等值三断言() {
         tools: None,
         finish: None,
         ask: None,
+        protect: None,
     };
     assert_eq!(default_injections, explicit, "default 与显式三 None 等值");
 
@@ -1120,5 +1123,199 @@ fn agent_run_status定义面派生specta且interrupted居末位() {
         *variants.last().expect("非空"),
         "Interrupted,",
         "Interrupted 声明在枚举闭合花括号前（末位追加）"
+    );
+}
+
+// ===========================================================================
+// 本变更：`SessionInjections.protect`（第五位）+ `SessionProtectRule` 线形
+// ===========================================================================
+
+/// 一条会话规则（含 `%s` / `%t` 占位符）。
+fn session_rule() -> SessionProtectRule {
+    SessionProtectRule {
+        glob: "**/.dev-team/architecture/graph/model/**".to_owned(),
+        reason: "该路径受相位锁保护：%s（经 %t 工具）".to_owned(),
+    }
+}
+
+/// 正向：五键恰为 `preamble` / `tools` / `finish` / `ask` / `protect`（序列化键集
+/// 逐项断言）。
+#[test]
+fn session_injections五键键面() {
+    let value = serde_json::to_value(SessionInjections::default()).expect("序列化成功");
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec!["ask", "finish", "preamble", "protect", "tools"],
+        "五键恰为 preamble / tools / finish / ask / protect"
+    );
+}
+
+/// 正向（表驱动）：全字段在位 round-trip——`protect = Some([1 条])` 与 `None` 两态
+/// 序列化 → 反序列化逐字段相等。
+#[test]
+fn session_injections全字段round_trip() {
+    for protect in [Some(vec![session_rule()]), None] {
+        let injections = SessionInjections {
+            preamble: Some("知识".to_owned()),
+            tools: Some(vec!["read".to_owned()]),
+            finish: Some(FinishSpec::EvaluatorChecklist),
+            ask: Some(AskMode::Flow),
+            protect: protect.clone(),
+        };
+        let value = serde_json::to_value(&injections).expect("序列化成功");
+        let back: SessionInjections = serde_json::from_value(value).expect("反序列化成功");
+        assert_eq!(back, injections, "逐字段相等（protect = {protect:?}）");
+    }
+}
+
+/// 正向：`SessionProtectRule` 线名为 `glob` / `reason`（无 `rename_all` 改写面），
+/// `reason` 中的 `%s` / `%t` 原样往返（不做替换）。
+#[test]
+fn session_protect_rule线形与占位符原样() {
+    let rule = session_rule();
+    let value = serde_json::to_value(&rule).expect("序列化成功");
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(keys, vec!["glob", "reason"], "线名恰 glob / reason");
+    assert_eq!(value["glob"], json!(rule.glob));
+    assert!(
+        value["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("%s") && reason.contains("%t")),
+        "占位符原样出线：{}",
+        value["reason"]
+    );
+    let back: SessionProtectRule = serde_json::from_value(value).expect("反序列化成功");
+    assert_eq!(back, rule, "占位符零改写往返");
+}
+
+/// 边界：旧线 JSON 缺 `protect` 键 → 读出 `None`（serde additive；四形态表驱动）。
+#[test]
+fn session_injections旧线缺protect读none() {
+    let cases = [
+        json!({}),
+        json!({ "protect": null }),
+        json!({ "preamble": null, "tools": null, "finish": null, "ask": null }),
+        json!({ "preamble": "知识" }),
+    ];
+    for value in cases {
+        let injections: SessionInjections =
+            serde_json::from_value(value.clone()).expect("旧线 JSON 应可读");
+        assert!(
+            injections.protect.is_none(),
+            "缺 protect / null 读出 None：{value}"
+        );
+    }
+}
+
+/// 边界：未知字段忽略（additive 演进不破线格式）。
+#[test]
+fn session_injections未知字段忽略() {
+    let value = json!({
+        "preamble": null,
+        "tools": null,
+        "finish": null,
+        "ask": null,
+        "protect": [{ "glob": "**/x/**", "reason": "r" }],
+        "futureField": { "a": 1 },
+    });
+    let injections: SessionInjections = serde_json::from_value(value).expect("未知字段忽略");
+    assert_eq!(injections.protect.map(|rules| rules.len()), Some(1));
+}
+
+/// 边界：`default()` 五键全 `None`。
+#[test]
+fn session_injections_default五键全none() {
+    let injections = SessionInjections::default();
+    assert!(injections.preamble.is_none());
+    assert!(injections.tools.is_none());
+    assert!(injections.finish.is_none());
+    assert!(injections.ask.is_none());
+    assert!(injections.protect.is_none());
+}
+
+/// 边界：`Some([])` 与 `None` 序列化形态不同（`[]` vs `null`）且各自可读回。
+#[test]
+fn session_injections空数组与none线形态可辨() {
+    let empty = SessionInjections {
+        protect: Some(Vec::new()),
+        ..SessionInjections::default()
+    };
+    let none = SessionInjections::default();
+    let empty_value = serde_json::to_value(&empty).expect("序列化成功");
+    let none_value = serde_json::to_value(&none).expect("序列化成功");
+    assert_eq!(empty_value["protect"], json!([]));
+    assert_eq!(none_value["protect"], json!(null));
+    assert_ne!(empty_value["protect"], none_value["protect"]);
+    let empty_back: SessionInjections = serde_json::from_value(empty_value).expect("可读回");
+    let none_back: SessionInjections = serde_json::from_value(none_value).expect("可读回");
+    assert_eq!(empty_back.protect, Some(Vec::new()));
+    assert_eq!(none_back.protect, None);
+}
+
+/// 异常（表驱动）：非数组 / 元素缺 `reason` / `glob` 非字符串 → 反序列化 `Err`，
+/// 零 panic。
+#[test]
+fn session_injections畸形protect即错() {
+    for value in [
+        json!({ "protect": "not-an-array" }),
+        json!({ "protect": [{ "glob": "**/x/**" }] }),
+        json!({ "protect": [{ "glob": 42, "reason": "r" }] }),
+    ] {
+        assert!(
+            serde_json::from_value::<SessionInjections>(value.clone()).is_err(),
+            "畸形 protect 应 Err：{value}"
+        );
+    }
+}
+
+/// 边界（表驱动）：`Clone` + `PartialEq` + `Eq`——同值相等、差一字段不等。
+#[test]
+fn session_protect_rule派生面() {
+    let rule = session_rule();
+    assert_eq!(rule.clone(), rule, "Clone + PartialEq：同值相等");
+    for other in [
+        SessionProtectRule {
+            glob: "**/other/**".to_owned(),
+            reason: rule.reason.clone(),
+        },
+        SessionProtectRule {
+            glob: rule.glob.clone(),
+            reason: "别的理由".to_owned(),
+        },
+    ] {
+        assert_ne!(rule, other, "差一字段即不等（配置快照比较语义）");
+    }
+    fn assert_eq_impl<T: Eq>() {}
+    assert_eq_impl::<SessionProtectRule>();
+}
+
+/// 异常（源码自证）：`SessionProtectRule` 邻域零 `specta::Type`（不进 TS bindings）。
+#[test]
+fn session_protect_rule零specta面() {
+    let source = include_str!("runner.rs");
+    let lines: Vec<&str> = source.lines().collect();
+    let at = lines
+        .iter()
+        .position(|line| line.starts_with("pub struct SessionProtectRule"))
+        .expect("类型定义在案");
+    let head = &lines[at.saturating_sub(12)..at];
+    assert!(
+        !head
+            .iter()
+            .any(|line| line.trim_start().starts_with("#[derive") && line.contains("specta")),
+        "会话词汇不出线 IPC（零 specta::Type 派生）"
     );
 }

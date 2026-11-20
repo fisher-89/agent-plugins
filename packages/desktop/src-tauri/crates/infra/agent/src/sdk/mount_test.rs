@@ -1,4 +1,4 @@
-//! `mount.rs`（工具挂载单源）的单元测试：十三项静态清单 / 名字查表 / 非法名
+//! `mount.rs`（工具挂载单源）的单元测试：十五项静态清单 / 名字查表 / 非法名
 //! `Err` / `finish` 位置位铸造 / `lookup` 单点 / 夹具形态 / 类型派生面。
 //!
 //! 不 mock：`registry()` / `definitions` / `lookup` 全为进程内纯函数
@@ -10,12 +10,12 @@ use agent::{AskMode, FinishSpec, SessionInjections};
 
 use crate::sdk::mount::{
     builtin, definitions, injected, injected_finish, lookup, registry, ToolExec, ToolMount,
-    ToolTier, ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, DB_QUERY_TOOL, DB_TABLES_TOOL,
-    EXPLORE_NOTE_TOOL, TOOL_NAMES,
+    ToolTier, ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_MODULE_TOOL, ARCHI_SCAFFOLD_TOOL,
+    ARCHI_SEARCH_TOOL, DB_QUERY_TOOL, DB_TABLES_TOOL, EXPLORE_NOTE_TOOL, TOOL_NAMES,
 };
 
-/// 十三项名字的期望序（前七恰七内建，末两项为两只只读 DB 工具）。
-const EXPECTED_NAMES: [&str; 13] = [
+/// 十五项名字的期望序（前七恰七内建，五 archi 只读居中，末两项两只只读 DB 工具）。
+const EXPECTED_NAMES: [&str; 15] = [
     "read",
     "grep",
     "glob",
@@ -27,6 +27,8 @@ const EXPECTED_NAMES: [&str; 13] = [
     "archi_module",
     "archi_search",
     "archi_api",
+    "archi_drift",
+    "archi_scaffold",
     "db_tables",
     "db_query",
 ];
@@ -55,19 +57,19 @@ fn source_of(relative: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// 正向：registry 十三项
+// 正向：registry 十五项
 // ---------------------------------------------------------------------------
 
 #[test]
-fn registry十三项名字唯一且有序且前七恰内建() {
+fn registry十五项名字唯一且有序且前七恰内建() {
     let names = names(registry());
-    assert_eq!(names, EXPECTED_NAMES.to_vec(), "十三项名字逐值有序");
-    assert_eq!(names.len(), 13, "十三项");
+    assert_eq!(names, EXPECTED_NAMES.to_vec(), "十五项名字逐值有序");
+    assert_eq!(names.len(), 15, "十五项");
 
     let mut unique = names.clone();
     unique.sort();
     unique.dedup();
-    assert_eq!(unique.len(), 13, "无重复名: {names:?}");
+    assert_eq!(unique.len(), 15, "无重复名: {names:?}");
 
     assert_eq!(
         registry()[..7]
@@ -82,7 +84,7 @@ fn registry十三项名字唯一且有序且前七恰内建() {
 
 #[test]
 fn registry的tier归属逐项对应改造前三张常量表() {
-    let expected: [(&str, ToolTier); 13] = [
+    let expected: [(&str, ToolTier); 15] = [
         ("read", ToolTier::Read),
         ("grep", ToolTier::Read),
         ("glob", ToolTier::Read),
@@ -94,6 +96,8 @@ fn registry的tier归属逐项对应改造前三张常量表() {
         ("archi_module", ToolTier::Read),
         ("archi_search", ToolTier::Read),
         ("archi_api", ToolTier::Read),
+        ("archi_drift", ToolTier::Read),
+        ("archi_scaffold", ToolTier::Read),
         ("db_tables", ToolTier::Read),
         ("db_query", ToolTier::Read),
     ];
@@ -106,7 +110,11 @@ fn registry的tier归属逐项对应改造前三张常量表() {
     }
     // 计数面：Read 九 / Write 三 / Execute 一 / Protocol 零
     let count = |tier: ToolTier| registry().iter().filter(|mount| mount.tier == tier).count();
-    assert_eq!(count(ToolTier::Read), 9, "Read 九项（含两 DB 只读工具）");
+    assert_eq!(
+        count(ToolTier::Read),
+        11,
+        "Read 十一项（五 archi + 两 DB + 四内建）"
+    );
     assert_eq!(count(ToolTier::Write), 3, "Write 三项");
     assert_eq!(count(ToolTier::Execute), 1, "Execute 一项");
     assert_eq!(
@@ -172,7 +180,7 @@ fn registry的exec归属且finish_step不入静态表() {
 }
 
 #[test]
-fn registry定义面完整十三项定义形状与非空() {
+fn registry定义面完整十五项定义形状与非空() {
     for mount in registry() {
         let definition = &mount.definition;
         assert!(
@@ -409,6 +417,7 @@ fn definitions的finish位缺席时零追加() {
             tools,
             finish: None,
             ask: None,
+            protect: None,
         };
         let mounts = definitions(&injections, "## 静态清单\n| C1 | 项 | 据 |\n").expect("合法");
         assert!(
@@ -455,6 +464,7 @@ fn definitions的finish位置位时末尾追加finish_step() {
         tools: None,
         finish: Some(FinishSpec::EvaluatorChecklist),
         ask: None,
+        protect: None,
     };
     let mounts = definitions(&injections, &prompt).expect("finish 位置位合法");
     assert_eq!(mounts.len(), 8, "七内建 + finish_step");
@@ -564,7 +574,7 @@ fn definitions非法名与finish并存时err优先() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn lookup十三项命中四类未命中() {
+fn lookup十五项命中四类未命中() {
     for name in EXPECTED_NAMES {
         let definition = lookup(name).unwrap_or_else(|| panic!("{name} 应命中"));
         assert_eq!(definition.name, name, "命中项名与入参相等");
@@ -736,6 +746,7 @@ fn injected_ask(
         tools: Some(names.iter().map(|name| (*name).to_owned()).collect()),
         finish,
         ask,
+        protect: None,
     }
 }
 
@@ -895,6 +906,7 @@ fn definitions的ask位缺席时零追加() {
             tools,
             finish: None,
             ask: None,
+            protect: None,
         };
         let mounts = definitions(&injections, "").expect("合法");
         assert_eq!(mounts.len(), 7, "AskUserQuestion 不追加到内建七件");
@@ -923,6 +935,7 @@ fn definitions的tools三形态与ask两位组合() {
                 tools: tools.clone(),
                 finish: None,
                 ask,
+                protect: None,
             };
             let mounts = definitions(&injections, "").expect("组合合法");
             let projected = names(&mounts);
@@ -1067,7 +1080,7 @@ fn mount_rs零ask工具名字面量且不在静态清单() {
     );
     assert!(
         !TOOL_NAMES.contains(&"AskUserQuestion"),
-        "AskUserQuestion 不在十三项静态清单（按位追加的基线工具）"
+        "AskUserQuestion 不在十五项静态清单（按位追加的基线工具）"
     );
 }
 
@@ -1087,7 +1100,7 @@ fn archi_api的档位与执行路由() {
     assert_eq!(mount.exec, ToolExec::Archi, "执行路由 Archi");
     assert_eq!(ARCHI_API_TOOL, "archi_api", "常量值");
 
-    // 执行路由面：恰三工具走 `ToolExec::Archi`（名字清单即三常量），
+    // 执行路由面：恰五工具走 `ToolExec::Archi`（名字清单即五常量），
     // 分发臂在 loop 侧按执行体路由（零按名分支）
     let archi_mounts: Vec<&str> = registry()
         .iter()
@@ -1096,8 +1109,14 @@ fn archi_api的档位与执行路由() {
         .collect();
     assert_eq!(
         archi_mounts,
-        vec![ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, ARCHI_API_TOOL],
-        "`ToolExec::Archi` 的成员恰三工具（序即静态表序）"
+        vec![
+            ARCHI_MODULE_TOOL,
+            ARCHI_SEARCH_TOOL,
+            ARCHI_API_TOOL,
+            ARCHI_DRIFT_TOOL,
+            ARCHI_SCAFFOLD_TOOL,
+        ],
+        "`ToolExec::Archi` 的成员恰五工具（序即静态表序）"
     );
 
     let loop_source = source_of("src/sdk/loop.rs");
@@ -1483,4 +1502,164 @@ fn mount描述enum词面零旧值() {
         "scope 三值单数形态：{source}"
     );
     assert!(!source.contains("\"docs\""), "零旧词 \"docs\"");
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`archi_drift` / `archi_scaffold` 定义面与 `archi_module` 描述改述
+// ---------------------------------------------------------------------------
+
+/// 正向：`archi_drift` 描述含三要素——漂移读数语义、**「`gate` 全 `off` 时
+/// `unmatchedFiles` 是常态不是错误」**、`files` 只在排查归属问题时用。
+#[test]
+fn archi_drift定义描述三要素() {
+    let definition = lookup(ARCHI_DRIFT_TOOL).expect("定义在案");
+    assert_eq!(ARCHI_DRIFT_TOOL, "archi_drift", "常量值");
+    let description = &definition.description;
+    for piece in ["漂移", "全量", "零写盘"] {
+        assert!(
+            description.contains(piece),
+            "描述含读数语义 `{piece}`：{description}"
+        );
+    }
+    assert!(
+        description.contains("gate 全 off 时 unmatchedFiles"),
+        "描述点名常态量：{description}"
+    );
+    assert!(
+        description.contains("常态不是错误"),
+        "描述把常态与错误分开：{description}"
+    );
+    assert!(
+        description.contains("files 只在排查归属问题时用"),
+        "描述限定 files 的使用时机：{description}"
+    );
+}
+
+/// 边界：`archi_drift` 的 `scope` enum 逐值等于 `DRIFT_SCOPES`、`required` 为空数组、
+/// 零 `mode` / 零 `root` 参数（恒全量的协议面）。
+#[test]
+fn archi_drift定义scope词表单点且零多余参数() {
+    let definition = lookup(ARCHI_DRIFT_TOOL).expect("定义在案");
+    let parameters = &definition.parameters;
+    let scope = &parameters["properties"]["scope"];
+    let enum_values: Vec<&str> = scope["enum"]
+        .as_array()
+        .expect("enum 为数组")
+        .iter()
+        .map(|value| value.as_str().expect("enum 元素为字符串"))
+        .collect();
+    assert_eq!(
+        enum_values,
+        crate::sdk::archi_drift_view::DRIFT_SCOPES.to_vec(),
+        "enum 与 `DRIFT_SCOPES` 逐值相等（词表单源）"
+    );
+    assert_eq!(scope["type"], "string");
+    assert_eq!(
+        parameters["required"],
+        serde_json::json!([]),
+        "required 为空数组（零必填参数）"
+    );
+    let keys: Vec<&str> = parameters["properties"]
+        .as_object()
+        .expect("properties 为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, vec!["scope"], "零 mode / 零 root 参数（恒全量）");
+}
+
+/// 正向：`archi_scaffold` 描述含「字段序 / 内联 `metadata` / `path` 必填提示 / 关系模板」
+/// 「`kind` 省略取 `domain`」「零写盘、写面仍是 `write` / `edit`」。
+#[test]
+fn archi_scaffold定义描述要素() {
+    let definition = lookup(ARCHI_SCAFFOLD_TOOL).expect("定义在案");
+    assert_eq!(ARCHI_SCAFFOLD_TOOL, "archi_scaffold", "常量值");
+    let description = &definition.description;
+    for piece in [
+        "字段序",
+        "内联 metadata",
+        "path 必填提示",
+        "关系模板",
+        "kind 省略取 domain",
+        "只读零写盘",
+        "write / edit",
+    ] {
+        assert!(
+            description.contains(piece),
+            "描述含要素 `{piece}`：{description}"
+        );
+    }
+}
+
+/// 边界：`archi_scaffold` 的 `kind` enum 与 `ElementKind::ALL.map(as_str)` 逐值相等
+/// （长度 4、序一致，零第二份字面量）。
+#[test]
+fn archi_scaffold定义kind词表派生() {
+    let definition = lookup(ARCHI_SCAFFOLD_TOOL).expect("定义在案");
+    let enum_values: Vec<&str> = definition.parameters["properties"]["kind"]["enum"]
+        .as_array()
+        .expect("enum 为数组")
+        .iter()
+        .map(|value| value.as_str().expect("enum 元素为字符串"))
+        .collect();
+    let expected = archi::dto::ElementKind::ALL
+        .map(archi::dto::ElementKind::as_str)
+        .to_vec();
+    assert_eq!(enum_values, expected, "kind enum 由词表派生");
+    assert_eq!(enum_values.len(), 4, "四值封闭");
+    assert_eq!(
+        definition.parameters["required"],
+        serde_json::json!([]),
+        "kind 可选（省略取 domain）"
+    );
+}
+
+/// 正向（表驱动）：`archi_module` 描述改述后的三句——`hasPath` 判缺 `path`、入口解析
+/// 结果随响应给出（显式 / 约定默认 / 不可用成因）、新元素字段形态用 `archi_scaffold`。
+#[test]
+fn archi_module描述补三句指路() {
+    let definition = lookup(ARCHI_MODULE_TOOL).expect("定义在案");
+    let description = &definition.description;
+    for piece in ["hasPath", "resolvedEntry", "archi_scaffold"] {
+        assert!(
+            description.contains(piece),
+            "描述含新指路 `{piece}`：{description}"
+        );
+    }
+    assert!(
+        description.contains("入口解析结果") || description.contains("显式命中"),
+        "入口解析三态有交代：{description}"
+    );
+}
+
+/// 边界：`archi_module` 描述删除字段形态教学——零代码围栏、零 `entry` 三档表；
+/// `modelFile` + `modelLine` 可直接 `edit` 的句子保留。
+#[test]
+fn archi_module描述零字段形态教学() {
+    let definition = lookup(ARCHI_MODULE_TOOL).expect("定义在案");
+    let description = &definition.description;
+    assert!(
+        !description.contains("```"),
+        "零代码围栏（示例 TOML 归 archi_scaffold）：{description}"
+    );
+    assert!(
+        !description.contains("entry 三档") && !description.contains("三档"),
+        "零 entry 三档表：{description}"
+    );
+    assert!(
+        description.contains("modelFile") && description.contains("modelLine"),
+        "声明位置可直接 edit 的句子保留：{description}"
+    );
+    assert!(description.contains("edit"), "edit 指路在场");
+}
+
+/// 边界：`injected_finish` 夹具的 `SessionInjections` 含 `protect: None`（第五位机械
+/// 闭合，编译期 + 断言双守）。
+#[test]
+fn 夹具injected_finish第五位protect为none() {
+    let injections = injected_finish(&["read"], Some(agent::FinishSpec::EvaluatorChecklist));
+    assert!(
+        injections.protect.is_none(),
+        "夹具不引入会话规则（第五位显式 None）"
+    );
 }

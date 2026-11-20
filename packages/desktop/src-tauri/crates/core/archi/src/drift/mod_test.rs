@@ -2541,9 +2541,289 @@ fn 判据装配改走api单点() {
         !source.contains("load_contracts"),
         "契约装载只在 `core/archi::api`（drift 侧零内联装配）"
     );
-    assert!(
-        !source.contains("is_file"),
-        "契约在案判据只在 `api::gating_findings`（drift 侧零 is_file）"
+    // `assets_hash` 的资产枚举是唯一例外（`index.is_file()` + `metadata.is_file()`），
+    // 契约在案判据仍只在 `api::gating_findings`
+    assert_eq!(
+        source.matches("is_file").count(),
+        source.matches("index.is_file()").count() + source.matches("metadata.is_file()").count(),
+        "契约在案判据只在 `api::gating_findings`（drift 侧 `is_file` 仅资产枚举用）"
     );
     assert!(!source.contains("首期 MUST NOT"), "零旧口径字样");
+}
+
+// ===========================================================================
+// `assets_hash`（收口自检的四类资产聚合哈希）与 `model_hash` 分工
+// ===========================================================================
+
+/// 手工复算模型声明目录的聚合哈希（`model_hash` 口径：文件名字节 + `0` 分隔 +
+/// 字节 + `0` 分隔，按文件名序）。
+fn recompute_model_hash(root: &Path) -> String {
+    use sha2::{Digest, Sha256};
+
+    let dir = foundation::layout::archi_graph_model_dir(root);
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .expect("模型声明目录应在盘")
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("toml"))
+        .collect();
+    files.sort();
+    let mut hasher = Sha256::new();
+    for file in files {
+        let name = file
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        hasher.update(name.as_bytes());
+        hasher.update([0u8]);
+        hasher.update(std::fs::read(&file).unwrap_or_default());
+        hasher.update([0u8]);
+    }
+    format!("sha256:{:x}", hasher.finalize())
+}
+
+/// 空盘（三处资产根皆不存在）。
+fn empty_root(tag: &str) -> TempDir {
+    TempDir::new(tag)
+}
+
+/// 正向：同一盘面连续两次调用值逐字相等；形态为 `sha256:` + 64 位十六进制。
+#[test]
+fn assets_hash确定性且形态固定() {
+    let temp = TempDir::new("assets-hash-stable");
+    temp.write_model("[element.\"App\"]\nkind = \"package\"\n");
+    temp.write(".dev-team/architecture/models/App.md", "# App\n");
+    let first = super::assets_hash(temp.root());
+    let second = super::assets_hash(temp.root());
+    assert_eq!(first, second, "同一盘面稳定");
+    assert!(first.starts_with("sha256:"), "前缀 sha256：{first}");
+    let hex = first.trim_start_matches("sha256:");
+    assert_eq!(hex.len(), 64, "64 位十六进制");
+    assert!(
+        hex.chars().all(|ch| ch.is_ascii_hexdigit()),
+        "十六进制字符：{hex}"
+    );
+}
+
+/// 正向（表驱动）：四类资产各改一处即变——`graph/model/*.toml` /
+/// `models/**/*.md` / `models/**/*.schema.json` / `graph/INDEX.toml`。
+#[test]
+fn assets_hash四类资产各自敏感() {
+    let cases: [(&str, &str); 4] = [
+        (".dev-team/architecture/graph/model/02-more.toml", "x = 1\n"),
+        (".dev-team/architecture/models/App/More.md", "# More\n"),
+        (".dev-team/architecture/models/App/More.schema.json", "{}\n"),
+        (".dev-team/architecture/graph/INDEX.toml", "version = 1\n"),
+    ];
+    for (relative, content) in cases {
+        let temp = TempDir::new("assets-hash-sensitive");
+        temp.write_model("[element.\"App\"]\nkind = \"package\"\n");
+        let before = super::assets_hash(temp.root());
+        temp.write(relative, content);
+        let after = super::assets_hash(temp.root());
+        assert_ne!(before, after, "改 {relative} 即变");
+    }
+}
+
+/// 边界：全空盘（三处资产根皆不存在）→ 不 panic、两次相等；与另一全空盘同值。
+#[test]
+fn assets_hash空盘稳定且跨目录同值() {
+    let first = empty_root("assets-hash-empty-a");
+    let second = empty_root("assets-hash-empty-b");
+    let a = super::assets_hash(first.root());
+    let b = super::assets_hash(first.root());
+    assert_eq!(a, b, "同一空盘两次相等");
+    assert_eq!(
+        a,
+        super::assets_hash(second.root()),
+        "两个空盘同值（相对路径参与累加）"
+    );
+}
+
+/// 边界（表驱动）：资产根存在但零条目、或仅混入非目标扩展名文件（目录 / `.txt`）→
+/// 与全空盘同值（过滤判据）。
+#[test]
+fn assets_hash非目标扩展名不参与() {
+    let empty = empty_root("assets-hash-filter-empty");
+    let expected = super::assets_hash(empty.root());
+
+    let zero_entries = empty_root("assets-hash-filter-zero");
+    std::fs::create_dir_all(foundation::layout::archi_graph_model_dir(
+        zero_entries.root(),
+    ))
+    .expect("建空模型目录");
+    std::fs::create_dir_all(foundation::layout::archi_models_dir(zero_entries.root()))
+        .expect("建空契约目录");
+    assert_eq!(
+        super::assets_hash(zero_entries.root()),
+        expected,
+        "零条目与空盘同值"
+    );
+
+    let wrong_ext = empty_root("assets-hash-filter-wrong-ext");
+    wrong_ext.write(".dev-team/architecture/graph/model/note.txt", "x\n");
+    wrong_ext.write(".dev-team/architecture/models/App/keep.json", "{}\n");
+    assert_eq!(
+        super::assets_hash(wrong_ext.root()),
+        expected,
+        "非目标扩展名（.txt / 裸 .json）按判据过滤"
+    );
+}
+
+/// 边界（表驱动）：空文件 vs 单字节文件 → 值不同（字节参与累加）；同名不同内容 →
+/// 值不同。
+#[test]
+fn assets_hash字节参与累加() {
+    let empty_file = TempDir::new("assets-hash-bytes-empty");
+    empty_file.write(".dev-team/architecture/graph/model/01.toml", "");
+    let one_byte = TempDir::new("assets-hash-bytes-one");
+    one_byte.write(".dev-team/architecture/graph/model/01.toml", "x");
+    assert_ne!(
+        super::assets_hash(empty_file.root()),
+        super::assets_hash(one_byte.root()),
+        "空文件与单字节可辨"
+    );
+
+    let changed = TempDir::new("assets-hash-bytes-changed");
+    changed.write(".dev-team/architecture/graph/model/01.toml", "y");
+    assert_ne!(
+        super::assets_hash(one_byte.root()),
+        super::assets_hash(changed.root()),
+        "同名不同内容可辨"
+    );
+}
+
+/// 边界：内容相同、文件名不同 → 值不同（相对路径参与累加）。
+#[test]
+fn assets_hash文件名参与累加() {
+    let first = TempDir::new("assets-hash-name-a");
+    first.write(".dev-team/architecture/graph/model/01.toml", "x = 1\n");
+    let second = TempDir::new("assets-hash-name-b");
+    second.write(".dev-team/architecture/graph/model/02.toml", "x = 1\n");
+    assert_ne!(
+        super::assets_hash(first.root()),
+        super::assets_hash(second.root()),
+        "内容相同文件名不同即可辨"
+    );
+}
+
+/// 边界：乱序创建（先建 `z` 后建 `a`）与顺序创建同一盘面 → 同值（相对路径排序）。
+#[test]
+fn assets_hash乱序创建同值() {
+    let reverse = TempDir::new("assets-hash-order-reverse");
+    reverse.write(".dev-team/architecture/graph/model/z.toml", "z = 1\n");
+    reverse.write(".dev-team/architecture/graph/model/a.toml", "a = 1\n");
+
+    let forward = TempDir::new("assets-hash-order-forward");
+    forward.write(".dev-team/architecture/graph/model/a.toml", "a = 1\n");
+    forward.write(".dev-team/architecture/graph/model/z.toml", "z = 1\n");
+
+    assert_eq!(
+        super::assets_hash(reverse.root()),
+        super::assets_hash(forward.root()),
+        "创建序不影响（相对路径排序）"
+    );
+}
+
+/// 边界（表驱动）：索引文件缺失 / 存在各一态 → 值可辨且不 panic（单文件缺失即不
+/// 参与）。
+#[test]
+fn assets_hash索引文件参与() {
+    let without = TempDir::new("assets-hash-index-missing");
+    without.write_model("[element.\"App\"]\nkind = \"package\"\n");
+    let before = super::assets_hash(without.root());
+
+    let with_index = TempDir::new("assets-hash-index-present");
+    with_index.write_model("[element.\"App\"]\nkind = \"package\"\n");
+    with_index.write(".dev-team/architecture/graph/INDEX.toml", "version = 1\n");
+
+    assert_ne!(
+        before,
+        super::assets_hash(with_index.root()),
+        "索引在场即变"
+    );
+    assert_ne!(
+        super::assets_hash(with_index.root()),
+        super::assets_hash(without.root()),
+        "两态可辨"
+    );
+}
+
+/// 异常：资产根内混入子目录 → 跳过（目录不当文件读）、不 panic、哈希稳定。
+#[test]
+fn assets_hash子目录跳过且稳定() {
+    let plain = TempDir::new("assets-hash-dir-plain");
+    plain.write(".dev-team/architecture/graph/model/01.toml", "x = 1\n");
+
+    let nested = TempDir::new("assets-hash-dir-nested");
+    nested.write(".dev-team/architecture/graph/model/01.toml", "x = 1\n");
+    std::fs::create_dir_all(
+        nested
+            .root()
+            .join(".dev-team/architecture/graph/model/nested"),
+    )
+    .expect("建子目录");
+
+    let expected = super::assets_hash(plain.root());
+    assert_eq!(
+        super::assets_hash(nested.root()),
+        expected,
+        "子目录不参与（不 panic、值与无该目录相同）"
+    );
+    assert_eq!(super::assets_hash(nested.root()), expected, "稳定");
+}
+
+/// 组合（表驱动）：只改契约 md → `assets_hash` 变而 `check` 报告 `modelHash` 逐字
+/// 不变（两者共享 `hash_files`，但覆盖面不同——模型声明目录 vs 四类资产）。
+#[test]
+fn assets_hash与model_hash分工() {
+    for relative in [
+        ".dev-team/architecture/models/App.md",
+        ".dev-team/architecture/models/App/Sub.md",
+        ".dev-team/architecture/models/App/Sub.schema.json",
+        ".dev-team/architecture/graph/INDEX.toml",
+    ] {
+        let temp = TempDir::new("assets-hash-division");
+        temp.write_model("[element.\"App\"]\nkind = \"package\"\n");
+        let assets_before = super::assets_hash(temp.root());
+        let model_before = super::model_hash(temp.root());
+
+        temp.write(relative, "changed\n");
+        assert_ne!(
+            assets_before,
+            super::assets_hash(temp.root()),
+            "改 {relative} 后 assets_hash 变"
+        );
+        assert_eq!(
+            model_before,
+            super::model_hash(temp.root()),
+            "改 {relative} 后 modelHash 不变"
+        );
+    }
+}
+
+/// 正向（口径回归）：改造后 `model_hash` 与改造前算法（文件名 + 内容 + 空字节分隔）
+/// 手工复算相等。
+#[test]
+fn model_hash口径回归手工复算() {
+    let temp = TempDir::new("assets-hash-model-regression");
+    temp.write_model(
+        "[element.\"App\"]\nkind = \"package\"\n\n[element.\"App.Auth\"]\nkind = \"domain\"\n",
+    );
+    temp.write(
+        ".dev-team/architecture/graph/model/02-more.toml",
+        "[element.\"App.Auth.Login\"]\nkind = \"component\"\n",
+    );
+    assert_eq!(
+        super::model_hash(temp.root()),
+        recompute_model_hash(temp.root()),
+        "model_hash 与改造前算法手工复算逐字相等"
+    );
+    // 覆盖面差异：契约 md 只影响 assets_hash
+    temp.write(".dev-team/architecture/models/App.md", "# App\n");
+    assert_eq!(
+        super::model_hash(temp.root()),
+        recompute_model_hash(temp.root()),
+        "改契约 md 后口径仍一致"
+    );
 }

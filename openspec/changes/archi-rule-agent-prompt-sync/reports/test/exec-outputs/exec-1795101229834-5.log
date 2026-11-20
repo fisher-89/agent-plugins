@@ -1,0 +1,35 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\compose.rs:214:
+         }
+     }
+     Some(vec![agent::SessionProtectRule {
+[31m-        glob: format!(
+[0m[31m-            "**/{}/**",
+[0m[31m-            foundation::layout::archi_graph_model_rel_dir()
+[0m[31m-        ),
+[0m[32m+        glob: format!("**/{}/**", foundation::layout::archi_graph_model_rel_dir()),
+[0m         reason: crate::sdk::protect::session_lock_template().to_owned(),
+     }])
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\loop.rs:24:
+ use crate::sdk::mount::{self, ToolExec};
+ use crate::sdk::protect::ProtectRules;
+ use crate::sdk::{
+[31m-    compact, context, normalize, policy, preclose, preamble, sandbox, tools, web_search,
+[0m[32m+    compact, context, normalize, policy, preamble, preclose, sandbox, tools, web_search,
+[0m };
+ 
+ /// 正常收敛 / 失败收敛的 `TurnDone.subtype`（core 协议收敛事件口径）。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-rule-agent-prompt-sync\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mod.rs:16:
+ pub(crate) mod mount;
+ pub(crate) mod normalize;
+ pub(crate) mod policy;
+[31m-pub(crate) mod preclose;
+[0m pub(crate) mod preamble;
+[32m+pub(crate) mod preclose;
+[0m pub(crate) mod protect;
+ pub(crate) mod reasoning;
+ pub(crate) mod resume;
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

@@ -263,3 +263,114 @@ fn 批量还原串detail边界与确定性() {
         assert!(first.contains(detail), "detail 原样嵌入不截断: {first}");
     }
 }
+
+// ===========================================================================
+// 本变更：会话级相位锁模板（`session_lock_template`）与 `ReasonKind::Session`
+// ===========================================================================
+
+/// 会话规则载体（`deny_reason` 的显式入参）。
+fn session_reason() -> ReasonKind {
+    ReasonKind::Session(reason::session_lock_template().to_owned())
+}
+
+/// 正向（表驱动）：模板四要素逐条在场——`%s`（路径位）/ `%t`（工具位）/ 写权相位
+/// 政策 / 补救指路 / 不得绕过。
+#[test]
+fn session_lock_template四要素齐备() {
+    let template = reason::session_lock_template();
+    for piece in [
+        "%s",
+        "%t",
+        "proposal / dev-design 相位的执行侧（以及架构页会话）",
+        "design.md",
+        "tasks.md",
+        "dev-design 相位落地",
+        "架构页会话",
+        NO_BYPASS_SENTENCE,
+    ] {
+        assert!(template.contains(piece), "模板含要素 `{piece}`：{template}");
+    }
+    assert!(template.contains("相位锁"), "事实串点明相位锁：{template}");
+}
+
+/// 边界：模板零架构域路径字面量（路径只经 `%s` 携入）；同值两次调用返回同一
+/// `&'static str`（单点出口）。
+#[test]
+fn session_lock_template零路径字面量与单点出口() {
+    let template = reason::session_lock_template();
+    for literal in [
+        ".dev-team",
+        "architecture",
+        "graph/model",
+        "config.json",
+        "INDEX.toml",
+    ] {
+        assert!(
+            !template.contains(literal),
+            "模板零路径字面量 `{literal}`：{template}"
+        );
+    }
+    assert!(
+        std::ptr::eq(template, reason::session_lock_template()),
+        "同值两次调用返回同一 `&'static str`"
+    );
+}
+
+/// 正向（表驱动）：`deny_reason(Session)` 做 `%s` / `%t` 全量替换（零残留），输出含
+/// 实际路径与实际工具名。
+#[test]
+fn deny_reason_session三工具全量替换() {
+    let path = "/repo/.dev-team/architecture/graph/model/01-core.toml";
+    for tool in ["write", "edit", "bash"] {
+        let text = reason::deny_reason(&session_reason(), path, tool);
+        assert!(text.contains(path), "含实际路径（{tool}）：{text}");
+        assert!(text.contains(tool), "含实际工具名（{tool}）：{text}");
+        assert!(
+            !text.contains("%s") && !text.contains("%t"),
+            "占位符零残留（{tool}）：{text}"
+        );
+    }
+}
+
+/// 边界（表驱动）：路径含特殊字符（空格 / `：` / emoji）→ 原样插入、不转义零 panic。
+#[test]
+fn deny_reason_session特殊字符原样插入() {
+    for path in [
+        "/repo/with space/model/01-core.toml",
+        "/repo/中文：目录/model.toml",
+        "/repo/🎉emoji/model.toml",
+    ] {
+        let text = reason::deny_reason(&session_reason(), path, "write");
+        assert!(text.contains(path), "原样插入：{text}");
+        assert!(!text.contains("\\u"), "不转义：{text}");
+    }
+}
+
+/// 边界：空 path / 空 tool → 占位替换为空串，文案结构完整。
+#[test]
+fn deny_reason_session空入参结构完整() {
+    let empty_path = reason::deny_reason(&session_reason(), "", "write");
+    assert!(!empty_path.contains('%'), "占位符零残留：{empty_path}");
+    assert!(
+        empty_path.contains("相位锁"),
+        "结构完整（事实串仍在）：{empty_path}"
+    );
+
+    let empty_tool = reason::deny_reason(&session_reason(), "/repo/x.toml", "");
+    assert!(!empty_tool.contains('%'), "占位符零残留：{empty_tool}");
+    assert!(
+        empty_tool.contains("/repo/x.toml"),
+        "路径仍插入：{empty_tool}"
+    );
+}
+
+/// 异常：模板无占位符（构造 `ReasonKind::Session("固定串")`）→ 原样返回，不 panic。
+#[test]
+fn deny_reason_session无占位符原样返回() {
+    let fixed = ReasonKind::Session("固定串".to_owned());
+    assert_eq!(
+        reason::deny_reason(&fixed, "/repo/x.toml", "write"),
+        "固定串",
+        "无占位符即原样返回"
+    );
+}

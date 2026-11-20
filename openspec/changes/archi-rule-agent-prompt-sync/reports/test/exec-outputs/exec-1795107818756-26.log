@@ -1,0 +1,10 @@
+
+=== packages_desktop_src-tauri_rust (rust) · files=54 ===
+Found 108 mutants to test
+MISSED   crates/infra/agent/src/sdk/archi_drift_view.rs:28:27: replace += with -= in drift_summary in 15s build + 62s test
+MISSED   crates/infra/agent/src/sdk/archi_drift_view.rs:28:27: replace += with *= in drift_summary in 10s build + 62s test
+MISSED   crates/infra/agent/src/sdk/archi_drift_view.rs:29:60: replace += with -= in drift_summary in 11s build + 63s test
+MISSED   crates/infra/agent/src/sdk/archi_drift_view.rs:29:60: replace += with *= in drift_summary in 13s build + 61s test
+MISSED   crates/infra/agent/src/sdk/loop.rs:681:27: replace |= with &= in run in 15s build + 63s test
+MISSED   crates/infra/agent/src/sdk/tools.rs:56:9: replace || with && in input_path in 13s build + 56s test
+108 mutants tested in 19m: 6 missed, 90 caught, 12 unviable

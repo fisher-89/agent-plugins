@@ -2245,6 +2245,7 @@ fn explore_injections() -> agent::SessionInjections {
         tools: Some(names),
         finish: None,
         ask: None,
+        protect: None,
     }
 }
 
@@ -4631,6 +4632,7 @@ fn archi_injections(module: bool, search: bool) -> agent::SessionInjections {
         tools: Some(names),
         finish: None,
         ask: None,
+        protect: None,
     }
 }
 
@@ -5131,6 +5133,7 @@ async fn run系统消息合成双在场恰一条system() {
             tools: None,
             finish: None,
             ask: None,
+            protect: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
@@ -5165,6 +5168,7 @@ async fn run系统消息合成仅preamble恰一条system() {
             tools: None,
             finish: None,
             ask: None,
+            protect: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
@@ -5209,6 +5213,7 @@ async fn run系统消息合并每轮重读知识段不重读盘() {
             tools: None,
             finish: None,
             ask: None,
+            protect: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
@@ -5250,6 +5255,7 @@ fn archi_session_injections(knowledge: Option<&str>) -> agent::SessionInjections
         tools: Some(names),
         finish: None,
         ask: None,
+        protect: None,
     }
 }
 
@@ -5634,6 +5640,7 @@ async fn finish_step收口成功零额外请求() {
                 tools: tools.clone(),
                 finish: Some(agent::FinishSpec::EvaluatorChecklist),
                 ask: None,
+                protect: None,
             },
             ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
         };
@@ -5931,6 +5938,7 @@ async fn finish_step的protocol档在default下放行() {
             tools: None,
             finish: Some(agent::FinishSpec::EvaluatorChecklist),
             ask: None,
+            protect: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::Default)
     };
@@ -6222,6 +6230,7 @@ fn loop_turn_with_ask(
             tools: None,
             finish: None,
             ask: Some(ask_mode),
+            protect: None,
         },
         ask: ctx,
         ..loop_turn(cwd, mode)
@@ -6927,6 +6936,7 @@ async fn ask位缺席时硬调即tool_unavailable且零登记() {
             tools: None,
             finish: None,
             ask: None,
+            protect: None,
         },
         ask: Some(ask_context(Arc::clone(&registry), None)),
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
@@ -7865,6 +7875,7 @@ fn db_injections() -> agent::SessionInjections {
         tools: Some(names),
         finish: None,
         ask: None,
+        protect: None,
     }
 }
 
@@ -8060,6 +8071,7 @@ async fn 未下发会话调用db工具被成员校验拒绝且零执行() {
                 tools: Some(archi_names),
                 finish: None,
                 ask: None,
+                protect: None,
             },
         ),
     ];
@@ -8384,4 +8396,598 @@ async fn 两轮会话每轮请求均携同一载荷不累积不改写() {
             index + 1
         );
     }
+}
+
+// ===========================================================================
+// 本变更：收口前架构自检（`preclose::run` 挂在自然收敛支，先于 `TurnDone`）
+// ===========================================================================
+
+/// 携 `preamble` 的轮参数（archi 会话判据 = `preamble` 位在场）。
+fn loop_turn_with_preamble(
+    cwd: &Path,
+    mode: AgentPermissionMode,
+    preamble: Option<&str>,
+) -> LoopTurn {
+    LoopTurn {
+        injections: agent::SessionInjections {
+            preamble: preamble.map(str::to_owned),
+            ..agent::SessionInjections::default()
+        },
+        ..loop_turn(cwd, mode)
+    }
+}
+
+/// 落一份单元素模型（`App` 包根 + `App.Auth` 模块，后者认领 `src/auth/`）。
+fn write_archi_model(cwd: &Path) {
+    let relative = format!(
+        "{}/01-core.toml",
+        foundation::layout::archi_graph_model_rel_dir()
+    );
+    write_file(
+        &cwd.join(relative),
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"./src/auth/\"]\n",
+        ),
+    );
+}
+
+/// notice 在事件流中的索引（未发出即 `None`）。
+fn notice_index(events: &[AgentEventKind], subtype: &str) -> Option<usize> {
+    events.iter().position(|event| {
+        matches!(event, AgentEventKind::SystemNotice { subtype: actual, .. } if actual == subtype)
+    })
+}
+
+/// 正向：文本收口一轮且本轮写过架构模型（T1 命中）→ `archi_preclose` notice 索引 <
+/// `TurnDone` 索引，且恰一条 notice。
+#[tokio::test]
+async fn 自然收敛支自检notice先于turn_done() {
+    let dir = tempdir("preclose-order");
+    write_archi_model(dir.path());
+    let model_path = dir
+        .path()
+        .join(format!(
+            "{}/02-new.toml",
+            foundation::layout::archi_graph_model_rel_dir()
+        ))
+        .to_string_lossy()
+        .into_owned();
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_model",
+                "write",
+                serde_json::json!({
+                    "path": model_path,
+                    "content": "[element.\"App.Core\"]\nkind = \"module\"\n"
+                }),
+            ),
+            raw_final(usage(3, 3)),
+        ],
+        vec![raw_text("模型已补"), raw_final(usage(4, 4))],
+    ]);
+    let events = drive_loop(
+        &model,
+        &loop_turn_with_preamble(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            Some("架构知识"),
+        ),
+        &RunHandle::default(),
+    )
+    .await;
+
+    let notices = notices_of(&events);
+    assert_eq!(notices.len(), 1, "恰一条 notice，实际: {notices:?}");
+    assert_eq!(notices[0].0, "archi_preclose");
+    let notice_at = notice_index(&events, "archi_preclose").expect("notice 在场");
+    let done_at = events
+        .iter()
+        .position(|event| matches!(event, AgentEventKind::TurnDone { .. }))
+        .expect("TurnDone 在场");
+    assert!(notice_at < done_at, "自检 notice 先于 TurnDone");
+    assert_eq!(done_at, events.len() - 1, "TurnDone 仍为最后一事件");
+}
+
+/// 边界：纯问答（零写入且盘面未变）→ 零 notice（只留引擎日志）。
+#[tokio::test]
+async fn 纯问答零notice() {
+    let dir = tempdir("preclose-quiet");
+    write_archi_model(dir.path());
+    let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
+    let events = drive_loop(
+        &model,
+        &loop_turn_with_preamble(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            Some("架构知识"),
+        ),
+        &RunHandle::default(),
+    )
+    .await;
+    assert_eq!(
+        notice_index(&events, "archi_preclose"),
+        None,
+        "零写入即零 notice"
+    );
+    assert_eq!(notice_index(&events, "archi_preclose_skipped"), None);
+}
+
+/// 边界：T1 跨轮累积——第 1 轮写模型、第 2 轮纯文本收口 → 仍发 notice（局部量在
+/// `'continuation` 循环之外）。
+#[tokio::test]
+async fn t1标记跨轮累积() {
+    let dir = tempdir("preclose-cumulative");
+    write_archi_model(dir.path());
+    let model_path = dir
+        .path()
+        .join(format!(
+            "{}/02-new.toml",
+            foundation::layout::archi_graph_model_rel_dir()
+        ))
+        .to_string_lossy()
+        .into_owned();
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_model",
+                "write",
+                serde_json::json!({
+                    "path": model_path,
+                    "content": "[element.\"App.Core\"]\nkind = \"module\"\n"
+                }),
+            ),
+            raw_final(usage(2, 2)),
+        ],
+        vec![
+            raw_tool_call("tu_read", "read", serde_json::json!({ "path": "AGENT.md" })),
+            raw_final(usage(2, 2)),
+        ],
+        vec![raw_text("完成"), raw_final(usage(2, 2))],
+    ]);
+    let events = drive_loop(
+        &model,
+        &loop_turn_with_preamble(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            Some("架构知识"),
+        ),
+        &RunHandle::default(),
+    )
+    .await;
+    let notice_at = notice_index(&events, "archi_preclose").expect("跨轮累积后仍发 notice");
+    let done_at = events
+        .iter()
+        .position(|event| matches!(event, AgentEventKind::TurnDone { .. }))
+        .expect("TurnDone 在场");
+    assert!(notice_at < done_at);
+}
+
+/// 异常：截断终局不是自然收敛 → 零 notice（五个出口一律不挂自检）。
+#[tokio::test]
+async fn 非自然收敛出口零notice() {
+    let dir = tempdir("preclose-other-exit");
+    write_archi_model(dir.path());
+    let model = FakeModel::with_turns(vec![vec![
+        raw_text("半截"),
+        raw_final_with_reason(FinishReason::Length, usage(2, 2)),
+    ]]);
+    let events = drive_loop(
+        &model,
+        &loop_turn_with_preamble(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            Some("架构知识"),
+        ),
+        &RunHandle::default(),
+    )
+    .await;
+    assert_eq!(
+        notice_index(&events, "archi_preclose"),
+        None,
+        "截断终局零 notice"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AgentEventKind::TurnDone { .. })),
+        "TurnDone 形态不变"
+    );
+}
+
+/// 异常：`stop_requested` 先置位 → 零 notice（停止出口不合成 `TurnDone`，
+/// 既有语义不变）。
+#[tokio::test]
+async fn 停止先置位出口零notice() {
+    let dir = tempdir("preclose-stop-exit");
+    write_archi_model(dir.path());
+    let model = FakeModel::with_turns(vec![vec![raw_text("不会到达的流")]]);
+    let handle = RunHandle::default();
+    handle.request_stop();
+
+    let events = drive_loop(
+        &model,
+        &loop_turn_with_preamble(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            Some("架构知识"),
+        ),
+        &handle,
+    )
+    .await;
+
+    assert_eq!(
+        notice_index(&events, "archi_preclose"),
+        None,
+        "停止出口零 notice"
+    );
+    assert_eq!(model.captured_requests().len(), 0, "停止先置位不发起请求");
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, AgentEventKind::TurnDone { .. })),
+        "停止路径不合成 TurnDone（既有语义不变）"
+    );
+}
+
+/// 边界：`pause_turn` 连续到顶 → 零 notice（capped 出口先于自检挂点收口）。
+#[tokio::test]
+async fn pause_turn到顶出口零notice() {
+    let dir = tempdir("preclose-capped-exit");
+    write_archi_model(dir.path());
+    let turns: Vec<Vec<MockStreamEvent>> = (0..6)
+        .map(|index| {
+            vec![
+                raw_text(&format!("第 {index} 段")),
+                raw_pause_turn(usage(1, 1)),
+            ]
+        })
+        .collect();
+    let model = FakeModel::with_turns(turns);
+    let turn = LoopTurn {
+        web_search: true,
+        ..loop_turn_with_preamble(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            Some("架构知识"),
+        )
+    };
+
+    let events = drive_loop(&model, &turn, &RunHandle::default()).await;
+
+    assert_eq!(
+        notice_index(&events, "archi_preclose"),
+        None,
+        "到顶出口零 notice"
+    );
+    assert_eq!(
+        continuation_counts(&events, "pause_turn_capped"),
+        vec![5],
+        "到顶留痕照常（capped 一条）"
+    );
+    let AgentEventKind::TurnDone { subtype, .. } = turn_done_of(&events) else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "success", "到顶按 stop 语义成功收敛");
+}
+
+/// 异常：`api_error` 重试耗尽 → 零 notice（失败出口先于自检挂点），`TurnDone`
+/// 形态不变。
+#[tokio::test]
+async fn api_error出口零notice() {
+    let dir = tempdir("preclose-api-error-exit");
+    write_archi_model(dir.path());
+    let model = FakeModel::failing("连接被重置");
+    let turn = LoopTurn {
+        injections: agent::SessionInjections {
+            preamble: Some("架构知识".to_owned()),
+            ..agent::SessionInjections::default()
+        },
+        ..loop_turn_with_fast_io(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop(&model, &turn, &RunHandle::default()).await;
+
+    assert_eq!(
+        notice_index(&events, "archi_preclose"),
+        None,
+        "失败出口零 notice"
+    );
+    let AgentEventKind::TurnDone {
+        subtype, is_error, ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "api_error", "失败成因不变");
+    assert!(*is_error, "失败收敛 is_error=true");
+}
+
+/// 边界：空 choice 正常收敛出口 → 零 notice（空轮收敛先于自检挂点）。
+#[tokio::test]
+async fn 空choice出口零notice() {
+    let dir = tempdir("preclose-empty-choice-exit");
+    write_archi_model(dir.path());
+    let model = FakeModel::with_turns(vec![vec![raw_final(usage(2, 3))]]);
+
+    let events = drive_loop(
+        &model,
+        &loop_turn_with_preamble(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            Some("架构知识"),
+        ),
+        &RunHandle::default(),
+    )
+    .await;
+
+    assert_eq!(
+        notice_index(&events, "archi_preclose"),
+        None,
+        "空 choice 出口零 notice"
+    );
+    let AgentEventKind::TurnDone {
+        subtype, is_error, ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "success", "空轮以正常收敛防死循环");
+    assert!(!*is_error);
+}
+
+/// 正向：自检 notice 不改变收口形态——`TurnDone` 的 subtype / is_error /
+/// num_turns / usage 在两行（成功带 notice / 失败无 notice）逐字与改造前一致。
+#[tokio::test]
+async fn turn_done收口形态不因自检改变() {
+    // 成功行：T1 命中（写过模型）→ notice 在场，TurnDone 四字段逐字。
+    let dir = tempdir("preclose-done-shape-success");
+    write_archi_model(dir.path());
+    let model_path = dir
+        .path()
+        .join(format!(
+            "{}/02-new.toml",
+            foundation::layout::archi_graph_model_rel_dir()
+        ))
+        .to_string_lossy()
+        .into_owned();
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_model",
+                "write",
+                serde_json::json!({
+                    "path": model_path,
+                    "content": "[element.\"App.Core\"]\nkind = \"module\"\n"
+                }),
+            ),
+            raw_final(usage(3, 3)),
+        ],
+        vec![raw_text("模型已补"), raw_final(usage(4, 4))],
+    ]);
+    let events = drive_loop(
+        &model,
+        &loop_turn_with_preamble(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            Some("架构知识"),
+        ),
+        &RunHandle::default(),
+    )
+    .await;
+    assert!(
+        notice_index(&events, "archi_preclose").is_some(),
+        "成功行 notice 在场"
+    );
+    let AgentEventKind::TurnDone {
+        subtype,
+        is_error,
+        num_turns,
+        cost_usd,
+        usage: done_usage,
+        ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "success");
+    assert!(!*is_error);
+    assert_eq!(*num_turns, Some(2), "两轮驱动");
+    assert_eq!(*cost_usd, None, "cost 恒 None");
+    assert_eq!(
+        done_usage["input_tokens"],
+        serde_json::json!(7),
+        "usage 按轮累加（3 + 4）"
+    );
+    assert_eq!(done_usage["output_tokens"], serde_json::json!(7));
+
+    // 失败行：api_error → usage 无统计记录即缺省 null，其余四字段逐字。
+    let dir = tempdir("preclose-done-shape-failure");
+    write_archi_model(dir.path());
+    let model = FakeModel::failing("连接被重置");
+    let turn = LoopTurn {
+        injections: agent::SessionInjections {
+            preamble: Some("架构知识".to_owned()),
+            ..agent::SessionInjections::default()
+        },
+        ..loop_turn_with_fast_io(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+    let events = drive_loop(&model, &turn, &RunHandle::default()).await;
+    let AgentEventKind::TurnDone {
+        subtype,
+        is_error,
+        num_turns,
+        cost_usd,
+        usage: done_usage,
+        ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "api_error");
+    assert!(*is_error);
+    assert_eq!(*num_turns, Some(1));
+    assert_eq!(*cost_usd, None);
+    assert_eq!(
+        *done_usage,
+        serde_json::Value::Null,
+        "无统计记录时 usage 缺省 null"
+    );
+}
+
+/// 边界：会话判定取 `preamble` 位——change 相位会话（`tools` 含 `archi_drift` 但
+/// `preamble = None`）零 notice（不误命中 `turn.archi`）。
+#[tokio::test]
+async fn 非archi会话即便有archi工具也零notice() {
+    let dir = tempdir("preclose-change-session");
+    write_archi_model(dir.path());
+    let model_path = dir
+        .path()
+        .join(format!(
+            "{}/02-new.toml",
+            foundation::layout::archi_graph_model_rel_dir()
+        ))
+        .to_string_lossy()
+        .into_owned();
+    let turn = LoopTurn {
+        injections: agent::SessionInjections {
+            preamble: None,
+            tools: Some(vec![
+                "read".to_owned(),
+                "write".to_owned(),
+                crate::sdk::mount::ARCHI_DRIFT_TOOL.to_owned(),
+            ]),
+            ..agent::SessionInjections::default()
+        },
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_model",
+                "write",
+                serde_json::json!({
+                    "path": model_path,
+                    "content": "[element.\"App.Core\"]\nkind = \"module\"\n"
+                }),
+            ),
+            raw_final(usage(2, 2)),
+        ],
+        vec![raw_text("完成"), raw_final(usage(2, 2))],
+    ]);
+    let events = drive_loop(&model, &turn, &RunHandle::default()).await;
+    assert_eq!(
+        notice_index(&events, "archi_preclose"),
+        None,
+        "preamble 缺席即非 archi 会话（零 notice）"
+    );
+}
+
+/// 边界：零请求增量——自检不追加请求（预录流脚本帧数的消耗与改造前相同：三轮脚本
+/// 三轮请求），且 `TurnDone` 的 `num_turns` 仍按真实轮数上报。
+#[tokio::test]
+async fn 自检不追加请求() {
+    let dir = tempdir("preclose-no-request");
+    write_archi_model(dir.path());
+    let model_path = dir
+        .path()
+        .join(format!(
+            "{}/02-new.toml",
+            foundation::layout::archi_graph_model_rel_dir()
+        ))
+        .to_string_lossy()
+        .into_owned();
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_model",
+                "write",
+                serde_json::json!({
+                    "path": model_path,
+                    "content": "[element.\"App.Core\"]\nkind = \"module\"\n"
+                }),
+            ),
+            raw_final(usage(2, 2)),
+        ],
+        vec![raw_text("完成"), raw_final(usage(2, 2))],
+    ]);
+    let events = drive_loop(
+        &model,
+        &loop_turn_with_preamble(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            Some("架构知识"),
+        ),
+        &RunHandle::default(),
+    )
+    .await;
+    assert_eq!(
+        model.captured_requests().len(),
+        2,
+        "两次模型请求（自检零请求增量）"
+    );
+    assert!(notice_index(&events, "archi_preclose").is_some());
+    turn_done_of(&events);
+}
+
+/// 组合：相位锁拒绝的模型写入（放行路径未达）→ `archi_touched` 不置位，且盘面未变
+/// ⇒ T1 / T2 皆假 ⇒ 零 notice（不误命中）。
+#[tokio::test]
+async fn 被拒的模型写入不置位t1() {
+    let dir = tempdir("preclose-locked-write");
+    write_archi_model(dir.path());
+    let model_path = dir
+        .path()
+        .join(format!(
+            "{}/02-new.toml",
+            foundation::layout::archi_graph_model_rel_dir()
+        ))
+        .to_string_lossy()
+        .into_owned();
+    let lock = agent::SessionProtectRule {
+        glob: format!("**/{}/**", foundation::layout::archi_graph_model_rel_dir()),
+        reason: "该路径受相位锁保护：%s（经 %t 工具）。不要改用其他命令或工具尝试绕过。".to_owned(),
+    };
+    let turn = LoopTurn {
+        protect: crate::sdk::protect::ProtectRules::load(None).with_session(Some(vec![lock])),
+        ..loop_turn_with_preamble(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            Some("架构知识"),
+        )
+    };
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_locked",
+                "write",
+                serde_json::json!({
+                    "path": model_path,
+                    "content": "[element.\"App.Core\"]\nkind = \"module\"\n"
+                }),
+            ),
+            raw_final(usage(2, 2)),
+        ],
+        vec![raw_text("完成"), raw_final(usage(2, 2))],
+    ]);
+    let events = drive_loop(&model, &turn, &RunHandle::default()).await;
+    assert_eq!(
+        notice_index(&events, "archi_preclose"),
+        None,
+        "被拒写入不置位 T1、盘面未变 ⇒ 零 notice"
+    );
+    assert!(
+        !dir.path()
+            .join(format!(
+                "{}/02-new.toml",
+                foundation::layout::archi_graph_model_rel_dir()
+            ))
+            .exists(),
+        "写入被保护闸拦下（文件未落盘）"
+    );
 }

@@ -469,21 +469,93 @@ fn model_file_count(root: &Path) -> usize {
 /// 按空内容参与累加，哈希仍确定）。累加输入仅文件名 + 字节、不含父目录——模型声明
 /// 目录迁移不改变哈希。
 fn model_hash(root: &Path) -> String {
+    let dir = foundation::layout::archi_graph_model_dir(root);
+    hash_files(&model_files(root), &dir)
+}
+
+/// 累加 helper（`model_hash` 与 [`assets_hash`] 共用）：按给定序逐文件累加「相对
+/// `base` 的路径 + 字节」，空字节分隔，输出 `sha256:<hex>`；读失败按空字节参与。
+fn hash_files(files: &[PathBuf], base: &Path) -> String {
     let mut hasher = Sha256::new();
-    for file in model_files(root) {
+    for file in files {
         let name = file
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .strip_prefix(base)
+            .unwrap_or(file)
+            .to_string_lossy()
+            .replace('\\', "/");
         hasher.update(name.as_bytes());
         hasher.update([0u8]);
-        let bytes = std::fs::read(&file).unwrap_or_default();
+        let bytes = std::fs::read(file).unwrap_or_default();
         hasher.update(&bytes);
         hasher.update([0u8]);
     }
     let digest = hasher.finalize();
     let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
     format!("sha256:{hex}")
+}
+
+/// 架构资产聚合哈希（四类覆盖面：`graph/model/*.toml`、`models/**/*.md`、
+/// `models/**/*.schema.json`、`graph/INDEX.toml`）。
+///
+/// 用途单一是收口自检的「本轮是否动过架构资产」判据：MUST NOT 写进报告、MUST NOT
+/// 取代报告的 `modelHash`、MUST NOT 当作任何缓存的失效依据。同一份盘面必得同一值
+/// ——故遍历**不走 `ignore`**（`.gitignore` 状态不得污染哈希）。缺失目录不参与、
+/// 单文件读失败按空字节；纯读盘、零写盘、零 spawn。
+pub fn assets_hash(root: &Path) -> String {
+    hash_files(&collect_assets(root), root)
+}
+
+/// 四类资产的盘面清单（相对 `root` 的路径字典序——稳定序是哈希确定性的前提）。
+fn collect_assets(root: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = Vec::new();
+    collect_by_extension(
+        &foundation::layout::archi_graph_model_dir(root),
+        &|name| name.ends_with(".toml"),
+        &mut files,
+    );
+    collect_by_extension(
+        &foundation::layout::archi_models_dir(root),
+        &|name| name.ends_with(".md") || name.ends_with(".schema.json"),
+        &mut files,
+    );
+    let index = foundation::layout::archi_graph_dir(root).join(crate::api::paths::INDEX_FILE_NAME);
+    if index.is_file() {
+        files.push(index);
+    }
+    files.sort_by_key(|file| {
+        file.strip_prefix(root)
+            .unwrap_or(file)
+            .to_string_lossy()
+            .replace('\\', "/")
+    });
+    files
+}
+
+/// 递归收集 `dir` 下文件名满足 `keep` 的文件（不跟随符号链接；目录缺席即零条目）。
+fn collect_by_extension(dir: &Path, keep: &dyn Fn(&str) -> bool, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if metadata.is_dir() {
+            collect_by_extension(&path, keep, files);
+            continue;
+        }
+        if !metadata.is_file() {
+            continue;
+        }
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(keep)
+        {
+            files.push(path);
+        }
+    }
 }
 
 #[cfg(test)]
