@@ -12,7 +12,8 @@
 //! 三件事纪律沿 `commands/config` 模板：参数转换 → 调用 → 错误映射。投影、诊断、
 //! diff 与待落盘产物全在 `archi`——命令层零领域规则（不建图、不解析、不推导）。
 //! 写命令两条（`archi_set_gate` / `archi_api_generate`）：前者的写前校验在
-//! `archi::edit::plan_set_gate` 且落盘为本文件的原子写回，后者的写盘单点在
+//! `archi::edit::plan_set_gate` 且落盘经命令层共用原子写
+//! （`commands::atomic::write_atomic`），后者的写盘单点在
 //! `archi_runtime::api_artifacts::write_artifacts`（只增只改、从不删）；其余六条
 //! MUST NOT 写盘。
 //!
@@ -37,6 +38,8 @@ use tauri::State;
 use vcs_runtime::ProcessArchiveVcs;
 use workflow::state::ChangeStatus;
 
+use crate::commands::atomic::write_atomic;
+
 #[cfg(test)]
 mod mod_test;
 
@@ -50,31 +53,6 @@ fn check_root(root: &Path) -> Result<(), String> {
         fs::metadata(root).map_err(|e| format!("root 无效（{}）：{e}", root.display()))?;
     if !metadata.is_dir() {
         return Err(format!("root 不是目录（{}）", root.display()));
-    }
-    Ok(())
-}
-
-/// 原子写回：同目录临时文件 + rename 覆盖（失败清临时文件）。模型写面的唯一落盘
-/// 点——本文件之外零 `fs::write`（`archi` crate 全程只读盘）。
-fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| format!("目标文件无父目录：{}", path.display()))?;
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| format!("目标文件名不可用：{}", path.display()))?;
-    let temporary = parent.join(format!("{name}.archi-tmp"));
-    if let Err(error) = fs::write(&temporary, content) {
-        let _ = fs::remove_file(&temporary);
-        return Err(format!(
-            "写入临时文件失败（{}）：{error}",
-            temporary.display()
-        ));
-    }
-    if let Err(error) = fs::rename(&temporary, path) {
-        let _ = fs::remove_file(&temporary);
-        return Err(format!("替换目标文件失败（{}）：{error}", path.display()));
     }
     Ok(())
 }

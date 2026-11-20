@@ -15,6 +15,7 @@ import {
   type AgentSessionViewProps,
 } from './agent-session-view';
 import * as barrel from './index';
+import { ConfigApplyScope, useConfigApplyActions } from './message-cards/config-apply-scope';
 import { SessionPanel, type SessionPanelState } from './session-panel';
 
 // ---------------------------------------------------------------------------
@@ -87,7 +88,12 @@ describe('组件族 barrel：出口集合与单一引用', () => {
   });
 
   it('运行时导出键集合逐字断言（改名 / 漏导出即红，且不存在第二个导出名）', () => {
-    expect(Object.keys(barrel).sort()).toEqual(['AgentInput', 'AgentSessionView', 'SessionPanel']);
+    expect(Object.keys(barrel).sort()).toEqual([
+      'AgentInput',
+      'AgentSessionView',
+      'ConfigApplyScope',
+      'SessionPanel',
+    ]);
     expect(barrel).not.toHaveProperty('AgentMessages');
     expect(barrel).not.toHaveProperty('AgentSessionViewContainer');
     expect(barrel, 'SessionPanelProps 留文件内、不出桶').not.toHaveProperty('SessionPanelProps');
@@ -223,5 +229,48 @@ describe('组件族 barrel：ask 类型出口的导入纪律（源码自证）',
       source.split("export type { AskAnswerActions } from './agent-messages';").length - 1,
       '单处声明（不重复导出同名类型）',
     ).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 本变更：`ConfigApplyScope` 出口（barrel 第 8 个值导出，DD12）
+// ---------------------------------------------------------------------------
+
+describe('组件族 barrel：ConfigApplyScope 出口', () => {
+  it('barrel 的 ConfigApplyScope 与直导入为同一引用（不建第二个 provider 实现）', () => {
+    expect(barrel.ConfigApplyScope).toBe(ConfigApplyScope);
+  });
+
+  it('不导出 ConfigApplyActions 类型（内层只供本元素内消费）', () => {
+    // 类型不参与运行期键集合；barrel 侧只有值导出这一条 ConfigApplyScope 行
+    const source = readFileSync(resolve(process.cwd(), 'src/components/agent/index.tsx'), 'utf8');
+    expect(source).toContain(
+      "export { ConfigApplyScope } from './message-cards/config-apply-scope';",
+    );
+    expect(
+      source.split("export { ConfigApplyScope } from './message-cards/config-apply-scope';")
+        .length - 1,
+      '单处声明（不重复导出同名值）',
+    ).toBe(1);
+    expect(source).not.toContain('export type { ConfigApplyActions }');
+  });
+
+  it('经 barrel 包裹后子组件读到 {root, onApplied}；不包 provider 读到 null 且不抛错', () => {
+    function Probe(): React.JSX.Element {
+      const actions = useConfigApplyActions();
+      return <div data-testid="barrel-actions">{actions === null ? 'null' : actions.root}</div>;
+    }
+
+    const onApplied = vi.fn();
+    const { unmount } = render(
+      <barrel.ConfigApplyScope value={{ root: 'C:demoalpha', onApplied }}>
+        <Probe />
+      </barrel.ConfigApplyScope>,
+    );
+    expect(screen.getByTestId('barrel-actions').textContent).toBe('C:demoalpha');
+    unmount();
+
+    render(<Probe />);
+    expect(screen.getByTestId('barrel-actions').textContent).toBe('null');
   });
 });

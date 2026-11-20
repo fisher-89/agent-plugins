@@ -153,6 +153,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "sessionDetail",
     "listChangeChatSessions",
     "listArchiChatSessions",
+    "listConfigChatSessions",
     "scanExplores",
     "exploreDocPath",
     "listExploreRecords",
@@ -169,6 +170,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "dbRecords",
     "codeStats",
     "workspaceConfig",
+    "workspaceConfigApply",
     "appEnvironment",
     "archiGraph",
     "archiModule",
@@ -211,6 +213,7 @@ const COMMAND_NAMES: &[&str] = &[
     "session_detail",
     "list_change_chat_sessions",
     "list_archi_chat_sessions",
+    "list_config_chat_sessions",
     "scan_explores",
     "explore_doc_path",
     "list_explore_records",
@@ -227,6 +230,7 @@ const COMMAND_NAMES: &[&str] = &[
     "db_records",
     "code_stats",
     "workspace_config",
+    "workspace_config_apply",
     "app_environment",
     "archi_graph",
     "archi_module",
@@ -1217,13 +1221,13 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     // 其后补 agent_steer（50 → 51）；本变更再补两条契约面命令（51 → 53）
     assert_eq!(
         COMMAND_NAMES.len(),
-        54,
-        "命令清单本变更补录一条（list_model_catalog，53 → 54）"
+        56,
+        "命令清单本变更补录两条（workspace_config_apply / list_config_chat_sessions，54 → 56）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        54,
-        "包装清单本变更补录一条（listModelCatalog，53 → 54）"
+        56,
+        "包装清单本变更补录两条（workspaceConfigApply / listConfigChatSessions，54 → 56）"
     );
     assert!(
         COMMAND_NAMES.contains(&"agent_steer"),
@@ -2211,12 +2215,12 @@ fn 登记面_架构页会话清单命令在册() {
 fn 登记面_命令总数加三且两清单持衡() {
     assert_eq!(
         COMMAND_NAMES.len(),
-        54,
-        "累计补录三条后的命令总数（51 → 54）"
+        56,
+        "累计补录五条后的命令总数（51 → 56）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        54,
+        56,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
 }
@@ -2686,10 +2690,10 @@ fn 登记面_三新命令在两清单与生成物各在册() {
 /// 尾锚仍为 `read_file`（`list_model_catalog` 插在 agents 组内，尾锚零位移）。
 #[test]
 fn 登记面_总数五十且尾锚零位移() {
-    assert_eq!(COMMAND_NAMES.len(), 54, "命令清单总数 51 → 54");
+    assert_eq!(COMMAND_NAMES.len(), 56, "命令清单总数 51 → 56");
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        54,
+        56,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
     assert_eq!(
@@ -3922,5 +3926,267 @@ fn save_agent_provider形参面末位为tuning组而目录命令零形参() {
             .find("listModelCatalog")
             .map(|index| &squashed[index..index.min(squashed.len())])
             .unwrap_or("")
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：两条新命令的登记面（`all_commands!` 宏体 → 两份清单 → 生成物）
+// ---------------------------------------------------------------------------
+
+/// 正向：`COMMAND_NAMES` 含两新 invoke 名、`COMMAND_WRAPPERS` 含两新包装名
+/// （两清单一一对应）。
+#[test]
+fn 登记面_两新命令进两份清单() {
+    for name in ["workspace_config_apply", "list_config_chat_sessions"] {
+        assert!(COMMAND_NAMES.contains(&name), "invoke 名补录（{name}）");
+        assert_eq!(
+            COMMAND_NAMES.iter().filter(|entry| **entry == name).count(),
+            1,
+            "{name} 恰登记一次"
+        );
+    }
+    for wrapper in ["workspaceConfigApply", "listConfigChatSessions"] {
+        assert!(
+            COMMAND_WRAPPERS.contains(&wrapper),
+            "包装名补录（{wrapper}）"
+        );
+        assert_eq!(
+            COMMAND_WRAPPERS
+                .iter()
+                .filter(|entry| **entry == wrapper)
+                .count(),
+            1,
+            "{wrapper} 恰登记一次"
+        );
+    }
+    assert_eq!(
+        COMMAND_NAMES.len(),
+        COMMAND_WRAPPERS.len(),
+        "两清单条目数持衡（一一对应）"
+    );
+}
+
+/// 边界：登记位次——两新命令紧跟同族条目（同族相邻而非尾部追加）。
+#[test]
+fn 登记面_两新命令与同族相邻() {
+    let position = |list: &[&str], name: &str| -> usize {
+        list.iter()
+            .position(|entry| *entry == name)
+            .unwrap_or_else(|| panic!("{name} 在册"))
+    };
+
+    let config_position = position(COMMAND_NAMES, "workspace_config_apply");
+    assert_eq!(
+        config_position,
+        position(COMMAND_NAMES, "workspace_config") + 1,
+        "workspace_config_apply 紧跟 workspace_config"
+    );
+    let wrapper_position = position(COMMAND_WRAPPERS, "workspaceConfigApply");
+    assert_eq!(
+        wrapper_position,
+        position(COMMAND_WRAPPERS, "workspaceConfig") + 1,
+        "workspaceConfigApply 紧跟 workspaceConfig"
+    );
+
+    let list_position = position(COMMAND_NAMES, "list_config_chat_sessions");
+    assert_eq!(
+        list_position,
+        position(COMMAND_NAMES, "list_archi_chat_sessions") + 1,
+        "list_config_chat_sessions 紧跟 list_archi_chat_sessions"
+    );
+    let list_wrapper_position = position(COMMAND_WRAPPERS, "listConfigChatSessions");
+    assert_eq!(
+        list_wrapper_position,
+        position(COMMAND_WRAPPERS, "listArchiChatSessions") + 1,
+        "listConfigChatSessions 紧跟 listArchiChatSessions"
+    );
+}
+
+/// 异常：产物文本副本删去 `listConfigChatSessions` 行 → 持衡断言失败并指认缺项
+///（副本驱动，不改产物）。
+#[test]
+fn 登记面_产物副本缺项被抓() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    let broken: String = content
+        .lines()
+        .filter(|line| !line.contains("listConfigChatSessions:"))
+        .collect::<Vec<&str>>()
+        .join("\n");
+
+    let missing: Vec<&str> = COMMAND_WRAPPERS
+        .iter()
+        .copied()
+        .filter(|wrapper| {
+            content.contains(&format!("{wrapper}:")) && !broken.contains(&format!("{wrapper}:"))
+        })
+        .collect();
+    assert_eq!(
+        missing,
+        vec!["listConfigChatSessions"],
+        "副本删项即被抓（持衡判据指认缺项）"
+    );
+}
+
+/// 正向：`workspaceConfigApply` 包装行逐字在场（file face 出线），invoke 名与载荷对位。
+#[test]
+fn 生成物_workspace_config_apply包装逐字() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    let line = content
+        .lines()
+        .find(|line| line.trim_start().starts_with("workspaceConfigApply:"))
+        .expect("workspaceConfigApply 包装行在场");
+    assert!(
+        line.contains("root: string"),
+        "第一参为 root: string，实际 {line}"
+    );
+    assert!(
+        line.contains("candidate: Value"),
+        "第二参为 file face 的 `Value`（= `export type Value = unknown`），实际 {line}"
+    );
+    assert!(
+        !line.contains("candidate: WorkspaceConfig"),
+        "typed `WorkspaceConfig` 入参回潮即红，实际 {line}"
+    );
+    assert!(
+        line.contains("__TAURI_INVOKE<WorkspaceConfigReport>(\"workspace_config_apply\", { root, candidate })"),
+        "返回类型 / invoke 命令名 / 载荷逐字，实际 {line}"
+    );
+    assert!(
+        content.contains("export type Value = unknown;"),
+        "`Value` 出线别名 = unknown（TS 面 file face）"
+    );
+}
+
+/// 正向：`listConfigChatSessions` 包装行逐字（三参 + `SessionPage` 返回）。
+#[test]
+fn 生成物_list_config_chat_sessions包装逐字() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    assert!(
+        content.contains(
+            "listConfigChatSessions: (root: string, offset: number, limit: number) => \
+             __TAURI_INVOKE<SessionPage>(\"list_config_chat_sessions\", { root, offset, limit })"
+        ),
+        "包装形态不符（三参 / 返回类型 / invoke 命令名 / 载荷）"
+    );
+}
+
+/// 异常：产物副本把 `candidate: Value` 改成 typed `WorkspaceConfig` → 断言失败并指认
+///（file face typed 入参禁令的机械锚）。
+#[test]
+fn 生成物_typed入参副本被抓() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    let broken = content.replace("candidate: Value", "candidate: WorkspaceConfig");
+
+    let line = broken
+        .lines()
+        .find(|line| line.trim_start().starts_with("workspaceConfigApply:"))
+        .expect("包装行仍在（只改类型）");
+    assert!(
+        line.contains("candidate: WorkspaceConfig"),
+        "副本改写生效（判据面可观测）"
+    );
+    assert!(
+        !content
+            .lines()
+            .any(|line| line.contains("candidate: WorkspaceConfig")),
+        "权威产物零 typed 入参（副本与产物的差异即判据）"
+    );
+}
+
+/// zod 产物中某命令的入参 `strictObject` 块文本（`get "<name>"() { return z.strictObject({ … }); },`）。
+fn zod_args_block<'a>(content: &'a str, name: &str) -> &'a str {
+    let marker = format!("get \"{name}\"() {{ return z.strictObject({{");
+    let start = content
+        .find(&marker)
+        .unwrap_or_else(|| panic!("zod 产物缺命令入参块 {name}"));
+    let tail = &content[start..];
+    let end = tail
+        .find("}); },")
+        .map_or(tail.len(), |offset| offset + "}); },".len());
+    &tail[..end]
+}
+
+/// `workspaceConfigApply` 入参块的判据（正向 / 负向副本公用：异常形态只在内存副本上
+/// 删 getter 驱动，不改生成物）。
+fn assert_workspace_config_apply_args(block: &str) {
+    assert!(
+        block.contains("\"root\": z.string()"),
+        "入参含 root getter：{block}"
+    );
+    assert!(
+        block.contains("\"candidate\": z.unknown()"),
+        "candidate 沿用既有 unknown 出线形态（z.unknown()）：{block}"
+    );
+}
+
+/// 正向（zod 面）：两新命令的入参 schema 各自落在同一 `strictObject` 块内，
+/// `candidate` 为 `z.unknown()`。
+#[test]
+fn zod产物_两新命令schema齐备() {
+    let _lock = lock();
+    let content = authoritative_zod_snapshot();
+
+    let apply_args = zod_args_block(&content, "workspaceConfigApply");
+    assert_workspace_config_apply_args(apply_args);
+
+    let list_args = zod_args_block(&content, "listConfigChatSessions");
+    for field in ["\"root\": z.string()", "\"offset\":", "\"limit\":"] {
+        assert!(
+            list_args.contains(field),
+            "入参缺 {field} getter：{list_args}"
+        );
+    }
+    assert_eq!(
+        list_args.matches("z.int()").count(),
+        2,
+        "offset / limit 为 u32 整数面：{list_args}"
+    );
+}
+
+/// 异常（zod 面）：产物副本删去 `candidate` getter → 判据被抓且文案指认缺键
+///（zod 面漏字段 = 前端解析面漏字段；副本驱动，不改产物）。
+#[test]
+fn zod产物_缺candidate的副本被抓且文案指认缺键() {
+    let _lock = lock();
+    let content = authoritative_zod_snapshot();
+    let apply_args = zod_args_block(&content, "workspaceConfigApply");
+
+    let without_candidate = without_line(apply_args, "\"candidate\": z.unknown(),");
+    assert!(
+        !without_candidate.contains("\"candidate\""),
+        "副本改写生效（判据面可观测）：{without_candidate}"
+    );
+
+    let text = panic_text(|| assert_workspace_config_apply_args(&without_candidate));
+    assert!(
+        text.contains("candidate"),
+        "删 candidate getter 的副本应被断言抓且指认缺键，实际文案 {text:?}"
+    );
+}
+
+/// 正向（zod 返回面）：两新命令的结果 schema 指向对应报告类型（`WorkspaceConfigReportSchema`
+/// / `SessionPageSchema`）。
+#[test]
+fn zod产物_两新命令返回schema指向报告类型() {
+    let _lock = lock();
+    let content = authoritative_zod_snapshot();
+
+    assert!(
+        content.contains(
+            "get \"workspaceConfigApply\"() { return z.lazy(() => WorkspaceConfigReportSchema); }"
+        ),
+        "workspaceConfigApply 返回 schema 指向 WorkspaceConfigReportSchema"
+    );
+    assert!(
+        content.contains(
+            "get \"listConfigChatSessions\"() { return z.lazy(() => SessionPageSchema); }"
+        ),
+        "listConfigChatSessions 返回 schema 指向 SessionPageSchema"
     );
 }

@@ -1,4 +1,4 @@
-//! `mount.rs`（工具挂载单源）的单元测试：十五项静态清单 / 名字查表 / 非法名
+//! `mount.rs`（工具挂载单源）的单元测试：十六项静态清单 / 名字查表 / 非法名
 //! `Err` / `finish` 位置位铸造 / `lookup` 单点 / 夹具形态 / 类型派生面。
 //!
 //! 不 mock：`registry()` / `definitions` / `lookup` 全为进程内纯函数
@@ -14,8 +14,8 @@ use crate::sdk::mount::{
     ARCHI_SEARCH_TOOL, DB_QUERY_TOOL, DB_TABLES_TOOL, EXPLORE_NOTE_TOOL, TOOL_NAMES,
 };
 
-/// 十五项名字的期望序（前七恰七内建，五 archi 只读居中，末两项两只只读 DB 工具）。
-const EXPECTED_NAMES: [&str; 15] = [
+/// 十六项名字的期望序（前七恰七内建，五 archi 只读居中，末三项为两只只读 DB 工具 + 提案工具）。
+const EXPECTED_NAMES: [&str; 16] = [
     "read",
     "grep",
     "glob",
@@ -31,6 +31,7 @@ const EXPECTED_NAMES: [&str; 15] = [
     "archi_scaffold",
     "db_tables",
     "db_query",
+    "propose_config",
 ];
 
 /// 名字投影（顺序断言面）。
@@ -57,19 +58,19 @@ fn source_of(relative: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// 正向：registry 十五项
+// 正向：registry 十六项
 // ---------------------------------------------------------------------------
 
 #[test]
-fn registry十五项名字唯一且有序且前七恰内建() {
+fn registry十六项名字唯一且有序且前七恰内建() {
     let names = names(registry());
-    assert_eq!(names, EXPECTED_NAMES.to_vec(), "十五项名字逐值有序");
-    assert_eq!(names.len(), 15, "十五项");
+    assert_eq!(names, EXPECTED_NAMES.to_vec(), "十六项名字逐值有序");
+    assert_eq!(names.len(), 16, "十六项");
 
     let mut unique = names.clone();
     unique.sort();
     unique.dedup();
-    assert_eq!(unique.len(), 15, "无重复名: {names:?}");
+    assert_eq!(unique.len(), 16, "无重复名: {names:?}");
 
     assert_eq!(
         registry()[..7]
@@ -84,7 +85,7 @@ fn registry十五项名字唯一且有序且前七恰内建() {
 
 #[test]
 fn registry的tier归属逐项对应改造前三张常量表() {
-    let expected: [(&str, ToolTier); 15] = [
+    let expected: [(&str, ToolTier); 16] = [
         ("read", ToolTier::Read),
         ("grep", ToolTier::Read),
         ("glob", ToolTier::Read),
@@ -100,6 +101,7 @@ fn registry的tier归属逐项对应改造前三张常量表() {
         ("archi_scaffold", ToolTier::Read),
         ("db_tables", ToolTier::Read),
         ("db_query", ToolTier::Read),
+        ("propose_config", ToolTier::Read),
     ];
     for (name, tier) in expected {
         let mount = registry()
@@ -108,12 +110,12 @@ fn registry的tier归属逐项对应改造前三张常量表() {
             .unwrap_or_else(|| panic!("挂载清单应含 {name}"));
         assert_eq!(mount.tier, tier, "工具 {name} 的 tier 归属");
     }
-    // 计数面：Read 九 / Write 三 / Execute 一 / Protocol 零
+    // 计数面：Read 十 / Write 三 / Execute 一 / Protocol 零
     let count = |tier: ToolTier| registry().iter().filter(|mount| mount.tier == tier).count();
     assert_eq!(
         count(ToolTier::Read),
-        11,
-        "Read 十一项（五 archi + 两 DB + 四内建）"
+        12,
+        "Read 十二项（五 archi + 两 DB + 四内建 + propose_config）"
     );
     assert_eq!(count(ToolTier::Write), 3, "Write 三项");
     assert_eq!(count(ToolTier::Execute), 1, "Execute 一项");
@@ -180,7 +182,7 @@ fn registry的exec归属且finish_step不入静态表() {
 }
 
 #[test]
-fn registry定义面完整十五项定义形状与非空() {
+fn registry定义面完整十六项定义形状与非空() {
     for mount in registry() {
         let definition = &mount.definition;
         assert!(
@@ -574,7 +576,7 @@ fn definitions非法名与finish并存时err优先() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn lookup十五项命中四类未命中() {
+fn lookup十六项命中四类未命中() {
     for name in EXPECTED_NAMES {
         let definition = lookup(name).unwrap_or_else(|| panic!("{name} 应命中"));
         assert_eq!(definition.name, name, "命中项名与入参相等");
@@ -1080,7 +1082,7 @@ fn mount_rs零ask工具名字面量且不在静态清单() {
     );
     assert!(
         !TOOL_NAMES.contains(&"AskUserQuestion"),
-        "AskUserQuestion 不在十五项静态清单（按位追加的基线工具）"
+        "AskUserQuestion 不在十六项静态清单（按位追加的基线工具）"
     );
 }
 
@@ -1218,13 +1220,17 @@ fn db两工具在静态表末两位且档位与路由() {
     let tail: Vec<&str> = registry()
         .iter()
         .rev()
-        .take(2)
+        .take(3)
         .map(|mount| mount.definition.name.as_str())
         .collect();
     assert_eq!(
         tail,
-        vec![DB_QUERY_TOOL, DB_TABLES_TOOL],
-        "末两项为两 DB 工具（序 = 登记序 db_tables → db_query）"
+        vec![
+            crate::sdk::config_propose::PROPOSE_CONFIG_TOOL,
+            DB_QUERY_TOOL,
+            DB_TABLES_TOOL
+        ],
+        "末三位为两 DB 工具 + 提案工具（序 = 登记序 db_tables → db_query → propose_config）"
     );
     for name in [DB_TABLES_TOOL, DB_QUERY_TOOL] {
         let mount = registry()
@@ -1591,6 +1597,170 @@ fn archi_scaffold定义描述要素() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// 本变更：`propose_config` 挂载面（定义单源 / tier 与执行体 / 源码结构锚）
+// ---------------------------------------------------------------------------
+
+/// 正向：末项 `tier == Read` / `exec == ToolExec::Config`，定义与执行体模块
+/// 同源（名字在挂载清单、描述在执行体模块的两处分叉由本断言堵住）。
+#[test]
+fn 提案工具在末项且档位与路由与定义同源() {
+    let mount = registry()
+        .iter()
+        .find(|mount| mount.definition.name == crate::sdk::config_propose::PROPOSE_CONFIG_TOOL)
+        .expect("提案工具在表内");
+    assert_eq!(mount.tier, ToolTier::Read, "只读档位（三档恒放行）");
+    assert_eq!(mount.exec, ToolExec::Config, "执行路由 Config");
+    let expected = crate::sdk::config_propose::definition();
+    assert_eq!(mount.definition.name, expected.name, "定义名同源");
+    assert_eq!(
+        mount.definition.parameters, expected.parameters,
+        "参数面同源（定义单源在 config_propose）"
+    );
+    assert_eq!(
+        mount.definition.description, expected.description,
+        "描述同源（无「名字在清单、描述在执行体」分叉）"
+    );
+}
+
+/// 边界：源码结构锚——`Vec::with_capacity(16)` 恰一处、两段 doc 的「十六项」在场。
+#[test]
+fn 提案工具挂载面的源码结构锚() {
+    let source = source_of("src/sdk/mount.rs");
+    assert_eq!(
+        source.matches("Vec::with_capacity(16)").count(),
+        1,
+        "构造容量随末项随动（恰一处）"
+    );
+    assert_eq!(
+        source.matches("十六项静态挂载清单").count(),
+        1,
+        "registry 段 doc 的「十六项静态挂载清单」在场"
+    );
+    assert_eq!(
+        source.matches("十六个字面构造项按序").count(),
+        1,
+        "build_registry 段 doc 的项数随动（十六个字面构造项）"
+    );
+    assert_eq!(
+        source.matches("PROPOSE_CONFIG_TOOL").count(),
+        1,
+        "再导出恰一处（常数本体驻执行体模块）"
+    );
+}
+
+/// 边界：`registry()` 两次调用字符串序相同（`OnceLock` 单次构建，构造函数零随机序）。
+#[test]
+fn registry两次调用名字序相同() {
+    let first = names(registry());
+    let second = names(registry());
+    assert_eq!(first, second, "同一份静态表（OnceLock 单次构建）");
+    assert!(
+        std::ptr::eq(registry(), registry()),
+        "两次调用返回同一份切片内存"
+    );
+}
+
+/// 正向：`definitions(tools: Some(六名))` → 恰 6 项，序与清单序一致、逐项路由对位。
+#[test]
+fn 提案工具在六名注入面下按清单序下发() {
+    let injections = SessionInjections {
+        preamble: None,
+        tools: Some(
+            [
+                "read",
+                "grep",
+                "glob",
+                "ls",
+                "bash",
+                crate::sdk::config_propose::PROPOSE_CONFIG_TOOL,
+            ]
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect(),
+        ),
+        finish: None,
+        ask: None,
+        protect: None,
+    };
+    let mounts = definitions(&injections, "").expect("config 六名装配应成功");
+    assert_eq!(names(&mounts).len(), 6, "恰六项");
+    let names = names(&mounts);
+    assert_eq!(
+        names,
+        vec!["read", "grep", "glob", "ls", "bash", "propose_config"],
+        "序与挂载清单序一致（read → grep → glob → ls → bash → propose_config）"
+    );
+    let last = mounts.last().expect("末项在场");
+    assert_eq!(last.tier, ToolTier::Read);
+    assert_eq!(last.exec, ToolExec::Config);
+    for mount in &mounts[..5] {
+        assert_eq!(
+            mount.exec,
+            ToolExec::Pure,
+            "{} 走纯函数执行体",
+            mount.definition.name
+        );
+    }
+}
+
+/// 边界：`tools: None` 仍只取前七内建（`propose_config` 不进 `tools: None` 语义）；
+/// `ask = Generic` 末尾追加 ask 工具、`finish = None` 不追加 `finish_step`。
+#[test]
+fn 提案工具不进tools_none语义且ask位独立追加() {
+    let injections = SessionInjections {
+        preamble: None,
+        tools: None,
+        finish: None,
+        ask: Some(AskMode::Generic),
+        protect: None,
+    };
+    let mounts = definitions(&injections, "").expect("内建名单装配应成功");
+    let mut expected: Vec<String> = TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
+    expected.push("AskUserQuestion".to_owned());
+    assert_eq!(names(&mounts), expected, "七内建 + ask 工具（末位）");
+    assert!(
+        !names(&mounts).iter().any(|name| name == "propose_config"),
+        "`tools: None` 语义载体仍是七内建（提案工具不入）"
+    );
+    assert!(
+        !names(&mounts).iter().any(|name| name == "finish_step"),
+        "finish = None → 不追加收口工具"
+    );
+}
+
+/// 正向：`lookup(\"propose_config\")` 命中且定义名逐字相同。
+#[test]
+fn lookup命中提案工具名() {
+    let definition =
+        lookup(crate::sdk::config_propose::PROPOSE_CONFIG_TOOL).expect("在册名应 Some");
+    assert_eq!(
+        definition.name,
+        crate::sdk::config_propose::PROPOSE_CONFIG_TOOL
+    );
+    assert_eq!(
+        definition.parameters,
+        crate::sdk::config_propose::definition().parameters
+    );
+}
+
+/// 异常（矩阵 4 形态）：近似名全 `None`（精确名判据，非前缀 / 大小写 / 空白嗅探）。
+#[test]
+fn lookup提案工具近似名全none() {
+    for name in [
+        "propose-config",
+        "ProposeConfig",
+        "propose_config ",
+        " propose_config",
+        "propose_configx",
+    ] {
+        assert!(
+            lookup(name).is_none(),
+            "近似名 {name:?} 必须 miss（精确名判据）"
+        );
+    }
+}
+
 /// 边界：`archi_scaffold` 的 `kind` enum 与 `ElementKind::ALL.map(as_str)` 逐值相等
 /// （长度 4、序一致，零第二份字面量）。
 #[test]
@@ -1662,4 +1832,33 @@ fn 夹具injected_finish第五位protect为none() {
         injections.protect.is_none(),
         "夹具不引入会话规则（第五位显式 None）"
     );
+}
+
+/// 异常：清单含未知名 → `Err` 文案前缀逐字不变（末项不改变该判据）。
+#[test]
+fn 清单含未知名err文案前缀不变() {
+    let injections = SessionInjections {
+        preamble: None,
+        tools: Some(vec!["propose_config".to_owned(), "config_write".to_owned()]),
+        finish: None,
+        ask: None,
+        protect: None,
+    };
+    let error = definitions(&injections, "").expect_err("未知名必须 Err");
+    assert!(
+        error.starts_with("注入面非法工具名"),
+        "文案前缀逐字不变，实际 {error}"
+    );
+    assert!(error.contains("config_write"), "文案携非法名，实际 {error}");
+}
+
+/// 边界：`TOOL_NAMES` 仍七件且逐字不变（`tools: None` 面契约零位移）。
+#[test]
+fn 内建七名逐字不变() {
+    assert_eq!(
+        TOOL_NAMES.to_vec(),
+        vec!["read", "grep", "glob", "ls", "write", "edit", "bash"]
+    );
+    assert_eq!(builtin(), TOOL_NAMES.as_slice());
+    assert_eq!(builtin().len(), 7, "内建封闭七件");
 }

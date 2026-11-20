@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod archi;
+pub(crate) mod atomic;
 pub mod change_flow;
 pub mod changes;
 pub mod config;
@@ -58,6 +59,7 @@ macro_rules! all_commands {
             $crate::commands::exec::session_detail,
             $crate::commands::exec::list_change_chat_sessions,
             $crate::commands::exec::list_archi_chat_sessions,
+            $crate::commands::exec::list_config_chat_sessions,
             $crate::commands::change_flow::change_flow_start,
             $crate::commands::change_flow::change_flow_stop,
             $crate::commands::change_flow::change_flow_answer,
@@ -80,6 +82,7 @@ macro_rules! all_commands {
             $crate::commands::db::db_records,
             $crate::commands::stats::code_stats,
             $crate::commands::config::workspace_config,
+            $crate::commands::config::workspace_config_apply,
             $crate::commands::env::app_environment,
             $crate::commands::archi::archi_graph,
             $crate::commands::archi::archi_module,

@@ -84,13 +84,15 @@ fn 同一mode与tier连续两次调用同判且12格全覆盖() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 十五项挂载逐工具三档等价于原三张按名常量表() {
+fn 十六项挂载逐工具三档等价于原三张按名常量表() {
     for mount in mount::registry() {
         let name = mount.definition.name.as_str();
         let expected = match name {
-            // 原 READONLY_TOOLS：三档全放（五 archi 只读 / 两 DB 只读俱属 Read 档）
+            // 原 READONLY_TOOLS：三档全放（五 archi 只读 / 两 DB 只读 / 提案工具俱属 Read 档）
             "read" | "grep" | "glob" | "ls" | "archi_module" | "archi_search" | "archi_api"
-            | "archi_drift" | "archi_scaffold" | "db_tables" | "db_query" => [true, true, true],
+            | "archi_drift" | "archi_scaffold" | "db_tables" | "db_query" | "propose_config" => {
+                [true, true, true]
+            }
             // 原 WRITE_TOOLS（含 create_explore_note）
             "write" | "edit" | "create_explore_note" => [false, true, true],
             // 原 EXECUTE_TOOLS
@@ -113,6 +115,7 @@ fn 十五项挂载逐工具三档等价于原三张按名常量表() {
 fn 档位归属抽样_read与protocol恒放写与执行需非default() {
     assert_eq!(tier("read"), ToolTier::Read);
     assert_eq!(tier("archi_module"), ToolTier::Read);
+    assert_eq!(tier("propose_config"), ToolTier::Read);
     assert_eq!(tier("write"), ToolTier::Write);
     assert_eq!(tier("create_explore_note"), ToolTier::Write);
     assert_eq!(tier("bash"), ToolTier::Execute);
@@ -160,7 +163,7 @@ fn 清单外工具名不在挂载清单内() {
 }
 
 #[test]
-fn 挂载清单内十三项名字两两不同() {
+fn 挂载清单内十六项名字两两不同() {
     let names: Vec<&str> = mount::registry()
         .iter()
         .map(|mount| mount.definition.name.as_str())
@@ -278,4 +281,50 @@ fn 拒绝决策的合成产物形状为_system_notice_permission_denied_加同id
     assert_eq!(id.as_str(), tool_use_id, "与 tool_use 同 id 成对");
     assert!(*is_error, "拒绝结果必须 is_error");
     assert_eq!(content.as_str(), reason);
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`propose_config` 归档 `Read`（三档恒放行）与等价表封闭集
+// ---------------------------------------------------------------------------
+
+/// 正向：`tier("propose_config") == Read`（与 `db_*` / `archi_*` 同族归档），
+/// 三档决策逐格 `[true, true, true]`。
+#[test]
+fn 提案工具归档read三档恒放行() {
+    assert_eq!(tier("propose_config"), ToolTier::Read);
+    for mode in MODES {
+        assert!(
+            allows(mode, tier("propose_config")),
+            "{mode:?} 档应放行只读的 propose_config"
+        );
+    }
+}
+
+/// 边界：十六项名字两两不同，条目数恒等于 `registry().len()`（等价表覆盖全表、
+/// `other` 分支零命中）。
+#[test]
+fn 十六项等价表覆盖全表且名字两两不同() {
+    let names: Vec<&str> = mount::registry()
+        .iter()
+        .map(|mount| mount.definition.name.as_str())
+        .collect();
+    assert_eq!(names.len(), 16, "挂载清单十六项");
+    let mut unique = names.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), 16, "名字两两不同（封闭集外名不可达）");
+    // 等价表遍历面 = 全表：逐项归档只有三档三形态（[true,true,true] /
+    // [false,true,true]），无第四形态。
+    for mount in mount::registry() {
+        let actual = [
+            allows(AgentPermissionMode::Default, mount.tier),
+            allows(AgentPermissionMode::AcceptEdits, mount.tier),
+            allows(AgentPermissionMode::BypassPermissions, mount.tier),
+        ];
+        assert!(
+            actual == [true, true, true] || actual == [false, true, true],
+            "工具 {} 三档形态超出两形态封闭集：{actual:?}",
+            mount.definition.name
+        );
+    }
 }

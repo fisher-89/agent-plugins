@@ -5575,3 +5575,201 @@ fn 写权与矩阵单点源码骨架() {
         "会话规则构造在 model_write_lock 内"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 本变更：config 第四臂（`source = "config"`）
+//
+// 观测口径：`assemble_injections` 为进程内纯函数，既有 `injections_of(source,
+// source_ref)` 装置直读；`preamble` 取真实 `config_knowledge::knowledge()`（替身会
+// 掩盖「词表漂移 / 骨架写坏」在装配面的传导）。
+// ---------------------------------------------------------------------------
+
+/// config 臂的六名清单（名字与序即契约）。
+const CONFIG_ARM_NAMES: [&str; 6] = [
+    "read",
+    "grep",
+    "glob",
+    "ls",
+    "bash",
+    crate::sdk::mount::PROPOSE_CONFIG_TOOL,
+];
+
+/// 正向：六名恰为 `[read, grep, glob, ls, bash, propose_config]`（序即契约）。
+#[test]
+fn config臂六名清单名字与序逐值对位() {
+    let injections = injections_of(super::CONFIG_SOURCE, None);
+    let names = injections.tools.expect("config 臂 tools 恒 Some");
+    assert_eq!(names.len(), 6, "六名封闭");
+    assert_eq!(names, CONFIG_ARM_NAMES.to_vec(), "名字与序逐值对位");
+}
+
+/// 正向：零写面 / 零 DB 工具；`ask = Generic`；`finish = None`；`preamble` 取真实知识。
+#[test]
+fn config臂零写面零db且ask_generic与真实preamble逐字相等() {
+    let injections = injections_of(super::CONFIG_SOURCE, None);
+    let names = injections.tools.as_ref().expect("tools 在场");
+    for absent in ["write", "edit", "db_tables", "db_query"] {
+        assert!(
+            !names.iter().any(|name| name == absent),
+            "config 臂不得下发 {absent}"
+        );
+    }
+    assert_eq!(
+        injections.ask,
+        Some(agent::AskMode::Generic),
+        "ask = Generic"
+    );
+    assert_eq!(injections.finish, None, "finish = None（无收口工具）");
+    let expected = crate::config_knowledge::knowledge().expect("真实知识应拼装成功");
+    assert_eq!(
+        injections.preamble.as_deref(),
+        Some(expected.as_str()),
+        "preamble 与 knowledge() 逐字相等（装配面零二次改写）"
+    );
+}
+
+/// 边界（矩阵 3 形态）：`source_ref` 任意形态 → 该臂逐字段不变（config 臂不消费它）。
+#[test]
+fn config臂不消费source_ref三形态逐字段不变() {
+    let arms = [
+        injections_of(super::CONFIG_SOURCE, None),
+        injections_of(super::CONFIG_SOURCE, Some("")),
+        injections_of(super::CONFIG_SOURCE, Some("chg-1/implement/executor/1")),
+    ];
+    for pair in arms.windows(2) {
+        assert_eq!(pair[0].tools, pair[1].tools, "tools 逐字段不变");
+        assert_eq!(pair[0].preamble, pair[1].preamble, "preamble 逐字段不变");
+        assert_eq!(pair[0].ask, pair[1].ask, "ask 逐字段不变");
+        assert_eq!(pair[0].finish, pair[1].finish, "finish 逐字段不变");
+    }
+}
+
+/// 边界（矩阵 4 形态）：近似来源名落兜底臂（判据是精确相等，不是前缀 / 大小写嗅探）。
+#[test]
+fn 近似来源名落兜底臂无提案工具() {
+    for source in ["Config", "config ", "configx", "config-chat"] {
+        let injections = injections_of(source, Some("chg-1/implement/executor/1"));
+        assert!(
+            injections.tools.is_none(),
+            "来源 {source:?} 落兜底臂（tools: None = 七内建语义，无第二份清单）"
+        );
+        let names: Vec<String> = crate::sdk::mount::definitions(&injections, "")
+            .expect("兜底名单装配应成功")
+            .iter()
+            .map(|mount| mount.definition.name.clone())
+            .collect();
+        assert!(
+            !names
+                .iter()
+                .any(|name| name == crate::sdk::mount::PROPOSE_CONFIG_TOOL),
+            "来源 {source:?} 不得下发 propose_config（实际 {names:?}）"
+        );
+        assert_eq!(injections.preamble, None, "来源 {source:?} 无知识 preamble");
+    }
+}
+
+/// 异常：装配面成员校验仍单源——以含非法名的清单驱动 `injected` → `Err` 文案
+/// 前缀「注入面非法工具名」且携非法名（config 臂复用既有实现，判据零改）。
+#[test]
+fn config臂复用成员校验单源() {
+    let provenance = SessionProvenance {
+        source: super::CONFIG_SOURCE.to_owned(),
+        source_ref: None,
+    };
+    let error = super::injected(
+        &["read", "config_write"],
+        None,
+        None,
+        Some(agent::AskMode::Generic),
+        &provenance,
+    )
+    .expect_err("非法名必须 Err");
+    assert!(
+        error.starts_with("注入面非法工具名"),
+        "文案前缀逐字不变，实际 {error}"
+    );
+    assert!(error.contains("config_write"), "文案携非法名，实际 {error}");
+}
+
+/// 正向：`CONFIG_SOURCE` 三处同字面量（源码结构锚 + 常量值）。
+#[test]
+fn config_source常量三处同字面量() {
+    assert_eq!(super::CONFIG_SOURCE, "config", "常量线值");
+    let own = include_str!("compose.rs");
+    assert_eq!(
+        own.matches("const CONFIG_SOURCE: &str = \"config\";")
+            .count(),
+        1,
+        "常量声明恰一处"
+    );
+    // 与命令层 `CONFIG_CHAT_SOURCE` 同字面量（三处口径的前两处机械对拍）
+    let commands = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../src/commands/exec/mod.rs"),
+    )
+    .expect("读取 exec 命令源失败");
+    assert!(
+        commands.contains("const CONFIG_CHAT_SOURCE: &str = \"config\";"),
+        "命令层来源词与 compose 常量同字面量"
+    );
+}
+
+/// 边界（矩阵 2 断言）：装配单点恰一处、函数体内零 `SessionInjections::default()`。
+#[test]
+fn 装配单点结构锚零default构造() {
+    let own = include_str!("compose.rs");
+    assert_eq!(
+        own.matches("fn assemble_injections").count(),
+        1,
+        "装配单点恰一处"
+    );
+    let body = own
+        .split("fn assemble_injections")
+        .nth(1)
+        .expect("函数体在案");
+    let body = body.split("\nfn ").next().expect("函数体到下一个 fn 为止");
+    assert!(
+        !body.contains("SessionInjections::default()"),
+        "函数体内逐臂显式置位（零 default 构造）"
+    );
+}
+
+/// 正向：config 臂的下发面与装配单源一致（`RunStarted.tools` 上报面 ==
+/// `assemble_injections` 产出面 + ask 位追加）。
+#[test]
+fn config臂下发面与装配单源一致() {
+    let injections = injections_of(super::CONFIG_SOURCE, None);
+    let mounts = crate::sdk::mount::definitions(&injections, "").expect("config 面装配应成功");
+    let names: Vec<String> = mounts
+        .iter()
+        .map(|mount| mount.definition.name.clone())
+        .collect();
+    let mut expected: Vec<String> = CONFIG_ARM_NAMES
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect();
+    expected.push("AskUserQuestion".to_owned());
+    assert_eq!(
+        names, expected,
+        "六名逐值有序（= assemble_injections 产出面）+ ask 位追加"
+    );
+    assert_eq!(
+        names[5].as_str(),
+        crate::sdk::mount::PROPOSE_CONFIG_TOOL,
+        "提案工具在六名清单末位（挂载清单序）"
+    );
+}
+
+/// 异常：`preamble` 降级传导——`knowledge()` 恒 `Some`（真骨架）即装配臂逐字相等；
+/// `build` 的 `Err` 面不进装配层（只取 `Option`）。
+#[test]
+fn config臂preamble只取option不消费err() {
+    assert!(
+        crate::config_knowledge::build("<>").is_err(),
+        "坏骨架 build 必须 Err（降级触发面）"
+    );
+    let injections = injections_of(super::CONFIG_SOURCE, None);
+    assert!(
+        injections.preamble.is_some(),
+        "装配层只取 Option：真骨架 → Some（run 不因坏骨架中断）"
+    );
+}

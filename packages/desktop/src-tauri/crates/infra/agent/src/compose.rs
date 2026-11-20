@@ -24,7 +24,11 @@ const CHANGE_SOURCE: &str = "change";
 /// `use-archi-chat` 的 `ARCHI_CHAT_SOURCE` 三处同字面量，改动需同步。
 const ARCHI_SOURCE: &str = "archi";
 
-/// 会话注入面装配（生产路径：explore 臂 + archi 臂 + change 臂），三臂全产
+/// config 来源受控字符串（配置页常驻会话）——与命令层 `CONFIG_CHAT_SOURCE`、
+/// 前端 `use-config-chat` 的 `CONFIG_CHAT_SOURCE` 三处同字面量，改动需同步。
+const CONFIG_SOURCE: &str = "config";
+
+/// 会话注入面装配（生产路径：explore 臂 + archi 臂 + config 臂 + change 臂），四臂全产
 /// **工具名字清单**，`finish` 位独立按 `role` 置位（与矩阵解耦——决策会话恒
 /// 不命中矩阵，收口档位不得随矩阵 `None` 一并丢）：
 /// - `explore` 来源 = 六工具名（write 移除）+ `create_explore_note` + 两只只读
@@ -32,20 +36,23 @@ const ARCHI_SOURCE: &str = "archi";
 /// - `archi` 来源 = 七工具名 + 五 archi 名 + 架构会话知识 preamble；该臂以
 ///   `source` 短路命中，零 `source_ref` 读取（不碰相位解析，`source_ref` 取任意
 ///   值下发面不变）；
+/// - `config` 来源 = 六工具名（只读探测面 + 唯一提案出口，**无** `write` / `edit`、
+///   无 db 工具）+ 配置协议知识 preamble + `ask = Generic` + `finish = None`；该臂以
+///   `source` 判定，不进 `source_ref` 相位解析；
 /// - `change` 来源按 `source_ref` 尾三段解析 `(phase, role)` 查 archi 工具面
 ///   矩阵，命中即把勾选名并入七工具名清单，**矩阵之后恒 push `db_tables` /
 ///   `db_query` 两名**（不分 phase / 不分矩阵命中，与 `ask` 位恒 `Flow` 同构）；
-/// - 其余来源（debug 等）显式构造 `tools = None`（内建七件）+ 零 archi 工具 +
-///   `ask = Some(Generic)`——MUST NOT 以默认构造兜底（默认值的 `ask = None` 即
-///   静默禁用，通用会话会失去 ask）。
+/// - 其余来源（**非 change、非 config** 的 debug 等）显式构造 `tools = None`（内建
+///   七件）+ 零 archi 工具 + `ask = Some(Generic)`——MUST NOT 以默认构造兜底（默认值
+///   的 `ask = None` 即静默禁用，通用会话会失去 ask）。
 ///
 /// `protect` 位由单点 [`model_write_lock`] 逐臂置位（模型写权的相位锁；判定矩阵归
 /// `desktop-write-protection`）：archi 臂与两处写权相位 `None`（不挂锁），其余一切
 /// `Some(一条)`。
 ///
-/// 三臂的每个名字 SHALL 经 [`mount::lookup`] 成员校验（未知名 `Err`）。`ask` 位
-/// 逐臂显式置位：explore / archi / 其余来源 → `Generic`，change（**不分 role /
-/// 不分矩阵命中**）→ `Flow`。
+/// 四臂的每个名字 SHALL 经 [`mount::lookup`] 成员校验（未知名 `Err`）。`ask` 位
+/// 逐臂显式置位：explore / archi / config / 其余来源 → `Generic`，change（**不分
+/// role / 不分矩阵命中**）→ `Flow`。
 fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionInjections, String> {
     if provenance.source == EXPLORE_SOURCE {
         const EXPLORE_TOOLS: [&str; 9] = [
@@ -83,8 +90,28 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
             provenance,
         );
     }
+    if provenance.source == CONFIG_SOURCE {
+        // 只读探测面 + 唯一提案出口（无 write / edit、无 db 工具）；知识为尽力增强项，
+        // 拼装失败只丢 preamble 位
+        const CONFIG_TOOLS: [&str; 6] = [
+            "read",
+            "grep",
+            "glob",
+            "ls",
+            "bash",
+            mount::PROPOSE_CONFIG_TOOL,
+        ];
+        return injected(
+            &CONFIG_TOOLS,
+            crate::config_knowledge::knowledge(),
+            None,
+            Some(agent::AskMode::Generic),
+            provenance,
+        );
+    }
     if provenance.source != CHANGE_SOURCE {
-        // 显式构造（MUST NOT default()：其 ask = None 即静默禁用）
+        // 显式构造（MUST NOT default()：其 ask = None 即静默禁用）——非 change、
+        // 非 config 来源（debug 等）的兜底
         return Ok(agent::SessionInjections {
             preamble: None,
             tools: None,

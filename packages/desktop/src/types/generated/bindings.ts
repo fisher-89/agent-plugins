@@ -190,6 +190,15 @@ export const commands = {
 	 *  blank root → 空页信封（读面语义，与 `agent_sessions` 同口径）。
 	 */
 	listArchiChatSessions: (root: string, offset: number, limit: number) => __TAURI_INVOKE<SessionPage>("list_archi_chat_sessions", { root, offset, limit }),
+	/**
+	 *  配置页常驻会话清单（薄包装，逐段同 `list_archi_chat_sessions`：参数转换 →
+	 *  内核分页查询 → 错误映射）：`source` 词常量收在本层（前端零来源词汇），
+	 *  `source_ref` **不过滤**（`None`——config 会话恒 `null`，一个 workspace 一份
+	 *  历史）；与 archi 会话、change chat 的两段 `source_ref`、流程会话的四段
+	 *  `{changeId}/{phase}/{role}/{attempt}` 因 `source` 词不同精确不相撞。
+	 *  blank root → 空页信封（读面语义，不触库）。
+	 */
+	listConfigChatSessions: (root: string, offset: number, limit: number) => __TAURI_INVOKE<SessionPage>("list_config_chat_sessions", { root, offset, limit }),
 	changeFlowStart: (onEvent: Channel<RunNotice>, root: string, id: string, autoNextPhase: boolean) => __TAURI_INVOKE<ChangeRunSummary>("change_flow_start", { onEvent, root, id, autoNextPhase }),
 	changeFlowStop: (root: string, id: string) => __TAURI_INVOKE<null>("change_flow_stop", { root, id }),
 	changeFlowAnswer: (root: string, id: string, answer: string) => __TAURI_INVOKE<null>("change_flow_answer", { root, id, answer }),
@@ -290,6 +299,16 @@ export const commands = {
 	 *  空报告）；配置文件缺失返回 `Ok` 报告（`fileMissing` 诊断在案）。
 	 */
 	workspaceConfig: (root: string) => __TAURI_INVOKE<WorkspaceConfigReport>("workspace_config", { root }),
+	/**
+	 *  配置写回（唯一写命令）：root 检查 → `config::plan_apply_config`（纯函数、零
+	 *  `InvalidValue` 门）→ 命令层原子写 → 重读报告。入参是 **file face**
+	 *  `serde_json::Value`（出线 TS `unknown`）——MUST NOT 收 typed `WorkspaceConfig`
+	 *  （两面不同名，typed 入参等于要求调用方按 camelCase 反向拼装）。
+	 * 
+	 *  双校验不是冗余：propose 侧的校验可能发生在很久以前、可能来自历史会话重放，
+	 *  前端载荷也可伪造——apply 侧 MUST NOT 信任调用方。
+	 */
+	workspaceConfigApply: (root: string, candidate: Value) => __TAURI_INVOKE<WorkspaceConfigReport>("workspace_config_apply", { root, candidate }),
 	/**  应用环境：管理态 `DataRoot` → 线面平移（无 IO、无 `Result` 错误面）。 */
 	appEnvironment: () => __TAURI_INVOKE<AppEnvironment>("app_environment"),
 	/**  画布数据（停摆 / 正常两态）。 */

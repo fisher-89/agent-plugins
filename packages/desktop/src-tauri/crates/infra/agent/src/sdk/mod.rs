@@ -4,6 +4,7 @@ pub(crate) mod bash;
 pub(crate) mod blocks;
 pub(crate) mod compact;
 pub(crate) mod config;
+pub(crate) mod config_propose;
 pub(crate) mod context;
 pub(crate) mod db_tool;
 pub(crate) mod effort;
@@ -36,6 +37,8 @@ mod bash_test;
 mod blocks_test;
 #[cfg(test)]
 mod compact_test;
+#[cfg(test)]
+mod config_propose_test;
 #[cfg(test)]
 mod config_test;
 #[cfg(test)]

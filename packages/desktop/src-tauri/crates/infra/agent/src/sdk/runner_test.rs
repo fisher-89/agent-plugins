@@ -4173,3 +4173,263 @@ fn 畸形会话规则glob不命中不panic() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// 本变更：`mint_config_context`（per-turn 铸造判据与 root 来源）
+//
+// 观测口径：`session_pump` 的铸造点即 `mint_config_context(&open.injections.tools,
+// payload.workspace_root.as_deref())` 的单点调用；本组用例以同两份原料直断铸造产物，
+// root 来源以真实读盘（`ConfigContext::execute` 的只读模式）反向锚定——换 root 即换
+// 盘面内容，root 取错即红。
+// ---------------------------------------------------------------------------
+
+use crate::sdk::config_propose::{ConfigContext, PROPOSE_CONFIG_TOOL};
+use crate::sdk::runner::mint_config_context;
+
+/// 配置会话六名注入底座（与 `compose` 的 config 臂同形）。
+fn config_injections() -> SessionInjections {
+    SessionInjections {
+        preamble: None,
+        tools: Some(
+            ["read", "grep", "glob", "ls", "bash", PROPOSE_CONFIG_TOOL]
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect(),
+        ),
+        finish: None,
+        ask: Some(agent::AskMode::Generic),
+        protect: None,
+    }
+}
+
+/// 落一份盘面配置到根（自动建域目录）。
+fn write_config_file(root: &Path, content: &str) {
+    let path = foundation::layout::config_path(root);
+    std::fs::create_dir_all(path.parent().expect("配置路径应有父目录")).expect("建域目录失败");
+    std::fs::write(path, content).expect("写配置文件失败");
+}
+
+/// 只读模式读到的 `context` 字段（root 来源的观测面）。
+fn context_of(root: &Path) -> serde_json::Value {
+    let context = ConfigContext::new(root.to_path_buf());
+    let text = context
+        .execute(&serde_json::json!({}))
+        .unwrap_or_else(|error| panic!("只读模式应成功: {error}"));
+    let payload: serde_json::Value = serde_json::from_str(&text).expect("输出为 JSON");
+    payload["current"]["context"].clone()
+}
+
+/// 正向：名字含 `propose_config` + `workspace_root = Some(A)` → `Some`，读到的盘面来自 A。
+#[test]
+fn 铸造config上下文按名字包含且读盘来自该root() {
+    let dir = workspace_root("mint-config-present");
+    write_config_file(dir.path(), r#"{"context": "铸造根"}"#);
+    let names: Vec<String> = config_injections().tools.expect("tools 在场");
+
+    let minted = mint_config_context(&names, Some(dir.path())).expect("应铸造上下文");
+
+    assert_eq!(
+        context_of(dir.path()),
+        serde_json::json!("铸造根"),
+        "盘面自该 root 读取"
+    );
+    let text = minted
+        .execute(&serde_json::json!({}))
+        .expect("只读模式应成功");
+    let payload: serde_json::Value = serde_json::from_str(&text).expect("输出为 JSON");
+    assert_eq!(payload["current"]["context"], serde_json::json!("铸造根"));
+}
+
+/// 正向（主仓 root 非 exec root）：`mint_config_context(names, Some(A))` 与
+/// `open.ctx.workspace_root = B` 同场构造 → 读到的盘面来自 A（配置权威在第 1 参，
+/// 不在 exec root）。
+#[test]
+fn 铸造root取主仓而非会话执行根() {
+    let main_repo = workspace_root("mint-config-main");
+    write_config_file(main_repo.path(), r#"{"context": "主仓 A"}"#);
+    let worktree = workspace_root("mint-config-worktree");
+    write_config_file(worktree.path(), r#"{"context": "worktree B"}"#);
+
+    // 会话执行根 = worktree（B）；主仓 root 注入 = A（`payload.workspace_root`）
+    let open = open_with_injections(config_injections(), worktree.path().to_path_buf());
+    assert_eq!(
+        open.ctx.workspace_root,
+        worktree.path(),
+        "前置：会话执行根指向 B"
+    );
+
+    let minted = mint_config_context(
+        open.injections.tools.as_deref().unwrap_or_default(),
+        Some(main_repo.path()),
+    )
+    .expect("应铸造上下文");
+    let text = minted
+        .execute(&serde_json::json!({}))
+        .expect("只读模式应成功");
+    let payload: serde_json::Value = serde_json::from_str(&text).expect("输出为 JSON");
+
+    assert_eq!(
+        payload["current"]["context"],
+        serde_json::json!("主仓 A"),
+        "root MUST 取 payload.workspace_root（主仓），MUST NOT 取 SessionCtx.workspace_root"
+    );
+    assert_ne!(
+        payload["current"]["context"],
+        serde_json::json!("worktree B"),
+        "取到 exec root 的盘面即红"
+    );
+}
+
+/// 边界（矩阵 4 形态）：名字清单不含提案工具 → `None`（空 / 仅七内建 / 仅 archi 名 /
+/// 仅 DB 名）。
+#[test]
+fn 铸造判据按精确名字包含四形态均不铸() {
+    let dir = workspace_root("mint-config-none");
+    let root = dir.path();
+    let seven: Vec<String> = crate::sdk::mount::TOOL_NAMES
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect();
+
+    let cases: Vec<(&str, Vec<String>)> = vec![
+        ("空清单", Vec::new()),
+        ("仅七内建", seven.clone()),
+        (
+            "仅 archi 名",
+            vec![crate::sdk::mount::ARCHI_MODULE_TOOL.to_owned()],
+        ),
+        (
+            "仅 DB 名",
+            vec![crate::sdk::mount::DB_TABLES_TOOL.to_owned()],
+        ),
+    ];
+    for (tag, names) in cases {
+        assert!(
+            mint_config_context(&names, Some(root)).is_none(),
+            "{tag}: 不铸 config 上下文"
+        );
+    }
+}
+
+/// 边界：`workspace_root = None` → `None`（即便名字在场；闸在「主仓 root 在场才铸」）。
+#[test]
+fn 铸造闸在主仓root在场() {
+    let names: Vec<String> = config_injections().tools.expect("tools 在场");
+    assert!(
+        mint_config_context(&names, None).is_none(),
+        "root 缺席 → 不铸（工具调用将以 is_error 回灌）"
+    );
+}
+
+/// 边界（矩阵 3 形态）：root 形态不做有效性校验（空串 / 不存在 / 超长均铸）。
+#[test]
+fn 铸造不做root有效性校验三形态均铸() {
+    let names: Vec<String> = config_injections().tools.expect("tools 在场");
+    let long = "z".repeat(4000);
+    for root in [
+        PathBuf::new(),
+        PathBuf::from("Z:/absent-config-root"),
+        PathBuf::from(long),
+    ] {
+        assert!(
+            mint_config_context(&names, Some(&root)).is_some(),
+            "root 有效性校验归命令层与读盘分支：{root:?} 仍铸造"
+        );
+    }
+}
+
+/// 异常（矩阵 2 形态）：近似名（尾空白 / 驼峰）→ `None`（精确名判据）。
+#[test]
+fn 铸造判据精确名不归一() {
+    let dir = workspace_root("mint-config-alias");
+    for names in [
+        vec!["propose_config ".to_owned()],
+        vec!["ProposeConfig".to_owned()],
+        vec!["propose_configx".to_owned()],
+    ] {
+        assert!(
+            mint_config_context(&names, Some(dir.path())).is_none(),
+            "近似名 {names:?} 不铸造（精确相等判据）"
+        );
+    }
+}
+
+/// 正向（per-turn 装配点，组合）：config 六名注入面 + 主仓 root 注入 + 双根构造
+/// → 模型调 `propose_config({})` 的结果来自主仓 root 的盘面（装配点取
+/// `open.injections.tools` + `payload.workspace_root`，不取 `ctx.workspace_root`）。
+#[tokio::test]
+async fn 泵内装配config上下文取主仓root的盘面() {
+    let provider = ScriptedProvider::new(
+        "pump-config",
+        vec![
+            sse_generic_tool_call("tu_config_pump", PROPOSE_CONFIG_TOOL, serde_json::json!({})),
+            sse_stop("已取盘面"),
+        ],
+    );
+    let main_repo = workspace_root("pump-config-main");
+    write_config_file(main_repo.path(), r#"{"context": "主仓注入"}"#);
+    let worktree = workspace_root("pump-config-worktree");
+    write_config_file(worktree.path(), r#"{"context": "执行根"}"#);
+
+    let runner = SdkRunner::new(provider.config(), None, None, None)
+        .with_workspace_root(main_repo.path().to_path_buf());
+    let open = open_with_injections(config_injections(), worktree.path().to_path_buf());
+    let mut session = runner.open_session(open).expect("open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "取一下配置盘面".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+
+    let events = drain_session_events(&mut session).await;
+    let (content, is_error) =
+        tool_result_of(&events, "tu_config_pump").expect("propose_config 调用有配对结果");
+    assert!(!is_error, "上下文装配到位（非「未装配」错误面）");
+    let payload: serde_json::Value = serde_json::from_str(&content)
+        .unwrap_or_else(|error| panic!("结果应为 JSON: {content}（{error}）"));
+    assert_eq!(
+        payload["current"]["context"],
+        serde_json::json!("主仓注入"),
+        "泵内装配点取 payload.workspace_root（主仓），不取 ctx.workspace_root"
+    );
+}
+
+/// 一段「调任意工具」的流（工具名 + 完整参数单块；`propose_config` 等专用工具用）。
+fn sse_generic_tool_call(
+    tool_call_id: &str,
+    tool_name: &str,
+    arguments: serde_json::Value,
+) -> String {
+    let mut body = String::new();
+    body.push_str(&sse_data(&serde_json::json!({
+        "id": "chatcmpl-tool",
+        "object": "chat.completion.chunk",
+        "choices": [{
+            "index": 0,
+            "delta": {
+                "tool_calls": [{
+                    "index": 0,
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "arguments": arguments.to_string(),
+                    },
+                }],
+            },
+        }],
+    })));
+    body.push_str(&sse_data(&serde_json::json!({
+        "id": "chatcmpl-tool",
+        "object": "chat.completion.chunk",
+        "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+    })));
+    body.push_str(
+        "data: [DONE]
+
+",
+    );
+    body
+}

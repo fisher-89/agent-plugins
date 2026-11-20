@@ -1,14 +1,16 @@
 import { Button } from '@/components/ui/button';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 
 import type { WorkspaceConfigReport } from '../../types/generated/bindings';
 import { BasicConfigSection } from './components/basic-config-section';
+import { ConfigChatPanel } from './components/config-chat-panel';
 import { DiagnosticsSection } from './components/diagnostics-section';
 import { ExtraFieldsSection } from './components/extra-fields-section';
 import { TestsSection } from './components/tests-section';
 import { WriteProtectionSection } from './components/write-protection-section';
 import { useWorkspaceConfig, type WorkspaceConfigState } from './hooks/use-workspace-config';
 
-/** 页头：标题 + 刷新钮（loading 期间 disabled，唯一可交互控件——只读页面） */
+/** 页头：标题 + 刷新钮（loading 期间 disabled；写回的唯一入口在左栏提案卡上） */
 function ConfigHeader({ state }: { state: WorkspaceConfigState }): React.JSX.Element {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -83,10 +85,13 @@ function ConfigStatusFaces({
 }
 
 /**
- * 工作区配置页（仅壳态可达，root 由壳态 props 传入）：页头（标题 + 刷新钮）+
- * 状态面 + 五分区编排（diagnostics 警示区置顶 → 基础配置 → tests → 写入保护 →
- * 未知字段）。取数收在 useWorkspaceConfig（显式刷新模型，无轮询无缓存）；
- * 只读——无任何写回配置文件的入口。
+ * 工作区配置页（仅壳态可达，root 由壳态 props 传入）：左栏常驻 config 会话面板
+ * （骨架自带折叠，缺省收起）+ 右栏页头（标题 + 刷新钮）、状态面与五分区编排
+ * （diagnostics 警示区置顶 → 基础配置 → tests → 写入保护 → 未知字段）。
+ *
+ * 呈现面零编辑控件：写回的唯一入口是左栏提案卡的「应用」（`onApplied` 触发本页
+ * 唯一的取数路径 `useWorkspaceConfig().refresh()`）；取数收在 `useWorkspaceConfig`
+ * （显式刷新模型，无轮询无缓存）。
  */
 export function ConfigView({ root }: { root: string }): React.JSX.Element {
   const state = useWorkspaceConfig(root);
@@ -96,18 +101,26 @@ export function ConfigView({ root }: { root: string }): React.JSX.Element {
   const showSections =
     !state.loading && state.error === null && !fatal && !missing && state.data !== null;
   return (
-    <div className="flex flex-col gap-3" data-testid="config-view">
-      <ConfigHeader state={state} />
-      <ConfigStatusFaces fatal={fatal} missing={missing} state={state} />
-      {showSections && state.data !== null && (
-        <>
-          <DiagnosticsSection diagnostics={state.data.diagnostics} />
-          <BasicConfigSection config={state.data.config} defaultedPaths={defaultedPaths} />
-          <TestsSection defaultedPaths={defaultedPaths} suites={state.data.config.tests} />
-          <WriteProtectionSection protection={state.data.config.writeProtection} />
-          <ExtraFieldsSection extra={state.data.config.extra} />
-        </>
-      )}
+    <div className="flex h-full min-h-0 flex-col gap-2" data-testid="config-view">
+      <ResizablePanelGroup className="min-h-0 flex-1" orientation="horizontal">
+        <ConfigChatPanel root={root} onApplied={state.refresh} />
+        <ResizableHandle withHandle />
+        <ResizablePanel minSize="40">
+          <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto pl-1.5">
+            <ConfigHeader state={state} />
+            <ConfigStatusFaces fatal={fatal} missing={missing} state={state} />
+            {showSections && state.data !== null && (
+              <>
+                <DiagnosticsSection diagnostics={state.data.diagnostics} />
+                <BasicConfigSection config={state.data.config} defaultedPaths={defaultedPaths} />
+                <TestsSection defaultedPaths={defaultedPaths} suites={state.data.config.tests} />
+                <WriteProtectionSection protection={state.data.config.writeProtection} />
+                <ExtraFieldsSection extra={state.data.config.extra} />
+              </>
+            )}
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
 }

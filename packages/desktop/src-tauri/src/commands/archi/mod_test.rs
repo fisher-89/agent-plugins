@@ -1162,7 +1162,8 @@ fn archi_module容器元素零契约() {
 /// `create_dir_all` 仍只属 `archi_set_gate` 的原子写回面。
 #[test]
 fn 命令层零领域规则() {
-    let source = include_str!("mod.rs");
+    // 归一化行尾：判据是源码结构而非检出行尾（CRLF 检出下同一判据不误红）
+    let source = include_str!("mod.rs").replace("\r\n", "\n");
     assert_eq!(
         source.matches("archi::api::artifact_check(").count(),
         1,
@@ -1192,11 +1193,18 @@ fn 命令层零领域规则() {
         source.contains("dto::module_detail"),
         "archi_module 经 dto::module_detail 投影"
     );
-    // 写盘面：`fs::write` / `create_dir_all` 仍只属 `archi_set_gate` 的 `write_atomic`
+    // 写盘面：唯一落盘点已搬移到 `commands::atomic`——本文件零 `fs::write`
     assert_eq!(
-        source.matches("fs::write(&temporary").count(),
+        source.matches("fs::write").count(),
+        0,
+        "命令层零 `fs::write`（写盘单点 = commands::atomic::write_atomic）"
+    );
+    assert_eq!(
+        source
+            .matches("use crate::commands::atomic::write_atomic;")
+            .count(),
         1,
-        "`fs::write` 恰一处（`write_atomic` 的临时文件写入）"
+        "写回经共用原子写单点（搬移后引用恰一处）"
     );
     assert!(
         !source.contains("create_dir_all"),
@@ -1809,7 +1817,8 @@ fn 写失败文案透传不称全或无() {
 /// 渲染单点 + 写盘单点；两新函数体零本地写盘；文件头「八命令」「写命令两条」在位。
 #[test]
 fn 命令层零领域规则与头注释口径() {
-    let source = include_str!("mod.rs");
+    // 归一化行尾：`split_once("\n}\n")` 的收口判据与检出无关
+    let source = include_str!("mod.rs").replace("\r\n", "\n");
     let body_of = |name: &str| -> String {
         source
             .split_once(&format!("pub fn {name}("))

@@ -1,3 +1,9 @@
+/**
+ * 特化工具卡注册表：`BUILD_IN_TOOL_CARDS` 按工具名装配卡片（未注册工具走通用卡）。
+ * 第 8 张卡 `propose_config` 是配置提案卡（五态 + 字段级 diff + 唯一写回入口
+ * 「应用」）；卡组件一律不外露——公共面留白形态归
+ * `App.Frontend.Components.Agent.ToolCards`。
+ */
 import {
   type QuestionnaireChoiceDefinition,
   type QuestionnaireItemDefinition,
@@ -6,6 +12,7 @@ import { FileEditIcon, FileIcon, MessageCircleQuestionIcon, TerminalIcon } from 
 import { type ComponentType, useState } from 'react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   CodeBlock,
@@ -38,9 +45,11 @@ import {
 } from '@/components/ui/trace';
 import { useHighlightedCode } from '@/hooks/use-highlighted-code';
 import type { AgentToolOutput } from '@/lib/agent-adapter';
+import { ipc } from '@/lib/ipc';
 import { asRecord, numberOf, textOf } from '@/lib/parse';
 
 import { FinishStepCard, WebSearchCard } from './blocks';
+import { useConfigApplyActions } from './config-apply-scope';
 
 /** 特化工具卡入参（output 为 null 即尚无结果；渲染 or null 回退由卡自决） */
 interface AgentToolCardProps {
@@ -491,6 +500,274 @@ function EditCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.
   );
 }
 
+/** `propose_config` 载荷的宽容形态（后端单源产出：前端只判「有没有 candidate /
+ * `changes` 是否为空」，不读配置语义、不重算差异） */
+interface ConfigProposeChange {
+  path: string;
+  kind: string;
+}
+
+interface ConfigProposePayload {
+  current: unknown;
+  candidate: unknown;
+  changes: ConfigProposeChange[];
+  summary: string;
+}
+
+/** 载荷解析：非 `is_error` 的 `content` 必须是单条 JSON（不可解析即 `null` → 原文降级） */
+function parseConfigPropose(output: AgentToolOutput | null): ConfigProposePayload | null {
+  if (output === null || output.isError) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output.content);
+  } catch {
+    return null;
+  }
+  const record = asRecord(parsed);
+  if (!Object.hasOwn(record, 'candidate')) return null;
+  const changes = Array.isArray(record.changes)
+    ? record.changes.map((change: unknown) => {
+        const item = asRecord(change);
+        return { path: textOf(item.path) ?? '', kind: textOf(item.kind) ?? 'changed' };
+      })
+    : [];
+  return {
+    current: record.current,
+    candidate: record.candidate ?? null,
+    changes,
+    summary: textOf(record.summary) ?? '',
+  };
+}
+
+/** 差异行（`changed` 拆 removed + added 两行，与 `EditCard` 的双段形态同源） */
+function configDiffLines(changes: readonly ConfigProposeChange[]): Array<{
+  key: string;
+  variant: 'added' | 'removed';
+  text: string;
+}> {
+  return changes.flatMap((change, index) => {
+    if (change.kind === 'changed') {
+      return [
+        { key: `${index}-removed`, variant: 'removed' as const, text: `- ${change.path}` },
+        { key: `${index}-added`, variant: 'added' as const, text: `+ ${change.path}` },
+      ];
+    }
+    const added = change.kind === 'added';
+    return [
+      {
+        key: `${index}`,
+        variant: added ? ('added' as const) : ('removed' as const),
+        text: `${added ? '+' : '-'} ${change.path}`,
+      },
+    ];
+  });
+}
+
+/** 写回会重排键序并格式化——用户在下笔前就知道整份文件会被重写 */
+const CONFIG_NORMALIZE_NOTICE = '写回会规范化文件（未知子键、键序与格式会丢失 / 变化）';
+
+/** JSON 文本 → 逐行渲染（`CodeBlockLine` 只吃行） */
+function jsonLines(value: unknown): string[] {
+  return JSON.stringify(value, null, 2).split(/\n/);
+}
+
+/** 只读模式的盘面块（`candidate === null`：只呈当前配置，无写回入口） */
+function ConfigProposeCurrent({ current }: { current: unknown }): React.JSX.Element {
+  return (
+    <CodeBlock data-testid="config-propose-current">
+      <CodeBlockHeader>当前盘面</CodeBlockHeader>
+      <CodeBlockContent className="max-h-60">
+        {jsonLines(current).map((line, index) => (
+          <CodeBlockLine key={index}>{line}</CodeBlockLine>
+        ))}
+      </CodeBlockContent>
+    </CodeBlock>
+  );
+}
+
+/** 差异块：`changes` 为空即「与当前配置一致」（唯一「无差异」判据，不跨时刻比较） */
+function ConfigProposeDiff({
+  changes,
+}: {
+  changes: readonly ConfigProposeChange[];
+}): React.JSX.Element {
+  if (changes.length === 0) {
+    return (
+      <div className="text-muted-foreground text-[12px]" data-testid="config-propose-unchanged">
+        与当前配置一致
+      </div>
+    );
+  }
+  return (
+    <CodeBlock data-testid="config-propose-diff">
+      <CodeBlockHeader>{`候选变更 ${changes.length} 处`}</CodeBlockHeader>
+      <CodeBlockContent className="max-h-60">
+        {configDiffLines(changes).map((line) => (
+          <CodeBlockLine key={line.key} variant={line.variant}>
+            {line.text}
+          </CodeBlockLine>
+        ))}
+      </CodeBlockContent>
+    </CodeBlock>
+  );
+}
+
+/**
+ * 写回动作条：唯一写回入口（「应用」→ `workspace_config_apply` → 页面重取）。
+ * `actions === null`（不在配置页）时按钮禁用并说明；失败 inline 呈现且保持可重试
+ * （候选不被丢弃）。
+ */
+function ConfigProposeApplyBar({
+  candidate,
+  changesCount,
+}: {
+  candidate: unknown;
+  changesCount: number;
+}): React.JSX.Element {
+  const actions = useConfigApplyActions();
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const [applied, setApplied] = useState(false);
+  const applicable = actions !== null && changesCount > 0;
+
+  const apply = (): void => {
+    if (actions === null) return;
+    setApplying(true);
+    setApplyError(null);
+    ipc
+      .workspaceConfigApply(actions.root, candidate)
+      .then(() => {
+        setApplied(true);
+        actions.onApplied();
+      })
+      .catch((cause: unknown) => {
+        setApplyError(String(cause));
+      })
+      .finally(() => {
+        setApplying(false);
+      });
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        size="xs"
+        disabled={!applicable || applying}
+        data-testid="config-propose-apply"
+        onClick={apply}
+      >
+        {applying ? '应用中…' : '应用'}
+      </Button>
+      {actions === null && (
+        <span className="text-muted-foreground text-[12px]">应用只在配置页可用</span>
+      )}
+      {applied && (
+        <span className="text-muted-foreground text-[12px]" data-testid="config-propose-applied">
+          已应用
+        </span>
+      )}
+      {applyError !== null && (
+        <span
+          className="text-destructive text-[12px] break-all"
+          data-testid="config-propose-apply-error"
+        >
+          {`应用失败：${applyError}`}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** 可应用态的提案体：规范化明示 → 差异 → 写回动作条 */
+function ConfigProposeCandidate({ payload }: { payload: ConfigProposePayload }): React.JSX.Element {
+  return (
+    <>
+      <div className="text-[12px]">{CONFIG_NORMALIZE_NOTICE}</div>
+      <ConfigProposeDiff changes={payload.changes} />
+      <ConfigProposeApplyBar candidate={payload.candidate} changesCount={payload.changes.length} />
+    </>
+  );
+}
+
+/**
+ * 配置提案卡（`propose_config`，注册表第 8 键）：五态（进行中 / 失败 / 可应用 /
+ * 与当前一致 / 只读盘面 / 不可解析原文降级），差异与摘要全取载荷，唯一决策是
+ * 「有没有 candidate、changes 是否为空」。
+ */
+function ConfigProposeCard({
+  toolCallId,
+  output,
+  turnRunning,
+}: AgentToolCardProps): React.JSX.Element {
+  const payload = parseConfigPropose(output);
+  return (
+    <TraceCollapsible
+      {...cardAttrs(toolCallId)}
+      disabled={output === null}
+      defaultOpen={output !== null}
+    >
+      <TraceCollapsibleTrigger>
+        <TraceLine
+          status={
+            output
+              ? output.isError
+                ? 'error'
+                : undefined
+              : unpairedRunning(output, turnRunning)
+                ? 'running'
+                : undefined
+          }
+        >
+          <TraceIcon>
+            {unpairedRunning(output, turnRunning) ? <Spinner /> : <FileEditIcon />}
+          </TraceIcon>
+          <TraceTitle>Config proposal</TraceTitle>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>
+        {output === null && (
+          <div className="text-muted-foreground" data-testid="config-propose-running">
+            正在准备提案…
+          </div>
+        )}
+        {output?.isError === true && (
+          <div
+            className="text-destructive mb-2 whitespace-pre-wrap"
+            data-testid="config-propose-error"
+          >
+            {output.content}
+          </div>
+        )}
+        {output !== null && !output.isError && payload === null && (
+          <pre
+            className="overflow-auto text-[12px] whitespace-pre-wrap"
+            data-testid="config-propose-raw"
+          >
+            {output.content}
+          </pre>
+        )}
+        {payload !== null && (
+          <div className="flex flex-col gap-2">
+            {payload.summary !== '' && (
+              <div
+                className="text-muted-foreground text-[12px]"
+                data-testid="config-propose-summary"
+              >
+                {payload.summary}
+              </div>
+            )}
+            {payload.candidate === null ? (
+              <ConfigProposeCurrent current={payload.current} />
+            ) : (
+              <ConfigProposeCandidate payload={payload} />
+            )}
+          </div>
+        )}
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
+  );
+}
+
 export const BUILD_IN_TOOL_CARDS: Record<string, AgentToolCard> = {
   AskUserQuestion: AskUserQuestionCard,
   finish_step: FinishStepCard,
@@ -499,4 +776,5 @@ export const BUILD_IN_TOOL_CARDS: Record<string, AgentToolCard> = {
   read: ReadCard,
   write: WriteCard,
   edit: EditCard,
+  propose_config: ConfigProposeCard,
 };

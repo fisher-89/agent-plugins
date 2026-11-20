@@ -143,6 +143,11 @@ export const argsSchemas = {
 			"offset": z.int().min(0).max(4294967295),
 			"limit": z.int().min(0).max(4294967295),
 		}); },
+	get "listConfigChatSessions"() { return z.strictObject({
+			"root": z.string(),
+			"offset": z.int().min(0).max(4294967295),
+			"limit": z.int().min(0).max(4294967295),
+		}); },
 	get "changeFlowStart"() { return z.strictObject({
 			"onEvent": degraded("channel: 非 JSON 可表达，跳过值校验"),
 			"root": z.string(),
@@ -242,6 +247,10 @@ export const argsSchemas = {
 	get "workspaceConfig"() { return z.strictObject({
 			"root": z.string(),
 		}); },
+	get "workspaceConfigApply"() { return z.strictObject({
+			"root": z.string(),
+			"candidate": z.unknown(),
+		}); },
 	get "appEnvironment"() { return z.strictObject({
 		}); },
 	get "archiGraph"() { return z.strictObject({
@@ -311,6 +320,7 @@ export const resultSchemas = {
 	get "sessionDetail"() { return z.lazy(() => SessionSummarySchema).nullable(); },
 	get "listChangeChatSessions"() { return z.lazy(() => SessionPageSchema); },
 	get "listArchiChatSessions"() { return z.lazy(() => SessionPageSchema); },
+	get "listConfigChatSessions"() { return z.lazy(() => SessionPageSchema); },
 	get "changeFlowStart"() { return z.lazy(() => ChangeRunSummarySchema); },
 	get "changeFlowStop"() { return z.null(); },
 	get "changeFlowAnswer"() { return z.null(); },
@@ -333,6 +343,7 @@ export const resultSchemas = {
 	get "dbRecords"() { return z.lazy(() => RecordsPageSchema); },
 	get "codeStats"() { return z.lazy(() => CodeStatsReportSchema); },
 	get "workspaceConfig"() { return z.lazy(() => WorkspaceConfigReportSchema); },
+	get "workspaceConfigApply"() { return z.lazy(() => WorkspaceConfigReportSchema); },
 	get "appEnvironment"() { return z.lazy(() => AppEnvironmentSchema); },
 	get "archiGraph"() { return z.lazy(() => ArchiGraphSchema); },
 	get "archiModule"() { return z.lazy(() => ArchiModuleDetailSchema); },
@@ -407,6 +418,8 @@ export const channelArgs = {
 		}; },
 	get "listArchiChatSessions"() { return {
 		}; },
+	get "listConfigChatSessions"() { return {
+		}; },
 	get "changeFlowStart"() { return {
 			get "onEvent"() { return z.lazy(() => RunNoticeSchema); },
 		}; },
@@ -453,6 +466,8 @@ export const channelArgs = {
 	get "codeStats"() { return {
 		}; },
 	get "workspaceConfig"() { return {
+		}; },
+	get "workspaceConfigApply"() { return {
 		}; },
 	get "appEnvironment"() { return {
 		}; },

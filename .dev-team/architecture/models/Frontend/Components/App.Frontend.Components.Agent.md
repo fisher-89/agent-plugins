@@ -2,9 +2,9 @@
 
 ## 职能
 
-agent 会话组件的统一出口：目录入口 `packages/desktop/src/components/agent/index.tsx` 以 6 条
-re-export 透出 7 个名字（3 个组件 + 4 个类型），四个会话消费面（agent 调试页 / 变更右栏 /
-变更流程运行记录 / 探索页）一律经它取组件。
+agent 会话组件的统一出口：目录入口 `packages/desktop/src/components/agent/index.tsx` 以 7 条
+re-export 透出 8 个名字（4 个组件 + 4 个类型），会话消费面（agent 调试页 / 变更右栏 /
+变更流程运行记录 / 探索页 / 配置页常驻面板）一律经它取组件。
 
 **边界**：入口只做透传——零实现、零类型定义、零运行期语句。会话状态机在
 `src/hooks/use-agent-session`（非本元素），消息与工具卡的呈现各归子元素
@@ -17,6 +17,7 @@ re-export 透出 7 个名字（3 个组件 + 4 个类型），四个会话消费
 | `AgentInput` | 组件 | `agent-input.tsx` | 会话输入框与提交交互（含 permission-mode 档位、停止入口） |
 | `AgentSessionView` | 组件 | `agent-session-view.tsx` | 整段会话视图（自持 / 注入双形态） |
 | `SessionPanel` | 组件 | `session-panel.tsx` | 会话面板骨架（头区动作 / 状态行 / 历史清单 / 折叠窄条） |
+| `ConfigApplyScope` | 组件 | `message-cards/config-apply-scope.tsx` | 提案卡的写回动作面 Provider（root + onApplied） |
 | `AskAnswerActions` | 类型 | `agent-messages.tsx` | ask 应答动作面（三态判活的承载类型） |
 | `AgentSessionActions` | 类型 | `agent-session-view.tsx` | composer 插槽的运行态 + 动作面 |
 | `AgentSessionViewProps` | 类型 | `agent-session-view.tsx` | 会话视图入参 |
@@ -32,15 +33,15 @@ re-export 透出 7 个名字（3 个组件 + 4 个类型），四个会话消费
 - **类型出口一律 `export type`**：`isolatedModules` 下 `export { TypeName } from './x'` 在
   转译期被当成值导出，必须与值出口拆成两条语句。
 - **入口 MUST NOT 跨子元素 re-export**：`export … from` 会被 `scan` 记成 import fact，父元素
-  的关系集会多出真边（前端 71 条关系是不变量）；每个元素的公共面只从它自己的入口取。
+  的关系集会多出真边（前端关系集是不变量）；每个元素的公共面只从它自己的入口取。
 - **扩展名 `.tsx` 保留**：入口正文零 JSX，但入口解析链的 ③ 两条候选（`index.ts` /
   `index.tsx`）都认它，改名属独立变更。
 
 ## 契约面留白
 
-入口的 7 个名字分两面留白，成因不同：
+入口的 8 个名字分两面留白，成因不同：
 
-- **3 个组件操作不进 `api-op`**：三者形态都是 `(props: <Props>) => React.JSX.Element`——入参
+- **4 个组件操作不进 `api-op`**：四者形态都是 `(props: <Props>) => React.JSX.Element`——入参
   是具名 props 类型、返回位是 JSX 元素。契约侧 `$ref` 归一为 `?<名>`、代码侧是具名
   `<名>`，两侧短形恒不等（`apiSignatureMismatch` 恒红）；返回位在契约词汇里没有落点。同类
   实测差异见 `App.Frontend.Components.Agent.AgentError` 的留白段。

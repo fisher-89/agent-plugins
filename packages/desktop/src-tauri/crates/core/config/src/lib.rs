@@ -1,4 +1,24 @@
-use std::{fs, path::Path};
+//! 工作区配置文件（仓库根 `.dev-team` 下，路径经 `foundation::layout` 解析）的读取、
+//! 校验与文件面投影。
+//!
+//! 三件事先讲清，后面所有规则都由它们推出：
+//!
+//! 1. **两副面孔**：`WorkspaceConfig` 挂 `#[serde(rename_all = "camelCase")]`，故
+//!    `serde_json::to_value` 产出的是 *wire* 面孔（`staticAnalysis` /
+//!    `writeProtection` / `dependsOn`，且未知字段收在 `extra: [{key,value}]` 包装里）；
+//!    磁盘上的 *file* 面孔是 snake_case 且 `extra` 展开回顶层。两者不同名，
+//!    **落盘只经 `to_file_value`**——直接用 wire 面孔落盘会让写保护规则与项目依赖
+//!    在下次读取时落进 passthrough（静默失效）。
+//! 2. **`null` 位语义**：`Option` 字段在线面序列化为 `null`，而组装层对可选字段位的
+//!    显式 `null` 与键缺失同处置（都是「未设」）——这正是自洽不变量（组装产物回写
+//!    后再组装零诊断）不需要任何特例的原因。
+//! 3. **未知键口径**：顶层未知键无条件 passthrough 进 `extra`（key + 原文值，无诊断）；
+//!    元素（suite / project / 写保护规则）内的未知子键在组装路径上静默丢弃。
+
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use foundation::layout::config_path;
 use serde::Serialize;
@@ -35,8 +55,13 @@ const KNOWN_KEYS: [&str; 8] = [
     "write_protection",
 ];
 
+/// 顶层已知字段集合的只读出口（八键；知识派生段与写入器 P2 锚的唯一持有者）。
+pub fn known_keys() -> &'static [&'static str] {
+    &KNOWN_KEYS
+}
+
 /// 测试框架八值枚举（wire 串逐变体显式 rename 对位，声明序同 wire 序）
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 pub enum TestFramework {
     #[serde(rename = "jest")]
     Jest,
@@ -54,6 +79,34 @@ pub enum TestFramework {
     Go,
     #[serde(rename = "pytest")]
     Pytest,
+}
+
+impl TestFramework {
+    /// 八值枚举清单（与 [`parse_framework`] 双向互证；知识派生段与写入器 P2 锚共用）
+    pub const ALL: &'static [TestFramework; 8] = &[
+        TestFramework::Jest,
+        TestFramework::Vitest,
+        TestFramework::VitePlus,
+        TestFramework::Bun,
+        TestFramework::Rust,
+        TestFramework::NodeTest,
+        TestFramework::Go,
+        TestFramework::Pytest,
+    ];
+
+    /// 值 → 文件面字面量（与 [`parse_framework`] 的 match 逐值对位）
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TestFramework::Jest => "jest",
+            TestFramework::Vitest => "vitest",
+            TestFramework::VitePlus => "vite-plus",
+            TestFramework::Bun => "bun",
+            TestFramework::Rust => "rust",
+            TestFramework::NodeTest => "node-test",
+            TestFramework::Go => "go",
+            TestFramework::Pytest => "pytest",
+        }
+    }
 }
 
 /// 覆盖率阈值（百分点 0–100）：三阈值恒有值——文件显式设值原样保留，
@@ -935,55 +988,241 @@ fn assemble(map: &Map<String, Value>) -> (WorkspaceConfig, Vec<ConfigDiagnostic>
     )
 }
 
+/// 配置文件读取单点（`load` 与 [`load_file_face`] 共用）：文件态四分支——
+/// 缺失 `FileMissing` / 读取失败 `ReadFailed` / 语法非法 `JsonInvalid` / 顶层
+/// 非对象 `InvalidValue`——一律以 `Err(单条诊断)` 收场；成功臂交出顶层对象。
+fn read_document(root: &Path) -> Result<Map<String, Value>, Vec<ConfigDiagnostic>> {
+    let path = config_path(root);
+    match fs::read_to_string(&path) {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Err(vec![ConfigDiagnostic {
+            kind: DiagnosticKind::FileMissing,
+            path: "$".to_owned(),
+            message: "工作区配置文件不存在，呈现全部默认值。".to_owned(),
+        }]),
+        Err(err) => Err(vec![ConfigDiagnostic {
+            kind: DiagnosticKind::ReadFailed,
+            path: "$".to_owned(),
+            message: format!("工作区配置文件读取失败（{err}），呈现全部默认值。"),
+        }]),
+        Ok(text) => match serde_json::from_str::<Value>(&text) {
+            Err(err) => Err(vec![ConfigDiagnostic {
+                kind: DiagnosticKind::JsonInvalid,
+                path: "$".to_owned(),
+                message: format!("工作区配置文件不是合法 JSON（{err}），呈现全部默认值。"),
+            }]),
+            Ok(Value::Object(map)) => Ok(map),
+            Ok(other) => Err(vec![invalid(
+                "$",
+                format!(
+                    "工作区配置顶层必须为对象（原值 {}），呈现全部默认值。",
+                    describe_value(&other)
+                ),
+            )]),
+        },
+    }
+}
+
 /// 配置语义唯一入口：经 `foundation::layout::config_path` 取配置文件路径
 /// → 文件态四分支全走默认值报告（缺失 `FileMissing` / 读取失败 `ReadFailed`
 /// / 语法非法 `JsonInvalid` / 顶层非对象 `InvalidValue`）→ [`assemble`]
 /// 逐字段组装校验。任意输入不失败收场；不校验 root 有效性（命令层职责）。
 pub fn load(root: &Path) -> ConfigReport {
-    let path = config_path(root);
-    let (config, diagnostics) = match fs::read_to_string(&path) {
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (
-            WorkspaceConfig::default(),
-            vec![ConfigDiagnostic {
-                kind: DiagnosticKind::FileMissing,
-                path: "$".to_owned(),
-                message: "工作区配置文件不存在，呈现全部默认值。".to_owned(),
-            }],
-        ),
-        Err(err) => (
-            WorkspaceConfig::default(),
-            vec![ConfigDiagnostic {
-                kind: DiagnosticKind::ReadFailed,
-                path: "$".to_owned(),
-                message: format!("工作区配置文件读取失败（{err}），呈现全部默认值。"),
-            }],
-        ),
-        Ok(text) => match serde_json::from_str::<Value>(&text) {
-            Err(err) => (
-                WorkspaceConfig::default(),
-                vec![ConfigDiagnostic {
-                    kind: DiagnosticKind::JsonInvalid,
-                    path: "$".to_owned(),
-                    message: format!("工作区配置文件不是合法 JSON（{err}），呈现全部默认值。"),
-                }],
-            ),
-            Ok(Value::Object(map)) => assemble(&map),
-            Ok(other) => (
-                WorkspaceConfig::default(),
-                vec![invalid(
-                    "$",
-                    format!(
-                        "工作区配置顶层必须为对象（原值 {}），呈现全部默认值。",
-                        describe_value(&other)
-                    ),
-                )],
-            ),
-        },
+    let (config, diagnostics) = match read_document(root) {
+        Ok(map) => assemble(&map),
+        // 文件态诊断不再过 `assemble`：否则顶层非对象会凭空多出 `schema` /
+        // `tests` 的 `defaultApplied`（行为变化）
+        Err(diagnostics) => (WorkspaceConfig::default(), diagnostics),
     };
     ConfigReport {
         config,
         diagnostics,
     }
+}
+
+/// 对任意 JSON 值跑同一套校验（与 [`load`] 的组装语义同源）：对象走
+/// [`assemble`]，其余落 `InvalidValue($)` + 全默认。
+pub fn validate(value: &Value) -> ConfigReport {
+    match value.as_object() {
+        Some(map) => {
+            let (config, diagnostics) = assemble(map);
+            ConfigReport {
+                config,
+                diagnostics,
+            }
+        }
+        None => ConfigReport {
+            config: WorkspaceConfig::default(),
+            diagnostics: vec![invalid(
+                "$",
+                format!(
+                    "工作区配置顶层必须为对象（原值 {}），呈现全部默认值。",
+                    describe_value(value)
+                ),
+            )],
+        },
+    }
+}
+
+/// 盘面 file face 投影（= `to_file_value(assemble(盘上值).config, 盘上值)`）+ 同一次
+/// 装配的诊断：文件缺失 / 不可读 / 语法错 / 顶层非对象 → `(空对象, 该条诊断)`；
+/// 键冲突（不可达）→ `Err`。
+pub fn load_file_face(root: &Path) -> Result<(Value, Vec<ConfigDiagnostic>), String> {
+    match read_document(root) {
+        Ok(map) => {
+            let (config, diagnostics) = assemble(&map);
+            let projected = to_file_value(&config, &Value::Object(map))?;
+            Ok((projected, diagnostics))
+        }
+        Err(diagnostics) => Ok((Value::Object(Map::new()), diagnostics)),
+    }
+}
+
+/// 递归重命名（`dependsOn` 在 `projects[i]` 内，故须穿透全层级）。
+fn rename_in_place(value: &mut Value, from: &str, to: &str) {
+    match value {
+        Value::Object(map) => {
+            if let Some(inner) = map.remove(from) {
+                map.insert(to.to_owned(), inner);
+            }
+            for child in map.values_mut() {
+                rename_in_place(child, from, to);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                rename_in_place(item, from, to);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// 数值整数化：`fract() == 0.0` 且绝对值不超过 `2^53` 出 `i64`，否则保留浮点
+/// （否则用户写的 `90` 会变 `90.0`）。
+fn integerize(value: &mut Value) {
+    match value {
+        Value::Number(number) => {
+            let Some(float) = number.as_f64() else {
+                return;
+            };
+            if float.fract() == 0.0 && float.abs() <= 9_007_199_254_740_992.0 {
+                *value = Value::from(float as i64);
+            }
+        }
+        Value::Object(map) => {
+            for child in map.values_mut() {
+                integerize(child);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                integerize(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `extra: [{key, value}]` 展开回顶层：键冲突显式 `Err`（`Map::insert` 会静默
+/// 覆盖，那意味着写保护规则或依赖边凭空消失）；`null` 值条目照插。
+fn expand_extra(value: &mut Value) -> Result<(), String> {
+    let Value::Object(map) = value else {
+        return Ok(());
+    };
+    let Some(Value::Array(entries)) = map.remove("extra") else {
+        return Ok(());
+    };
+    for entry in entries {
+        let Some(object) = entry.as_object() else {
+            continue;
+        };
+        let Some(key) = object.get("key").and_then(Value::as_str) else {
+            continue;
+        };
+        let entry_value = object.get("value").cloned().unwrap_or(Value::Null);
+        if map.contains_key(key) {
+            return Err(format!("extra 键与已知字段冲突：{key}"));
+        }
+        map.insert(key.to_owned(), entry_value);
+    }
+    Ok(())
+}
+
+/// 模板裁剪：对象只保留 `template` 出现过的键（值递归）；数组按下标配对
+/// （`template[i]` 缺席则整值保留）；其余取规范化侧。只裁顶层会让最小候选写出
+/// 整套默认字段，等于变相「写全」——故必须逐层递归。
+fn trim(normalized: Value, template: &Value) -> Value {
+    match (normalized, template) {
+        (Value::Object(map), Value::Object(template_map)) => Value::Object(
+            map.into_iter()
+                .filter_map(|(key, value)| {
+                    template_map
+                        .get(&key)
+                        .map(|template_value| (key, trim(value, template_value)))
+                })
+                .collect(),
+        ),
+        (Value::Array(items), Value::Array(template_items)) => Value::Array(
+            items
+                .into_iter()
+                .enumerate()
+                .map(|(index, item)| match template_items.get(index) {
+                    Some(template_item) => trim(item, template_item),
+                    None => item,
+                })
+                .collect(),
+        ),
+        (normalized, _) => normalized,
+    }
+}
+
+/// 模板驱动的 file face 投影（**落盘与提案输出的唯一投影口**）：结构变换而非手拼
+/// 字段名清单——`to_value` → 三处递归重命名 → 数值整数化 → `extra` 展开 →
+/// 模板裁剪。顺序固定：整数化先于 `extra` 展开，使 `extra` 的原文值不被二次加工
+/// （passthrough 保真优先于规整）。
+pub fn to_file_value(config: &WorkspaceConfig, template: &Value) -> Result<Value, String> {
+    let mut value = serde_json::to_value(config).map_err(|e| format!("配置序列化失败：{e}"))?;
+    rename_in_place(&mut value, "staticAnalysis", "static_analysis");
+    rename_in_place(&mut value, "writeProtection", "write_protection");
+    rename_in_place(&mut value, "dependsOn", "depends_on");
+    integerize(&mut value);
+    expand_extra(&mut value)?;
+    Ok(trim(value, template))
+}
+
+/// 写面规划产物（写面内部数据：不出线、不落库）。
+#[derive(Debug, Clone)]
+pub struct ConfigWrite {
+    /// 目标文件绝对路径（`foundation::layout::config_path`）
+    pub file: PathBuf,
+    /// 已规范化字节（pretty + 尾换行）
+    pub content: String,
+}
+
+/// 纯函数写面规划（零 IO）：零 `InvalidValue` 门 → file face 投影 → pretty +
+/// 尾换行。`defaultApplied` 是正常形态，不拦写回。
+pub fn plan_apply_config(root: &Path, candidate: &Value) -> Result<ConfigWrite, String> {
+    let report = validate(candidate);
+    let violations: Vec<&ConfigDiagnostic> = report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::InvalidValue))
+        .collect();
+    if !violations.is_empty() {
+        let mut message = violations
+            .iter()
+            .map(|diagnostic| format!("{}: {}", diagnostic.path, diagnostic.message))
+            .collect::<Vec<String>>()
+            .join("\n");
+        message.push_str("\n请修正后重新提交完整候选（一次全量，不接受片段）。");
+        return Err(message);
+    }
+    let value = to_file_value(&report.config, candidate)?;
+    let json = serde_json::to_string_pretty(&value).map_err(|e| format!("配置序列化失败：{e}"))?;
+    Ok(ConfigWrite {
+        file: config_path(root),
+        content: format!("{json}\n"),
+    })
 }
 
 #[cfg(test)]

@@ -425,6 +425,7 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
             archi: None,
             db: None,
             ask: None,
+            config: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
             effort_params: turn.effort_params.clone(),
@@ -473,6 +474,7 @@ async fn drive_loop_collecting_history(
             archi: None,
             db: None,
             ask: None,
+            config: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
             effort_params: turn.effort_params.clone(),
@@ -569,6 +571,7 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
         archi: None,
         db: None,
         ask: None,
+        config: None,
         protect: crate::sdk::protect::ProtectRules::load(None),
         web_search: false,
         effort_params: None,
@@ -1752,6 +1755,7 @@ fn loop_turn字段面完整构造锚定() {
         archi: None,
         db: None,
         ask: None,
+        config: None,
         protect: crate::sdk::protect::ProtectRules::load(None),
         web_search: false,
         effort_params: None,
@@ -7012,6 +7016,7 @@ async fn drive_loop_with_steers_and_history(
             archi: None,
             db: None,
             ask: None,
+            config: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
             effort_params: turn.effort_params.clone(),
@@ -7052,6 +7057,7 @@ async fn drive_loop_with_steers_and_handle(
             archi: None,
             db: None,
             ask: None,
+            config: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
             effort_params: turn.effort_params.clone(),
@@ -8989,5 +8995,305 @@ async fn 被拒的模型写入不置位t1() {
             ))
             .exists(),
         "写入被保护闸拦下（文件未落盘）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`ToolExec::Config` 分派臂（`LoopTurn.config` 上下文）
+//
+// 装置复用：`FakeModel` + `drive_loop_turn` + `tool_results_of` / `notices_of` /
+// `turn_done_of`；盘面取真实 tempdir + 真实 `ConfigContext::new`（上下文缺席形态
+// 以 `None` 直构），不 mock 执行体。
+// ---------------------------------------------------------------------------
+
+use crate::sdk::config_propose::{ConfigContext, PROPOSE_CONFIG_TOOL};
+
+/// 配置来源注入底座（六名清单，与 compose 的 config 臂同形）。
+fn config_injections() -> agent::SessionInjections {
+    agent::SessionInjections {
+        preamble: None,
+        tools: Some(
+            ["read", "grep", "glob", "ls", "bash", PROPOSE_CONFIG_TOOL]
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect(),
+        ),
+        finish: None,
+        ask: None,
+        protect: None,
+    }
+}
+
+/// 配置盘面 fixture：root 下落一份有差异空间的配置。
+fn config_fixture(tag: &str) -> tempfile::TempDir {
+    let dir = tempdir(tag);
+    write_workspace_config(dir.path(), serde_json::json!({"context": "盘面上下文"}));
+    dir
+}
+
+/// 正向：`config = Some` + 模型调 `propose_config({})` → 恰一条 tool_result、
+/// 非错误、内容为合法 JSON 四键。
+#[tokio::test]
+async fn config分派到执行体且只读模式输出四键() {
+    let dir = config_fixture("config-dispatch-read");
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_config",
+            PROPOSE_CONFIG_TOOL,
+            serde_json::json!({}),
+        )],
+        vec![raw_text("已取盘面")],
+    ]);
+    let turn = LoopTurn {
+        injections: config_injections(),
+        config: Some(ConfigContext::new(dir.path().to_path_buf())),
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    assert!(notices_of(&events).is_empty(), "只读面零拒绝记因");
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 1, "恰一条工具结果");
+    assert_eq!(results[0].0, "tu_config", "同 id 回灌");
+    assert!(!results[0].2, "执行体承接（非 error）");
+    let payload: serde_json::Value = serde_json::from_str(results[0].1).expect("内容为合法 JSON");
+    let mut keys: Vec<&str> = payload
+        .as_object()
+        .expect("输出恒对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(keys, vec!["candidate", "changes", "current", "summary"]);
+    assert_eq!(payload["candidate"], serde_json::Value::Null, "只读模式");
+    assert_eq!(
+        payload["current"]["context"],
+        serde_json::json!("盘面上下文")
+    );
+}
+
+/// 正向：校验模式一条 → 结果非 error、`candidate` 非 null、`changes` 非空
+///（执行体承接，loop 零二次加工）。
+#[tokio::test]
+async fn config分派校验模式结果不被loop二次加工() {
+    let dir = config_fixture("config-dispatch-validate");
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_config_validate",
+            PROPOSE_CONFIG_TOOL,
+            serde_json::json!({"candidate": {"context": "新上下文"}}),
+        )],
+        vec![raw_text("已校验")],
+    ]);
+    let turn = LoopTurn {
+        injections: config_injections(),
+        config: Some(ConfigContext::new(dir.path().to_path_buf())),
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 1);
+    assert!(!results[0].2, "校验成功非 error");
+    let payload: serde_json::Value = serde_json::from_str(results[0].1).expect("内容为 JSON");
+    assert_ne!(
+        payload["candidate"],
+        serde_json::Value::Null,
+        "校验模式候选非 null"
+    );
+    assert!(
+        payload["changes"]
+            .as_array()
+            .is_some_and(|changes| !changes.is_empty()),
+        "上下文差异非空，实际 {}",
+        payload["changes"]
+    );
+}
+
+/// 边界（矩阵 3 档）：三档 permission mode 逐档 → 零 permission_denied、零
+/// sandbox_denied、结果非 error（Read 档 + 无路径参数双证）。
+#[tokio::test]
+async fn config三档权限逐档放行() {
+    for mode in [
+        AgentPermissionMode::Default,
+        AgentPermissionMode::AcceptEdits,
+        AgentPermissionMode::BypassPermissions,
+    ] {
+        let dir = config_fixture("config-permission");
+        let model = FakeModel::with_turns(vec![
+            vec![raw_tool_call(
+                "tu_config_perm",
+                PROPOSE_CONFIG_TOOL,
+                serde_json::json!({}),
+            )],
+            vec![raw_text("继续")],
+        ]);
+        let turn = LoopTurn {
+            injections: config_injections(),
+            config: Some(ConfigContext::new(dir.path().to_path_buf())),
+            ..loop_turn(dir.path(), mode)
+        };
+
+        let events = drive_loop_turn(&model, turn).await;
+
+        let subtypes: Vec<&str> = notices_of(&events).iter().map(|(s, _)| *s).collect();
+        assert!(
+            !subtypes.contains(&"permission_denied"),
+            "{mode:?}: 零权限拒绝"
+        );
+        assert!(
+            !subtypes.contains(&"sandbox_denied"),
+            "{mode:?}: 零沙箱拒绝"
+        );
+        let results = tool_results_of(&events);
+        assert_eq!(results.len(), 1, "{mode:?}: 恰一条结果");
+        assert!(!results[0].2, "{mode:?}: 执行体承接");
+    }
+}
+
+/// 边界：候选含顶层未知键 `path` → 沙箱不改写、不拒绝（与 `tools_test` /
+/// `config_propose_test` 三面同证）。
+#[tokio::test]
+async fn config候选内path键不被沙箱改写() {
+    let dir = config_fixture("config-sandbox");
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_config_path",
+            PROPOSE_CONFIG_TOOL,
+            serde_json::json!({"candidate": {"path": "../escape/a.ts"}}),
+        )],
+        vec![raw_text("继续")],
+    ]);
+    let turn = LoopTurn {
+        injections: config_injections(),
+        config: Some(ConfigContext::new(dir.path().to_path_buf())),
+        ..loop_turn(dir.path(), AgentPermissionMode::Default)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let subtypes: Vec<&str> = notices_of(&events).iter().map(|(s, _)| *s).collect();
+    assert!(
+        !subtypes.contains(&"sandbox_denied"),
+        "候选内的 path 不入沙箱"
+    );
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 1);
+    assert!(!results[0].2, "沙箱零拦截");
+    let payload: serde_json::Value = serde_json::from_str(results[0].1).expect("内容为 JSON");
+    assert_eq!(
+        payload["candidate"]["path"],
+        serde_json::json!("../escape/a.ts"),
+        "数据键原文保留（零改写）"
+    );
+}
+
+/// 异常：`config = None` + 名单含提案工具 → `is_error == true`、内容逐字「专用工具
+/// 执行上下文未装配」、同 id 回灌；run 不中断（续轮照常收口）。
+#[tokio::test]
+async fn config上下文缺席以is_error回灌且run不中断() {
+    let dir = config_fixture("config-missing-context");
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_config_none",
+            PROPOSE_CONFIG_TOOL,
+            serde_json::json!({}),
+        )],
+        vec![raw_text("收到失败，继续")],
+    ]);
+    let turn = LoopTurn {
+        injections: config_injections(),
+        config: None,
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 1, "恰一条结果");
+    assert_eq!(results[0].0, "tu_config_none", "同 id 回灌");
+    assert!(results[0].2, "上下文缺席必须 is_error");
+    assert_eq!(results[0].1, "专用工具执行上下文未装配", "文案逐字");
+    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+        panic!("应为 TurnDone");
+    };
+    assert!(!*is_error, "run 不中断（续轮照常收口）");
+}
+
+/// 异常：执行体 `Err`（脏候选）→ `is_error == true`、内容为诊断原文、零
+/// `SystemNotice`、run 不中断。
+#[tokio::test]
+async fn config执行体err以诊断原文回灌零notice() {
+    let dir = config_fixture("config-exec-error");
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_config_dirty",
+            PROPOSE_CONFIG_TOOL,
+            serde_json::json!({"candidate": {"tests": [{"root": "pkg", "framework": "jest2"}]}}),
+        )],
+        vec![raw_text("按诊断修正")],
+    ]);
+    let turn = LoopTurn {
+        injections: config_injections(),
+        config: Some(ConfigContext::new(dir.path().to_path_buf())),
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    assert!(notices_of(&events).is_empty(), "执行体失败零 SystemNotice");
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 1);
+    assert!(results[0].2, "脏候选必须 is_error");
+    assert!(
+        results[0].1.contains("重新提交完整候选"),
+        "内容为诊断原文（含修正指引），实际 {}",
+        results[0].1
+    );
+    assert!(
+        results[0].1.contains("tests[0].framework"),
+        "逐条 path 在案，实际 {}",
+        results[0].1
+    );
+}
+
+/// 边界：上下文缺席且工具名不在名字清单 → 落成员校验拒绝（既有面），不进 Config 臂。
+#[tokio::test]
+async fn config工具名不在清单落成员校验拒绝() {
+    let dir = config_fixture("config-not-listed");
+    let mut names: Vec<String> = TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
+    names.push(DB_TABLES_TOOL.to_owned());
+    names.push(DB_QUERY_TOOL.to_owned());
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_config_unlisted",
+            PROPOSE_CONFIG_TOOL,
+            serde_json::json!({}),
+        )],
+        vec![raw_text("继续")],
+    ]);
+    let turn = LoopTurn {
+        injections: agent::SessionInjections {
+            preamble: None,
+            tools: Some(names),
+            finish: None,
+            ask: None,
+            protect: None,
+        },
+        config: None,
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 1);
+    assert!(results[0].2, "矩阵外工具 is_error");
+    assert_eq!(
+        results[0].1,
+        format!("工具不在本轮下发面: {PROPOSE_CONFIG_TOOL}"),
+        "落既有成员校验拒绝文案（不进 Config 臂的「未装配」分支）"
     );
 }

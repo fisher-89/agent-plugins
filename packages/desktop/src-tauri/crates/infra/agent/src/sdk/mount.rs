@@ -61,12 +61,16 @@ pub(crate) const ARCHI_DRIFT_TOOL: &str = "archi_drift";
 /// `edit`，故本工具不在「专用写工具」之列。
 pub(crate) const ARCHI_SCAFFOLD_TOOL: &str = "archi_scaffold";
 
+/// `propose_config` 专用工具名（config 会话唯一提案出口）：常量本体驻执行体模块
+/// [`crate::sdk::config_propose`]，本清单再导出供装配臂 / 沙箱白名单引用。
+pub(crate) use crate::sdk::config_propose::PROPOSE_CONFIG_TOOL;
+
 /// 挂载项的准入档：`Protocol` 与 `Read` 三档恒放行，`Write` / `Execute` 需非
 /// Default 档（与改造前三张按名常量表逐格等价）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolTier {
     /// 只读面（read / grep / glob / ls / archi_module / archi_search / archi_api /
-    /// archi_drift / archi_scaffold）
+    /// archi_drift / archi_scaffold / propose_config）
     Read,
     /// 写面（write / edit / create_explore_note）
     Write,
@@ -88,6 +92,8 @@ pub(crate) enum ToolExec {
     /// 两个 DB 只读工具：`LoopTurn.db` 上下文（两工具共用一个执行体，工具名
     /// 由 loop 侧传入——与 `Archi` 同形）
     Db,
+    /// `propose_config`：`LoopTurn.config` 上下文
+    Config,
     /// 收口工具：编排侧校验 + 本步收口（`orchestration::finish`）
     FinishStep(agent::FinishSpec),
     /// ask 工具：一个变体带档位（schema 单源，仅执行体行为不同）
@@ -107,18 +113,19 @@ pub(crate) struct ToolMount {
 /// 构造）。
 static REGISTRY: OnceLock<Vec<ToolMount>> = OnceLock::new();
 
-/// 十五项静态挂载清单（唯一工具事实源）。**前七项仍是七内建**——`tools: None`
+/// 十六项静态挂载清单（唯一工具事实源）。**前七项仍是七内建**——`tools: None`
 /// 的语义载体（[`definitions`] 直接取前七项）。
 pub(crate) fn registry() -> &'static [ToolMount] {
     REGISTRY.get_or_init(build_registry)
 }
 
-/// 十五个字面构造项按序：七内建（Read ×4 / Write ×2 / Execute ×1 + `Pure`）→
+/// 十六个字面构造项按序：七内建（Read ×4 / Write ×2 / Execute ×1 + `Pure`）→
 /// `create_explore_note`（Write / `ExploreNote`）→ 五 archi 只读（Read / `Archi`）
 /// → 两 DB 只读（Read / `Db`，定义见 [`db_tables_definition`] /
-/// [`db_query_definition`]）。
+/// [`db_query_definition`]）→ `propose_config`（Read / `Config`，定义见
+/// [`crate::sdk::config_propose::definition`]）。
 fn build_registry() -> Vec<ToolMount> {
-    let mut mounts: Vec<ToolMount> = Vec::with_capacity(15);
+    let mut mounts: Vec<ToolMount> = Vec::with_capacity(16);
     for name in TOOL_NAMES {
         mounts.push(ToolMount {
             definition: generic_definition(name),
@@ -169,6 +176,11 @@ fn build_registry() -> Vec<ToolMount> {
         definition: db_query_definition(),
         tier: ToolTier::Read,
         exec: ToolExec::Db,
+    });
+    mounts.push(ToolMount {
+        definition: crate::sdk::config_propose::definition(),
+        tier: ToolTier::Read,
+        exec: ToolExec::Config,
     });
     mounts
 }

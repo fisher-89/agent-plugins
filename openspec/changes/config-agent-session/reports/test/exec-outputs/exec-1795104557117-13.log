@@ -1,0 +1,29 @@
+npm warn EBADDEVENGINES The developer of this package has specified the following through devEngines
+npm warn EBADDEVENGINES Invalid devEngines.packageManager
+npm warn EBADDEVENGINES Invalid name "pnpm" does not match "npm" for "packageManager"
+npm warn EBADDEVENGINES {
+npm warn EBADDEVENGINES   current: { name: 'npm', version: '11.20.0' },
+npm warn EBADDEVENGINES   required: { name: 'pnpm', onFail: 'warn' }
+npm warn EBADDEVENGINES }
+[32m00:09:29 (10312) INFO ProjectReader[39m Found 6 of 47500 file(s) to be mutated.
+[32m00:09:29 (10312) INFO Instrumenter[39m Instrumented 6 source file(s) with 607 mutant(s)
+[32m00:09:31 (10312) INFO ConcurrencyTokenProvider[39m Creating 8 test runner process(es).
+[32m00:10:03 (10312) INFO DryRunExecutor[39m Starting initial test run (vitest test runner with "perTest" coverage analysis). This may take a while.
+[91m00:11:06 (10312) ERROR DryRunExecutor[39m One or more tests failed in the initial test run:
+	useConfigChat：分页可用性与发送纪律 发送纪律结构锚：源码零 `commands.` 直调（一律经 ipc）
+		expected '/**\n * 配置页常驻 Agent 面板的状态与判据单源（`deskt…' to contain 'const CONFIG_CHAT_SOURCE = \'config\''
+[91m00:11:06 (10312) ERROR Stryker[39m There were failed tests in the initial test run.
+file:///D:/Projects/.worktrees/wps-claude-plugin/config-agent-session/packages/desktop/node_modules/@stryker-mutator/core/dist/src/process/3-dry-run-executor.js:65
+                    throw new ConfigError('There were failed tests in the initial test run.');
+                          ^
+
+ConfigError: There were failed tests in the initial test run.
+    at DryRunExecutor.validateResultCompleted (file:///D:/Projects/.worktrees/wps-claude-plugin/config-agent-session/packages/desktop/node_modules/@stryker-mutator/core/dist/src/process/3-dry-run-executor.js:65:27)
+    at DryRunExecutor.executeDryRun (file:///D:/Projects/.worktrees/wps-claude-plugin/config-agent-session/packages/desktop/node_modules/@stryker-mutator/core/dist/src/process/3-dry-run-executor.js:100:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async WorkItem.execute (file:///D:/Projects/.worktrees/wps-claude-plugin/config-agent-session/packages/desktop/node_modules/@stryker-mutator/core/dist/src/concurrent/pool.js:32:28)
+    at async file:///D:/Projects/.worktrees/wps-claude-plugin/config-agent-session/packages/desktop/node_modules/@stryker-mutator/core/dist/src/concurrent/pool.js:69:13 {
+  innerError: undefined
+}
+
+Node.js v26.13.1

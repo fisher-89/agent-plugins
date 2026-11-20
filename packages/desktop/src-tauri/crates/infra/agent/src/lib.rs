@@ -1,5 +1,6 @@
 mod archi_knowledge;
 mod compose;
+mod config_knowledge;
 mod model_catalog;
 mod sdk;
 mod store_port;
@@ -286,6 +287,9 @@ mod model_catalog_test;
 
 #[cfg(test)]
 mod archi_knowledge_test;
+
+#[cfg(test)]
+mod config_knowledge_test;
 
 #[cfg(test)]
 #[path = "ask_scripted_provider.rs"]

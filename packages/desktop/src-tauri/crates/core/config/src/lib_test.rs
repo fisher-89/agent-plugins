@@ -20,7 +20,8 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Map, Value};
 
 use super::{
-    assemble, load, parse_framework, ConfigReport, DiagnosticKind, TestFramework, TestSuite,
+    assemble, known_keys, load, load_file_face, parse_framework, plan_apply_config, to_file_value,
+    validate, ConfigExtraField, ConfigReport, DiagnosticKind, TestFramework, TestSuite,
     WorkspaceConfig, KNOWN_KEYS,
 };
 use foundation::layout::config_path;
@@ -2944,6 +2945,914 @@ fn wire_name八变体逐串对位且连字符形态保留() {
             wire_name(framework),
             *wire,
             "变体 wire 串对位失配（连字符形态 MUST NOT 归一为下划线或驼峰）"
+        );
+    }
+}
+
+// ===========================================================================
+// 本变更：`known_keys` / `TestFramework::ALL` / `as_str`
+// ===========================================================================
+
+/// `known_keys()` 的声明序（本变更契约字面量：顺序即输出序）。
+const KNOWN_KEYS_DECLARED: [&str; 8] = [
+    "$schema",
+    "schema",
+    "context",
+    "rules",
+    "static_analysis",
+    "projects",
+    "tests",
+    "write_protection",
+];
+
+/// 键集对位断言体（入参化：正向喂入仓镜像，异常行喂内存副本）——差异时优先
+/// 指认两侧独有键，零静默通过。
+fn keys_match(mirror_value: &Value) -> Result<(), String> {
+    let Some(Value::Object(properties)) = mirror_value.get("properties") else {
+        return Err("镜像缺 `properties`".to_owned());
+    };
+    let mut mirror_keys: Vec<&str> = properties.keys().map(String::as_str).collect();
+    mirror_keys.sort_unstable();
+    let mut impl_keys: Vec<&str> = known_keys().to_vec();
+    impl_keys.sort_unstable();
+    if impl_keys == mirror_keys {
+        return Ok(());
+    }
+    let only_impl: Vec<&str> = impl_keys
+        .iter()
+        .copied()
+        .filter(|key| !mirror_keys.contains(key))
+        .collect();
+    let only_mirror: Vec<&str> = mirror_keys
+        .iter()
+        .copied()
+        .filter(|key| !impl_keys.contains(key))
+        .collect();
+    Err(format!(
+        "键集漂移：仅实现有 {only_impl:?}；仅 schema 有 {only_mirror:?}"
+    ))
+}
+
+/// 排序后的对象键集（键面断言的无序对照载体）。
+fn sorted_keys(value: &Value) -> Vec<String> {
+    let mut keys: Vec<String> = value
+        .as_object()
+        .expect("被测值恒为对象")
+        .keys()
+        .cloned()
+        .collect();
+    keys.sort();
+    keys
+}
+
+/// 键名零大写字母（P1 锚；`extra` 已展开回顶层，故无需例外分支）。
+fn assert_no_uppercase_key(value: &Value, context: &str) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map {
+                assert!(
+                    !key.chars().any(char::is_uppercase),
+                    "{context}: 键名 {key} 含大写字母（file face 必须 snake_case）"
+                );
+                assert_no_uppercase_key(child, context);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                assert_no_uppercase_key(item, context);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn known_keys返回八键且声明序逐值对位() {
+    assert_eq!(known_keys().len(), 8, "顶层已知键封闭八项");
+    assert_eq!(known_keys(), KNOWN_KEYS_DECLARED, "声明序即输出序");
+    assert_eq!(known_keys(), KNOWN_KEYS, "只读出口与常量同源");
+}
+
+#[test]
+fn known_keys键集与入仓镜像properties相等() {
+    assert_eq!(keys_match(&mirror()), Ok(()), "八键与契约镜像键集对位");
+}
+
+#[test]
+fn known_keys跨两次调用指针同一() {
+    let first = known_keys();
+    let second = known_keys();
+    assert!(
+        std::ptr::eq(first, second),
+        "返回值是 `&'static` 常量切片的同一份内存（无二次构造）"
+    );
+}
+
+#[test]
+fn known_keys镜像副本删一键_比对失败且文案指认缺键() {
+    let mut broken = mirror_copy();
+    properties_mut(&mut broken)
+        .remove("tests")
+        .expect("入仓镜像含 `tests`");
+    let message = keys_match(&broken).expect_err("删键后键集必不相等");
+    assert!(
+        message.contains("tests"),
+        "文案应指认缺键（仅实现有 tests），实际 {message}"
+    );
+}
+
+#[test]
+fn framework枚举清单八值逐值_as_str与serde线面逐字相同() {
+    assert_eq!(TestFramework::ALL.len(), 8, "八值封闭");
+    for framework in TestFramework::ALL {
+        let wire = match serde_json::to_value(framework).expect("framework 序列化失败") {
+            Value::String(text) => text,
+            other => panic!("framework 线面应为字符串，实际 {other}"),
+        };
+        assert_eq!(
+            framework.as_str(),
+            wire,
+            "`as_str` 与 `#[serde(rename)]` 逐字对拍"
+        );
+    }
+}
+
+#[test]
+fn framework枚举清单八值双向互证_parse往返闭合() {
+    for framework in TestFramework::ALL {
+        assert_eq!(
+            parse_framework(framework.as_str()),
+            Some(framework.clone()),
+            "{} 的 as_str 应能解回同一变体",
+            framework.as_str()
+        );
+    }
+}
+
+#[test]
+fn framework枚举清单长度去重与声明序_且为静态切片() {
+    let mut wires: Vec<&str> = TestFramework::ALL.iter().map(|f| f.as_str()).collect();
+    assert_eq!(wires.len(), 8, "长度恰八");
+    let declared = wires.clone();
+    wires.sort_unstable();
+    wires.dedup();
+    assert_eq!(wires.len(), 8, "八值互异");
+    assert_eq!(
+        declared,
+        vec![
+            "jest",
+            "vitest",
+            "vite-plus",
+            "bun",
+            "rust",
+            "node-test",
+            "go",
+            "pytest",
+        ],
+        "声明序即 wire 序（as_str 逐值对位）"
+    );
+    assert!(
+        std::ptr::eq(TestFramework::ALL, TestFramework::ALL),
+        "`ALL` 为 `&'static` 切片（零 clone 访问）"
+    );
+}
+
+#[test]
+fn parse_framework八形态全miss_大小写分隔符空白与emoji都不归一() {
+    let long_text = "r".repeat(1200);
+    let special = "je\nst\0\u{1F600}";
+    for illegal in [
+        "",
+        "Jest",
+        "vite_plus",
+        "node_test",
+        " rust",
+        "rust ",
+        "🙂",
+        long_text.as_str(),
+        special,
+    ] {
+        assert_eq!(
+            parse_framework(illegal),
+            None,
+            "枚举外字面量 {illegal:?} 必须 miss（零归一化）"
+        );
+    }
+}
+
+// ===========================================================================
+// 本变更：`validate`（任意 JSON 值 → 同一套组装校验）
+// ===========================================================================
+
+#[test]
+fn validate合法满配对象_逐字段相等且零诊断() {
+    let candidate = full_file_face();
+    let report = validate(&candidate);
+    assert!(report.diagnostics.is_empty(), "满配合法候选应零诊断");
+    assert_eq!(
+        value_of(&report.config),
+        value_of(&config_of_file_face(&candidate)),
+        "与 `assemble` 同源（无第二套校验）"
+    );
+    assert_eq!(report.config.tests.len(), 2, "两条 suite 全保留");
+    assert_eq!(report.config.projects.len(), 2, "两条项目全保留");
+}
+
+#[test]
+fn validate与load同源_同一份字节两入口线面值逐字段相等() {
+    let ws = TempWs::new("validate-load-parity");
+    ws.ensure_dir();
+    let text = serde_json::to_string_pretty(&full_file_face()).expect("fixture 序列化失败");
+    ws.write_config(&text);
+
+    let via_load = load(ws.root());
+    let via_validate = validate(&serde_json::from_str::<Value>(&text).expect("fixture 可解析"));
+
+    assert_eq!(
+        value_of(&via_load.config),
+        value_of(&via_validate.config),
+        "两入口的 config 线面值逐字段相等（零分叉）"
+    );
+    assert_eq!(
+        via_load.diagnostics.len(),
+        via_validate.diagnostics.len(),
+        "诊断条数一致"
+    );
+}
+
+#[test]
+fn validate顶层非对象四形态_恰一条invalid_path为根且全默认() {
+    for (tag, candidate) in [
+        ("null", json!(null)),
+        ("array", json!([1, 2])),
+        ("string", json!("spec-driven")),
+        ("number", json!(1)),
+    ] {
+        let report = validate(&candidate);
+        assert_default_config(&report.config);
+        assert_eq!(report.diagnostics.len(), 1, "{tag}: 恰一条诊断");
+        assert!(
+            has_diag(&report, &DiagnosticKind::InvalidValue, "$"),
+            "{tag}: InvalidValue path $"
+        );
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|d| kind_rank(&d.kind) == kind_rank(&DiagnosticKind::DefaultApplied)),
+            "{tag}: 不产生 defaultApplied 噪声（与 load 非对象分支同口径）"
+        );
+    }
+}
+
+#[test]
+fn validate空对象_吃默认并逐条default_applied_零文件态诊断() {
+    let report = validate(&json!({}));
+    assert_default_config(&report.config);
+    for kind in [
+        DiagnosticKind::FileMissing,
+        DiagnosticKind::ReadFailed,
+        DiagnosticKind::JsonInvalid,
+        DiagnosticKind::InvalidValue,
+    ] {
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|d| kind_rank(&d.kind) == kind_rank(&kind)),
+            "空对象不得产文件态 / 违例诊断"
+        );
+    }
+    assert!(
+        has_diag(&report, &DiagnosticKind::DefaultApplied, "schema"),
+        "schema 未设 → defaultApplied"
+    );
+    assert!(
+        has_diag(&report, &DiagnosticKind::DefaultApplied, "tests"),
+        "tests 未设 → defaultApplied"
+    );
+    assert!(!report.diagnostics.is_empty(), "吃默认逐条在案");
+}
+
+#[test]
+fn validate多余顶层字段进extra且零诊断_四形态原文保留() {
+    for value in [
+        json!(1),
+        json!([1, {"nested": true}]),
+        json!({"deep": {"deeper": null}}),
+        json!(null),
+    ] {
+        let mut candidate = full_file_face();
+        candidate["custom"] = value.clone();
+        let report = validate(&candidate);
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|d| kind_rank(&d.kind) == kind_rank(&DiagnosticKind::InvalidValue)),
+            "未知顶层键不产违例诊断"
+        );
+        let extra = report.config.extra;
+        assert_eq!(extra.len(), 1, "未知键恰一条");
+        assert_eq!(extra[0].key, "custom");
+        assert_eq!(extra[0].value, value, "原文值原样保留");
+    }
+}
+
+#[test]
+fn validate数值边界_合法越界与缺省各自处置() {
+    fn lines_of(candidate: &Value) -> f64 {
+        validate(candidate).config.tests[0].coverage.lines
+    }
+    fn suite(lines: Value) -> Value {
+        json!({"tests": [{"root": "pkg", "framework": "jest", "coverage": {"lines": lines}}]})
+    }
+
+    assert_eq!(lines_of(&suite(json!(0))), 0.0, "下界 0 合法");
+    assert_eq!(lines_of(&suite(json!(90.0))), 90.0, "整数写法的浮点原样");
+    assert_eq!(lines_of(&suite(json!(-0.0))), 0.0, "-0.0 落在 [0,100]");
+    assert_eq!(lines_of(&suite(json!(-1))), 80.0, "负值越界吃默认");
+    assert_eq!(lines_of(&suite(json!(101))), 80.0, "上界外吃默认");
+    assert_eq!(lines_of(&suite(json!(null))), 80.0, "显式 null 吃默认");
+
+    for (tag, candidate) in [
+        ("negative", suite(json!(-1))),
+        ("overflow", suite(json!(101))),
+        ("null", suite(json!(null))),
+    ] {
+        let report = validate(&candidate);
+        assert!(
+            has_diag(
+                &report,
+                &DiagnosticKind::InvalidValue,
+                "tests[0].coverage.lines"
+            ),
+            "{tag}: 越界 / 非数值记 InvalidValue 且 path 对位"
+        );
+    }
+}
+
+// ===========================================================================
+// 本变更：file face 投影（`load_file_face` / `to_file_value` / `plan_apply_config`）
+// ===========================================================================
+
+/// 满配 file face fixture（八键 + 多 suite + 多项目 + 多写保护规则，字段字母序、
+/// 数值写整数）——P1–P4 与投影用例的共用底座。
+fn full_file_face() -> Value {
+    json!({
+        "$schema": "https://example.com/spec-driven.schema.json",
+        "context": "桌面端插件仓库",
+        "projects": [
+            {
+                "depends_on": ["packages/desktop"],
+                "language": "typescript",
+                "root": "packages/app",
+            },
+            {
+                "depends_on": [],
+                "language": "rust",
+                "root": "packages/desktop/src-tauri",
+            },
+        ],
+        "rules": {"proposal": ["提案规则一"], "tasks": ["任务规则一"]},
+        "schema": "spec-driven",
+        "static_analysis": "clippy",
+        "tests": [
+            {
+                "config": "vite-plus.config.ts",
+                "coverage": {"branches": 88, "functions": 85, "lines": 90},
+                "cwd": "packages/desktop",
+                "excludes": ["dist/**"],
+                "framework": "vite-plus",
+                "includes": ["src/**/*.test.tsx"],
+                "mutation": {"cwd": "packages/desktop", "score": 75},
+                "root": "packages/desktop",
+            },
+            {
+                "coverage": {"branches": 70, "functions": 75, "lines": 80},
+                "cwd": "src-tauri",
+                "framework": "rust",
+                "mutation": {"score": 70},
+                "root": "src-tauri",
+            },
+        ],
+        "write_protection": {
+            "files": [
+                {"glob": "tests/golden/**", "reason": "金样冻结"},
+                {"glob": "Cargo.lock"},
+            ],
+        },
+    })
+}
+
+/// file face → 组装产物（`assemble` 为 crate 内私有项，测试经同源路径直用）。
+fn config_of_file_face(face: &Value) -> WorkspaceConfig {
+    let map = face.as_object().expect("file face fixture 恒为对象");
+    let (config, diagnostics) = assemble(map);
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|d| kind_rank(&d.kind) == kind_rank(&DiagnosticKind::InvalidValue)),
+        "fixture 不得产违例诊断（defaultApplied 属正常形态），实际 {diagnostics:?}"
+    );
+    config
+}
+
+/// 落一份 file face fixture 到临时根。
+fn write_face(ws: &TempWs, face: &Value) {
+    ws.ensure_dir();
+    ws.write_config(&serde_json::to_string_pretty(face).expect("fixture 序列化失败"));
+}
+
+#[test]
+fn to_file_value_p1满配输出键名零大写() {
+    let face = full_file_face();
+    let projected = to_file_value(&config_of_file_face(&face), &face).expect("投影应成功");
+    assert_no_uppercase_key(&projected, "P1");
+    let text = serde_json::to_string(&projected).expect("序列化失败");
+    for camel in ["staticAnalysis", "writeProtection", "dependsOn"] {
+        assert!(
+            !text.contains(camel),
+            "P1: 输出不得含 camelCase 多词键 {camel}"
+        );
+    }
+}
+
+#[test]
+fn to_file_value_p2满配顶层键集等于known_keys且无extra键() {
+    let face = full_file_face();
+    let projected = to_file_value(&config_of_file_face(&face), &face).expect("投影应成功");
+    let mut expected: Vec<String> = known_keys().iter().map(|key| (*key).to_owned()).collect();
+    expected.sort();
+    assert_eq!(sorted_keys(&projected), expected, "P2: 顶层键集恰八键");
+    assert!(
+        projected.get("extra").is_none(),
+        "P2: `extra` 包装键展开回顶层后不得残留"
+    );
+}
+
+#[test]
+fn to_file_value_p3_assemble回读与config逐字段相等() {
+    let face = full_file_face();
+    let config = config_of_file_face(&face);
+    let projected = to_file_value(&config, &face).expect("投影应成功");
+    let round_trip = config_of_file_face(&projected);
+    assert_eq!(
+        value_of(&round_trip),
+        value_of(&config),
+        "P3: `assemble ∘ to_file_value` 幂等于线面值"
+    );
+}
+
+#[test]
+fn to_file_value_p4全字段显式字面量往返逐字相等() {
+    let face = full_file_face();
+    let projected = to_file_value(&config_of_file_face(&face), &face).expect("投影应成功");
+    assert_eq!(projected, face, "P4: 全字段显式字面量往返逐字相等");
+}
+
+#[test]
+fn to_file_value模板递归裁剪_只写候选出现的键() {
+    let candidate = json!({
+        "schema": "spec-driven",
+        "tests": [{"root": "pkg", "framework": "jest"}],
+    });
+    let config = config_of_file_face(&candidate);
+    let projected = to_file_value(&config, &candidate).expect("投影应成功");
+    assert_eq!(
+        sorted_keys(&projected),
+        vec!["schema".to_owned(), "tests".to_owned()],
+        "顶层只留候选两键（默认字段不写）"
+    );
+    assert_eq!(
+        sorted_keys(&projected["tests"][0]),
+        vec!["framework".to_owned(), "root".to_owned()],
+        "suite 也只留候选两键（递归裁剪，不是只裁顶层）"
+    );
+}
+
+#[test]
+fn to_file_value三处重命名递归到全层级_depends_on在元素内() {
+    let face = full_file_face();
+    let projected = to_file_value(&config_of_file_face(&face), &face).expect("投影应成功");
+    assert!(
+        projected["projects"][0].get("depends_on").is_some(),
+        "projects[i].dependsOn 递归重命名为 depends_on"
+    );
+    assert!(
+        projected.get("static_analysis").is_some(),
+        "staticAnalysis 已重命名"
+    );
+    assert!(
+        projected.get("write_protection").is_some(),
+        "writeProtection 已重命名"
+    );
+}
+
+#[test]
+fn to_file_value模板非对象四形态_空对象取空_其余取整值() {
+    let face = full_file_face();
+    let config = config_of_file_face(&face);
+    assert_eq!(
+        to_file_value(&config, &json!({})).expect("空模板应成功"),
+        json!({}),
+        "空对象模板 → 空对象"
+    );
+    let via_null = to_file_value(&config, &json!(null)).expect("null 模板应成功");
+    for template in [json!([1]), json!("schema")] {
+        let projected = to_file_value(&config, &template).expect("非对象模板应成功");
+        assert_eq!(
+            projected, via_null,
+            "模板 {template} 与 null 同走 trim 的「其余」分支：取 normalized 侧整值"
+        );
+    }
+    assert_eq!(
+        via_null["tests"][1]["config"],
+        json!(null),
+        "整值形态保留未裁剪的 null 位（未被模板裁剪）"
+    );
+}
+
+#[test]
+fn to_file_value数组按下标配对_短模板保越界项长模板只出值侧() {
+    let two = json!({"tests": [
+        {"root": "a", "framework": "jest"},
+        {"root": "b", "framework": "rust"},
+    ]});
+    let config = config_of_file_face(&two);
+    let short = to_file_value(&config, &json!({"tests": [{"root": "a"}]})).expect("短模板应成功");
+    assert_eq!(
+        short["tests"][0],
+        json!({"root": "a"}),
+        "模板覆盖的项按模板裁剪（只留 root）"
+    );
+    assert_eq!(
+        short["tests"][1]["cwd"],
+        json!("."),
+        "模板短于值：越界项整值保留（未被裁剪的默认字段仍在）"
+    );
+    assert_eq!(
+        short["tests"][1]["framework"],
+        json!("rust"),
+        "越界项保序保留"
+    );
+    let long = to_file_value(
+        &config,
+        &json!({"tests": [{"root": "a"}, {"root": "b"}, {"root": "c"}]}),
+    )
+    .expect("长模板应成功");
+    assert_eq!(
+        long["tests"].as_array().map(Vec::len),
+        Some(2),
+        "模板长于值：只输出值侧项"
+    );
+}
+
+#[test]
+fn to_file_value整数化四形态_整数归一与浮点保留() {
+    let face = json!({
+        "tests": [{
+            "root": "pkg",
+            "framework": "jest",
+            "coverage": {"lines": 90.0, "branches": 90.5, "functions": -0.0},
+            "mutation": {"score": 0.0},
+        }],
+    });
+    let projected = to_file_value(&config_of_file_face(&face), &face).expect("投影应成功");
+    let coverage = &projected["tests"][0]["coverage"];
+    assert_eq!(coverage["lines"], json!(90), "90.0 → 90（整数形态）");
+    assert_eq!(coverage["branches"], json!(90.5), "90.5 保浮点");
+    assert_eq!(coverage["functions"], json!(0), "-0.0 → 0（fract 为零）");
+    assert_eq!(
+        projected["tests"][0]["mutation"]["score"],
+        json!(0),
+        "0.0 → 0（阈值面全为整数化域内数值；超 2^53 的阈值先被组装层吃默认，故不入判据）"
+    );
+}
+
+#[test]
+fn to_file_value_extra三坑_null值保留_键序重排_值不二次整数化() {
+    let shape = json!({"schema": "spec-driven"});
+    let config = WorkspaceConfig {
+        extra: vec![
+            ConfigExtraField {
+                key: "zNull".to_owned(),
+                value: json!(null),
+            },
+            ConfigExtraField {
+                key: "aFloat".to_owned(),
+                value: json!(1.5),
+            },
+        ],
+        ..config_of_file_face(&shape)
+    };
+    let projected = to_file_value(&config, &json!(null)).expect("投影应成功");
+    let map = projected.as_object().expect("输出恒对象");
+    assert!(
+        map.contains_key("zNull") && map.contains_key("aFloat"),
+        "两条 extra 条目全部展开回顶层，实际键集 {:?}",
+        map.keys().collect::<Vec<&String>>()
+    );
+    assert!(map["zNull"].is_null(), "null 值条目原文保留");
+    // 整数化先于 `extra` 展开，故条目值同在这道递归里（1.0 → 1）；保真面是
+    // 「非整数值不被改写」——1.5 逐字保留。
+    assert_eq!(
+        map["aFloat"],
+        json!(1.5),
+        "非整数条目值逐字保留（不被整数化改写）"
+    );
+    // 键序不作断言：`serde_json` 的 Map 后端随 `preserve_order` feature 在
+    // workspace 级 feature 统一后变化（单包构建排序、工作区构建保插入序），
+    // 键序漂移是接受面而非契约面。
+}
+
+#[test]
+fn to_file_value_extra条目键与已知字段同名_显式失败零静默覆盖() {
+    let config = WorkspaceConfig {
+        extra: vec![ConfigExtraField {
+            key: "schema".to_owned(),
+            value: json!(1),
+        }],
+        ..config_of_file_face(&json!({"schema": "spec-driven"}))
+    };
+    let error = to_file_value(&config, &json!(null)).expect_err("键冲突必须显式失败");
+    assert!(error.contains("schema"), "文案应含冲突键，实际 {error}");
+}
+
+#[test]
+fn to_file_value_extra超深嵌套不panic() {
+    let mut deep = json!(0);
+    for _ in 0..1000 {
+        deep = Value::Array(vec![deep]);
+    }
+    let config = WorkspaceConfig {
+        extra: vec![ConfigExtraField {
+            key: "deep".to_owned(),
+            value: deep.clone(),
+        }],
+        ..config_of_file_face(&json!({"schema": "spec-driven"}))
+    };
+    let projected = to_file_value(&config, &json!({"deep": true})).expect("深嵌套应成功");
+    assert_eq!(projected["deep"], deep, "保真优先（不做深度裁剪）");
+}
+
+#[test]
+fn load_file_face满配盘面_键形全snake_case且零诊断() {
+    let ws = TempWs::new("face-full");
+    write_face(&ws, &full_file_face());
+
+    let (projected, diagnostics) = load_file_face(ws.root()).expect("盘面投影应成功");
+
+    assert!(diagnostics.is_empty(), "满配盘面零诊断");
+    assert_no_uppercase_key(&projected, "load_file_face");
+    assert!(
+        projected.get("static_analysis").is_some(),
+        "static_analysis 键形"
+    );
+    assert!(
+        projected.get("write_protection").is_some(),
+        "write_protection 键形"
+    );
+    assert!(
+        projected["projects"][0].get("depends_on").is_some(),
+        "projects[0].depends_on 键形"
+    );
+    let text = serde_json::to_string(&projected).expect("序列化失败");
+    assert!(!text.contains("staticAnalysis"), "零 camelCase 残留");
+}
+
+#[test]
+fn load_file_face与propose_current公式同源_不等于wire面() {
+    let ws = TempWs::new("face-formula");
+    let face = full_file_face();
+    write_face(&ws, &face);
+
+    let (projected, _) = load_file_face(ws.root()).expect("盘面投影应成功");
+    let expected = to_file_value(&config_of_file_face(&face), &face).expect("投影应成功");
+
+    assert_eq!(
+        projected, expected,
+        "输出 == to_file_value(assemble(盘上值).config, 盘上值)"
+    );
+    let wire = serde_json::to_value(config_of_file_face(&face)).expect("wire 序列化失败");
+    assert_ne!(
+        projected, wire,
+        "MUST NOT 等于 wire face（to_value(&WorkspaceConfig)）"
+    );
+}
+
+#[test]
+fn load_file_face文件缺失_ok空对象加_file_missing() {
+    let ws = TempWs::new("face-missing");
+    ws.ensure_dir();
+
+    let (projected, diagnostics) = load_file_face(ws.root()).expect("缺失不得 Err");
+
+    assert_eq!(projected, json!({}), "缺失 → 空对象");
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        kind_rank(&diagnostics[0].kind),
+        kind_rank(&DiagnosticKind::FileMissing)
+    );
+}
+
+#[test]
+fn load_file_face空对象盘面_空file_face加default_applied() {
+    let ws = TempWs::new("face-empty");
+    ws.write_config("{}");
+
+    let (projected, diagnostics) = load_file_face(ws.root()).expect("空对象应成功");
+
+    assert_eq!(
+        projected,
+        json!({}),
+        "模板裁剪：不写默认键（file face 为空对象）"
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| kind_rank(&d.kind) == kind_rank(&DiagnosticKind::DefaultApplied)),
+        "空对象吃默认并逐条在案"
+    );
+}
+
+#[test]
+fn load_file_face坏json与非对象五形态_ok空对象加该条诊断() {
+    for (tag, content, expected) in [
+        ("bad-json", "{", DiagnosticKind::JsonInvalid),
+        ("null", "null", DiagnosticKind::InvalidValue),
+        ("array", "[]", DiagnosticKind::InvalidValue),
+        ("string", "\"x\"", DiagnosticKind::InvalidValue),
+        ("number", "1", DiagnosticKind::InvalidValue),
+    ] {
+        let ws = TempWs::new(&format!("face-{tag}"));
+        ws.write_config(content);
+
+        let (projected, diagnostics) = load_file_face(ws.root()).expect("文件态诊断不 Err");
+
+        assert_eq!(projected, json!({}), "{tag}: 空对象");
+        assert_eq!(diagnostics.len(), 1, "{tag}: 恰一条诊断");
+        assert_eq!(
+            kind_rank(&diagnostics[0].kind),
+            kind_rank(&expected),
+            "{tag}: 诊断类别对位"
+        );
+        assert_eq!(diagnostics[0].path, "$", "{tag}: path 为文件级根");
+    }
+}
+
+#[test]
+fn load_file_face配置路径被同名目录占据_read_failed() {
+    let ws = TempWs::new("face-read-failed");
+    ws.ensure_dir();
+    ws.occupy_config_path_as_dir();
+
+    let (projected, diagnostics) = load_file_face(ws.root()).expect("读取失败不 Err");
+
+    assert_eq!(projected, json!({}));
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        kind_rank(&diagnostics[0].kind),
+        kind_rank(&DiagnosticKind::ReadFailed)
+    );
+}
+
+#[test]
+fn load_file_face键冲突不可达_以直接构造覆盖同一失败面() {
+    // 盘面 `extra` 键与已知字段同名在组装期被 passthrough 吸收（不可达分支），
+    // 故冲突判据只在写入器的直接构造面观察——同一 `expand_extra` 单点。
+    let conflict = WorkspaceConfig {
+        extra: vec![ConfigExtraField {
+            key: "tests".to_owned(),
+            value: json!([]),
+        }],
+        ..config_of_file_face(&json!({"schema": "spec-driven"}))
+    };
+    let error = to_file_value(&conflict, &json!(null)).expect_err("冲突必须 Err");
+    assert!(error.contains("tests"), "文案含冲突键，实际 {error}");
+}
+
+#[test]
+fn plan_apply_config合法候选_路径与内容双证() {
+    let ws = TempWs::new("plan-ok");
+    ws.ensure_dir();
+    let candidate = full_file_face();
+
+    let plan = plan_apply_config(ws.root(), &candidate).expect("合法候选应成功");
+
+    assert_eq!(plan.file, config_path(ws.root()), "目标文件按 layout 派生");
+    assert!(plan.content.ends_with('\n'), "尾换行在场");
+    assert!(plan.content.contains("\n  "), "pretty 分隔符在场（非紧凑）");
+    let reparsed: Value = serde_json::from_str(&plan.content).expect("内容必须可解析回 JSON");
+    let report = validate(&candidate);
+    assert_eq!(
+        reparsed,
+        to_file_value(&report.config, &candidate).expect("投影应成功"),
+        "内容 == to_file_value(&report.config, candidate)"
+    );
+}
+
+#[test]
+fn plan_apply_config零io_两种起点前后零变化() {
+    fn snapshot(path: &Path) -> (Option<String>, Option<std::time::SystemTime>) {
+        match fs::metadata(path) {
+            Ok(metadata) => (
+                Some(fs::read_to_string(path).expect("读目标文件失败")),
+                metadata.modified().ok(),
+            ),
+            Err(_) => (None, None),
+        }
+    }
+
+    let ws = TempWs::new("plan-zero-io");
+    ws.ensure_dir();
+    let path = config_path(ws.root());
+
+    let before = snapshot(&path);
+    plan_apply_config(ws.root(), &full_file_face()).expect("规划应成功");
+    assert_eq!(snapshot(&path), before, "目标不存在起点：调用后仍不存在");
+
+    ws.write_config("{\"schema\": \"spec-driven\"}");
+    let before = snapshot(&path);
+    plan_apply_config(ws.root(), &full_file_face()).expect("规划应成功");
+    assert_eq!(
+        snapshot(&path),
+        before,
+        "目标存在起点：内容与 mtime 双证不变"
+    );
+}
+
+#[test]
+fn plan_apply_config任一invalid_value_逐条文案且不产content() {
+    let ws = TempWs::new("plan-invalid");
+    ws.ensure_dir();
+    let cases = [
+        (
+            "overflow",
+            json!({"tests": [{"root": "pkg", "framework": "jest", "coverage": {"lines": 101}}]}),
+        ),
+        (
+            "framework",
+            json!({"tests": [{"root": "pkg", "framework": "jest2"}]}),
+        ),
+        (
+            "glob-root",
+            json!({"tests": [{"root": "src/*", "framework": "jest"}]}),
+        ),
+    ];
+    for (tag, candidate) in cases {
+        let error = plan_apply_config(ws.root(), &candidate).expect_err("违例必须 Err");
+        assert!(
+            error.contains("tests"),
+            "{tag}: 文案应逐条含 path，实际 {error}"
+        );
+        assert!(
+            error.contains("重新提交完整候选"),
+            "{tag}: 尾行含修正指引，实际 {error}"
+        );
+    }
+}
+
+#[test]
+fn plan_apply_config仅default_applied_不拦写回且内容为空对象形态() {
+    let ws = TempWs::new("plan-defaulted");
+    ws.ensure_dir();
+
+    let plan = plan_apply_config(ws.root(), &json!({})).expect("defaultApplied 不拦写回");
+
+    assert_eq!(plan.content, "{}\n", "空对象 pretty 形态 + 尾换行");
+}
+
+#[test]
+fn plan_apply_config顶层非对象err_未知顶层键保留() {
+    let ws = TempWs::new("plan-top");
+    ws.ensure_dir();
+
+    for candidate in [json!(null), json!([])] {
+        let error = plan_apply_config(ws.root(), &candidate).expect_err("顶层非对象必须 Err");
+        assert!(error.contains('$'), "文案 path 为文件级根，实际 {error}");
+    }
+
+    let plan = plan_apply_config(ws.root(), &json!({"customFlag": true})).expect("未知键应 Ok");
+    let reparsed: Value = serde_json::from_str(&plan.content).expect("内容可解析");
+    assert_eq!(
+        reparsed["customFlag"],
+        json!(true),
+        "未知顶层键在 content 顶层（extra 展开）"
+    );
+}
+
+#[test]
+fn plan_apply_config_root有效性不归本函数_两形态仍按layout派生() {
+    let empty_root = Path::new("");
+    let missing_root = Path::new(r"Z:\definitely-missing-workspace-root");
+    for root in [empty_root, missing_root] {
+        let plan = plan_apply_config(root, &json!({"schema": "spec-driven"}))
+            .expect("root 校验归命令层，本函数零校验");
+        assert_eq!(
+            plan.file,
+            config_path(root),
+            "file 仍按 layout::config_path 派生"
         );
     }
 }

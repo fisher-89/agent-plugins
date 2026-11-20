@@ -1,0 +1,106 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+warning: this function has too many arguments (8/7)
+   --> crates\core\workflow\src\write\create.rs:494:1
+    |
+494 | / fn compensate_tree_failure(
+495 | |     store: &dyn ChangeStateStore,
+496 | |     vcs: &dyn WorktreePort,
+497 | |     main_root: &Path,
+...   |
+502 | |     fs_error: &str,
+503 | | ) -> String {
+    | |___________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#too_many_arguments
+    = note: `#[warn(clippy::too_many_arguments)]` on by default
+
+warning: `workflow` (lib) generated 1 warning
+warning: doc list item without indentation
+    --> crates\core\orchestration\src\walker.rs:1512:5
+     |
+1512 | /// 由 `outcome.report_dir` 供给）。
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#doc_lazy_continuation
+     = note: `#[warn(clippy::doc_lazy_continuation)]` on by default
+help: indent this line
+     |
+1512 | ///   由 `outcome.report_dir` 供给）。
+     |     ++
+
+warning: `orchestration` (lib) generated 1 warning
+warning: doc list item without indentation
+  --> crates\core\archi\src\api\contract.rs:25:5
+   |
+25 | //! D47）+ `required` 与 `properties` 的自洽闸（集合关系，不占族别编号）。这些闸同函数、
+   |     ^
+   |
+   = help: if this is supposed to be its own paragraph, add a blank line
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#doc_lazy_continuation
+   = note: `#[warn(clippy::doc_lazy_continuation)]` on by default
+help: indent this line
+   |
+25 | //!   D47）+ `required` 与 `properties` 的自洽闸（集合关系，不占族别编号）。这些闸同函数、
+   |     ++
+
+warning: doc list item without indentation
+  --> crates\core\archi\src\api\contract.rs:26:5
+   |
+26 | //! 同趟收口——它们都是「契约资产的错」，须在 `load_contracts` 中止，MUST NOT 留到写盘面。
+   |     ^
+   |
+   = help: if this is supposed to be its own paragraph, add a blank line
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#doc_lazy_continuation
+help: indent this line
+   |
+26 | //!   同趟收口——它们都是「契约资产的错」，须在 `load_contracts` 中止，MUST NOT 留到写盘面。
+   |     ++
+
+warning: doc list item without indentation
+  --> crates\core\archi\src\api\contract.rs:27:5
+   |
+27 | //! 渲染期因此不做二次校验（名字与位置都已保证），`emit` 内零标识符判据、两侧
+   |     ^
+   |
+   = help: if this is supposed to be its own paragraph, add a blank line
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#doc_lazy_continuation
+help: indent this line
+   |
+27 | //!   渲染期因此不做二次校验（名字与位置都已保证），`emit` 内零标识符判据、两侧
+   |     ++
+
+warning: doc list item without indentation
+  --> crates\core\archi\src\api\contract.rs:28:5
+   |
+28 | //! `value_type` 零 `x-function` 分支。
+   |     ^
+   |
+   = help: if this is supposed to be its own paragraph, add a blank line
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#doc_lazy_continuation
+help: indent this line
+   |
+28 | //!   `value_type` 零 `x-function` 分支。
+   |     ++
+
+warning: `archi` (lib) generated 4 warnings
+warning: `orchestration` (lib test) generated 1 warning (1 duplicate)
+warning: `workflow` (lib test) generated 1 warning (1 duplicate)
+warning: `archi` (lib test) generated 4 warnings (4 duplicates)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.16s
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml && pnpm run bindings:zod-check
+[zod-bindings] degraded: agentStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: agentSessionWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: watchSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+$ tsc --noEmit -p tsconfig.zod.json
+$ cargo run -q --manifest-path src-tauri/Cargo.toml -p archi-api-gen -- --check
+$ vp check && knip
+[1m[31merror:[39m[0m Formatting issues found
+package.json (0ms)
+
+Found formatting issues in 1 file (863ms, 16 threads). Run `vp check --fix` to fix them.
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

@@ -17,7 +17,7 @@ use store::{
 use super::{
     agent_session_transcript, agent_session_watch_with, agent_sessions, agent_start,
     agent_start_with, agent_stop, list_archi_chat_sessions, list_change_chat_sessions,
-    session_detail,
+    list_config_chat_sessions, session_detail,
 };
 
 // ---------------------------------------------------------------------------
@@ -4244,5 +4244,274 @@ fn session_detail多轮混排按发起序且轮数不受标定影响() {
     assert_eq!(
         after.stats.turn_count, before.stats.turn_count,
         "stats.turnCount 不受标定影响"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`list_config_chat_sessions`（配置页常驻会话清单薄包装）
+//
+// 装置复用 `Env` / `app_with_stores` / `seed_sdk_session`：`source` 词常量收在命令层、
+// `source_ref` **不过滤**（config 会话恒 null，一个 workspace 一份历史），blank root
+// → 空页信封（读面语义，不触库）。
+// ---------------------------------------------------------------------------
+
+/// config 归属会话行 fixture（`source = "config"`）。
+fn seed_config_session(store: &store::Store, id: &str, source_ref: Option<&str>, updated_at: i64) {
+    store
+        .create_session(&SessionRecord {
+            id: id.to_owned(),
+            engine_session_id: None,
+            config_snapshot: SessionConfigSnapshot {
+                engine: AgentEngineKind::Sdk,
+                agent_instance_id: None,
+                model: Some("m-high".to_owned()),
+                permission_mode: AgentPermissionMode::BypassPermissions,
+            },
+            source: "config".to_owned(),
+            source_ref: source_ref.map(str::to_owned),
+            created_at: updated_at,
+            updated_at,
+        })
+        .expect("落 config 会话行 fixture");
+}
+
+/// 归属混居世界：3 条 config + 1 条 archi + 2 条 change chat（两段）+ 1 条流程四段。
+fn seed_config_world(store: &store::Store) {
+    seed_config_session(store, "ses-config-1", None, 1_727_300_000_001);
+    seed_config_session(store, "ses-config-2", None, 1_727_300_000_002);
+    seed_config_session(store, "ses-config-3", None, 1_727_300_000_003);
+    seed_archi_session(store, "ses-archi-x", None, 1_727_300_000_004);
+    seed_chat_session(store, "ses-chat-x", Some("chg-1"), 1_727_300_000_005);
+    seed_sdk_session(
+        store,
+        "ses-flow-x",
+        None,
+        "change",
+        Some("chg-1/implement/executor/1"),
+    );
+}
+
+/// 正向：只命中 config 三条、`updated_at` 降序（其余来源一条不混）。
+#[test]
+fn list_config_chat_sessions只命中config归属且updated_at降序() {
+    let env = Env::new("config-list-hit");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_config_world(&store);
+
+    let page = list_config_chat_sessions(state.clone(), root.clone(), 0, 20).expect("清单应成功");
+
+    let ids: Vec<&str> = page
+        .sessions
+        .iter()
+        .map(|item| item.row.id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["ses-config-3", "ses-config-2", "ses-config-1"],
+        "updated_at 降序（只三条 config 行）"
+    );
+    assert_eq!(page.total, 3, "total = 过滤集全量");
+    for session in &page.sessions {
+        assert_eq!(
+            session.row.provenance.source, "config",
+            "归属词逐字（source 过滤生效）"
+        );
+        assert!(
+            session.row.provenance.source_ref.is_none(),
+            "配置页会话 source_ref 恒 null"
+        );
+    }
+}
+
+/// 正向：与 `agent_sessions` 同参（`Some("config")` + `None`）信封逐字段全等。
+#[test]
+fn list_config_chat_sessions与agent_sessions同参信封逐字段全等() {
+    let env = Env::new("config-list-equiv");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_config_world(&store);
+
+    let via_config =
+        list_config_chat_sessions(state.clone(), root.clone(), 0, 20).expect("config 清单应成功");
+    let via_generic = agent_sessions(state, root, Some("config".to_owned()), None, 0, 20)
+        .expect("通用清单应成功");
+
+    assert_eq!(via_config.total, via_generic.total, "total 逐字全等");
+    assert_eq!(
+        via_config.sessions, via_generic.sessions,
+        "sessions 逐字段全等（薄包装零改写聚合面）"
+    );
+}
+
+/// 边界（矩阵 3 形态）：blank root → 空页信封且零库寻址。
+#[test]
+fn list_config_chat_sessions_blank_root空页且零库寻址() {
+    let env = Env::new("config-list-blank");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let before = workspace_db_count(&env);
+
+    for blank in ["", "   ", "\t\n "] {
+        let page = list_config_chat_sessions(state.clone(), blank.to_owned(), 0, 20)
+            .expect("blank root 返回空页不报错");
+        assert!(page.sessions.is_empty(), "blank root {blank:?} → 空页");
+        assert_eq!(page.total, 0, "空页信封 total = 0");
+    }
+    assert_eq!(
+        workspace_db_count(&env),
+        before,
+        "blank root 守卫先于库寻址（零铸新库）"
+    );
+}
+
+/// 边界（矩阵 5 形态）：分页信封 —— `offset 0 limit 1` / `offset 1 limit 1` /
+/// `limit 0` / offset 越界 / 双参 `u32::MAX`。
+#[test]
+fn list_config_chat_sessions分页信封五形态() {
+    let env = Env::new("config-list-page");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_config_session(&store, "ses-a", None, 1_727_300_000_001);
+    seed_config_session(&store, "ses-b", None, 1_727_300_000_002);
+    seed_config_session(&store, "ses-c", None, 1_727_300_000_003);
+
+    let first =
+        list_config_chat_sessions(state.clone(), root.clone(), 0, 1).expect("首屏一页应成功");
+    assert_eq!(first.sessions.len(), 1, "limit = 1 圈定本页");
+    assert_eq!(first.sessions[0].row.id, "ses-c", "取最大 updated_at 者");
+    assert_eq!(first.total, 3, "total 恒为过滤集全量");
+
+    let second =
+        list_config_chat_sessions(state.clone(), root.clone(), 1, 1).expect("第二页应成功");
+    assert_eq!(second.sessions[0].row.id, "ses-b", "offset = 1 取第二条");
+    assert_eq!(second.total, 3);
+
+    let zero =
+        list_config_chat_sessions(state.clone(), root.clone(), 0, 0).expect("limit = 0 合法空页");
+    assert!(zero.sessions.is_empty(), "limit = 0 → 空 sessions");
+    assert_eq!(zero.total, 3, "total 仍为过滤集全量");
+
+    let beyond = list_config_chat_sessions(state.clone(), root.clone(), 99, 20)
+        .expect("越界 offset 合法空页");
+    assert!(beyond.sessions.is_empty(), "offset 超出总量 → 空 sessions");
+    assert_eq!(beyond.total, 3, "越界 offset 不改变 total");
+
+    let extreme = list_config_chat_sessions(state.clone(), root.clone(), u32::MAX, u32::MAX)
+        .expect("极值不溢出 panic");
+    assert!(extreme.sessions.is_empty(), "offset = u32::MAX 空页");
+    assert_eq!(extreme.total, 3, "total 恒为过滤集全量");
+}
+
+/// 边界（矩阵 2 形态）：精确 `source` 过滤 —— `source_ref = Some("")` 仍命中；
+/// `source = "configx"` 不命中。
+#[test]
+fn list_config_chat_sessions精确source过滤且不按source_ref过滤() {
+    let env = Env::new("config-list-source");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_config_session(&store, "ses-config-empty-ref", Some(""), 1_727_300_000_001);
+    seed_sdk_session(&store, "ses-configx", None, "configx", None);
+
+    let page = list_config_chat_sessions(state, root, 0, 20).expect("清单应成功");
+
+    assert_eq!(page.total, 1, "`configx` 不命中（来源词精确相等）");
+    assert_eq!(
+        page.sessions[0].row.id, "ses-config-empty-ref",
+        "`source_ref = Some(\"\")` 仍命中（None 不过滤 source_ref）"
+    );
+}
+
+/// 边界：并列 `updated_at` → 按 id 降序（与 archi 清单同排序口径）。
+#[test]
+fn list_config_chat_sessions并列updated_at按id降序() {
+    let env = Env::new("config-list-tie");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    let same = 1_727_300_000_000;
+    seed_config_session(&store, "ses-config-b", None, same);
+    seed_config_session(&store, "ses-config-a", None, same);
+
+    let page = list_config_chat_sessions(state, root, 0, 20).expect("清单应成功");
+
+    let ids: Vec<&str> = page
+        .sessions
+        .iter()
+        .map(|item| item.row.id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["ses-config-b", "ses-config-a"],
+        "同 updated_at 时按 id 降序（稳定序）"
+    );
+}
+
+/// 边界（矩阵 2 形态）：空库 → `Ok` 空页；跨 root 隔离（A 库只见 A 的 config 会话）。
+#[test]
+fn list_config_chat_sessions空库空页与跨root隔离() {
+    let env = Env::new("config-list-iso");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root_a = env.root_of("alpha");
+    let root_b = env.root_of("beta");
+
+    let empty = list_config_chat_sessions(state.clone(), root_a.clone(), 0, 20).expect("空库应 Ok");
+    assert!(empty.sessions.is_empty(), "空库 → 空 sessions");
+    assert_eq!(empty.total, 0, "空库 → total = 0");
+
+    let store_a = state.for_root(&root_a).expect("for_root 应成功");
+    seed_config_world(&store_a);
+
+    let in_a = list_config_chat_sessions(state.clone(), root_a, 0, 20).expect("A 库清单应成功");
+    assert_eq!(in_a.total, 3, "A 库命中三条 config 会话");
+
+    let in_b = list_config_chat_sessions(state, root_b, 0, 20).expect("B 库清单应成功");
+    assert!(in_b.sessions.is_empty(), "跨 root 隔离：库位 = root 寻址");
+    assert_eq!(in_b.total, 0, "B 库不跨库泄漏");
+}
+
+/// 异常：root 不可寻址（不存在路径）→ `Err` 透传不 panic。
+#[test]
+fn list_config_chat_sessions_root不可寻址err透传() {
+    let env = Env::new("config-list-root-err");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let missing = env
+        .data_dir
+        .path()
+        .join("absent-ws")
+        .to_string_lossy()
+        .into_owned();
+
+    let error =
+        list_config_chat_sessions(state, missing, 0, 20).expect_err("root 不可寻址必须 Err");
+    assert!(
+        error.contains("canonicalize") && error.contains("absent-ws"),
+        "for_root 的 Err 透传不 panic，实际: {error}"
+    );
+}
+
+/// 正向：来源受控词与 compose / 前端三处同字面量（命令层常量面）。
+#[test]
+fn config_chat_source词面与compose同值() {
+    assert_eq!(
+        super::CONFIG_CHAT_SOURCE,
+        "config",
+        "命令层来源受控词（与 compose::CONFIG_SOURCE / 前端 use-config-chat 三处同值）"
+    );
+    assert_eq!(
+        super::CONFIG_CHAT_SOURCE.trim(),
+        super::CONFIG_CHAT_SOURCE,
+        "字面量无前后空白（受控词精确匹配）"
     );
 }

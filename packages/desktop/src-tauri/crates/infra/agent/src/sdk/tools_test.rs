@@ -1860,3 +1860,137 @@ fn archi_search_scope单值词且缺省all() {
         search.parameters["properties"]["scope"]
     );
 }
+
+// ---------------------------------------------------------------------------
+// 本变更：`propose_config` 的无路径参数白名单（`input_path` 恒 None）
+// ---------------------------------------------------------------------------
+
+/// 正向：入参含 `path` 与 `candidate` → `None`（候选里的 `path` 是数据键，
+/// 改写它等于篡改用户配置）。
+#[test]
+fn 提案工具input_path恒none_候选内path不被当路径() {
+    let input = json!({
+        "path": "src/a.ts",
+        "candidate": {"path": "src/a.ts", "schema": "spec-driven"},
+    });
+    assert_eq!(
+        input_path(crate::sdk::config_propose::PROPOSE_CONFIG_TOOL, &input),
+        None,
+        "propose_config 不进路径沙箱改写面"
+    );
+}
+
+/// 正向：三 archi + 两 DB + 提案工具共六名同一入参全 `None`；基准对照 `read` /
+/// `glob` 的取值分支不变。
+#[test]
+fn 六名专用工具统一不进路径沙箱且基准对照不变() {
+    let input = json!({
+        "path": "src/auth/README.md",
+        "pattern": "src/**/*.rs",
+        "element": "App.Auth",
+        "query": "auth",
+        "action": "check",
+        "table": "phase",
+        "candidate": {"schema": "spec-driven"},
+    });
+    let mut special: Vec<&str> = ARCHI_NAMES.to_vec();
+    special.push(crate::sdk::mount::DB_TABLES_TOOL);
+    special.push(crate::sdk::mount::DB_QUERY_TOOL);
+    special.push(crate::sdk::config_propose::PROPOSE_CONFIG_TOOL);
+    assert_eq!(special.len(), 6, "六名专用工具");
+    for name in &special {
+        assert_eq!(
+            input_path(name, &input),
+            None,
+            "{name} 不进路径沙箱（无路径参数）"
+        );
+    }
+    assert_eq!(
+        input_path("read", &input),
+        Some("src/auth/README.md"),
+        "基准对照：read 仍取 path"
+    );
+    assert_eq!(
+        input_path("glob", &input),
+        Some("src/**/*.rs"),
+        "基准对照：glob 仍取 pattern"
+    );
+}
+
+/// 异常（矩阵 7 形态）：脏入参恒 `None`、零 panic。
+#[test]
+fn 提案工具input_path脏入参恒none() {
+    for input in [
+        json!({}),
+        json!(null),
+        json!([]),
+        json!("str"),
+        json!(1),
+        json!({"path": 1}),
+        json!({"path": ""}),
+    ] {
+        assert_eq!(
+            input_path(crate::sdk::config_propose::PROPOSE_CONFIG_TOOL, &input),
+            None,
+            "脏入参恒不进路径沙箱：{input}"
+        );
+    }
+}
+
+/// 边界（矩阵 4 形态）：近似名落默认 `path` 分支（精确名判据）。
+#[test]
+fn 提案工具近似名落默认path分支() {
+    let input = json!({"path": "src/a.ts"});
+    for name in [
+        "propose_config ",
+        "PROPOSE_CONFIG",
+        "propose-config",
+        "propose_config_x",
+    ] {
+        assert_eq!(
+            input_path(name, &input),
+            Some("src/a.ts"),
+            "近似名 {name:?} 走默认 path 分支（非精确名不命中专用臂）"
+        );
+        assert_eq!(
+            input_path(name, &json!({})),
+            None,
+            "近似名 {name:?} 无 path 字段 → None"
+        );
+    }
+}
+
+/// 正向：候选含顶层未知键 `path` 的入参经沙箱面零改写、零拒绝（`input_path`
+/// 返回 `None` 时沙箱链不被触发）。
+#[test]
+fn 提案工具候选内path经沙箱面零改写零拒绝() {
+    let input = json!({"candidate": {"path": "../escape/a.ts"}});
+    let extracted = input_path(crate::sdk::config_propose::PROPOSE_CONFIG_TOOL, &input);
+    assert_eq!(extracted, None, "提取面 None（沙箱链不被触发）");
+    // 对照：同一路径值若挂在 read 上会被沙箱拒绝（提取面是唯一触发点）
+    let dir = tempdir("propose-sandbox");
+    let root = root_of(&dir);
+    let read_input = json!({"path": "../escape/a.ts"});
+    let escape = input_path("read", &read_input).expect("read 取 path");
+    assert!(
+        check(&root, escape).is_err(),
+        "对照：逃逸路径经 read 面必被沙箱拒绝（证明提取面即闸门）"
+    );
+}
+
+/// 边界：`MAX_RESULT_BYTES == 50_000` 口径不变，提案输出复用同一收口（禁第二份
+/// 上限实现）。
+#[test]
+fn 提案输出复用同一上限常量() {
+    assert_eq!(
+        crate::sdk::tools::MAX_RESULT_BYTES,
+        50_000,
+        "L1 上限口径不变"
+    );
+    let huge = "x".repeat(crate::sdk::tools::MAX_RESULT_BYTES + 10);
+    let capped = crate::sdk::tools::cap_result(huge);
+    assert!(
+        capped.contains("已截断"),
+        "提案工具输出与全工具同走 cap_result 收口"
+    );
+}

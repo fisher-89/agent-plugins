@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { AgentToolOutput } from '../../../lib/agent-adapter';
 import { FinishStepCard, ToolPairCard, WebSearchCard } from './blocks';
+import { ConfigApplyScope } from './config-apply-scope';
 import { BUILD_IN_TOOL_CARDS } from './tool-cards';
 
 // ---------------------------------------------------------------------------
@@ -133,6 +137,7 @@ describe('BUILD_IN_TOOL_CARDS：回退与错误结果', () => {
       'read',
       'write',
       'edit',
+      'propose_config',
     ]);
   });
 
@@ -270,7 +275,7 @@ describe('BUILD_IN_TOOL_CARDS：finish_step 注册表键面', () => {
     // 既有项零回归
     expect(BUILD_IN_TOOL_CARDS['AskUserQuestion']).toBeDefined();
     expect(BUILD_IN_TOOL_CARDS['web_search']).toBe(WebSearchCard);
-    expect(keys).toHaveLength(7);
+    expect(keys).toHaveLength(8);
   });
 
   it('键名精确匹配：大小写 / 分隔符偏差与空串均 miss（键面不做归一化）', () => {
@@ -1562,5 +1567,331 @@ describe('unpairedRunning：范围边界（三张无 running 标记的卡与默�
     fireEvent.click(screen.getAllByTestId('ask-answer-option')[0] as HTMLElement);
     fireEvent.click(screen.getByTestId('ask-answer-submit'));
     expect(onAnswer).toHaveBeenCalledWith('指数退避');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 本变更：`ConfigProposeCard`（注册表第 8 键，五态判据）
+//
+// 进程边界：仅 mock `@tauri-apps/api/core`（`workspace_config_apply` 的三态：成功 /
+// reject / 手动 pending）；`ConfigApplyScope` 与卡片真实组合（缺席形态以不包 provider
+// 直渲）——provider 不是替身，是同一份真实 context 实现。
+// ---------------------------------------------------------------------------
+
+const { configInvokeMock } = vi.hoisted(() => ({ configInvokeMock: vi.fn() }));
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: configInvokeMock }));
+
+/** `propose_config` 输出的载荷构造（宽容解析面：字段全部可选覆盖）。 */
+function proposePayload(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    current: { schema: 'spec-driven' },
+    candidate: { schema: 'spec-driven', context: '新上下文' },
+    changes: [{ path: 'context', kind: 'added', before: null, after: '新上下文' }],
+    summary: '候选合法，共 1 处变更',
+    ...overrides,
+  });
+}
+
+/** 以 `ConfigApplyScope`（root + onApplied）包裹卡片渲染。 */
+function renderProposal(
+  output: AgentToolOutput | null,
+  scope: { root: string; onApplied: () => void } | null = null,
+) {
+  const Card = BUILD_IN_TOOL_CARDS['propose_config'];
+  expect(Card, '注册表应含 propose_config').toBeDefined();
+  const card = (
+    <Card
+      toolCallId="tu_cfg"
+      toolName="propose_config"
+      state={output === null ? 'input-available' : 'output-available'}
+      input={{}}
+      output={output}
+    />
+  );
+  if (scope === null) return render(card);
+  return render(<ConfigApplyScope value={scope}>{card}</ConfigApplyScope>);
+}
+
+beforeEach(() => {
+  configInvokeMock.mockReset();
+  configInvokeMock.mockResolvedValue({ config: {}, diagnostics: [] });
+});
+
+describe('ConfigProposeCard：五态判据（进行中 / 失败 / 可应用 / 无差异 / 只读）', () => {
+  it('进行中：output 为 null → running 语义，零诊断块与零应用按钮', () => {
+    renderProposal(null);
+
+    expect(cardRoot().querySelector('[data-slot="trace-line"]')?.getAttribute('data-status')).toBe(
+      'running',
+    );
+    expect(screen.queryByTestId('config-propose-error')).toBeNull();
+    expect(screen.queryByTestId('config-propose-apply')).toBeNull();
+  });
+
+  it('失败：isError → 诊断原文按行呈现、零应用按钮', () => {
+    renderProposal({
+      content: 'tests[0].framework: 必须为受支持的框架枚举值\ntests[0].root: 不得含 glob 通配符',
+      isError: true,
+    });
+
+    const error = screen.getByTestId('config-propose-error');
+    expect(error.className).toContain('whitespace-pre-wrap');
+    expect(error.textContent).toContain('tests[0].framework: 必须为受支持的框架枚举值');
+    expect(error.textContent).toContain('tests[0].root: 不得含 glob 通配符');
+    expect(screen.queryByTestId('config-propose-apply')).toBeNull();
+  });
+
+  it('可应用：changes 三条（added / removed / changed）→ 逐项 path 与 kind 呈现、按钮可点', () => {
+    renderProposal(
+      {
+        content: proposePayload({
+          changes: [
+            { path: 'newKey', kind: 'added', before: null, after: 1 },
+            { path: 'context', kind: 'removed', before: '旧', after: null },
+            { path: 'schema', kind: 'changed', before: 'a', after: 'b' },
+          ],
+        }),
+        isError: false,
+      },
+      { root: 'C:demoalpha', onApplied: vi.fn() },
+    );
+
+    expect(screen.getByTestId('config-propose-summary').textContent).toContain('候选合法');
+    expect(screen.getByTestId('config-propose-diff').textContent).toContain('候选变更 3 处');
+    const lines = Array.from(
+      screen.getByTestId('config-propose-diff').querySelectorAll('[data-slot="code-block-line"]'),
+    ).map((line) => line.textContent);
+    // changed 拆 removed + added 两行（与 EditCard 双段形态同源）
+    expect(lines).toEqual(['+ newKey', '- context', '- schema', '+ schema']);
+    expect(screen.getByTestId<HTMLButtonElement>('config-propose-apply').disabled).toBe(false);
+  });
+
+  it('无差异支：changes 为空 → 按钮 disabled + 文案「与当前配置一致」', () => {
+    renderProposal(
+      { content: proposePayload({ changes: [] }), isError: false },
+      { root: 'C:demoalpha', onApplied: vi.fn() },
+    );
+
+    expect(screen.getByTestId('config-propose-unchanged').textContent).toContain('与当前配置一致');
+    expect(screen.getByTestId<HTMLButtonElement>('config-propose-apply').disabled).toBe(true);
+  });
+
+  it('只读模式：candidate 为 null → 仅盘面摘要，零应用按钮', () => {
+    renderProposal(
+      {
+        content: proposePayload({
+          candidate: null,
+          changes: [],
+          summary: '只读模式：返回当前盘面（无诊断）',
+          current: { schema: 'spec-driven', context: '盘面上下文' },
+        }),
+        isError: false,
+      },
+      { root: 'C:demoalpha', onApplied: vi.fn() },
+    );
+
+    const current = screen.getByTestId('config-propose-current');
+    expect(current.textContent).toContain('当前盘面');
+    expect(current.textContent).toContain('盘面上下文');
+    expect(screen.queryByTestId('config-propose-apply')).toBeNull();
+  });
+
+  it('规范化明示在场（写回会重排键序并格式化）', () => {
+    renderProposal(
+      { content: proposePayload(), isError: false },
+      {
+        root: 'C:demoalpha',
+        onApplied: vi.fn(),
+      },
+    );
+    expect(document.body.textContent).toContain('写回会规范化文件');
+    expect(document.body.textContent).toContain('未知子键、键序与格式会丢失 / 变化');
+  });
+});
+
+describe('ConfigProposeCard：宽容解析与边界载荷', () => {
+  it.each(['not json', '{'])('内容不可解析（%s）→ 原文降级渲染、零抛错', (content) => {
+    renderProposal({ content, isError: false });
+
+    const raw = screen.getByTestId('config-propose-raw');
+    expect(raw.textContent).toBe(content);
+    expect(screen.queryByTestId('config-propose-apply')).toBeNull();
+  });
+
+  it.each([
+    ['changes 非数组', { changes: 'oops' }],
+    ['项缺 path', { changes: [{ kind: 'added' }] }],
+    ['kind 为未知值', { changes: [{ path: 'a', kind: 'renamed' }] }],
+    ['current 非对象', { current: 42, candidate: { schema: 'spec-driven' } }],
+  ])('载荷形态异常（%s）→ 宽容读不抛错，呈降级形态', (_label, overrides) => {
+    renderProposal(
+      { content: proposePayload(overrides), isError: false },
+      {
+        root: 'C:demoalpha',
+        onApplied: vi.fn(),
+      },
+    );
+    // 渲染零抛错（上面 render 已成功）且卡片根在场
+    expect(cardRoot()).toBeTruthy();
+  });
+
+  it('边界：candidate 为 {} + changes 为空 → 可应用态但按钮禁用', () => {
+    renderProposal(
+      { content: proposePayload({ candidate: {}, changes: [] }), isError: false },
+      {
+        root: 'C:demoalpha',
+        onApplied: vi.fn(),
+      },
+    );
+    expect(screen.getByTestId<HTMLButtonElement>('config-propose-apply').disabled).toBe(true);
+  });
+
+  it('边界：changes 200 项 → 渲染不 panic（列表限高可滚动）', () => {
+    const many = Array.from({ length: 200 }, (_, index) => ({
+      path: `key-${index}`,
+      kind: 'added',
+    }));
+    renderProposal(
+      { content: proposePayload({ changes: many }), isError: false },
+      {
+        root: 'C:demoalpha',
+        onApplied: vi.fn(),
+      },
+    );
+    const diff = screen.getByTestId('config-propose-diff');
+    expect(diff.textContent).toContain('候选变更 200 处');
+  });
+
+  it('边界：provider 缺席 → 按钮禁用 + 文案「应用只在配置页可用」', () => {
+    renderProposal({ content: proposePayload(), isError: false });
+
+    expect(screen.getByTestId<HTMLButtonElement>('config-propose-apply').disabled).toBe(true);
+    expect(document.body.textContent).toContain('应用只在配置页可用');
+  });
+});
+
+describe('ConfigProposeCard：写回动作面（provider 在场）', () => {
+  it('点击恰一次 workspace_config_apply(scope.root, candidate)；成功 → onApplied 恰一次', async () => {
+    const onApplied = vi.fn();
+    const candidate = { schema: 'spec-driven', context: '新上下文' };
+    renderProposal(
+      { content: proposePayload({ candidate }), isError: false },
+      {
+        root: 'C:demoalpha',
+        onApplied,
+      },
+    );
+
+    fireEvent.click(screen.getByTestId('config-propose-apply'));
+
+    await waitFor(() => expect(configInvokeMock).toHaveBeenCalledTimes(1));
+    expect(configInvokeMock).toHaveBeenCalledWith('workspace_config_apply', {
+      root: 'C:demoalpha',
+      candidate,
+    });
+    await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByTestId('config-propose-applied').textContent).toContain('已应用'),
+    );
+  });
+
+  it('invoke reject → inline 错误呈现、按钮回到可点、再次点击触发第二次调用', async () => {
+    const onApplied = vi.fn();
+    configInvokeMock.mockRejectedValueOnce(new Error('root 不是目录'));
+    renderProposal(
+      { content: proposePayload(), isError: false },
+      {
+        root: 'C:demoalpha',
+        onApplied,
+      },
+    );
+
+    fireEvent.click(screen.getByTestId('config-propose-apply'));
+    await waitFor(() =>
+      expect(screen.getByTestId('config-propose-apply-error').textContent).toContain(
+        'root 不是目录',
+      ),
+    );
+    expect(onApplied).not.toHaveBeenCalled();
+    const button = screen.getByTestId<HTMLButtonElement>('config-propose-apply');
+    expect(button.disabled).toBe(false);
+
+    fireEvent.click(button);
+    await waitFor(() => expect(configInvokeMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
+  });
+
+  it('多次提案独立：两张卡并渲染 → 点第一张后第二张仍可点且内容未被改写', async () => {
+    const onApplied = vi.fn();
+    const Card = BUILD_IN_TOOL_CARDS['propose_config'];
+    render(
+      <ConfigApplyScope value={{ root: 'C:demoalpha', onApplied }}>
+        <Card
+          toolCallId="tu_first"
+          toolName="propose_config"
+          state="output-available"
+          input={{}}
+          output={{ content: proposePayload(), isError: false }}
+        />
+        <Card
+          toolCallId="tu_second"
+          toolName="propose_config"
+          state="output-available"
+          input={{}}
+          output={{
+            content: proposePayload({
+              changes: [{ path: 'tests', kind: 'changed', before: [], after: [] }],
+            }),
+            isError: false,
+          }}
+        />
+      </ConfigApplyScope>,
+    );
+
+    const buttons = screen.getAllByTestId<HTMLButtonElement>('config-propose-apply');
+    expect(buttons).toHaveLength(2);
+    fireEvent.click(buttons[0]!);
+    await waitFor(() => expect(configInvokeMock).toHaveBeenCalledTimes(1));
+
+    const second = screen.getAllByTestId<HTMLButtonElement>('config-propose-apply')[1]!;
+    expect(second.disabled, '第二张仍可用（无失效标记）').toBe(false);
+    const diffs = screen.getAllByTestId('config-propose-diff');
+    expect(diffs[1]!.textContent).toContain('- tests');
+    expect(diffs[1]!.textContent).toContain('+ tests');
+  });
+});
+
+describe('ConfigProposeCard：注册表与前端零配置语义', () => {
+  it('注册表第 8 键 propose_config 在场，既有七键逐字零位移', () => {
+    expect(Object.keys(BUILD_IN_TOOL_CARDS)).toEqual([
+      'AskUserQuestion',
+      'finish_step',
+      'web_search',
+      'bash',
+      'read',
+      'write',
+      'edit',
+      'propose_config',
+    ]);
+  });
+
+  it.each(['propose_configx', 'ProposeConfig'])(
+    '未注册名 %s → 回退通用卡（不命中本卡）',
+    (toolName) => {
+      expect(BUILD_IN_TOOL_CARDS[toolName]).toBeUndefined();
+    },
+  );
+
+  it('前端零配置语义结构锚：源码零 KNOWN_KEYS / 零阈值 / 零 diff 计算', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/components/agent/message-cards/tool-cards.tsx'),
+      'utf8',
+    );
+    for (const forbidden of ['KNOWN_KEYS', 'coverage.lines', 'write_protection.files']) {
+      expect(source, `前端零配置语义（${forbidden} 零命中）`).not.toContain(forbidden);
+    }
+    expect(source).toContain('changes.length === 0');
+    expect(source).toContain('payload.candidate === null');
   });
 });

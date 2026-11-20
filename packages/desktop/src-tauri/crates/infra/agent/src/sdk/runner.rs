@@ -15,6 +15,7 @@ use tokio::sync::mpsc;
 
 use crate::sdk::archi_tool::ArchiContext;
 use crate::sdk::config::{EngineConfig, Protocol};
+use crate::sdk::config_propose::ConfigContext;
 use crate::sdk::context::{ContextDefense, DefenseNotice};
 use crate::sdk::db_tool::DbContext;
 use crate::sdk::explore_note::ExploreNoteContext;
@@ -23,7 +24,7 @@ use crate::sdk::model_spec::{
 };
 use crate::sdk::mount::{
     ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_MODULE_TOOL, ARCHI_SCAFFOLD_TOOL, ARCHI_SEARCH_TOOL,
-    DB_QUERY_TOOL, DB_TABLES_TOOL, EXPLORE_NOTE_TOOL,
+    DB_QUERY_TOOL, DB_TABLES_TOOL, EXPLORE_NOTE_TOOL, PROPOSE_CONFIG_TOOL,
 };
 use crate::sdk::protect::ProtectRules;
 use crate::sdk::{context, r#loop, reasoning, resume};
@@ -485,6 +486,23 @@ pub(crate) fn mint_db_context(
         .map(|(global, workspace)| DbContext::new(global, workspace))
 }
 
+/// `propose_config` 执行上下文 per-turn 铸造（单点；`session_pump` 唯一调用处）：
+/// 本轮名字清单含 `propose_config` 且主仓 root 在场才铸，否则 `None`。
+///
+/// `root` MUST 取 `PumpPayload.workspace_root`（主仓根 = 配置权威所在），MUST NOT
+/// 取 `SessionCtx.workspace_root`（exec root；change 会话为 worktree）——配置语义是
+/// 「权威在仓根」，与 archi 语义（「看我现在改的那棵树」）相反。
+pub(crate) fn mint_config_context(
+    names: &[String],
+    workspace_root: Option<&Path>,
+) -> Option<ConfigContext> {
+    let present = names.iter().any(|name| name == PROPOSE_CONFIG_TOOL);
+    if !present {
+        return None;
+    }
+    workspace_root.map(|root| ConfigContext::new(root.to_path_buf()))
+}
+
 /// 本轮名字清单是否包含某工具名（per-turn 铸造判据单点）。
 fn contains_tool(injections: &agent::SessionInjections, tool: &str) -> bool {
     injections
@@ -543,6 +561,12 @@ async fn session_pump(
         payload.db_global.clone(),
         payload.db_workspace.clone(),
     );
+    // `propose_config` 执行上下文 per-turn 铸造：判据 = 名字清单含该工具名，
+    // root 取**主仓 root**（`payload.workspace_root`，非 exec root）
+    let config = mint_config_context(
+        open.injections.tools.as_deref().unwrap_or_default(),
+        payload.workspace_root.as_deref(),
+    );
     // ask 执行上下文 per-turn 铸造：判据 = `ask` 位存在（与 explore / archi 的
     // 「名字包含」判据并列的第二类铸造判据）；`core_session_id` 取
     // `SessionOpen.session_id`（core 铸 id），MUST NOT 取引擎侧 `sdk-…` 标识
@@ -596,6 +620,7 @@ async fn session_pump(
         archi,
         ask,
         db,
+        config,
         protect,
         web_search: payload.web_search,
         effort_params: payload.effort_params.clone(),
