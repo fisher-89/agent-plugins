@@ -42,6 +42,7 @@ function relation(overrides: Partial<ArchiRelation> = {}): ArchiRelation {
     description: '认证调用计费',
     mark: 'none',
     reason: null,
+    apis: [],
     ...overrides,
   };
 }

@@ -3,6 +3,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::drift::report::ArchiDriftOccurrence;
 use crate::graph::ModelGraph;
 use crate::model::{Diagnostic, Element, Relation};
 use crate::parse;
@@ -444,6 +445,45 @@ pub struct ArchiRelation {
     pub mark: EdgeMark,
     /// 豁免理由（本期恒 `null`）
     pub reason: Option<String>,
+    /// 依赖 API 名清单（模型字段的投影拷贝、**字段不省略**、顺序按模型原文；空数组
+    /// = 未声明 API 粒度）。画布据此在点开前呈现声明清单，零额外取数
+    pub apis: Vec<String>,
+}
+
+/// 单条关系的详情投影（`archi_relation` 的出参）。
+///
+/// 模型面（`from` / `to` / `description` / `mark` / `reason` / `modelFile` /
+/// `modelLine` / `declared`）与事实面（`used`）+ 两桶（`usedNotDeclared` /
+/// `declaredNotUsed`）+ 命中点（`occurrences`，复用 [`ArchiDriftOccurrence`]）。
+/// 两桶由 `drift::api_buckets` 求差（**同一纯函数**，命令层零领域规则）；
+/// **不是一次检查**：不出 `status` / `passed`、不组装报告、零缓存、零写盘。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiRelationDetail {
+    /// 起点元素 FQN
+    pub from: String,
+    /// 终点元素 FQN
+    pub to: String,
+    /// 关系说明
+    pub description: Option<String>,
+    /// 边标记（与 [`ArchiRelation::mark`] 同源）
+    pub mark: EdgeMark,
+    /// 豁免理由（与 [`ArchiRelation::reason`] 同源）
+    pub reason: Option<String>,
+    /// 该 `[[relation]]` 声明所在文件（repo 相对）
+    pub model_file: String,
+    /// 声明所在行（`from` 键行，1 起始）
+    pub model_line: u32,
+    /// 模型 `apis`（空 = 未声明 API 粒度）
+    pub declared: Vec<String>,
+    /// 扫描事实名（该元素对命中边的名字并集，去重 + 字典序）
+    pub used: Vec<String>,
+    /// 用了没声明（`used ∖ declared`）
+    pub used_not_declared: Vec<String>,
+    /// 声明没用（`declared ∖ used`；两种成因不可机械分辨，呈现时须并列）
+    pub declared_not_used: Vec<String>,
+    /// 命中点（同一批边，按文件 / 行排序）
+    pub occurrences: Vec<ArchiDriftOccurrence>,
 }
 
 /// 结构诊断投影（`line == 0` 表示位置未知）。
@@ -594,13 +634,15 @@ pub struct ArchiChangeSummary {
 // ---------------------------------------------------------------------------
 
 /// 已加载模型：图（唯一构建点产物）+ 合并后的诊断（解析免费五类 ++ 图自实现四类）。
-struct Loaded {
-    graph: ModelGraph,
-    diagnostics: Vec<Diagnostic>,
+///
+/// `pub(crate)`：`relation` 的按需取数复用同一份装载（MUST NOT 第二份 parse → build）。
+pub(crate) struct Loaded {
+    pub(crate) graph: ModelGraph,
+    pub(crate) diagnostics: Vec<Diagnostic>,
 }
 
 /// 读盘 → 建图 → 诊断合并（本 crate 内 `ModelGraph::build` 的唯一调用点）。
-fn load(root: &Path) -> Loaded {
+pub(crate) fn load(root: &Path) -> Loaded {
     let outcome = parse::parse_dir(root);
     let parse_diagnostics = outcome.diagnostics;
     let graph = ModelGraph::build(outcome.model);
@@ -636,6 +678,7 @@ fn to_relation(relation: &Relation) -> ArchiRelation {
         description: relation.description.clone(),
         mark: EdgeMark::None,
         reason: None,
+        apis: relation.apis.clone(),
     }
 }
 
@@ -664,7 +707,9 @@ fn to_brief(element: &Element) -> ArchiElementBrief {
 
 /// 诊断清单 → 单条错误文案（`kind @ file:line` 逐行；使调用方一眼看出「模型
 /// 本身坏了」而不是「没有这个模块」）。
-fn diagnostics_error(diagnostics: &[Diagnostic]) -> String {
+///
+/// `pub(crate)`：`relation` 的 `Err` 复用同一文案单点。
+pub(crate) fn diagnostics_error(diagnostics: &[Diagnostic]) -> String {
     diagnostics_lines(
         diagnostics
             .iter()

@@ -52,7 +52,7 @@ struct RawElement {
     metadata: BTreeMap<String, String>,
 }
 
-/// 关系条目字段面（`from` / `to` 必填，`desc` 可选）。
+/// 关系条目字段面（`from` / `to` 必填，`desc` / `apis` 可选）。
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawRelation {
@@ -60,6 +60,10 @@ struct RawRelation {
     to: ::toml::Spanned<String>,
     #[serde(default)]
     desc: Option<String>,
+    /// 依赖 API 名清单（选填；值面五拒在 [`to_model`] 校验并出 `invalidValue`——
+    /// 只有在落模型期才拿得到逐项的 `span`）
+    #[serde(default)]
+    apis: Option<Vec<::toml::Spanned<String>>>,
 }
 
 /// TOML 源解析器（[`SourceParser`] 的唯一实现）。
@@ -68,10 +72,10 @@ pub struct TomlParser;
 impl SourceParser for TomlParser {
     fn parse(source: &str) -> ParseOutcome {
         match ::toml::from_str::<RawDocument>(source) {
-            Ok(raw) => ParseOutcome {
-                model: to_model(raw, source),
-                diagnostics: Vec::new(),
-            },
+            Ok(raw) => {
+                let (model, diagnostics) = to_model(raw, source);
+                ParseOutcome { model, diagnostics }
+            }
             Err(error) => {
                 let span = error.span();
                 ParseOutcome {
@@ -91,7 +95,11 @@ impl SourceParser for TomlParser {
 }
 
 /// 反序列化产物 → 格式无关 AST（`file` 留空由聚合层回填；行号取自 span）。
-fn to_model(raw: RawDocument, source: &str) -> Model {
+///
+/// 关系 `apis` 的值面校验（[`validate_apis`]）在此产出带位置的 `invalidValue`——
+/// serde 层只能给类型错的位置，拿不到逐项 `span`。
+fn to_model(raw: RawDocument, source: &str) -> (Model, Vec<Diagnostic>) {
+    let mut diagnostics: Vec<Diagnostic> = Vec::new();
     let mut elements: Vec<Element> = Vec::with_capacity(raw.element.len());
     for (key, raw_element) in raw.element {
         let span = key.span();
@@ -116,19 +124,103 @@ fn to_model(raw: RawDocument, source: &str) -> Model {
     let mut relations: Vec<Relation> = Vec::with_capacity(raw.relation.len());
     for raw_relation in raw.relation {
         let span = raw_relation.from.span();
+        let from = raw_relation.from.into_inner();
+        let to = raw_relation.to.into_inner();
+        let apis = raw_relation.apis;
+        // 缺省（未写该键）与显式空数组必须可辨：前者是「不声明 API 粒度」，后者是
+        // 值面违例（`invalidValue`）
+        if let Some(items) = &apis {
+            diagnostics.extend(validate_apis(source, &from, &to, span.clone(), items));
+        }
         relations.push(Relation {
-            from: raw_relation.from.into_inner(),
-            to: raw_relation.to.into_inner(),
+            from,
+            to,
             description: raw_relation.desc,
+            apis: apis
+                .unwrap_or_default()
+                .into_iter()
+                .map(::toml::Spanned::into_inner)
+                .collect(),
             file: String::new(),
             line: line_of(source, span.start),
             span: Some(SourceSpan::from(span)),
         });
     }
-    Model {
-        elements,
-        relations,
+    (
+        Model {
+            elements,
+            relations,
+        },
+        diagnostics,
+    )
+}
+
+/// `apis` 值面五拒（空串 / 含空白 / 含 `::` / 同名重复 / 显式空数组），逐条出带位置
+/// 的 `invalidValue`。
+///
+/// 纪律：MUST NOT 静默去重、MUST NOT 静默截断、MUST NOT 把空数组当省略——「写重了」
+/// 与「写对了」、「声明了零项」与「没声明」必须可辨。
+fn validate_apis(
+    source: &str,
+    from: &str,
+    to: &str,
+    relation_span: std::ops::Range<usize>,
+    apis: &[::toml::Spanned<String>],
+) -> Vec<Diagnostic> {
+    let diagnostic = |message: String, span: Option<std::ops::Range<usize>>| Diagnostic {
+        kind: DiagnosticKind::InvalidValue,
+        message,
+        file: String::new(),
+        line: span.as_ref().map_or(0, |span| line_of(source, span.start)),
+        column: span.map(|span| column_of(source, span.start)),
+    };
+    if apis.is_empty() {
+        return vec![diagnostic(
+            format!(
+                "关系 {from} → {to} 的 apis 是空数组：空数组与省略同义（不声明 API 粒度）——\
+                 删掉该键，或写入至少一个名字"
+            ),
+            Some(relation_span),
+        )];
     }
+    let mut diagnostics: Vec<Diagnostic> = Vec::new();
+    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for item in apis {
+        let span = item.span();
+        let name = item.get_ref();
+        if name.is_empty() {
+            diagnostics.push(diagnostic(
+                format!("关系 {from} → {to} 的 apis 含空串：只写名字（不得为空）"),
+                Some(span),
+            ));
+            continue;
+        }
+        if name.chars().any(char::is_whitespace) {
+            diagnostics.push(diagnostic(
+                format!(
+                    "关系 {from} → {to} 的 apis 项 \"{name}\" 含空白：只写名字——不写签名 / \
+                     参数 / 类型形状"
+                ),
+                Some(span),
+            ));
+            continue;
+        }
+        if name.contains("::") {
+            diagnostics.push(diagnostic(
+                format!("关系 {from} → {to} 的 apis 项 \"{name}\" 含 `::`：只写名字，不写限定路径"),
+                Some(span),
+            ));
+            continue;
+        }
+        if !seen.insert(name) {
+            diagnostics.push(diagnostic(
+                format!("关系 {from} → {to} 的 apis 项 \"{name}\" 重复：不重复（不做静默去重）"),
+                Some(span),
+            ));
+            continue;
+        }
+    }
+    diagnostics
 }
 
 /// parser / serde 错误 → 诊断种类（判定只看文案前缀；分类学需要机器可辨，文案

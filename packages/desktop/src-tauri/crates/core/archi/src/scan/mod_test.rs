@@ -19,8 +19,8 @@ use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
 
 use super::exclude::DEFAULT_EXCLUDE_RULES;
 use super::{
-    inline_ignore, is_source_file, posix, scan, walk_source_files, DependencyEdge, ScanInput,
-    ScanOutcome,
+    inline_ignore, is_source_file, normalize_names, posix, scan, walk_source_files, DependencyEdge,
+    ImportFact, ScanInput, ScanOutcome,
 };
 
 // ---------------------------------------------------------------------------
@@ -1165,5 +1165,276 @@ fn 扫描面对entry零敏感() {
         baseline.edges.len(),
         decorated.edges.len(),
         "跨元素边数与 `entry` 无关"
+    );
+}
+
+// ===========================================================================
+// 名字面（`relation-api-dependency-check` / AC-2 / AC-3 / D7）
+//
+// `normalize_names` 是「去重 + 字典序」的唯一实现（两套抽取器与 `drift::edge_names`
+// 都只转调它）；`ImportFact::new` 是唯一构造点（归一化在内，抽取器零二次归一）。
+// 本文件同时承担归一单点的源码自证（无第二份实现 / 无绕过构造点的字面量）。
+// ===========================================================================
+
+/// 正向：`["b", "a", "b"]` → `["a", "b"]`（去重 + 字典序）。
+#[test]
+fn 名字归一去重并按字典序() {
+    assert_eq!(
+        normalize_names(strings(&["b", "a", "b"])),
+        strings(&["a", "b"]),
+        "去重且升序"
+    );
+}
+
+/// 边界：空迭代器 → 空向量；单元素 → 原样一名。
+#[test]
+fn 名字归一空与单元素() {
+    assert!(normalize_names(Vec::new()).is_empty(), "空迭代器 ⇒ 空向量");
+    assert_eq!(normalize_names(strings(&["A"])), strings(&["A"]), "单元素");
+}
+
+/// 边界：超大列表（1200 名，乱序 + 大量重复）→ 长度 = 唯一名数、严格升序、零 panic。
+#[test]
+fn 名字归一超大列表严格升序() {
+    let mut raw: Vec<String> = Vec::new();
+    for index in (0..600).rev() {
+        raw.push(format!("Name{index:04}"));
+        raw.push(format!("Name{index:04}"));
+    }
+    let normalized = normalize_names(raw);
+    assert_eq!(normalized.len(), 600, "唯一名数 600");
+    let mut expected = normalized.clone();
+    expected.sort();
+    expected.dedup();
+    assert_eq!(normalized, expected, "输出严格字典序且零重复");
+}
+
+/// 边界：大小写不同（`Agent` / `agent`）→ 两个名（逐字符，禁大小写折叠）。
+#[test]
+fn 名字归一大小写不折叠() {
+    assert_eq!(
+        normalize_names(strings(&["Agent", "agent"])),
+        strings(&["Agent", "agent"]),
+        "大小写是两个名字"
+    );
+}
+
+/// 边界：已排序输入 → 输出逐字相同（幂等）。
+#[test]
+fn 名字归一幂等() {
+    let sorted = strings(&["A", "B", "C"]);
+    assert_eq!(normalize_names(sorted.clone()), sorted, "幂等");
+}
+
+/// 异常：特殊字符（emoji / `a::b` / 空串元素）→ 原样保留、零过滤零 panic（值面校验
+/// 不在此处）。
+#[test]
+fn 名字归一特殊字符零过滤() {
+    for probe in ["Agent🙂", "a::b", ""] {
+        assert_eq!(
+            normalize_names(strings(&[probe])),
+            strings(&[probe]),
+            "{probe:?} 原样保留"
+        );
+    }
+}
+
+/// 正向：`ImportFact::new("@/x", 12, false, ["B", "A"])` → 名字归一到 `["A", "B"]`，
+/// `specifier` / `line` / `type_only` 原样。
+#[test]
+fn import_fact_new归一化在内() {
+    let fact = ImportFact::new("@/x".to_owned(), 12, false, strings(&["B", "A"]));
+    assert_eq!(fact.names, strings(&["A", "B"]), "构造点内归一");
+    assert_eq!(fact.specifier, "@/x", "specifier 原样");
+    assert_eq!(fact.line, 12, "line 原样");
+    assert!(!fact.type_only, "type_only 原样");
+}
+
+/// 边界：空 names → 空向量（glob / `self` / default / namespace / `export *` 的合法
+/// 形态）。
+#[test]
+fn import_fact_new空名字合法() {
+    let fact = ImportFact::new("./x".to_owned(), 1, false, Vec::new());
+    assert!(fact.names.is_empty(), "取不到名字是合法形态");
+}
+
+/// 边界：重复 names `["A", "A"]` → `["A"]`。
+#[test]
+fn import_fact_new重复归一去重() {
+    let fact = ImportFact::new("./x".to_owned(), 1, false, strings(&["A", "A"]));
+    assert_eq!(fact.names, strings(&["A"]), "去重在内");
+}
+
+/// 边界：`type_only = true` 与 names 共存 → 名字照产（type-only 只标注、不豁免）。
+#[test]
+fn import_fact_new_type_only照产名() {
+    let fact = ImportFact::new("./x".to_owned(), 1, true, strings(&["T"]));
+    assert!(fact.type_only, "type-only 标注在案");
+    assert_eq!(fact.names, strings(&["T"]), "名字照产");
+}
+
+/// 异常：名字含空白 / `::`（抽取器理论不产）→ 仍按字符归一（本构造器零值面校验，
+/// 零 panic）。
+#[test]
+fn import_fact_new零值面校验() {
+    for probe in ["a b", "a::b"] {
+        let fact = ImportFact::new("./x".to_owned(), 1, false, strings(&[probe]));
+        assert_eq!(fact.names, strings(&[probe]), "{probe:?} 原样归一");
+    }
+}
+
+/// 正向：端到端（盘面：A 元素文件引入 B 元素的符号）→ `edge.names` 与抽取器
+/// `fact.names` 逐字相等（成边处原样透传，零二次归一）。
+#[test]
+fn 边名字原样透传() {
+    let temp = TempDir::new("names-passthrough");
+    temp.write(
+        "src/auth/token.ts",
+        "export const token = 1;\nexport const guard = 2;\n",
+    );
+    temp.write(
+        "src/billing/x.ts",
+        "import { guard, token } from '../auth/token';\n",
+    );
+    let outcome = scan_full(temp.root(), &two_element_model(), &[]).expect("扫描应成功");
+    assert_eq!(outcome.edges.len(), 1, "恰一条跨元素边");
+    assert_eq!(
+        outcome.edges[0].names,
+        strings(&["guard", "token"]),
+        "边名字 = 抽取器归一后的名字（零二次归一）"
+    );
+}
+
+/// 边界：同一元素对两条边（两文件各一命中）→ 每条边各带自己的 names（聚合留给
+/// `drift::edge_names`）。
+#[test]
+fn 边名字逐边各带() {
+    let temp = TempDir::new("names-per-edge");
+    temp.write(
+        "src/auth/token.ts",
+        "export const alpha = 1;\nexport const beta = 2;\n",
+    );
+    temp.write(
+        "src/billing/a.ts",
+        "import { alpha } from '../auth/token';\n",
+    );
+    temp.write(
+        "src/billing/b.ts",
+        "import { beta } from '../auth/token';\n",
+    );
+    let outcome = scan_full(temp.root(), &two_element_model(), &[]).expect("扫描应成功");
+    assert_eq!(outcome.edges.len(), 2, "两文件两条边");
+    let mut names: Vec<Vec<String>> = outcome
+        .edges
+        .iter()
+        .map(|edge| edge.names.clone())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        vec![strings(&["alpha"]), strings(&["beta"])],
+        "每条边各带自己的名字（不并集）"
+    );
+}
+
+/// 边界：无名字形态（`export * from` / `import a from`）→ `edge.names` 为空（不产
+/// 假名）。
+#[test]
+fn 边名字无名字形态为空() {
+    for probe in [
+        "export * from '../auth/token';\n",
+        "import anything from '../auth/token';\n",
+    ] {
+        let temp = TempDir::new("names-absent");
+        temp.write("src/auth/token.ts", "export const token = 1;\n");
+        temp.write("src/billing/x.ts", probe);
+        let outcome = scan_full(temp.root(), &two_element_model(), &[]).expect("扫描应成功");
+        assert_eq!(outcome.edges.len(), 1, "{probe:?} 仍成边");
+        assert!(
+            outcome.edges[0].names.is_empty(),
+            "{probe:?} 无可枚举名字 ⇒ 空（不产假名）"
+        );
+    }
+}
+
+/// 异常：目标不可归属的边（`Owner::None` / `Owner::Ambiguous`）→ 仍丢弃、零边产出
+/// （names 不改变丢弃语义）。
+#[test]
+fn 边名字不改不可归属丢弃() {
+    // Owner::None：目标文件无元素覆盖
+    let none_case = TempDir::new("names-owner-none");
+    none_case.write("src/shared/util.ts", "export const util = 1;\n");
+    none_case.write(
+        "src/billing/x.ts",
+        "import { util } from '../shared/util';\n",
+    );
+    let outcome = scan_full(none_case.root(), &two_element_model(), &[]).expect("扫描应成功");
+    assert!(outcome.edges.is_empty(), "目标无主 ⇒ 零边");
+
+    // Owner::Ambiguous：两个同长 path 前缀元素同时覆盖目标
+    let ambiguous_case = TempDir::new("names-owner-ambiguous");
+    ambiguous_case.write("src/shared/util.ts", "export const util = 1;\n");
+    ambiguous_case.write(
+        "src/billing/x.ts",
+        "import { util } from '../shared/util';\n",
+    );
+    let mut elements = two_element_model();
+    elements.push(element("App.X", GateTier::Warn, &["./src/shared/"]));
+    elements.push(element("App.Y", GateTier::Warn, &["./src/shared/"]));
+    let outcome = scan_full(ambiguous_case.root(), &elements, &[]).expect("扫描应成功");
+    assert!(
+        outcome.edges.is_empty(),
+        "目标归属不确定 ⇒ 零边（names 不改变丢弃语义）"
+    );
+}
+
+/// 边界：`gate = off` 引入方的边 → 照常带 names（定级不在扫描面）。
+#[test]
+fn 边名字对off引入方照常产出() {
+    let temp = TempDir::new("names-off-importer");
+    temp.write("src/auth/token.ts", "export const token = 1;\n");
+    temp.write(
+        "src/billing/x.ts",
+        "import { token } from '../auth/token';\n",
+    );
+    let mut elements = two_element_model();
+    elements[1].gate = GateTier::Off;
+    let outcome = scan_full(temp.root(), &elements, &[]).expect("扫描应成功");
+    assert_eq!(outcome.edges.len(), 1, "off 只表不参与定级，边照产");
+    assert_eq!(
+        outcome.edges[0].names,
+        strings(&["token"]),
+        "names 与档位无关"
+    );
+}
+
+/// 组合（源码自证）：两套抽取器内零 `ImportFact {` 结构体字面量（构造点收敛到
+/// `ImportFact::new`），且 `normalize_names` 全 crate 仅一处实现、只两处转调。
+#[test]
+fn 归一单点源码自证() {
+    for (label, source) in [
+        ("scan/rust.rs", include_str!("rust.rs")),
+        ("scan/ts.rs", include_str!("ts.rs")),
+    ] {
+        assert!(
+            !source.contains("ImportFact {"),
+            "{label} 内不得有绕过 `ImportFact::new` 的字面量"
+        );
+        assert!(
+            source.contains("ImportFact::new("),
+            "{label} 的构造点收敛到 `ImportFact::new`"
+        );
+    }
+    let scan_source = include_str!("mod.rs");
+    assert_eq!(
+        scan_source.matches("fn normalize_names").count(),
+        1,
+        "`normalize_names` 在 scan/mod.rs 恰一处实现"
+    );
+    let drift_source = include_str!("../drift/mod.rs");
+    assert_eq!(
+        drift_source.matches("normalize_names").count(),
+        1,
+        "`drift::edge_names` 只转调不复制"
     );
 }

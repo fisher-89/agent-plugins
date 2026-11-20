@@ -215,6 +215,7 @@ fn 派生相等语义_文件行参与比较与空表同值() {
         from: "App.Auth".to_owned(),
         to: "App".to_owned(),
         description: None,
+        apis: Vec::new(),
         file: ".dev-team/architecture/graph/model/01-core.toml".to_owned(),
         line: 12,
         span: None,
@@ -225,6 +226,7 @@ fn 派生相等语义_文件行参与比较与空表同值() {
             from: "App.Auth".to_owned(),
             to: "App".to_owned(),
             description: None,
+            apis: Vec::new(),
             file: ".dev-team/architecture/graph/model/01-core.toml".to_owned(),
             line: 12,
             span: None,
@@ -237,6 +239,7 @@ fn 派生相等语义_文件行参与比较与空表同值() {
             from: "App.Auth".to_owned(),
             to: "App".to_owned(),
             description: None,
+            apis: Vec::new(),
             file: ".dev-team/architecture/graph/model/01-core.toml".to_owned(),
             line: 12,
             span: Some(SourceSpan { start: 10, end: 20 }),
@@ -816,4 +819,127 @@ fn element_doc与path正交() {
         Some("guides/auth.md"),
         "doc 原文逐字保留"
     );
+}
+
+// ===========================================================================
+// `Relation.apis`（`relation-api-dependency-check` / AC-3 / D3）
+//
+// 模型层只承载原文：去重 / 排序 / 大小写归一全在判定侧 `drift::api_buckets`，故直构
+// 含重复名 / 乱序名都原样保留（本文件零值面校验，那是 `parse/toml` 的面）。
+// ===========================================================================
+
+/// 关系构造器（`apis` 显式传入；其余字段固定）。
+fn relation(from: &str, to: &str, apis: &[&str]) -> Relation {
+    Relation {
+        from: from.to_owned(),
+        to: to.to_owned(),
+        description: None,
+        apis: apis.iter().map(|name| (*name).to_owned()).collect(),
+        file: ".dev-team/architecture/graph/model/01-core.toml".to_owned(),
+        line: 12,
+        span: Some(SourceSpan { start: 10, end: 20 }),
+    }
+}
+
+/// 正向：直构两名字 → 逐字段可读，序 = 声明序（零归一）。
+#[test]
+fn relation_apis按声明序可读() {
+    let subject = relation("App.Auth", "App.Billing", &["B", "A"]);
+    assert_eq!(
+        subject.apis,
+        vec!["B".to_owned(), "A".to_owned()],
+        "模型层零排序、零去重（原文序）"
+    );
+    assert_eq!(subject.from, "App.Auth", "其余六字段不受影响");
+    assert_eq!(subject.to, "App.Billing");
+    assert_eq!(subject.description, None);
+    assert_eq!(subject.line, 12);
+    assert!(subject.span.is_some(), "span 仍为可选占位");
+}
+
+/// 边界：`apis: Vec::new()`（= 省略）→ 空向量且其余六字段零变化。
+#[test]
+fn relation_apis空即未声明() {
+    let subject = relation("App.Auth", "App.Billing", &[]);
+    assert!(subject.apis.is_empty(), "空 = 不声明 API 粒度");
+    assert_eq!(
+        subject.file,
+        ".dev-team/architecture/graph/model/01-core.toml"
+    );
+    assert_eq!(subject.line, 12);
+}
+
+/// 边界：直构含重复名（绕过 parse 值面）→ 原样保留（归一在 `drift::api_buckets`）。
+#[test]
+fn relation_apis重复名模型层不去重() {
+    let subject = relation("App.Auth", "App.Billing", &["A", "A"]);
+    assert_eq!(
+        subject.apis,
+        vec!["A".to_owned(), "A".to_owned()],
+        "模型层零去重"
+    );
+}
+
+/// 异常：同其余字段、仅 `apis` 不同 → `!=`（结构比较语义随字段扩展）；六字段全等
+/// → `==`。
+#[test]
+fn relation_apis参与结构比较() {
+    let base = relation("App.Auth", "App.Billing", &["A"]);
+    assert_eq!(
+        base,
+        relation("App.Auth", "App.Billing", &["A"]),
+        "全等 ⇒ =="
+    );
+    assert_ne!(
+        base,
+        relation("App.Auth", "App.Billing", &["A", "B"]),
+        "仅 apis 不同 ⇒ !="
+    );
+    assert_ne!(
+        base,
+        relation("App.Auth", "App.Billing", &[]),
+        "apis 清空同样不等"
+    );
+}
+
+/// 组合：`TomlParser::parse` 产物与本文件直构产物逐字段相等（`file` 留空、`line` =
+/// `from` 键行、`span` 由 span 换算）。
+#[test]
+fn relation_apis解析产物与直构一致() {
+    let source = "[[relation]]\nfrom = \"App.Auth\"\nto = \"App.Billing\"\napis = [\"A\", \"B\"]\n";
+    let outcome = parse_with_models(source);
+    assert!(outcome.diagnostics.is_empty(), "健康源零诊断");
+    let parsed = &outcome.model.relations[0];
+    let mut expected = relation("App.Auth", "App.Billing", &["A", "B"]);
+    expected.file = String::new();
+    expected.line = 2;
+    assert_eq!(parsed.from, expected.from);
+    assert_eq!(parsed.to, expected.to);
+    assert_eq!(parsed.description, expected.description);
+    assert_eq!(parsed.apis, expected.apis, "apis 与源文本同值");
+    assert_eq!(parsed.file, expected.file, "file 由聚合层回填");
+    assert_eq!(parsed.line, expected.line, "line = from 键行");
+    assert!(parsed.span.is_some(), "span 由解析 span 换算");
+}
+
+/// 正向：`Model::element` 命中 / 未命中两态与 `Model::empty()` 语义不变（扩展字段不
+/// 改查找面）。
+#[test]
+fn relation扩展字段不改查找面() {
+    let mut model = three_elements();
+    model.relations = vec![relation("App.Auth", "App", &["A", "B"])];
+    assert!(model.element("App.Auth").is_some(), "命中");
+    assert!(model.element("app.auth").is_none(), "大小写不同即不命中");
+    assert!(Model::empty().element("App").is_none(), "空模型零命中");
+    assert_eq!(model.relations.len(), 1, "关系面不受查找影响");
+}
+
+/// 异常：`apis` 为 `Vec::new()` 而其余字段任意 → 结构比较零 panic、诊断面零变化。
+#[test]
+fn relation_apis空向量结构比较零panic() {
+    let mut model = Model::empty();
+    model.relations = vec![relation("App.Auth", "App.Billing", &[])];
+    let outcome = parse_with_models("[[relation]]\nfrom = \"A\"\nto = \"B\"\n");
+    assert!(outcome.diagnostics.is_empty(), "缺省 apis 零诊断");
+    assert_eq!(model.relations[0].apis, outcome.model.relations[0].apis);
 }

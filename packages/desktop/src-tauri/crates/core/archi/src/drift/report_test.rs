@@ -213,15 +213,16 @@ fn 模式词汇二值() {
     }
 }
 
-/// 正向：`ArchiDriftKind` 四值 `ALL` 与 camelCase 线形往返。
+/// 正向：`ArchiDriftKind` 五值 `ALL` 与 camelCase 线形往返（新值置末）。
 #[test]
-fn 漂移词汇四值() {
-    assert_eq!(ArchiDriftKind::ALL.len(), 4, "四值清单");
+fn 漂移词汇五值() {
+    assert_eq!(ArchiDriftKind::ALL.len(), 5, "五值清单");
     for (kind, word) in [
         (ArchiDriftKind::UndeclaredDependency, "undeclaredDependency"),
         (ArchiDriftKind::PathNotFound, "pathNotFound"),
         (ArchiDriftKind::AmbiguousOwner, "ambiguousOwner"),
         (ArchiDriftKind::NoPath, "noPath"),
+        (ArchiDriftKind::UndeclaredApi, "undeclaredApi"),
     ] {
         assert_eq!(kind.as_str(), word, "as_str 词面");
         let json = serde_json::to_string(&kind).expect("序列化失败");
@@ -404,6 +405,18 @@ fn option字段null往返() {
         serde_json::from_str(&serde_json::to_string(&unresolved).expect("序列化失败"))
             .expect("反序列化失败");
     assert_eq!(back, unresolved, "specifier None 往返成立");
+}
+
+/// 异常：报告 JSON 混入未知字段（顶层与嵌套各一处）→ 反序列化按 serde 缺省忽略，
+/// 旧报告读取零破。
+#[test]
+fn 报告未知字段反序列化忽略() {
+    let report = empty_report();
+    let mut value = serde_json::to_value(&report).expect("序列化失败");
+    value["futureSlot"] = serde_json::json!({ "nested": [1, 2] });
+    value["scan"]["futureCount"] = serde_json::json!(7);
+    let back: ArchiDriftReport = serde_json::from_value(value).expect("未知字段应被忽略");
+    assert_eq!(back, report, "未知字段不进结构（零破读）");
 }
 
 /// 边界：全空数组的 `clean` 报告两次 `to_vec_pretty` 字节相等（无 HashMap 序漂移），
@@ -1495,5 +1508,126 @@ fn 报告版本与槽位键名零变化() {
             "status",
         ],
         "报告字段面与序零变化：{keys:?}"
+    );
+}
+
+// ===========================================================================
+// 名字级两桶的词汇面（`relation-api-dependency-check` / AC-4 / AC-6 / D8 / D18）
+//
+// 新增的只有「取值」：`undeclaredApi` 进漂移五值（置末），`unusedDeclaration` 是观察
+// 二值里的既有位（本期开始产出）。条目 / 观察项 / 报告的字段集**零扩张**。
+// ===========================================================================
+
+/// 异常：漂移词汇封闭五值——近似串 / 大小写变体 / 空串 / 词表外 → 反序列化即错（零
+/// 第六值）。
+#[test]
+fn 漂移词汇外反序列化即错() {
+    for probe in ["undeclaredAPI", "UndeclaredApi", "", "other"] {
+        let text = format!("\"{probe}\"");
+        assert!(
+            serde_json::from_str::<ArchiDriftKind>(&text).is_err(),
+            "{probe:?} 不是合法漂移种类"
+        );
+    }
+}
+
+/// 正向：`undeclaredApi` 的条目键集与既有条目逐键相同（新增取值不扩字段，AC-6）。
+#[test]
+fn undeclared_api条目键集零扩张() {
+    let subject = ArchiDriftEntry {
+        kind: ArchiDriftKind::UndeclaredApi,
+        from: Some("App.A".to_owned()),
+        to: Some("App.B".to_owned()),
+        gate: Some(GateTier::Strict),
+        message: "用了没声明".to_owned(),
+        occurrences: vec![occurrence("src/a/x.ts", 3)],
+    };
+    let json = serde_json::to_value(&subject).expect("序列化失败");
+    let mut keys: Vec<&str> = json
+        .as_object()
+        .expect("条目为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec!["from", "gate", "kind", "message", "occurrences", "to"],
+        "六字段逐键在案"
+    );
+    assert_eq!(json["kind"], "undeclaredApi", "线格式 camelCase");
+    let back: ArchiDriftEntry = serde_json::from_value(json).expect("反序列化失败");
+    assert_eq!(back, subject, "往返恒等");
+}
+
+/// 边界：观察二值 `ALL` 未扩（仍二值），`unusedDeclaration` 线形往返一致，观察项键集
+/// 零变化（不新增 `occurrences`）。
+#[test]
+fn unused_declaration观察项键集零变化() {
+    assert_eq!(ArchiObservationKind::ALL.len(), 2, "观察二值未扩");
+    assert_eq!(
+        ArchiObservationKind::ALL[1],
+        ArchiObservationKind::UnusedDeclaration,
+        "第二位即本期产出值"
+    );
+    let subject = ArchiDriftObservation {
+        kind: ArchiObservationKind::UnusedDeclaration,
+        from: "App.A".to_owned(),
+        to: "App.B".to_owned(),
+        message: "声明没用".to_owned(),
+    };
+    let json = serde_json::to_value(&subject).expect("序列化失败");
+    let mut keys: Vec<&str> = json
+        .as_object()
+        .expect("观察项为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec!["from", "kind", "message", "to"],
+        "四字段零扩张（无 occurrences）"
+    );
+    assert_eq!(json["kind"], "unusedDeclaration");
+    let back: ArchiDriftObservation = serde_json::from_value(json).expect("反序列化失败");
+    assert_eq!(back, subject, "往返恒等");
+
+    for probe in ["unusedDeclarations", "UnusedDeclaration", ""] {
+        let text = format!("\"{probe}\"");
+        assert!(
+            serde_json::from_str::<ArchiObservationKind>(&text).is_err(),
+            "{probe:?} 不是合法观察种类"
+        );
+    }
+}
+
+/// 边界：报告版本常量与顶层字段序零变化（`REPORT_VERSION == 3`）。
+#[test]
+fn 报告版本常量与字段序零变化() {
+    assert_eq!(super::REPORT_VERSION, 3, "报告版本仍为 3");
+    assert_eq!(
+        serde_json::to_value(full_report()).expect("序列化失败")["version"],
+        3,
+        "线面版本随常量"
+    );
+}
+
+/// 组合（产出面源码自证）：`unusedDeclaration` 的装配只在 `drift::check` 一处产出，
+/// 报告侧本模块零第二处。
+#[test]
+fn unused_declaration产出面单点() {
+    let report_source = include_str!("report.rs");
+    assert!(
+        !report_source.contains("observations.push"),
+        "报告模块只定义词汇，不装配产出"
+    );
+    let drift_source = include_str!("mod.rs");
+    assert_eq!(
+        drift_source
+            .matches("ArchiObservationKind::UnusedDeclaration")
+            .count(),
+        1,
+        "装配侧只在 drift::check 一处产出"
     );
 }

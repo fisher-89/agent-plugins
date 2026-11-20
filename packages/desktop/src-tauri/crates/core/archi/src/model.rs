@@ -76,6 +76,9 @@ pub struct Relation {
     pub to: String,
     /// 关系说明
     pub description: Option<String>,
+    /// 依赖 API 名清单（模型原文序；缺省空 = 不声明 API 粒度；去重 / 排序只在
+    /// 判定侧的 `drift::api_buckets` 内做）
+    pub apis: Vec<String>,
     /// 声明所在文件（repo 相对、`/` 分隔）
     pub file: String,
     /// 声明所在行（`from` 键行，1 起始；0 = 位置未知）

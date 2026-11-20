@@ -56,6 +56,7 @@ function graph(): ArchiGraph {
         description: '认证读取计费配置',
         mark: 'none',
         reason: null,
+        apis: [],
       },
     ],
     diagnostics: [],
@@ -217,6 +218,7 @@ describe('driftMarks 未兑现声明', () => {
         description: null,
         mark: 'none',
         reason: null,
+        apis: [],
       },
       {
         from: 'App.Auth',
@@ -224,6 +226,7 @@ describe('driftMarks 未兑现声明', () => {
         description: null,
         mark: 'none',
         reason: null,
+        apis: [],
       },
     );
     const result = driftMarks(
@@ -355,6 +358,7 @@ describe('driftMarks 纯函数性', () => {
         description: null,
         mark: 'none',
         reason: null,
+        apis: [],
       });
     }
     const observations: ArchiDriftObservation[] = [];

@@ -1,0 +1,64 @@
+{
+  "version": 3,
+  "timestamp": "<timestamp>",
+  "mode": "full",
+  "root": "<root>",
+  "change": "api-used-not-declared",
+  "base": null,
+  "modelHash": "sha256:1dcec8c24abc6e76d329f660a0c5a24c4431b5c61b0ab0afd9c3647f62734fc7",
+  "model": {
+    "elements": 3,
+    "relations": 1,
+    "byGate": {
+      "strict": 2,
+      "warn": 0,
+      "off": 1
+    },
+    "structuralErrors": [],
+    "warnings": []
+  },
+  "scan": {
+    "mode": "full",
+    "changedFiles": 0,
+    "scannedFiles": 2,
+    "excluded": [],
+    "unmatchedFiles": [],
+    "matched": [
+      {
+        "element": "App.Api",
+        "files": [
+          "src/api/index.ts"
+        ]
+      },
+      {
+        "element": "App.Consumer",
+        "files": [
+          "src/consumer/x.ts"
+        ]
+      }
+    ],
+    "unresolved": []
+  },
+  "errors": [
+    {
+      "kind": "undeclaredApi",
+      "from": "App.Consumer",
+      "to": "App.Api",
+      "gate": "strict",
+      "message": "用了没声明：App.Consumer → App.Api 的 import 用了 apis 之外的名字（SessionPanel）；引入方 gate=strict，1 处命中",
+      "occurrences": [
+        {
+          "file": "src/consumer/x.ts",
+          "line": 1,
+          "specifier": "../api",
+          "typeOnly": false
+        }
+      ]
+    }
+  ],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [],
+  "apiFindings": [],
+  "status": "errors"
+}

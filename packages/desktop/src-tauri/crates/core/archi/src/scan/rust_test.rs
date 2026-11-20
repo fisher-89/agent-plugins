@@ -654,3 +654,291 @@ fn 规模边界批量与复用() {
         "入口文件的查询同样稳定"
     );
 }
+
+// ===========================================================================
+// `extract` 产名（`relation-api-dependency-check` / D5 / AC-2）
+//
+// 名字口径（唯一实现，`flatten_use_tree`）：`Name` → 该标识符；`Rename` → **被引入
+// 名**（不是别名）；`Glob` → 无名；末段 `self` → 无名（`self` 就是模块本身）。
+// 产名与「能否落盘」解耦：外部 crate 的 `use` 照产名，落盘失败在扫描层丢边。
+// ===========================================================================
+
+/// 正向：单条 `use` 的各形态 → `(specifier, names)` 两列逐值（`Name` / `Rename` /
+/// `Glob` / `Group` 四形态一次过）。
+#[test]
+fn extract产名单条形态四列() {
+    let (temp, entry) = single_crate("names-single", "pub struct A;\n");
+    let resolver = RustResolver::new(temp.root()).expect("清单可解析");
+    for (source, specifier, names) in [
+        ("use crate::b::B;\n", "crate::b::B", vec!["B"]),
+        ("use crate::b::B as W;\n", "crate::b::B", vec!["B"]),
+        ("use self::x::B;\n", "self::x::B", vec!["B"]),
+        ("use crate::b::*;\n", "crate::b", vec![]),
+    ] {
+        let (facts, unresolved) = resolver.extract(&entry, source);
+        assert!(unresolved.is_empty(), "{source:?} 不产留痕");
+        assert_eq!(facts.len(), 1, "{source:?} 恰一条 fact");
+        assert_eq!(facts[0].specifier, specifier, "{source:?} 路径列");
+        assert_eq!(
+            facts[0].names,
+            names
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect::<Vec<String>>(),
+            "{source:?} 名字列（Rename 取被引入名、Glob 无名）"
+        );
+    }
+}
+
+/// 正向：`use crate::b::{B, C};` → 两条 fact 各带自己的名字（一条声明两 facts 的既有
+/// 形态不变）。
+#[test]
+fn extract产名group两facts() {
+    let (temp, entry) = single_crate("names-group", "pub struct A;\n");
+    let resolver = RustResolver::new(temp.root()).expect("清单可解析");
+    let (facts, unresolved) = resolver.extract(&entry, "use crate::b::{B, C};\n");
+    assert!(unresolved.is_empty(), "合法 use 不产留痕");
+    assert_eq!(
+        facts
+            .iter()
+            .map(|fact| (fact.specifier.as_str(), fact.names.clone()))
+            .collect::<Vec<(&str, Vec<String>)>>(),
+        vec![
+            ("crate::b::B", vec!["B".to_owned()]),
+            ("crate::b::C", vec!["C".to_owned()]),
+        ],
+        "两 facts 各带自己的名字"
+    );
+}
+
+/// 正向：`use crate::b::{B, C as D};` → 名字分别 `B` 与 **`C`**（被引入名，非别名
+/// `D`）。
+#[test]
+fn extract产名rename取被引入名() {
+    let (temp, entry) = single_crate("names-rename", "pub struct A;\n");
+    let resolver = RustResolver::new(temp.root()).expect("清单可解析");
+    let (facts, _) = resolver.extract(&entry, "use crate::b::{B, C as D};\n");
+    assert_eq!(
+        facts
+            .iter()
+            .map(|fact| fact.names.clone())
+            .collect::<Vec<Vec<String>>>(),
+        vec![vec!["B".to_owned()], vec!["C".to_owned()]],
+        "别名 `D` 不入值面"
+    );
+    assert!(
+        facts
+            .iter()
+            .all(|fact| !fact.names.iter().any(|name| name == "D")),
+        "别名零命中"
+    );
+}
+
+/// 边界：末段恰 `self`（`use crate::b::{self};`）→ 无名；嵌套 group
+/// `use a::{b::{C, D}, E};` → 三条 fact 名字分别 C / D / E。
+#[test]
+fn extract产名self与嵌套group() {
+    let (temp, entry) = single_crate("names-self-nested", "pub struct A;\n");
+    let resolver = RustResolver::new(temp.root()).expect("清单可解析");
+
+    let (facts, _) = resolver.extract(&entry, "use crate::b::{self};\n");
+    assert_eq!(facts.len(), 1, "self 形态一条 fact");
+    assert!(facts[0].names.is_empty(), "末段 self ⇒ 无名");
+
+    let (facts, _) = resolver.extract(&entry, "use a::{b::{C, D}, E};\n");
+    assert_eq!(
+        facts
+            .iter()
+            .map(|fact| (fact.specifier.as_str(), fact.names.clone()))
+            .collect::<Vec<(&str, Vec<String>)>>(),
+        vec![
+            ("a::b::C", vec!["C".to_owned()]),
+            ("a::b::D", vec!["D".to_owned()]),
+            ("a::E", vec!["E".to_owned()]),
+        ],
+        "嵌套 group 逐条展平且各带名字"
+    );
+}
+
+/// 边界：同一文件多条 `use` 声明 → 每条独立 fact（行号各自对应，跨声明零合并）；
+/// 两条重复声明 → 两条 fact 各 `["B"]`（去重只在判定侧）。
+#[test]
+fn extract产名跨声明不合并() {
+    let (temp, entry) = single_crate("names-lines", "pub struct A;\n");
+    let resolver = RustResolver::new(temp.root()).expect("清单可解析");
+    let (facts, _) = resolver.extract(
+        &entry,
+        "use crate::b::B;\n\nuse crate::b::B;\nuse crate::c::C;\n",
+    );
+    assert_eq!(
+        facts
+            .iter()
+            .map(|fact| (fact.line, fact.names.clone()))
+            .collect::<Vec<(u32, Vec<String>)>>(),
+        vec![
+            (1, vec!["B".to_owned()]),
+            (3, vec!["B".to_owned()]),
+            (4, vec!["C".to_owned()]),
+        ],
+        "重复声明各成一条 fact（零合并、零去重）"
+    );
+}
+
+/// 边界：极长名字（> 1000 chars）与多字节标识符 → 原样、零 panic。
+#[test]
+fn extract产名极长与多字节() {
+    let (temp, entry) = single_crate("names-long", "pub struct A;\n");
+    let resolver = RustResolver::new(temp.root()).expect("清单可解析");
+    let long = "N".repeat(1200);
+    let (facts, unresolved) = resolver.extract(&entry, &format!("use crate::b::{long};\n"));
+    assert!(unresolved.is_empty(), "极长标识符合法");
+    assert_eq!(facts[0].names, vec![long], "极长名原样");
+
+    let (facts, unresolved) = resolver.extract(&entry, "use crate::b::名字;\n");
+    assert!(unresolved.is_empty(), "多字节标识符合法");
+    assert_eq!(facts[0].names, vec!["名字".to_owned()], "多字节名原样");
+}
+
+/// 异常：非 `use` 项（`fn` / `impl` / `mod` / `struct`）→ 零 fact（`Item::Use` 之外
+/// 一律跳过）。
+#[test]
+fn extract产名非use项零fact() {
+    let (temp, entry) = single_crate("names-non-use", "pub struct A;\n");
+    let resolver = RustResolver::new(temp.root()).expect("清单可解析");
+    for source in [
+        "pub fn helper() {}\n",
+        "impl A { pub fn f(&self) {} }\n",
+        "mod nested;\n",
+        "pub struct B;\n",
+    ] {
+        let (facts, unresolved) = resolver.extract(&entry, source);
+        assert!(facts.is_empty(), "{source:?} 不产 fact");
+        assert!(unresolved.is_empty(), "{source:?} 不冒充留痕");
+    }
+}
+
+/// 异常：外部 crate（`use std::collections::HashMap;`）→ fact 照出、名字照产（产名与
+/// 可否落盘解耦）。
+#[test]
+fn extract产名外部crate照产() {
+    let temp = TempDir::new("names-external");
+    temp.write(
+        "Cargo.toml",
+        "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    temp.write("src/lib.rs", "pub struct A;\n");
+    let entry = "src/lib.rs".to_owned();
+    let resolver = RustResolver::new(temp.root()).expect("清单可解析");
+    let (facts, unresolved) = resolver.extract(
+        &entry,
+        "use std::collections::HashMap;\nuse std::collections::*;\n",
+    );
+    assert!(unresolved.is_empty(), "外部 crate 不是解析失败");
+    assert_eq!(
+        facts
+            .iter()
+            .map(|fact| (fact.specifier.as_str(), fact.names.clone()))
+            .collect::<Vec<(&str, Vec<String>)>>(),
+        vec![
+            ("std::collections::HashMap", vec!["HashMap".to_owned()]),
+            ("std::collections", vec![]),
+        ],
+        "落盘会丢弃，但名字事实照产出"
+    );
+    assert_eq!(
+        resolver.resolve(&entry, "std::collections::HashMap"),
+        None,
+        "外部 crate 落盘照旧静默丢弃（两面互不污染）"
+    );
+}
+
+// ===========================================================================
+// `flatten_use_tree` 与「产名 / 落盘」分工（`relation-api-dependency-check` / D5）
+//
+// 名字面与落盘面同次遍历产出、互不污染：名字决定判定侧的事实名，specifier 决定
+// 落盘文件；空 prefix 拼不出 specifier，尾段不参与前缀匹配。
+// ===========================================================================
+
+/// 边界：空 prefix + `Glob`（`use *;`，模块面无从拼起的形态）→ 不产路径、零 panic；
+/// `extract` 面照常不冒充留痕（glob 没有可枚举的符号）。
+#[test]
+fn flatten_use_tree空prefix与glob不产路径() {
+    let (temp, entry) = single_crate("names-glob-root", "pub struct A;\n");
+    let resolver = RustResolver::new(temp.root()).expect("清单可解析");
+    let (facts, unresolved) = resolver.extract(&entry, "use *;\n");
+    assert!(
+        facts.is_empty(),
+        "空 prefix + Glob 拼不出 specifier ⇒ 零 fact"
+    );
+    assert!(
+        unresolved.is_empty(),
+        "该形态不是解析失败（空 prefix 由 `flatten_use_tree` 自行跳过）：{:?}",
+        unresolved
+            .iter()
+            .map(|entry| entry.message.clone())
+            .collect::<Vec<String>>()
+    );
+    assert_eq!(resolver.resolve(&entry, "*"), None, "无 specifier 可落盘");
+}
+
+/// 组合：同一条 `use crate::b::{B, C}` → 两条 fact（names 各 `B` / `C`），但两个
+/// specifier 的 `resolve` 落到**同一文件**（尾段类型名不参与前缀匹配，`crate::b`
+/// 就是模块面）。
+#[test]
+fn extract与resolve分工两fact落同一文件() {
+    let (temp, entry) = single_crate("names-split", "mod b;\n");
+    temp.write("src/b.rs", "pub struct B;\npub struct C;\n");
+    let resolver = RustResolver::new(temp.root()).expect("清单可解析");
+    let (facts, unresolved) = resolver.extract(&entry, "use crate::b::{B, C};\n");
+    assert!(unresolved.is_empty(), "合法 use 不产留痕");
+    assert_eq!(
+        facts
+            .iter()
+            .map(|fact| (fact.specifier.as_str(), fact.names.clone()))
+            .collect::<Vec<(&str, Vec<String>)>>(),
+        vec![
+            ("crate::b::B", vec!["B".to_owned()]),
+            ("crate::b::C", vec!["C".to_owned()]),
+        ],
+        "一条声明两条 fact，名字各异"
+    );
+    assert_eq!(
+        facts
+            .iter()
+            .map(|fact| resolver.resolve(&entry, &fact.specifier))
+            .collect::<Vec<Option<String>>>(),
+        vec![Some("src/b.rs".to_owned()), Some("src/b.rs".to_owned())],
+        "尾段被最长前缀吃掉 ⇒ 两 specifier 落同一模块文件"
+    );
+}
+
+/// 边界（表驱动 2 行）：同模块两形态（`use crate::b;` 模块自身 + `use crate::b::*;`）
+/// → 落盘同一文件；names 分别 `["b"]`（模块名照产）与 `[]`（glob 无名）。
+#[test]
+fn extract与resolve同模块多形态() {
+    let (temp, entry) = single_crate("names-same-module", "mod b;\n");
+    temp.write("src/b.rs", "pub struct B;\n");
+    let resolver = RustResolver::new(temp.root()).expect("清单可解析");
+    for (source, specifier, names) in [
+        ("use crate::b;\n", "crate::b", vec!["b"]),
+        ("use crate::b::*;\n", "crate::b", vec![]),
+    ] {
+        let (facts, unresolved) = resolver.extract(&entry, source);
+        assert!(unresolved.is_empty(), "{source:?} 合法 use 不产留痕");
+        assert_eq!(facts.len(), 1, "{source:?} 恰一条 fact");
+        assert_eq!(facts[0].specifier, specifier, "{source:?} 路径列");
+        assert_eq!(
+            facts[0].names,
+            names
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect::<Vec<String>>(),
+            "{source:?} 名字列（模块自身照产名、glob 无名）"
+        );
+        assert_eq!(
+            resolver.resolve(&entry, &facts[0].specifier),
+            Some("src/b.rs".to_owned()),
+            "{source:?} 落盘同文件"
+        );
+    }
+}

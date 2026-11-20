@@ -489,3 +489,189 @@ fn new根边界零panic() {
         assert!(resolved.is_none(), "目标不在盘上 → None（可判、不 panic）");
     }
 }
+
+// ===========================================================================
+// `extract` 产名（`relation-api-dependency-check` / D6 / AC-2）
+//
+// 具名 specifier 产名（`type` 前缀剥除、照产名）；default / namespace /
+// `export *` 不产名（无可枚举的导出名，静默产名会造出假阳）。
+// ===========================================================================
+
+/// 名字面抽取（`(specifier, type_only, names)` 三列；`extract` 只吃 `&str`，零盘）。
+fn names_of(file_rel: &str, source: &str) -> Vec<(String, bool, Vec<String>)> {
+    let temp = TempDir::new("names");
+    let resolver = TsResolver::new(temp.root());
+    let (facts, _) = resolver.extract(file_rel, source);
+    facts
+        .into_iter()
+        .map(|fact| (fact.specifier, fact.type_only, fact.names))
+        .collect()
+}
+
+/// 辅助：单个名的期望向量。
+fn names(items: &[&str]) -> Vec<String> {
+    items.iter().map(|item| (*item).to_owned()).collect()
+}
+
+/// 正向：具名 import 两形态（普通 / 混合 `type` 前缀）→ 名字照产、`type_only` 只由
+/// 「全部 specifier 都是 type」决定（混合形态保守取 false）。
+#[test]
+fn extract产名具名与混合type() {
+    let plain = names_of(
+        "src/a.ts",
+        "import { A, B } from '@/types/generated/bindings';\n",
+    );
+    assert_eq!(
+        plain,
+        vec![(
+            "@/types/generated/bindings".to_owned(),
+            false,
+            names(&["A", "B"])
+        )],
+        "普通具名两名字、非 type-only"
+    );
+
+    let mixed = names_of("src/a.ts", "import { A, type B } from 'x';\n");
+    assert_eq!(
+        mixed,
+        vec![("x".to_owned(), false, names(&["A", "B"]))],
+        "type 前缀剥除后照产名，混合形态 type_only 保守取 false"
+    );
+}
+
+/// 正向：`import type { A }` → 名字照产且 `type_only = true`（type-only 只标注、不
+/// 豁免）。
+#[test]
+fn extract产名import_type照产() {
+    assert_eq!(
+        names_of("src/a.ts", "import type { A } from 'x';\n"),
+        vec![("x".to_owned(), true, names(&["A"]))],
+        "type-only 照产名"
+    );
+}
+
+/// 正向：`export { A } from` / `export { A as B } from` / `export type { A } from` →
+/// 取 `local`（被重导出的名），别名不入值。
+#[test]
+fn extract产名export_from取local() {
+    assert_eq!(
+        names_of("src/index.ts", "export { A } from 'x';\n"),
+        vec![("x".to_owned(), false, names(&["A"]))],
+        "re-export 与 import 同取法"
+    );
+    assert_eq!(
+        names_of("src/index.ts", "export { A as B } from 'x';\n"),
+        vec![("x".to_owned(), false, names(&["A"]))],
+        "别名 `B` 不入值面"
+    );
+    assert_eq!(
+        names_of("src/index.ts", "export type { A } from 'x';\n"),
+        vec![("x".to_owned(), true, names(&["A"]))],
+        "type re-export 标注在案"
+    );
+}
+
+/// 边界：字符串导出名（`import { "a-b" as X }`）→ 取字面值 `a-b`（`ModuleExportName::
+/// StringLiteral`）。
+#[test]
+fn extract产名字符串导出名取字面值() {
+    assert_eq!(
+        names_of("src/a.ts", "import { \"a-b\" as X } from 'x';\n"),
+        vec![("x".to_owned(), false, names(&["a-b"]))],
+        "字符串导出名取字面值"
+    );
+}
+
+/// 边界：无名字四形态（default / namespace / `export *` / 空具名清单）→ 零名字（不
+/// 产假名）。
+#[test]
+fn extract产名无名字四形态() {
+    for source in [
+        "import X from 'x';\n",
+        "import * as ns from 'x';\n",
+        "export * from 'x';\n",
+        "import {} from 'x';\n",
+        "export * as ns from 'x';\n",
+    ] {
+        let facts = names_of("src/a.ts", source);
+        assert_eq!(facts.len(), 1, "{source:?} 仍成一条 fact");
+        assert!(facts[0].2.is_empty(), "{source:?} 零名字");
+    }
+}
+
+/// 边界：大小写不同（`{Agent, agent}`）→ 两个名字（逐字符，零折叠）。
+#[test]
+fn extract产名大小写不折叠() {
+    assert_eq!(
+        names_of("src/a.ts", "import { Agent, agent } from 'x';\n"),
+        vec![("x".to_owned(), false, names(&["Agent", "agent"]))],
+        "大小写是两个名字（字典序 Agent < agent）"
+    );
+}
+
+/// 边界：极长标识符与含 emoji 的字符串导出名 → 原样、零 panic。
+#[test]
+fn extract产名极长与emoji() {
+    let long = "N".repeat(1200);
+    let facts = names_of("src/a.ts", &format!("import {{ {long} }} from 'x';\n"));
+    assert_eq!(facts[0].2, vec![long], "极长名原样");
+
+    let facts = names_of("src/a.ts", "import { \"Agent🙂\" as X } from 'x';\n");
+    assert_eq!(facts[0].2, names(&["Agent🙂"]), "emoji 字符串导出名原样");
+}
+
+/// 边界：同 specifier 两声明（具名 + default）→ 两条 fact（不合并），名字分别非空 /
+/// 空。
+#[test]
+fn extract产名同specifier两声明不合并() {
+    assert_eq!(
+        names_of("src/a.ts", "import { A } from 'x';\nimport X from 'x';\n",)
+            .iter()
+            .map(|fact| (fact.0.as_str(), fact.2.clone()))
+            .collect::<Vec<(&str, Vec<String>)>>(),
+        vec![("x", names(&["A"])), ("x", Vec::new())],
+        "两条声明各自一条 fact"
+    );
+}
+
+/// 异常：语法错源 → 一条 `unresolved`、零 fact、零 panic。
+#[test]
+fn extract产名语法错零fact() {
+    let temp = TempDir::new("names-broken");
+    let resolver = TsResolver::new(temp.root());
+    let (facts, unresolved) = resolver.extract("src/a.ts", "import { A from 'x';\n");
+    assert!(facts.is_empty(), "语法错不产 fact");
+    assert!(!unresolved.is_empty(), "语法错逐条留痕");
+}
+
+/// 异常：动态 `import()` / `require()` → `unresolved`（既有语义），名字面不产 fact。
+#[test]
+fn extract产名动态形态只留痕() {
+    let temp = TempDir::new("names-dynamic");
+    let resolver = TsResolver::new(temp.root());
+    for source in ["import('./x');\n", "require('./x');\n"] {
+        let (facts, unresolved) = resolver.extract("src/a.ts", source);
+        assert!(facts.is_empty(), "{source:?} 不产 fact");
+        assert_eq!(unresolved.len(), 1, "{source:?} 一条留痕");
+    }
+}
+
+/// 组合：名字面与落盘面互不影响——同文件两声明名字各异，`resolve` 只吃 specifier
+/// （同一 specifier 落同一文件）。
+#[test]
+fn extract产名与resolve解耦() {
+    let temp = TempDir::new("names-resolve");
+    temp.write("src/x.ts", "export const A = 1;\n");
+    let mut resolver = TsResolver::new(temp.root());
+    let (facts, _) = resolver.extract(
+        "src/a.ts",
+        "import { A } from './x';\nimport * as ns from './x';\n",
+    );
+    assert_eq!(facts[0].names, names(&["A"]), "首条带名字");
+    assert!(facts[1].names.is_empty(), "次条无名");
+    assert_eq!(
+        resolver.resolve("src/a.ts", &facts[0].specifier),
+        resolver.resolve("src/a.ts", &facts[1].specifier),
+        "落盘只看 specifier（与名字面无关）"
+    );
+}

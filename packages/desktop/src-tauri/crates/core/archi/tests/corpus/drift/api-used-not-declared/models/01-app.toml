@@ -1,0 +1,23 @@
+# 名字级两桶语料（`relation-api-dependency-check`）：关系写了 `apis` 后，
+# `used ∖ declared`（用了没声明 = 硬事实）与 `declared ∖ used`（声明没用 = 观察项）
+# 按引入方档位分桶；本 case 形态为「用了没声明（事实多出 SessionPanel → errors）」。
+
+[element."App"]
+kind = "package"
+gate = "off"
+path = ["./src/"]
+
+[element."App.Api"]
+kind = "module"
+gate = "strict"
+path = ["./src/api/"]
+
+[element."App.Consumer"]
+kind = "module"
+gate = "strict"
+path = ["./src/consumer/"]
+
+[[relation]]
+from = "App.Consumer"
+to = "App.Api"
+apis = ["AgentInput"]

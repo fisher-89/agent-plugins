@@ -35,6 +35,7 @@ fn relation(from: &str, to: &str) -> Relation {
         from: from.to_owned(),
         to: to.to_owned(),
         description: None,
+        apis: Vec::new(),
         file: ".dev-team/architecture/graph/model/01-core.toml".to_owned(),
         line: 20,
         span: None,

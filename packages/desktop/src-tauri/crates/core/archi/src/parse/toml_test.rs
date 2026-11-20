@@ -1385,3 +1385,432 @@ fn 解析doc白名单源码自证() {
     );
     assert!(source.contains("doc: Option<String>"), "字段面为单值可选");
 }
+
+// ===========================================================================
+// `[[relation]].apis`（`relation-api-dependency-check` / AC-2 / AC-3 / D3 / D4）
+//
+// 第四键的值面五拒（空串 / 含空白 / 含 `::` / 同名重复 / 显式空数组）在 `to_model`
+// 期产出带位置的 `invalidValue`——serde 层只有类型错的 span，拿不到逐项位置。
+// 缺省（未写该键）与显式空数组必须可辨：前者 = 不声明 API 粒度（零诊断），后者 = 值
+// 面违例。
+// ===========================================================================
+
+/// 单条关系源的便捷面（`from` / `to` 固定，尾巴由 `tail` 给出）。
+fn relation_source(tail: &str) -> String {
+    format!("[[relation]]\nfrom = \"App.Auth\"\nto = \"App.Billing\"\n{tail}")
+}
+
+/// 正向：`apis = ["AgentInput", "SessionPanel"]` → 逐名入模型且**原文序**（零排序、
+/// 零去重），零诊断。
+#[test]
+fn 解析apis逐名原文序零诊断() {
+    let source = relation_source("apis = [\"AgentInput\", \"SessionPanel\"]\n");
+    let outcome = parse(&source);
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "健康 apis 零诊断：{:?}",
+        outcome.diagnostics
+    );
+    assert_eq!(
+        outcome.model.relations[0].apis,
+        vec!["AgentInput".to_owned(), "SessionPanel".to_owned()],
+        "名字逐项入模型且保原文序"
+    );
+}
+
+/// 正向：省略 `apis` → `Relation.apis` 为空向量且零诊断（缺省不产诊断）。
+#[test]
+fn 解析apis缺省为空且零诊断() {
+    let outcome = parse(&relation_source(""));
+    assert!(outcome.model.relations[0].apis.is_empty(), "缺省即空");
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "缺省不是违例：{:?}",
+        outcome.diagnostics
+    );
+}
+
+/// 边界：单元素数组与「标量形态」互为区分的两侧（标量形态另见类型面违例表）。
+#[test]
+fn 解析apis单元素与标量形态可辨() {
+    let outcome = parse(&relation_source("apis = [\"AgentInput\"]\n"));
+    assert_eq!(
+        outcome.model.relations[0].apis,
+        vec!["AgentInput".to_owned()],
+        "单元素数组是一名"
+    );
+    assert!(outcome.diagnostics.is_empty(), "单元素不是违例");
+}
+
+/// 边界：显式空数组 → 恰一条 `invalidValue`，文案点名「空数组与省略同义」，位置落在
+/// 该关系（`from` 键行）而非文件首行。
+#[test]
+fn 解析apis显式空数组归invalid_value() {
+    let source = relation_source("apis = []\n");
+    let diagnostic = single_diagnostic(&source);
+    assert_eq!(
+        diagnostic.kind,
+        DiagnosticKind::InvalidValue,
+        "空数组是值面违例"
+    );
+    assert!(
+        diagnostic.message.contains("空数组与省略同义"),
+        "文案点名纪律：{}",
+        diagnostic.message
+    );
+    assert_eq!(
+        diagnostic.line,
+        line_at(&source, "from ="),
+        "位置落在该关系声明的键行"
+    );
+}
+
+/// 边界：超长名（> 1000 chars、无空白无 `::`）→ 零诊断（值面只四查，不设长度上限）。
+#[test]
+fn 解析apis超长名零诊断() {
+    let long = "N".repeat(1200);
+    let source = relation_source(&format!("apis = [\"{long}\"]\n"));
+    let outcome = parse(&source);
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "长度不是值面判据：{:?}",
+        outcome.diagnostics
+    );
+    assert_eq!(outcome.model.relations[0].apis, vec![long], "原样入模型");
+}
+
+/// 边界：特殊字符名（emoji / 引号）无空白无 `::` 即通过并原样入模型。
+#[test]
+fn 解析apis特殊字符名原样通过() {
+    for name in ["Agent🙂", "a\"b"] {
+        let escaped = name.replace('"', "\\\"");
+        let source = relation_source(&format!("apis = [\"{escaped}\"]\n"));
+        let outcome = parse(&source);
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "{name} 不是值面违例：{:?}",
+            outcome.diagnostics
+        );
+        assert_eq!(
+            outcome.model.relations[0].apis,
+            vec![name.to_owned()],
+            "{name} 原样入模型"
+        );
+    }
+}
+
+/// 异常：空串名 → 恰一条 `invalidValue`，文案点名「只写名字」，`line` / `column` 指向
+/// 该名字面（不是关系首键行）。
+#[test]
+fn 解析apis空串名归invalid_value带位置() {
+    let source = relation_source("apis = [\"\"]\n");
+    let diagnostic = single_diagnostic(&source);
+    assert_eq!(diagnostic.kind, DiagnosticKind::InvalidValue);
+    assert!(
+        diagnostic.message.contains("只写名字"),
+        "文案点名「只写名字」：{}",
+        diagnostic.message
+    );
+    assert_eq!(
+        diagnostic.line,
+        line_at(&source, "apis ="),
+        "位置指向该名字所在行"
+    );
+    assert!(
+        diagnostic.column.is_some(),
+        "逐项 span 换算列：{:?}",
+        diagnostic.column
+    );
+}
+
+/// 异常：含空白三形态（空格 / 制表 / 换行）各产出恰一条 `invalidValue`。
+#[test]
+fn 解析apis含空白三形态各一条() {
+    for (probe, tuple) in [
+        ("a b", "\"a b\""),
+        ("a\tb", "\"a\\tb\""),
+        ("a\nb", "\"a\\nb\""),
+    ] {
+        let source = relation_source(&format!("apis = [{tuple}]\n"));
+        let diagnostic = single_diagnostic(&source);
+        assert_eq!(
+            diagnostic.kind,
+            DiagnosticKind::InvalidValue,
+            "{probe:?} 是值面违例"
+        );
+        assert!(
+            diagnostic.message.contains("含空白"),
+            "{probe:?} 的文案点名空白纪律：{}",
+            diagnostic.message
+        );
+    }
+}
+
+/// 异常：含 `::` 两形态（相对 / `crate::` 前缀）各产出恰一条 `invalidValue`（路径形态
+/// 不入值面）。
+#[test]
+fn 解析apis含双冒号两形态各一条() {
+    for name in ["a::b", "crate::A"] {
+        let source = relation_source(&format!("apis = [\"{name}\"]\n"));
+        let diagnostic = single_diagnostic(&source);
+        assert_eq!(diagnostic.kind, DiagnosticKind::InvalidValue);
+        assert!(
+            diagnostic.message.contains("``::``") || diagnostic.message.contains("`::`"),
+            "文案点名 `::` 纪律：{}",
+            diagnostic.message
+        );
+    }
+}
+
+/// 异常：同名重复 `["A", "A"]` → 恰**一条** `invalidValue`（不静默去重、不按重复次数
+/// 铺开），且模型内两名原样保留（归一留给判定侧）。
+#[test]
+fn 解析apis同名重复恰一条() {
+    let source = relation_source("apis = [\"A\", \"A\"]\n");
+    let diagnostic = single_diagnostic(&source);
+    assert_eq!(diagnostic.kind, DiagnosticKind::InvalidValue);
+    assert!(
+        diagnostic.message.contains("重复"),
+        "文案点名重复纪律：{}",
+        diagnostic.message
+    );
+    assert_eq!(
+        outcome_apis(&source),
+        vec!["A".to_owned(), "A".to_owned()],
+        "值面不静默去重（模型原文保留）"
+    );
+}
+
+/// 边界：诊断文案含关系上下文（`from → to` 定位串）——五类违例各一条，均可回指该条
+/// 关系（不是无名报错）。
+#[test]
+fn 解析apis诊断文案含关系上下文() {
+    for tail in [
+        "apis = [\"\"]\n",
+        "apis = [\"a b\"]\n",
+        "apis = [\"a::b\"]\n",
+        "apis = [\"A\", \"A\"]\n",
+        "apis = []\n",
+    ] {
+        let diagnostic = single_diagnostic(&relation_source(tail));
+        assert!(
+            diagnostic.message.contains("App.Auth")
+                && diagnostic.message.contains("App.Billing")
+                && diagnostic.message.contains("→"),
+            "{tail:?} 的文案须含关系两端（from → to）：{}",
+            diagnostic.message
+        );
+    }
+}
+
+/// 边界：同一关系内「重复 + 含空白」叠加 → 两条纪律各被点名（逐项 `continue`，不因
+/// 首条即返回而漏掉第二条纪律）；两种先后序都成立。
+#[test]
+fn 解析apis重复与含空白叠加各点名() {
+    for tail in [
+        "apis = [\"A\", \"A\", \"b c\"]\n",
+        "apis = [\"b c\", \"A\", \"A\"]\n",
+    ] {
+        let outcome = parse(&relation_source(tail));
+        assert_eq!(
+            outcome.diagnostics.len(),
+            2,
+            "{tail:?} 两条违例两条诊断：{:?}",
+            outcome.diagnostics
+        );
+        assert!(
+            outcome
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.kind == DiagnosticKind::InvalidValue),
+            "{tail:?} 均归 invalidValue"
+        );
+        let messages: Vec<&str> = outcome
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+        assert!(
+            messages.iter().any(|message| message.contains("重复")),
+            "{tail:?} 点名重复纪律：{messages:?}"
+        );
+        assert!(
+            messages.iter().any(|message| message.contains("含空白")),
+            "{tail:?} 点名空白纪律：{messages:?}"
+        );
+    }
+}
+
+/// 异常：类型面违例（标量 / 非字符串项）→ serde `invalid type` 归 `invalidValue` 且
+/// `Model::empty()`（整体失败不取值面）。
+#[test]
+fn 解析apis类型面违例归invalid_value并空模型() {
+    for tail in ["apis = \"A\"\n", "apis = [1, 2]\n"] {
+        let source = relation_source(tail);
+        let diagnostic = single_diagnostic(&source);
+        assert_eq!(
+            diagnostic.kind,
+            DiagnosticKind::InvalidValue,
+            "{tail:?} 归 invalidValue"
+        );
+        assert!(
+            diagnostic.message.contains("invalid type"),
+            "文案为 serde 原文：{}",
+            diagnostic.message
+        );
+        assert!(
+            parse(&source).model.relations.is_empty(),
+            "整体失败 ⇒ 零关系（Model::empty 形态）"
+        );
+    }
+}
+
+/// 边界：拼错键 `api = ["A"]`（单数）→ 仍 `unknownField`（`deny_unknown_fields` 逐字
+/// 保留，不因新增第四键而放宽）。
+#[test]
+fn 解析关系拼错键api归unknown_field() {
+    let source = relation_source("api = [\"A\"]\n");
+    let diagnostic = single_diagnostic(&source);
+    assert_eq!(
+        diagnostic.kind,
+        DiagnosticKind::UnknownField,
+        "单数键仍是未知键"
+    );
+    assert!(
+        diagnostic.message.contains("unknown field"),
+        "serde 原文在案：{}",
+        diagnostic.message
+    );
+}
+
+/// 边界：多条关系各带 `apis`——一条违例不影响其余关系入模型，诊断条数 = 违例条数
+/// （不是「首错短路」）。
+#[test]
+fn 解析apis多关系违例不互相影响() {
+    let single = concat!(
+        "[[relation]]\nfrom = \"App.Auth\"\nto = \"App.Billing\"\napis = [\"A\"]\n\n",
+        "[[relation]]\nfrom = \"App.Auth\"\nto = \"App.Legacy\"\napis = [\"\"]\n",
+    );
+    let outcome = parse(single);
+    assert_eq!(outcome.diagnostics.len(), 1, "单违例源恰一条诊断");
+    assert_eq!(outcome.model.relations.len(), 2, "违例不影响其余关系入模型");
+    assert_eq!(outcome.model.relations[0].apis, vec!["A".to_owned()]);
+    assert_eq!(outcome.model.relations[1].apis, vec![String::new()]);
+
+    let double = concat!(
+        "[[relation]]\nfrom = \"App.Auth\"\nto = \"App.Billing\"\napis = [\"\"]\n\n",
+        "[[relation]]\nfrom = \"App.Auth\"\nto = \"App.Legacy\"\napis = [\"a::b\"]\n",
+    );
+    let outcome = parse(double);
+    assert_eq!(
+        outcome.diagnostics.len(),
+        2,
+        "双违例源两条诊断（不首错短路）"
+    );
+    assert_eq!(
+        outcome.model.relations.len(),
+        2,
+        "两条关系仍都入模型（值面违例不吞模型）"
+    );
+}
+
+/// 边界：关系缺 `to`（必填面）→ 既有 `missingField` 语义不变（`apis` 不改变必填面）。
+#[test]
+fn 解析apis不改必填面() {
+    let source = "[[relation]]\nfrom = \"App.Auth\"\napis = [\"A\"]\n";
+    let diagnostic = single_diagnostic(source);
+    assert_eq!(
+        diagnostic.kind,
+        DiagnosticKind::MissingField,
+        "缺 to 仍归 missingField"
+    );
+}
+
+/// 正向：健康源（含 `apis`）→ 诊断空、关系逐条齐备（`ParseOutcome` 两字段形状不变）。
+#[test]
+fn 解析含apis健康源诊断空且关系齐备() {
+    let source = concat!(
+        "[element.\"App.Auth\"]\nkind = \"domain\"\n\n",
+        "[element.\"App.Billing\"]\nkind = \"module\"\n\n",
+        "[[relation]]\nfrom = \"App.Auth\"\nto = \"App.Billing\"\napis = [\"A\", \"B\"]\n",
+    );
+    let outcome = parse(source);
+    assert!(outcome.diagnostics.is_empty(), "健康源零诊断");
+    assert_eq!(outcome.model.elements.len(), 2);
+    assert_eq!(outcome.model.relations.len(), 1);
+    assert_eq!(
+        outcome.model.relations[0].apis,
+        vec!["A".to_owned(), "B".to_owned()]
+    );
+}
+
+/// 边界：语法错源（缺括号 / 重复键）→ **恰一条** serde 诊断且零关系（合并面不追加
+/// 值面诊断）。
+#[test]
+fn 解析语法错源单诊断且不追加值面() {
+    for broken in [
+        "[[relation]\nfrom = \"A\"\nto = \"B\"\napis = [\"\"]\n",
+        "[[relation]]\nfrom = \"A\"\nfrom = \"C\"\nto = \"B\"\napis = [\"\"]\n",
+    ] {
+        let outcome = parse(broken);
+        assert_eq!(
+            outcome.diagnostics.len(),
+            1,
+            "语法面整体失败只出一条诊断：{:?}",
+            outcome.diagnostics
+        );
+        assert!(
+            outcome.model.relations.is_empty(),
+            "整体失败 ⇒ 零关系（不取值面）"
+        );
+    }
+}
+
+/// 异常：值面多违例（两条关系各一违例）→ 两条诊断，`file` 留空（聚合层回填），
+/// 各自 `line` 独立。
+#[test]
+fn 解析apis多违例file留空行号独立() {
+    let source = concat!(
+        "[[relation]]\nfrom = \"App.Auth\"\nto = \"App.Billing\"\napis = [\"\"]\n\n",
+        "[[relation]]\nfrom = \"App.Billing\"\nto = \"App.Legacy\"\napis = [\"A\", \"A\"]\n",
+    );
+    let outcome = parse(source);
+    assert_eq!(outcome.diagnostics.len(), 2, "两条违例两条诊断");
+    for diagnostic in &outcome.diagnostics {
+        assert_eq!(diagnostic.kind, DiagnosticKind::InvalidValue);
+        assert_eq!(diagnostic.file, "", "file 由聚合层回填");
+        assert!(diagnostic.line > 0, "位置在案：{:?}", diagnostic.line);
+    }
+    assert_ne!(
+        outcome.diagnostics[0].line, outcome.diagnostics[1].line,
+        "两条违例各自行号独立（不共用首键行）"
+    );
+}
+
+/// 边界：同文件两条关系（一条全字段带 `apis`、一条仅三键）→ 各自独立解析、
+/// `apis` 分别非空 / 空。
+#[test]
+fn 解析apis同文件两关系各自独立() {
+    let source = concat!(
+        "[[relation]]\nfrom = \"App.Auth\"\nto = \"App.Billing\"\ndesc = \"认证依赖结算\"\n",
+        "apis = [\"Token\", \"Session\"]\n\n",
+        "[[relation]]\nfrom = \"App.Auth\"\nto = \"App.Legacy\"\n",
+    );
+    let outcome = parse(source);
+    assert!(outcome.diagnostics.is_empty(), "两条均合法");
+    assert_eq!(
+        outcome.model.relations[0].apis,
+        vec!["Token".to_owned(), "Session".to_owned()]
+    );
+    assert!(outcome.model.relations[1].apis.is_empty(), "仅三键者为零");
+    assert_eq!(
+        outcome.model.relations[0].description.as_deref(),
+        Some("认证依赖结算"),
+        "既有 desc 面零变化"
+    );
+}
+
+/// 辅助：取单条关系源的 `apis`（模型侧原文）。
+fn outcome_apis(source: &str) -> Vec<String> {
+    parse(source).model.relations[0].apis.clone()
+}

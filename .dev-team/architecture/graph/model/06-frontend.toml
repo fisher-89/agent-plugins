@@ -1,5 +1,5 @@
-# 06 · 前端（30 元素 / 72 关系）
-# 元素 = 页壳 1 + 视图 9 + 视图内子域 3 + 共享组件文件 12 + 原语层 1 + 目录模块 1，另有 3 个容器。
+# 06 · 前端（32 元素 / 74 关系）
+# 元素 = 页壳 1 + 视图 9 + 视图内子域 3 + 共享组件文件 13 + 原语层 1 + 目录模块 1 + 生成物中继 1，另有 3 个容器。
 # 关系只取 import 证据，目标按「最具体已声明元素」归属；指向 hooks / lib / types 的 import 不建边。
 
 [element."App.Frontend.Shell"]
@@ -185,6 +185,13 @@ gate = "off"
 path = ["./packages/desktop/src/components/ui/"]
 summary = "shadcn 原语层，恒为被依赖方"
 
+[element."App.Frontend.GeneratedBindings"]
+kind = "module"
+gate = "off"
+api = "none"
+path = ["./packages/desktop/src/types/generated/"]
+summary = "IPC 命令面与出线 DTO 的 TypeScript 投影（tauri-specta 生成，勿手改）"
+
 [[relation]]
 from = "App.Frontend.Shell"
 to = "App.Frontend.Components.Ui"
@@ -272,8 +279,8 @@ desc = "使用消息容器与滚动原语组装列表"
 
 [[relation]]
 from = "App.Frontend.Components.Agent.AgentSessionView"
-to = "App.Backend.Shell"
-desc = "经生成的命令面类型取数与调用"
+to = "App.Frontend.GeneratedBindings"
+desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
 from = "App.Frontend.Components.Agent.AgentSessionView"
@@ -292,8 +299,8 @@ desc = "使用徽标等原语呈现会话状态"
 
 [[relation]]
 from = "App.Frontend.Components.Agent.SessionPanel"
-to = "App.Backend.Shell"
-desc = "经生成的命令面类型取会话清单"
+to = "App.Frontend.GeneratedBindings"
+desc = "经生成的 IPC 绑定取会话清单"
 
 [[relation]]
 from = "App.Frontend.Components.Agent.SessionPanel"
@@ -342,8 +349,8 @@ desc = "以原语层气泡组合文本提示"
 
 [[relation]]
 from = "App.Frontend.Views.AgentDebug"
-to = "App.Backend.Shell"
-desc = "经生成的命令面类型取数与调用"
+to = "App.Frontend.GeneratedBindings"
+desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
 from = "App.Frontend.Views.AgentDebug"
@@ -372,8 +379,8 @@ desc = "使用按钮与表单原语呈现"
 
 [[relation]]
 from = "App.Frontend.Views.Agents"
-to = "App.Backend.Shell"
-desc = "经生成的命令面类型取数与调用"
+to = "App.Frontend.GeneratedBindings"
+desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
 from = "App.Frontend.Views.Agents"
@@ -392,8 +399,8 @@ desc = "使用按钮与徽标原语呈现"
 
 [[relation]]
 from = "App.Frontend.Views.Architecture"
-to = "App.Backend.Shell"
-desc = "经生成的命令面类型取数与调用"
+to = "App.Frontend.GeneratedBindings"
+desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
 from = "App.Frontend.Views.Architecture"
@@ -402,8 +409,8 @@ desc = "使用按钮与面板原语呈现"
 
 [[relation]]
 from = "App.Frontend.Views.Changes"
-to = "App.Backend.Shell"
-desc = "经生成的命令面类型取数与调用"
+to = "App.Frontend.GeneratedBindings"
+desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
 from = "App.Frontend.Views.Changes"
@@ -437,8 +444,8 @@ desc = "详情页组装流程画布"
 
 [[relation]]
 from = "App.Frontend.Views.Changes.Agent"
-to = "App.Backend.Shell"
-desc = "经生成的命令面类型取数与调用"
+to = "App.Frontend.GeneratedBindings"
+desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
 from = "App.Frontend.Views.Changes.Agent"
@@ -452,8 +459,8 @@ desc = "使用按钮原语触发会话操作"
 
 [[relation]]
 from = "App.Frontend.Views.Changes.Flow"
-to = "App.Backend.Shell"
-desc = "经生成的命令面类型取数与调用"
+to = "App.Frontend.GeneratedBindings"
+desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
 from = "App.Frontend.Views.Changes.Flow"
@@ -487,8 +494,8 @@ desc = "使用标签页与滚动容器原语呈现"
 
 [[relation]]
 from = "App.Frontend.Views.Config"
-to = "App.Backend.Shell"
-desc = "经生成的命令面类型取数与调用"
+to = "App.Frontend.GeneratedBindings"
+desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
 from = "App.Frontend.Views.Config"
@@ -502,8 +509,8 @@ desc = "经共享面板骨架渲染常驻 config 会话面板"
 
 [[relation]]
 from = "App.Frontend.Views.DbInspector"
-to = "App.Backend.Shell"
-desc = "经生成的命令面类型取数与调用"
+to = "App.Frontend.GeneratedBindings"
+desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
 from = "App.Frontend.Views.DbInspector"
@@ -517,8 +524,8 @@ desc = "使用表格与按钮原语呈现"
 
 [[relation]]
 from = "App.Frontend.Views.Explores"
-to = "App.Backend.Shell"
-desc = "经生成的命令面类型取数与调用"
+to = "App.Frontend.GeneratedBindings"
+desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
 from = "App.Frontend.Views.Explores"
@@ -542,8 +549,8 @@ desc = "复用 markdown 产物渲染"
 
 [[relation]]
 from = "App.Frontend.Views.Info"
-to = "App.Backend.Shell"
-desc = "经生成的命令面类型取数与调用"
+to = "App.Frontend.GeneratedBindings"
+desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
 from = "App.Frontend.Views.Info"

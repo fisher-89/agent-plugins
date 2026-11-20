@@ -13,6 +13,7 @@ import type {
   ArchiFileTree,
   ArchiGraph,
   ArchiRelation,
+  ArchiRelationDetail,
 } from '../../../types/generated/bindings';
 import { ArchitectureCanvas } from './architecture-canvas';
 
@@ -175,7 +176,7 @@ function relation(
   description: string | null,
   mark: ArchiRelation['mark'] = 'none',
 ): ArchiRelation {
-  return { from, to, description, mark, reason: null };
+  return { from, to, description, mark, reason: null, apis: [] };
 }
 
 /** 健康图：四元素 / 三条关系（`App` 为唯一顶层）。 */
@@ -1701,6 +1702,401 @@ describe('停摆 / 空模型 / 报告缺席三态的左栏', () => {
     expect(findingsAxis.textContent).toContain('判据（0）');
     expect(within(findingsAxis).queryAllByTestId('archi-contract-chip')).toHaveLength(0);
     expect(screen.getByTestId('archi-drift-error')).toBeTruthy();
+  });
+});
+
+// ===========================================================================
+// 边点击 → 关系态面板（`relation-api-dependency-check` / AC-7 / D14 / D15 / D16 / D17）
+//
+// 两态同槽互斥：点边 → `RelationInfo`，点节点 → `ModelInfo`。取数纪律是「显式动作
+// 开窗」：挂载 / `root` 变化 / 重挂载零 `archi_relation`，点边恰一次，同一元素对
+// 重复点开命中 hook 缓存。未声明 `apis` 的边零取数（面板仍开、空态① 渲染）。
+// ===========================================================================
+
+/** 可选边的图：聚焦 `App`（缺省顶层），两条出边一有 `apis` 一为空。 */
+function selectableGraph(): ArchiGraph {
+  return {
+    elements: [element('App'), element('App.Auth', { gate: 'strict' }), element('App.Billing')],
+    relations: [
+      {
+        from: 'App',
+        to: 'App.Auth',
+        description: '核心聚合认证',
+        mark: 'none',
+        reason: null,
+        apis: ['Token', 'Session'],
+      },
+      {
+        from: 'App',
+        to: 'App.Billing',
+        description: null,
+        mark: 'none',
+        reason: null,
+        apis: [],
+      },
+    ],
+    diagnostics: [],
+  };
+}
+
+/** 关系详情 fixture（`archi_relation` 的返回体）。 */
+function relationDetailOf(from: string, to: string): ArchiRelationDetail {
+  return {
+    from,
+    to,
+    description: '核心聚合认证',
+    mark: 'none',
+    reason: null,
+    modelFile: '.dev-team/architecture/graph/model/06-frontend.toml',
+    modelLine: 188,
+    declared: ['Token', 'Session'],
+    used: ['Token'],
+    usedNotDeclared: [],
+    declaredNotUsed: ['Session'],
+    occurrences: [
+      { file: 'src/views/a.ts', line: 4, specifier: '../../../types', typeOnly: false },
+    ],
+  };
+}
+
+/** 可选边语料的取数装置（`archi_relation` 可指定失败 / 报告可带豁免留痕或整份缺席）。 */
+function serveSelectable(
+  graph: ArchiGraph,
+  options: {
+    relationError?: Error;
+    suppressed?: ArchiDriftReport['suppressed'];
+    driftError?: Error;
+  } = {},
+): void {
+  invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
+    if (command === 'archi_graph') return Promise.resolve(graph);
+    if (command === 'archi_drift') {
+      if (options.driftError !== undefined) return Promise.reject(options.driftError);
+      return Promise.resolve(
+        driftReport(options.suppressed === undefined ? {} : { suppressed: options.suppressed }),
+      );
+    }
+    if (command === 'archi_module') {
+      const element = typeof params?.element === 'string' ? params.element : '';
+      return Promise.resolve(detailOf(element));
+    }
+    if (command === 'archi_file_tree') return Promise.resolve(fileTree());
+    if (command === 'archi_set_gate') return Promise.resolve(null);
+    if (command === 'archi_relation') {
+      if (options.relationError !== undefined) return Promise.reject(options.relationError);
+      const from = typeof params?.from === 'string' ? params.from : '';
+      const to = typeof params?.to === 'string' ? params.to : '';
+      return Promise.resolve(relationDetailOf(from, to));
+    }
+    return Promise.reject(new Error(`未预期命令: ${command}`));
+  });
+}
+
+/** 点击一条已渲染的边（xyflow 的 `rf__edge-<id>` 包裹层绑 `onEdgeClick`）。 */
+async function clickEdge(id: string): Promise<void> {
+  await measureNodes();
+  await waitFor(() => expect(screen.queryByTestId(`rf__edge-${id}`)).not.toBeNull());
+  fireEvent.click(screen.getByTestId(`rf__edge-${id}`));
+}
+
+/** 合成一次边点击（从观测垫片取 `ReactFlow` 的 `onEdgeClick`）：用于图上不存在的陈旧
+ * id 与重复声明的动作面——两者都不保证有唯一 DOM 包裹层。 */
+function clickEdgeProp(source: string, target: string): void {
+  const props = flow() as unknown as {
+    onEdgeClick: (event: unknown, edge: { source: string; target: string }) => void;
+  };
+  act(() => {
+    props.onEdgeClick({}, { source, target });
+  });
+}
+
+describe('边点击 → 关系态面板（两态同槽互斥）', () => {
+  it('应在点击 apis 非空的边时切到关系面板并恰取一次详情', async () => {
+    serveSelectable(selectableGraph());
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+
+    await clickEdge('App->App.Auth');
+
+    await waitFor(() => expect(screen.getByTestId('archi-relation-info')).toBeTruthy());
+    expect(screen.queryByTestId('archi-drawer')).toBeNull();
+    await waitFor(() => expect(callsOf('archi_relation')).toHaveLength(1));
+    expect(callsOf('archi_relation')[0]).toEqual({
+      root: 'C:\\demo\\alpha',
+      from: 'App',
+      to: 'App.Auth',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-relation-used').textContent).toBe('Token'),
+    );
+  });
+
+  it('应在选中边上只加粗既有描边（零新标记词汇）', async () => {
+    serveSelectable(selectableGraph());
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+
+    const before = flow()
+      .edges.filter((edge) => edge.id === 'App->App.Auth')
+      .map((edge) => (edge.style as { strokeWidth?: number }).strokeWidth);
+    expect(before).toEqual([undefined]);
+
+    await clickEdge('App->App.Auth');
+    await waitFor(() => expect(screen.getByTestId('archi-relation-info')).toBeTruthy());
+
+    const after = flow().edges.find((edge) => edge.id === 'App->App.Auth');
+    expect((after?.style as { strokeWidth?: number } | undefined)?.strokeWidth).toBe(3);
+    expect(after?.style).toMatchObject({ stroke: NEUTRAL.stroke });
+    // 未选中的边零加粗
+    const other = flow().edges.find((edge) => edge.id === 'App->App.Billing');
+    expect((other?.style as { strokeWidth?: number } | undefined)?.strokeWidth).toBeUndefined();
+  });
+
+  it('应在点击节点时回到元素态并清空选中（零新增 invoke）', async () => {
+    serveSelectable(selectableGraph());
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+
+    await clickEdge('App->App.Auth');
+    await waitFor(() => expect(screen.getByTestId('archi-relation-info')).toBeTruthy());
+    const relationCalls = callsOf('archi_relation').length;
+
+    await waitFor(() => expect(screen.queryByTestId('rf__node-App.Auth')).not.toBeNull());
+    fireEvent.click(screen.getByTestId('rf__node-App.Auth'));
+
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    expect(screen.queryByTestId('archi-relation-info')).toBeNull();
+    expect(callsOf('archi_relation')).toHaveLength(relationCalls);
+  });
+
+  it('应在未声明 apis 的边上照常开面板但零取数（空态①）', async () => {
+    serveSelectable(selectableGraph());
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+
+    await clickEdge('App->App.Billing');
+
+    await waitFor(() => expect(screen.getByTestId('archi-relation-info')).toBeTruthy());
+    expect(screen.getByTestId('archi-relation-undeclared').textContent).toContain('未声明依赖 API');
+    expect(callsOf('archi_relation')).toHaveLength(0);
+  });
+
+  it('应在同一元素对重复点开时 invoke 计数恒 1（缓存跨面板两态切换）', async () => {
+    serveSelectable(selectableGraph());
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+
+    await clickEdge('App->App.Auth');
+    await waitFor(() => expect(callsOf('archi_relation')).toHaveLength(1));
+
+    await waitFor(() => expect(screen.queryByTestId('rf__node-App.Auth')).not.toBeNull());
+    fireEvent.click(screen.getByTestId('rf__node-App.Auth'));
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+
+    await clickEdge('App->App.Auth');
+    await waitFor(() => expect(screen.getByTestId('archi-relation-info')).toBeTruthy());
+    expect(callsOf('archi_relation')).toHaveLength(1);
+  });
+
+  it('应在豁免留痕时把来源与理由一并呈现（空态③）', async () => {
+    serveSelectable(selectableGraph(), {
+      suppressed: [
+        {
+          from: 'App',
+          to: 'App.Auth',
+          via: 'config',
+          reason: '迁移期允许',
+          file: null,
+          line: null,
+        },
+      ],
+    });
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+
+    await clickEdge('App->App.Auth');
+
+    await waitFor(() => expect(screen.getByTestId('archi-relation-exempt')).toBeTruthy());
+    const exempt = screen.getByTestId('archi-relation-exempt');
+    expect(exempt.textContent).toContain('config');
+    expect(exempt.textContent).toContain('迁移期允许');
+  });
+
+  it('应在取数失败时只落行内错误与重试（图与元素面板零影响）', async () => {
+    serveSelectable(selectableGraph(), { relationError: new Error('取数失败') });
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    const graphCalls = callsOf('archi_graph').length;
+    const driftCalls = callsOf('archi_drift').length;
+
+    await clickEdge('App->App.Auth');
+
+    await waitFor(() => expect(screen.getByTestId('archi-relation-error')).toBeTruthy());
+    expect(screen.getByTestId('archi-relation-error').textContent).toContain('取数失败');
+    expect(screen.getByTestId('archi-relation-retry')).toBeTruthy();
+    expect(callsOf('archi_graph')).toHaveLength(graphCalls);
+    expect(callsOf('archi_drift')).toHaveLength(driftCalls);
+    // 图照常渲染（节点仍在）
+    expect(screen.queryByTestId('rf__node-App')).not.toBeNull();
+  });
+
+  it('应在挂载与 root 变化时零 archi_relation（取数只由显式动作发起）', async () => {
+    serveSelectable(selectableGraph());
+    const { rerender } = render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+
+    rerender(<ArchitectureCanvas root={'C:\\demo\\beta'} mode="full" />);
+    await waitFor(() => expect(callsOf('archi_graph')).toHaveLength(2));
+    expect(callsOf('archi_relation')).toHaveLength(0);
+
+    await clickEdge('App->App.Auth');
+    await waitFor(() => expect(callsOf('archi_relation')).toHaveLength(1));
+    expect(callsOf('archi_relation')[0]?.root).toBe('C:\\demo\\beta');
+  });
+
+  it('应在结构错停摆时零边点击面与零 archi_relation', async () => {
+    serveSelectable({
+      elements: [],
+      relations: [],
+      diagnostics: [
+        {
+          kind: 'cycle',
+          message: '依赖成环：App.A -> App.B -> App.A',
+          file: '.dev-team/architecture/graph/model/01-core.toml',
+          line: 4,
+          column: 1,
+        },
+      ],
+    });
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-error-panel')).toBeTruthy());
+    expect(document.querySelectorAll('.react-flow__edge')).toHaveLength(0);
+    expect(callsOf('archi_relation')).toHaveLength(0);
+  });
+
+  it('应在 suppressed 为空或报告缺席时零豁免来源（点边零抛错）', async () => {
+    const variants: {
+      tag: string;
+      options: { suppressed?: ArchiDriftReport['suppressed']; driftError?: Error };
+    }[] = [
+      { tag: 'suppressed 空', options: { suppressed: [] } },
+      { tag: '报告缺席', options: { driftError: new Error('git 不可用') } },
+    ];
+    for (const variant of variants) {
+      invokeMock.mockReset();
+      flowProps.length = 0;
+      serveSelectable(selectableGraph(), variant.options);
+      const view = render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+      await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+
+      await clickEdge('App->App.Auth');
+
+      await waitFor(() => expect(screen.getByTestId('archi-relation-info')).toBeTruthy());
+      expect(screen.queryByTestId('archi-relation-exempt'), variant.tag).toBeNull();
+      expect(callsOf('archi_relation'), variant.tag).toHaveLength(1);
+      if (variant.options.driftError !== undefined) {
+        expect(screen.getByTestId('archi-drift-error'), variant.tag).toBeTruthy();
+      }
+      view.unmount();
+    }
+  });
+
+  it('应在点击不在图内的陈旧边 id 时保持元素态并零 archi_relation', async () => {
+    serveSelectable(selectableGraph());
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    const graphCalls = callsOf('archi_graph').length;
+
+    clickEdgeProp('App.Ghost', 'App.Auth');
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('archi-drawer')).toBeTruthy();
+    expect(screen.queryByTestId('archi-relation-info')).toBeNull();
+    expect(callsOf('archi_relation')).toHaveLength(0);
+    expect(callsOf('archi_graph')).toHaveLength(graphCalls);
+  });
+
+  it('应在模型重复声明同一元素对时按 (from, to) 去重（零双面板）', async () => {
+    const graph = selectableGraph();
+    graph.relations.push({ ...relation('App', 'App.Auth', '核心聚合认证'), apis: ['Token'] });
+    serveSelectable(graph);
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+
+    clickEdgeProp('App', 'App.Auth');
+
+    await waitFor(() => expect(screen.getAllByTestId('archi-relation-info')).toHaveLength(1));
+    expect(callsOf('archi_relation')).toHaveLength(1);
+    expect(callsOf('archi_relation')[0]).toEqual({
+      root: 'C:\\demo\\alpha',
+      from: 'App',
+      to: 'App.Auth',
+    });
+  });
+
+  it('应让入边分区只作装饰：边身份与过滤语义不因选中而变', async () => {
+    const graph = selectableGraph();
+    graph.relations.push({ ...relation('App.Auth', 'App', '反向引用'), apis: ['Token'] });
+    serveSelectable(graph);
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+
+    await clickEdge('App.Auth->App');
+
+    await waitFor(() => expect(screen.getByTestId('archi-relation-info')).toBeTruthy());
+    expect(callsOf('archi_relation')).toHaveLength(1);
+    expect(callsOf('archi_relation')[0]).toEqual({
+      root: 'C:\\demo\\alpha',
+      from: 'App.Auth',
+      to: 'App',
+    });
+    expect(screen.getByTestId('archi-canvas-zone')).toBeTruthy();
+    expect(
+      flow()
+        .edges.map((edge) => edge.id)
+        .sort(),
+    ).toEqual(['App->App.Auth', 'App->App.Billing', 'App.Auth->App']);
+    const incoming = flow().edges.find((edge) => edge.id === 'App.Auth->App');
+    expect(incoming?.source).toBe('App.Auth');
+    expect(incoming?.target).toBe('App');
+  });
+
+  it('应在 root 变化时清空选中回到元素态', async () => {
+    serveSelectable(selectableGraph());
+    const { rerender } = render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    await clickEdge('App->App.Auth');
+    await waitFor(() => expect(screen.getByTestId('archi-relation-info')).toBeTruthy());
+
+    rerender(<ArchitectureCanvas root={'C:\\demo\\beta'} mode="full" />);
+
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    expect(screen.queryByTestId('archi-relation-info')).toBeNull();
+  });
+
+  it('应在重挂载后不复活旧选中', async () => {
+    serveSelectable(selectableGraph());
+    const first = render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    await clickEdge('App->App.Auth');
+    await waitFor(() => expect(screen.getByTestId('archi-relation-info')).toBeTruthy());
+
+    first.unmount();
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+
+    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    expect(screen.queryByTestId('archi-relation-info')).toBeNull();
+  });
+
+  it('应在源码内零定时器（点边取数不被自动重取放大）', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/views/architecture/components/architecture-canvas.tsx'),
+      'utf8',
+    );
+    expect(source).not.toContain('setInterval');
+    expect(source).not.toContain('setTimeout');
   });
 });
 

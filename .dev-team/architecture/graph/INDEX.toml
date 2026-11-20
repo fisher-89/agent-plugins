@@ -294,6 +294,15 @@ schema = ""
 generated = ""
 
 [[entry]]
+fqn = "App.Frontend.GeneratedBindings"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
 fqn = "App.Frontend.Shell"
 status = "absent"
 types = 0

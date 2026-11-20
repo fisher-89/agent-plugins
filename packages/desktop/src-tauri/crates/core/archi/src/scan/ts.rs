@@ -75,6 +75,7 @@ impl TsResolver {
                 Statement::ImportDeclaration(declaration) => {
                     let mut type_only =
                         declaration.import_kind == oxc_ast::ast::ImportOrExportKind::Type;
+                    let mut names: Vec<String> = Vec::new();
                     if let Some(specifiers) = &declaration.specifiers {
                         // 全部 specifier 都是 type → type-only 语句（`import type {x}`
                         // 与 `import { type x }` 两形态同判；混合形态保守取 value）
@@ -89,28 +90,49 @@ impl TsResolver {
                                 )
                             });
                         type_only = type_only || all_type;
+                        // 只取具名 specifier 的**被引入名**（`type` 前缀不产第二个
+                        // 事实：与「type-only 算架构依赖」同权）；default 导入绑的是
+                        // 本地变量名、namespace 没有可枚举导出名 ⇒ 不产名
+                        for specifier in specifiers {
+                            if let oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(
+                                specifier,
+                            ) = specifier
+                            {
+                                names.extend(export_name(&specifier.imported));
+                            }
+                        }
                     }
-                    facts.push(ImportFact {
-                        specifier: declaration.source.value.as_str().to_owned(),
-                        line: line_of(source, declaration.source.span.start as usize),
+                    facts.push(ImportFact::new(
+                        declaration.source.value.as_str().to_owned(),
+                        line_of(source, declaration.source.span.start as usize),
                         type_only,
-                    });
+                        names,
+                    ));
                 }
                 Statement::ExportFromDeclaration(declaration) => {
-                    facts.push(ImportFact {
-                        specifier: declaration.source.value.as_str().to_owned(),
-                        line: line_of(source, declaration.source.span.start as usize),
-                        type_only: declaration.export_kind
-                            == oxc_ast::ast::ImportOrExportKind::Type,
-                    });
+                    // `export { A, type B } from 'x'`：与 `import` 同取法（`local` 即
+                    // 被重导出的名字）
+                    let names: Vec<String> = declaration
+                        .specifiers
+                        .iter()
+                        .filter_map(|specifier| export_name(&specifier.local))
+                        .collect();
+                    facts.push(ImportFact::new(
+                        declaration.source.value.as_str().to_owned(),
+                        line_of(source, declaration.source.span.start as usize),
+                        declaration.export_kind == oxc_ast::ast::ImportOrExportKind::Type,
+                        names,
+                    ));
                 }
                 Statement::ExportAllDeclaration(declaration) => {
-                    facts.push(ImportFact {
-                        specifier: declaration.source.value.as_str().to_owned(),
-                        line: line_of(source, declaration.source.span.start as usize),
-                        type_only: declaration.export_kind
-                            == oxc_ast::ast::ImportOrExportKind::Type,
-                    });
+                    // `export * from 'x'` / `export * as ns from 'x'`：无可枚举的
+                    // 导出名 ⇒ 零名字（静默产名会造出指向不存在导出名的假阳）
+                    facts.push(ImportFact::new(
+                        declaration.source.value.as_str().to_owned(),
+                        line_of(source, declaration.source.span.start as usize),
+                        declaration.export_kind == oxc_ast::ast::ImportOrExportKind::Type,
+                        Vec::new(),
+                    ));
                 }
                 Statement::ExpressionStatement(statement) => {
                     match &statement.expression {
@@ -237,6 +259,21 @@ fn config_file_name(stem: &str) -> String {
 /// 扩展名 → `SourceType`（未知扩展名退化为 JS module）。
 fn source_type_of(file_rel: &str) -> SourceType {
     SourceType::from_path(Path::new(file_rel)).unwrap_or_default()
+}
+
+/// `ModuleExportName` → 名字（标识符取 `name`、字符串字面量取字面值）。三形态覆盖面：
+/// `import { A }` / `export { A } from` 的具名项；`IdentifierReference` 出现在
+/// `export { A }` 的 `local` 位。
+fn export_name(name: &oxc_ast::ast::ModuleExportName<'_>) -> Option<String> {
+    match name {
+        oxc_ast::ast::ModuleExportName::IdentifierName(identifier) => {
+            Some(identifier.name.to_string())
+        }
+        oxc_ast::ast::ModuleExportName::IdentifierReference(identifier) => {
+            Some(identifier.name.to_string())
+        }
+        oxc_ast::ast::ModuleExportName::StringLiteral(literal) => Some(literal.value.to_string()),
+    }
 }
 
 /// 字节偏移 → 行号（1 起始；越界 / 落在多字节中间回退到最近 char 边界）。

@@ -6,7 +6,7 @@ import {
   ViewportPortal,
   Background,
 } from '@xyflow/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import '@xyflow/react/dist/style.css';
 
@@ -31,6 +31,11 @@ import type {
 
 import { useArchiDrift } from '../hooks/use-archi-drift';
 import { useArchiGraph } from '../hooks/use-archi-graph';
+import {
+  useArchiRelation,
+  type ArchiRelationState,
+  type RelationEdge,
+} from '../hooks/use-archi-relation';
 import { driftMarks } from '../lib/drift-marks';
 import { shortName } from '../lib/fqn';
 import { edgeVisual } from '../lib/marks';
@@ -40,6 +45,7 @@ import { FileTree, type TreeMode } from './file-tree';
 import { ModelGroupNode } from './graph/model-group-node';
 import { ModelNode } from './graph/model-node';
 import { ModelInfo, type CanvasMode } from './model-info';
+import { RelationInfo } from './relation-info';
 import { StructureErrorPanel } from './structure-error-panel';
 
 /** 邻域布局网格步长（纯拓扑定位，不引布局引擎）。 */
@@ -207,18 +213,21 @@ function toNodes(graph: ArchiGraph, focus: string): ArchiFlowNode[] {
   return nodes;
 }
 
-function toEdges(graph: ArchiGraph, focus: string): Edge[] {
+function toEdges(graph: ArchiGraph, focus: string, selectedKey: string | null): Edge[] {
   return graph.relations
     .filter((relation) => relation.from === focus || relation.to === focus)
     .map((relation) => {
       const visual = edgeVisual(relation.mark);
+      const id = `${relation.from}->${relation.to}`;
       return {
-        id: `${relation.from}->${relation.to}`,
+        id,
         source: relation.from,
         target: relation.to,
         style: {
           stroke: visual.stroke,
           strokeDasharray: visual.dasharray ?? undefined,
+          // 选中态只加粗既有描边（不引新标记词汇、不换色）
+          ...(id === selectedKey ? { strokeWidth: 3 } : {}),
         },
       };
     });
@@ -301,14 +310,22 @@ function ModelRelationGraph({
   focus,
   setFocusOverride,
   driftError,
+  selectedEdge,
+  onSelectEdge,
 }: {
   graph: ArchiGraph;
   focus: string | null;
   setFocusOverride: (focus: string) => void;
   driftError: string | null;
+  selectedEdge: RelationEdge | null;
+  onSelectEdge: (edge: RelationEdge | null) => void;
 }): React.JSX.Element {
   const nodes = useMemo(() => (focus === null ? [] : toNodes(graph, focus)), [graph, focus]);
-  const edges = useMemo(() => (focus === null ? [] : toEdges(graph, focus)), [graph, focus]);
+  const selectedKey = selectedEdge === null ? null : `${selectedEdge.from}->${selectedEdge.to}`;
+  const edges = useMemo(
+    () => (focus === null ? [] : toEdges(graph, focus, selectedKey)),
+    [graph, focus, selectedKey],
+  );
   const zone = useMemo(() => (focus === null ? null : incomingZone(graph, focus)), [graph, focus]);
   return (
     <ReactFlowProvider>
@@ -317,7 +334,11 @@ function ModelRelationGraph({
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
-        onNodeClick={(_event, node) => setFocusOverride(node.id)}
+        onNodeClick={(_event, node) => {
+          onSelectEdge(null);
+          setFocusOverride(node.id);
+        }}
+        onEdgeClick={(_event, edge) => onSelectEdge({ from: edge.source, to: edge.target })}
         nodesDraggable={false}
         nodesConnectable={false}
         fitView={true}
@@ -333,6 +354,126 @@ function ModelRelationGraph({
   );
 }
 
+/** 聚焦元素：显式覆盖仍在图内即用之，否则回落缺省聚焦。 */
+function focusOf(graph: ArchiGraph, override: string | null): string | null {
+  if (override !== null && graph.elements.some((element) => element.fqn === override)) {
+    return override;
+  }
+  return defaultFocus(graph);
+}
+
+/** 选中边 + 取数状态 + 豁免来源 → 关系态面板入参（无选中 / 派生态失效即 null）。 */
+function selectionOf(
+  edge: RelationEdge | null,
+  relation: ArchiRelation | null,
+  state: ArchiRelationState,
+  exemptVias: Map<string, 'config' | 'inline'>,
+): RelationSelection | null {
+  if (edge === null || relation === null) return null;
+  return {
+    edge,
+    relation,
+    state,
+    exemptVia: exemptVias.get(`${edge.from}->${edge.to}`) ?? null,
+  };
+}
+
+/** 选中边 → 图里的关系投影（元素对已不在图内即 null：派生态失效，按「无选中」渲染）。 */
+function relationOf(relations: ArchiRelation[], edge: RelationEdge | null): ArchiRelation | null {
+  if (edge === null) return null;
+  return (
+    relations.find((relation) => relation.from === edge.from && relation.to === edge.to) ?? null
+  );
+}
+
+/** 关系态面板的全部入参（选中边 + 图投影 + 取数状态 + 豁免来源）。 */
+interface RelationSelection {
+  edge: RelationEdge;
+  relation: ArchiRelation;
+  state: ArchiRelationState;
+  exemptVia: 'config' | 'inline' | null;
+}
+
+/** 右栏面板的入参（元素态面板 + 关系态面板共用的一份装配面）。 */
+interface InspectorInputs {
+  root: string | null;
+  mode: CanvasMode;
+  focused: ArchiElement | null;
+  relations: ArchiRelation[];
+  findings: ArchiApiFinding[];
+  onChanged: () => void;
+  selection: RelationSelection | null;
+  onRetry: () => void;
+}
+
+/** 右栏 `CardHeader` 两态：无选中 → 元素态（`ModelInfo`），有选中 → 关系态
+ * （`RelationInfo`）。同一面板位、互斥呈现，MUST NOT 新开抽屉或边旁浮卡。 */
+function InspectorPanels(inputs: InspectorInputs): React.JSX.Element {
+  const { root, mode, focused, relations, findings, onChanged, selection, onRetry } = inputs;
+  if (selection === null) {
+    return (
+      <ModelInfo
+        root={root}
+        mode={mode}
+        element={focused}
+        relations={relations}
+        findings={findings}
+        onChanged={onChanged}
+      />
+    );
+  }
+  return (
+    <RelationInfo
+      root={root}
+      edge={selection.edge}
+      relation={selection.relation}
+      state={selection.state}
+      exemptVia={selection.exemptVia}
+      onRetry={onRetry}
+    />
+  );
+}
+
+/** 右栏（`Card` = 面板位 + 画布）：`CardHeader` 承载两态面板，`CardContent` 是
+ * xyflow 画布（与面板两态切换互不影响）。 */
+function CanvasCard({
+  graph,
+  focus,
+  setFocusOverride,
+  driftError,
+  selectedEdge,
+  onSelectEdge,
+  inspector,
+}: {
+  graph: ArchiGraph;
+  focus: string | null;
+  setFocusOverride: (focus: string) => void;
+  driftError: string | null;
+  selectedEdge: RelationEdge | null;
+  onSelectEdge: (edge: RelationEdge | null) => void;
+  inspector: InspectorInputs;
+}): React.JSX.Element {
+  return (
+    <ResizablePanel>
+      <Card className="h-full flex flex-col">
+        <CardHeader>
+          <InspectorPanels {...inspector} />
+        </CardHeader>
+        <CardContent className="min-h-0 flex-1 rounded-md" data-testid="archi-canvas">
+          <ModelRelationGraph
+            graph={graph}
+            focus={focus}
+            setFocusOverride={setFocusOverride}
+            driftError={driftError}
+            selectedEdge={selectedEdge}
+            onSelectEdge={onSelectEdge}
+          />
+        </CardContent>
+      </Card>
+    </ResizablePanel>
+  );
+}
+
 /** 正常态三段布局（左栏树——缺省元素树，可切文件 / 契约视图；画布；抽屉）。漂移取数失败时
  * 零标记照常渲染 + 画布区顶部一行内提示（叠加信息不阻断图）。 */
 function CanvasBody({
@@ -342,6 +483,7 @@ function CanvasBody({
   onChanged,
   driftError,
   apiFindings,
+  exemptVias,
 }: {
   graph: ArchiGraph;
   root: string | null;
@@ -349,18 +491,28 @@ function CanvasBody({
   onChanged: () => void;
   driftError: string | null;
   apiFindings: ArchiApiFinding[];
+  /** 豁免来源索引（键 = `from->to`；取自漂移报告的 `suppressed[]`，零新 invoke） */
+  exemptVias: Map<string, 'config' | 'inline'>;
 }): React.JSX.Element {
   const [focusOverride, setFocusOverride] = useState<string | null>(null);
   const [treeMode, setTreeMode] = useState<TreeMode>('element');
-  const focus = useMemo(() => {
-    if (focusOverride !== null && graph.elements.some((element) => element.fqn === focusOverride)) {
-      return focusOverride;
-    }
-    return defaultFocus(graph);
-  }, [graph, focusOverride]);
+  const [selectedEdge, setSelectedEdge] = useState<RelationEdge | null>(null);
+  const focus = useMemo(() => focusOf(graph, focusOverride), [graph, focusOverride]);
   const focused =
     focus === null ? null : (graph.elements.find((element) => element.fqn === focus) ?? null);
   const relations: ArchiRelation[] = graph.relations;
+  // 选中边是派生态：元素对已不在图内即按「无选中」渲染（不用副作用清，免得抖动）
+  const selectedRelation = relationOf(relations, selectedEdge);
+  // 关系详情按需取数：`apis` 为空的边不取（没有可比对的清单，取数只是空转）
+  const relationState = useArchiRelation(
+    root,
+    selectedRelation !== null && selectedRelation.apis.length > 0 ? selectedEdge : null,
+  );
+  const selection = selectionOf(selectedEdge, selectedRelation, relationState, exemptVias);
+  // `root` 变化即清选中（回到元素态；显式刷新经 `key` 重挂载自然复位）
+  useEffect(() => {
+    setSelectedEdge(null);
+  }, [root]);
   if (graph.elements.length === 0) {
     return <ModelEmptyNotice />;
   }
@@ -379,28 +531,24 @@ function CanvasBody({
         />
       </ResizablePanel>
       <ResizableHandle />
-      <ResizablePanel>
-        <Card className="h-full flex flex-col">
-          <CardHeader>
-            <ModelInfo
-              root={root}
-              mode={mode}
-              element={focused}
-              relations={relations}
-              findings={apiFindings}
-              onChanged={onChanged}
-            />
-          </CardHeader>
-          <CardContent className="min-h-0 flex-1 rounded-md" data-testid="archi-canvas">
-            <ModelRelationGraph
-              graph={graph}
-              focus={focus}
-              setFocusOverride={setFocusOverride}
-              driftError={driftError}
-            />
-          </CardContent>
-        </Card>
-      </ResizablePanel>
+      <CanvasCard
+        graph={graph}
+        focus={focus}
+        setFocusOverride={setFocusOverride}
+        driftError={driftError}
+        selectedEdge={selectedEdge}
+        onSelectEdge={setSelectedEdge}
+        inspector={{
+          root,
+          mode,
+          focused,
+          relations,
+          findings: apiFindings,
+          onChanged,
+          selection,
+          onRetry: relationState.retry,
+        }}
+      />
     </ResizablePanelGroup>
   );
 }
@@ -414,6 +562,15 @@ export function ArchitectureCanvas({ root, mode }: ArchitectureCanvasProps): Rea
     () => (graph === null ? null : driftMarks(report, graph)),
     [graph, report],
   );
+  // 豁免来源索引（关系面板空态③ 的 `via`）：报告已取回、零新 invoke；`drift-marks`
+  // 与 `ArchiRelation` 的形状都不动
+  const exemptVias = useMemo(() => {
+    const vias = new Map<string, 'config' | 'inline'>();
+    for (const entry of report?.suppressed ?? []) {
+      vias.set(`${entry.from}->${entry.to}`, entry.via);
+    }
+    return vias;
+  }, [report]);
   if (loading && graph === null) {
     return (
       <div className="text-[13px] text-muted-foreground" data-testid="archi-canvas-loading">
@@ -454,6 +611,7 @@ export function ArchitectureCanvas({ root, mode }: ArchitectureCanvasProps): Rea
       onChanged={refresh}
       driftError={driftError}
       apiFindings={report?.apiFindings ?? []}
+      exemptVias={exemptVias}
     />
   );
 }

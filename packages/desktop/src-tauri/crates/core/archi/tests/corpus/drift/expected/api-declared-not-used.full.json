@@ -1,0 +1,55 @@
+{
+  "version": 3,
+  "timestamp": "<timestamp>",
+  "mode": "full",
+  "root": "<root>",
+  "change": "api-declared-not-used",
+  "base": null,
+  "modelHash": "sha256:acc57ffba69fca5909b9e7465290d00e9b3eca682fff0820f52715f652189b64",
+  "model": {
+    "elements": 3,
+    "relations": 1,
+    "byGate": {
+      "strict": 2,
+      "warn": 0,
+      "off": 1
+    },
+    "structuralErrors": [],
+    "warnings": []
+  },
+  "scan": {
+    "mode": "full",
+    "changedFiles": 0,
+    "scannedFiles": 2,
+    "excluded": [],
+    "unmatchedFiles": [],
+    "matched": [
+      {
+        "element": "App.Api",
+        "files": [
+          "src/api/index.ts"
+        ]
+      },
+      {
+        "element": "App.Consumer",
+        "files": [
+          "src/consumer/x.ts"
+        ]
+      }
+    ],
+    "unresolved": []
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [
+    {
+      "kind": "unusedDeclaration",
+      "from": "App.Consumer",
+      "to": "App.Api",
+      "message": "声明没用：App.Consumer → App.Api 的 apis 中 SessionPanel 未出现在扫描事实里——可能已不再依赖，也可能名字写错或该依赖以方法调用 / 内联限定路径 / glob 形态存在而扫描看不见（观察项，不参与门禁判据；本对无 import 时另有 unfulfilledDeclaration 一条）"
+    }
+  ],
+  "apiFindings": [],
+  "status": "clean"
+}

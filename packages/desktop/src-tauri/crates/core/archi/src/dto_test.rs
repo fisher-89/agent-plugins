@@ -874,6 +874,7 @@ fn 缺省与可选字段显式线形() {
         description: None,
         mark: EdgeMark::None,
         reason: None,
+        apis: Vec::new(),
     };
     let value = serde_json::to_value(&relation).expect("序列化成功");
     assert_eq!(value["reason"], json!(null), "reason 恒 null 显式在场");
@@ -3386,4 +3387,425 @@ fn dto入口解析单点源码自证() {
         1,
         "`hasPath` 投影单点（`to_brief` 唯一赋值处）"
     );
+}
+
+// ===========================================================================
+// `load` / `Loaded` / `diagnostics_error` 与关系投影（`relation-api-dependency-check`
+// / AC-5 / AC-6 / AC-10 / D11 / D13）
+//
+// `load` 是 crate 内 `ModelGraph::build` 的唯一调用点（`relation` 的按需取数复用同一
+// 份装载）；`ArchiRelation.apis` 是模型字段的投影拷贝（末位追加、字段不省略、原文序）；
+// `ArchiRelationDetail` 是 `archi_relation` 的十二字段出参。
+// ===========================================================================
+
+/// 模型面：三态 `apis`（省略 / 单名 / 多名）投影逐字、序按原文（零归一 / 零排序）。
+#[test]
+fn relation投影apis三态原文序() {
+    for (tail, expected) in [
+        ("", Vec::<String>::new()),
+        ("apis = [\"AgentInput\"]\n", vec!["AgentInput".to_owned()]),
+        (
+            "apis = [\"SessionPanel\", \"AgentInput\"]\n",
+            vec!["SessionPanel".to_owned(), "AgentInput".to_owned()],
+        ),
+    ] {
+        let temp = TempDir::new("relation-apis");
+        temp.write_model(
+            "01-apis.toml",
+            &format!(
+                concat!(
+                    "[element.\"Auth\"]\nkind = \"domain\"\n\n",
+                    "[element.\"Billing\"]\nkind = \"module\"\n\n",
+                    "[[relation]]\nfrom = \"Auth\"\nto = \"Billing\"\n{}",
+                ),
+                tail
+            ),
+        );
+        let graph = dto::graph_view(temp.root()).expect("健康模型应 Ok");
+        assert_eq!(graph.relations.len(), 1, "单关系在案");
+        assert_eq!(
+            graph.relations[0].apis, expected,
+            "{tail:?} 的 apis 投影逐字且保原文序"
+        );
+    }
+}
+
+/// 边界：省略 `apis` → 投影 `apis: []` 仍**在场**（字段不省略，线格式出现 `"apis": []`）。
+#[test]
+fn relation投影apis字段不省略() {
+    let temp = TempDir::new("relation-apis-absent");
+    temp.write_model(
+        "01-apis.toml",
+        concat!(
+            "[element.\"Auth\"]\nkind = \"domain\"\n\n",
+            "[element.\"Billing\"]\nkind = \"module\"\n\n",
+            "[[relation]]\nfrom = \"Auth\"\nto = \"Billing\"\n",
+        ),
+    );
+    let graph = dto::graph_view(temp.root()).expect("健康模型应 Ok");
+    let value = serde_json::to_value(&graph.relations[0]).expect("序列化成功");
+    assert_eq!(value["apis"], json!([]), "空数组仍出线（不省略字段）");
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("关系为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        vec!["from", "to", "description", "mark", "reason", "apis"],
+        "`apis` 为末尾第六字段（前五字段零位移）"
+    );
+}
+
+/// 异常：结构错模型 → `graph_view` 停摆态 `relations` 为空（零关系投影，不产半成品
+/// `apis`）。
+#[test]
+fn relation投影停摆态零关系() {
+    let temp = TempDir::new("relation-apis-halted");
+    temp.write_model(
+        "01-broken.toml",
+        concat!(
+            "[element.\"Auth\"]\nkind = \"domain\"\n\n",
+            "[[relation]]\nfrom = \"Auth\"\nto = \"Legacy\"\napis = [\"A\"]\n",
+        ),
+    );
+    let graph = dto::graph_view(temp.root()).expect("停摆态仍 Ok");
+    assert_halted(&graph, "孤立关系");
+}
+
+/// 组合：`to_relation` 拷贝语义——模型 `["B","A"]` → 投影 `["B","A"]`（不乱序、
+/// 不去重）。
+#[test]
+fn relation投影拷贝语义零归一() {
+    let temp = TempDir::new("relation-apis-copy");
+    temp.write_model(
+        "01-apis.toml",
+        concat!(
+            "[element.\"Auth\"]\nkind = \"domain\"\n\n",
+            "[element.\"Billing\"]\nkind = \"module\"\n\n",
+            "[[relation]]\nfrom = \"Auth\"\nto = \"Billing\"\napis = [\"B\", \"A\"]\n",
+        ),
+    );
+    let graph = dto::graph_view(temp.root()).expect("健康模型应 Ok");
+    assert_eq!(
+        graph.relations[0].apis,
+        vec!["B".to_owned(), "A".to_owned()],
+        "投影只裁剪：不乱序、不去重（归一在判定侧）"
+    );
+}
+
+/// 正向：`load` 的 `graph` 与 `graph_view` 直调的元素 / 关系逐字段相等（单一装载点）。
+#[test]
+fn load与graph_view同源() {
+    let temp = healthy_dir("load-same-source");
+    let loaded = dto::load(temp.root());
+    let view = dto::graph_view(temp.root()).expect("健康模型应 Ok");
+    let model = loaded.graph.model();
+    assert_eq!(
+        model.elements.len(),
+        view.elements.len(),
+        "元素数同源：{}",
+        loaded.diagnostics.len()
+    );
+    assert_eq!(model.relations.len(), view.relations.len(), "关系数同源");
+    let fqns: Vec<&str> = model.elements.iter().map(|e| e.fqn.as_str()).collect();
+    let view_fqns: Vec<&str> = view.elements.iter().map(|e| e.fqn.as_str()).collect();
+    assert_eq!(fqns, view_fqns, "元素 FQN 序同源");
+    assert!(loaded.diagnostics.is_empty(), "健康盘零诊断");
+}
+
+/// 边界：空模型目录 → `graph` 零元素零关系、`diagnostics` 空（不 Err，装载不返回
+/// `Option`）。
+#[test]
+fn load空模型目录两字段齐备() {
+    let temp = TempDir::with_empty_models("load-empty");
+    let loaded = dto::load(temp.root());
+    assert!(loaded.graph.model().elements.is_empty(), "零元素");
+    assert!(loaded.graph.model().relations.is_empty(), "零关系");
+    assert!(loaded.diagnostics.is_empty(), "零诊断（不是 Err）");
+}
+
+/// 边界：解析源（坏文件出的 `unknownField`）与图源（悬空关系出的 `unknownReference`）
+/// 并存 → `diagnostics` 是两源合并后的全量（条数 = 两源之和），`graph` 仍可读。
+#[test]
+fn load两源诊断合并全量() {
+    let temp = TempDir::new("load-merged-diagnostics");
+    temp.write_model(
+        "01-broken.toml",
+        "[element.\"Auth\"]\nkind = \"domain\"\ngatte = \"strict\"\n",
+    );
+    temp.write_model(
+        "02-dangling.toml",
+        concat!(
+            "[element.\"Billing\"]\nkind = \"module\"\n\n",
+            "[[relation]]\nfrom = \"Billing\"\nto = \"Legacy\"\n",
+        ),
+    );
+    let loaded = dto::load(temp.root());
+    assert_eq!(
+        loaded.graph.model().elements.len(),
+        1,
+        "单个文件整体失败不吞另一文件的模型"
+    );
+    let kinds: Vec<DiagnosticKind> = loaded
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.kind)
+        .collect();
+    assert!(
+        kinds.contains(&DiagnosticKind::UnknownField),
+        "解析源诊断在案：{kinds:?}"
+    );
+    assert!(
+        kinds.contains(&DiagnosticKind::UnknownReference),
+        "图源诊断在案：{kinds:?}"
+    );
+    assert_eq!(kinds.len(), 2, "条数 = 解析源 1 + 图源 1：{kinds:?}");
+}
+
+/// 边界 / 异常：坏模型 → `diagnostics` 非空且 `graph` 仍可读（零 panic / 零 `Option`
+/// 空），消费侧由 `diagnostics_error` 收敛为 `Err`。
+#[test]
+fn load坏模型诊断非空图仍可读() {
+    let temp = TempDir::new("load-broken");
+    temp.write_model(
+        "01-broken.toml",
+        concat!(
+            "[element.\"Auth\"]\nkind = \"domain\"\n\n",
+            "[[relation]]\nfrom = \"Auth\"\nto = \"Legacy\"\napis = [\"A\"]\n",
+        ),
+    );
+    let loaded = dto::load(temp.root());
+    assert!(!loaded.diagnostics.is_empty(), "结构诊断非空");
+    assert_eq!(
+        loaded.graph.model().elements.len(),
+        1,
+        "图仍可读（诊断不吞模型）"
+    );
+    let text = dto::diagnostics_error(&loaded.diagnostics);
+    assert!(text.contains("模型结构错"), "诊断文案单点：{text}");
+}
+
+/// 组合：同一盘面连调两次 → 结果逐字段相等（无缓存也无副作用；`ModelGraph::build`
+/// 仅 `load` 一处调用）。
+#[test]
+fn load两次调用结果一致且构建单点() {
+    let temp = healthy_dir("load-twice");
+    let first = dto::load(temp.root());
+    let second = dto::load(temp.root());
+    assert_eq!(
+        first.graph.model(),
+        second.graph.model(),
+        "两次装载逐字段相等"
+    );
+    assert_eq!(first.diagnostics, second.diagnostics, "诊断零漂移");
+    assert_eq!(
+        include_str!("dto.rs").matches("ModelGraph::build(").count(),
+        1,
+        "`ModelGraph::build` 在 crate 内仅 `load` 一处调用"
+    );
+}
+
+/// 正向：`diagnostics_error` 两条诊断 → 首行「模型结构错（共 2 条）：」+ 逐条
+/// `kind @ file:line`。
+#[test]
+fn diagnostics_error两条文案逐行() {
+    let diagnostics = vec![
+        crate::model::Diagnostic {
+            kind: DiagnosticKind::OrphanHierarchy,
+            message: "孤儿层级".to_owned(),
+            file: "graph/model/01.toml".to_owned(),
+            line: 3,
+            column: Some(2),
+        },
+        crate::model::Diagnostic {
+            kind: DiagnosticKind::UnknownReference,
+            message: "关系指向未声明元素".to_owned(),
+            file: "graph/model/02.toml".to_owned(),
+            line: 9,
+            column: None,
+        },
+    ];
+    let text = dto::diagnostics_error(&diagnostics);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 3, "首行 + 两条：{text}");
+    assert_eq!(lines[0], "模型结构错（共 2 条）：", "首行点名条数");
+    assert!(
+        lines[1].contains("@ graph/model/01.toml:3"),
+        "逐条位置：{}",
+        lines[1]
+    );
+    assert!(
+        lines[2].contains("@ graph/model/02.toml:9"),
+        "逐条位置：{}",
+        lines[2]
+    );
+}
+
+/// 边界：空清单 → 仅首行（「共 0 条」形态）、零 panic；`line = 0` → 仅
+/// `kind @ file`（无 `:0` 尾巴）。
+#[test]
+fn diagnostics_error边界两形态() {
+    assert_eq!(
+        dto::diagnostics_error(&[]),
+        "模型结构错（共 0 条）：",
+        "空清单只有首行"
+    );
+    let text = dto::diagnostics_error(&[crate::model::Diagnostic {
+        kind: DiagnosticKind::SyntaxError,
+        message: "语法错".to_owned(),
+        file: "graph/model/01.toml".to_owned(),
+        line: 0,
+        column: None,
+    }]);
+    assert!(text.contains("@ graph/model/01.toml"), "位置在案：{text}");
+    assert!(!text.contains(":0"), "line = 0 不伪造行号后缀：{text}");
+}
+
+/// 异常：路径含空格 / emoji / 反斜杠 → 原样插入（不转义、不 panic）。
+#[test]
+fn diagnostics_error特殊路径原样() {
+    for file in ["a b/01.toml", "模型/🙂.toml", "win\\path\\01.toml"] {
+        let text = dto::diagnostics_error(&[crate::model::Diagnostic {
+            kind: DiagnosticKind::SyntaxError,
+            message: "语法错".to_owned(),
+            file: file.to_owned(),
+            line: 5,
+            column: None,
+        }]);
+        assert!(text.contains(file), "{file:?} 原样插入：{text}");
+    }
+}
+
+/// 组合：与 `graph_diagnostics_error` 同一 `(kind, file, line)` 输入逐字相等（文案单
+/// 点）。
+#[test]
+fn diagnostics_error与投影侧同文案() {
+    let cases = [
+        (DiagnosticKind::OrphanHierarchy, "graph/model/01.toml", 3u32),
+        (DiagnosticKind::SyntaxError, "graph/model/02.toml", 0u32),
+        (
+            DiagnosticKind::DuplicateElement,
+            "graph/model/03.toml",
+            12u32,
+        ),
+    ];
+    for (kind, file, line) in cases {
+        let process_side = dto::diagnostics_error(&[crate::model::Diagnostic {
+            kind,
+            message: "原文".to_owned(),
+            file: file.to_owned(),
+            line,
+            column: None,
+        }]);
+        let wire_side = dto::graph_diagnostics_error(&[ArchiDiagnostic {
+            kind,
+            message: "原文".to_owned(),
+            file: file.to_owned(),
+            line,
+            column: None,
+        }]);
+        assert_eq!(process_side, wire_side, "{kind:?} 两族文案单点");
+    }
+}
+
+/// 正向：`ArchiRelationDetail` 十二字段齐备、camelCase 线名，空值三态各自**不省略**。
+#[test]
+fn relation_detail字段面与空值三态() {
+    let detail = dto::ArchiRelationDetail {
+        from: "Auth".to_owned(),
+        to: "Billing".to_owned(),
+        description: None,
+        mark: EdgeMark::None,
+        reason: None,
+        model_file: ".dev-team/architecture/graph/model/01-core.toml".to_owned(),
+        model_line: 12,
+        declared: vec!["A".to_owned()],
+        used: vec!["A".to_owned(), "C".to_owned()],
+        used_not_declared: vec!["C".to_owned()],
+        declared_not_used: Vec::new(),
+        occurrences: Vec::new(),
+    };
+    let json = serde_json::to_value(&detail).expect("序列化成功");
+    let keys: Vec<&str> = json
+        .as_object()
+        .expect("详情为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        vec![
+            "from",
+            "to",
+            "description",
+            "mark",
+            "reason",
+            "modelFile",
+            "modelLine",
+            "declared",
+            "used",
+            "usedNotDeclared",
+            "declaredNotUsed",
+            "occurrences",
+        ],
+        "十二字段按声明序出线且 camelCase"
+    );
+    assert_eq!(json["reason"], json!(null), "reason 不省略（null 出线）");
+    assert_eq!(
+        json["description"],
+        json!(null),
+        "description 不省略（null 出线）"
+    );
+    assert_eq!(
+        json["occurrences"],
+        json!([]),
+        "occurrences 不省略（空数组出线）"
+    );
+    assert_eq!(json["mark"], json!("none"), "边标记线格式");
+}
+
+/// 异常：反序列化非法 `mark` 串 → `Err`（`EdgeMark` 封闭值，零第五值——边失配徽标不
+/// 做）。
+#[test]
+fn relation_detail非法mark即错() {
+    for probe in ["missing", ""] {
+        let mut json = serde_json::to_value(dto::ArchiRelationDetail {
+            from: "A".to_owned(),
+            to: "B".to_owned(),
+            description: None,
+            mark: EdgeMark::None,
+            reason: None,
+            model_file: "graph/model/01.toml".to_owned(),
+            model_line: 1,
+            declared: Vec::new(),
+            used: Vec::new(),
+            used_not_declared: Vec::new(),
+            declared_not_used: Vec::new(),
+            occurrences: Vec::new(),
+        })
+        .expect("序列化成功");
+        json["mark"] = json!(probe);
+        assert!(
+            serde_json::from_value::<dto::ArchiRelationDetail>(json).is_err(),
+            "{probe:?} 不是合法边标记"
+        );
+    }
+}
+
+/// 组合：`ArchiRelationDetail` 的模型面与 `graph.relations` 同元素对逐字段相等（同源，
+/// 零第二份判定）。
+#[test]
+fn relation_detail模型面同源() {
+    let temp = healthy_dir("relation-detail-source");
+    let graph = dto::graph_view(temp.root()).expect("健康模型应 Ok");
+    assert_eq!(
+        graph.relations[0].apis,
+        Vec::<String>::new(),
+        "健康语料的关系省略 apis"
+    );
+    let relation: &ArchiRelation = &graph.relations[0];
+    assert_eq!(relation.mark, EdgeMark::None, "边标记与详情同源词汇");
+    assert!(relation.reason.is_none(), "豁免理由同源");
 }

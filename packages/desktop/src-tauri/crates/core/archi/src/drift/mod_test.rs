@@ -19,7 +19,8 @@ use crate::scan::{self, ScanInput};
 use super::report::{
     ArchiApiFindingKind, ArchiCheckStatus, ArchiDriftKind, ArchiObservationKind, ArchiSuppressVia,
 };
-use super::{check, CheckError, CheckInput, Report};
+use super::{api_buckets, check, edge_names, occurrences_of, CheckError, CheckInput, Report};
+use crate::scan::DependencyEdge;
 
 // ---------------------------------------------------------------------------
 // 真实临时目录（本 crate 无 dev-dependency，故用 std 自建）
@@ -2826,4 +2827,716 @@ fn model_hash口径回归手工复算() {
         recompute_model_hash(temp.root()),
         "改契约 md 后口径仍一致"
     );
+}
+
+// ===========================================================================
+// 名字级两桶（`relation-api-dependency-check` / AC-2 / AC-3 / AC-5 / D8 / D9）
+//
+// `api_buckets` 是 `used ∖ declared` / `declared ∖ used` 的**唯一实现**（drift 装配与
+// `relation::relation_detail` 都只调它）；`edge_names` / `occurrences_of` 的元素对口径
+// 也各只有一份。比对逐字符：MUST NOT 大小写折叠、MUST NOT 驼峰归一。
+// ===========================================================================
+
+/// 边构造器（`specifier` / `type_only` / `inline_ignore` 取固定值，只用名字面）。
+fn edge(from: &str, to: &str, file: &str, line: u32, names: &[&str]) -> DependencyEdge {
+    DependencyEdge {
+        from: from.to_owned(),
+        to: to.to_owned(),
+        file: file.to_owned(),
+        line,
+        specifier: "./x".to_owned(),
+        type_only: false,
+        inline_ignore: None,
+        names: names.iter().map(|name| (*name).to_owned()).collect(),
+    }
+}
+
+/// 正向：全匹配 / 少一项 / 多一项 / 两侧各有差四形态逐值（两桶同序字典序）。
+#[test]
+fn api_buckets四形态() {
+    assert_eq!(
+        api_buckets(&strings(&["A", "B"]), &strings(&["B", "A"])),
+        (Vec::new(), Vec::new()),
+        "全匹配 ⇒ 两桶皆空"
+    );
+    assert_eq!(
+        api_buckets(&strings(&["A", "B"]), &strings(&["A"])),
+        (Vec::new(), strings(&["B"])),
+        "声明多一项 ⇒ declared ∖ used"
+    );
+    assert_eq!(
+        api_buckets(&strings(&["A"]), &strings(&["A", "C"])),
+        (strings(&["C"]), Vec::new()),
+        "事实多一项 ⇒ used ∖ declared"
+    );
+    assert_eq!(
+        api_buckets(&strings(&["A", "B"]), &strings(&["B", "D"])),
+        (strings(&["D"]), strings(&["A"])),
+        "两侧各有差 ⇒ 两桶各自字典序"
+    );
+}
+
+/// 边界：双空 → 两桶皆空（`apis` 省略的关系零产）。
+#[test]
+fn api_buckets双空() {
+    assert_eq!(
+        api_buckets(&[], &[]),
+        (Vec::new(), Vec::new()),
+        "双空不产条目"
+    );
+}
+
+/// 边界：乱序 + 重复输入 → 输出恒去重 + 字典序（同一名字多处命中只算一项）。
+#[test]
+fn api_buckets去重与排序() {
+    assert_eq!(
+        api_buckets(&strings(&["B", "A", "A"]), &strings(&["C", "A", "C"])),
+        (strings(&["C"]), strings(&["B"])),
+        "两桶各自去重 + 字典序"
+    );
+}
+
+/// 边界：大小写不同（`Agent` / `agent`）→ 两侧各出一项（逐字符比对，禁折叠 / 驼峰
+/// 归一）。
+#[test]
+fn api_buckets大小写不折叠() {
+    assert_eq!(
+        api_buckets(&strings(&["Agent"]), &strings(&["agent"])),
+        (strings(&["agent"]), strings(&["Agent"])),
+        "大小写差异即一项差异"
+    );
+}
+
+/// 边界：空串名 / 单字符名 / 超长名 → 按字符参与比较，零 panic。
+#[test]
+fn api_buckets名字形态边界() {
+    let long = "N".repeat(1200);
+    assert_eq!(
+        api_buckets(&strings(&[""]), &strings(&["A"])),
+        (strings(&["A"]), strings(&[""])),
+        "空串名照常参与比较"
+    );
+    assert_eq!(
+        api_buckets(&strings(&["Z"]), &strings(&["Z"])),
+        (Vec::new(), Vec::new()),
+        "单字符名可比"
+    );
+    let long_ref = long.as_str();
+    assert_eq!(
+        api_buckets(std::slice::from_ref(&long), &strings(&["A"])),
+        (strings(&["A"]), vec![long_ref.to_owned()]),
+        "超长名原样参与比较"
+    );
+}
+
+/// 边界：超大列表（各 1200 名，仅一项差）→ 恰一项差异（零 panic）。
+#[test]
+fn api_buckets超大列表单项差异() {
+    let mut declared: Vec<String> = (0..1199).map(|index| format!("Name{index:04}")).collect();
+    declared.push("OnlyDeclared".to_owned());
+    let mut used: Vec<String> = (0..1199).map(|index| format!("Name{index:04}")).collect();
+    used.push("OnlyUsed".to_owned());
+    assert_eq!(
+        api_buckets(&declared, &used),
+        (vec!["OnlyUsed".to_owned()], vec!["OnlyDeclared".to_owned()]),
+        "1200 名仅一项差"
+    );
+}
+
+/// 异常：declared 含 `::` / 空白（直构，绕过模型值面）→ 仍按逐字符比较（纯函数不校验
+/// 值面、也不静默剔除）。
+#[test]
+fn api_buckets零值面校验() {
+    for probe in ["a::b", "a b"] {
+        assert_eq!(
+            api_buckets(&strings(&[probe]), &[]),
+            (Vec::new(), strings(&[probe])),
+            "{probe:?} 原样参与比较（不剔除）"
+        );
+    }
+}
+
+/// 组合：交换入参 → 两桶互换（对称语义，零第二套规则）。
+#[test]
+fn api_buckets入参互换即两桶互换() {
+    let declared = strings(&["A", "B"]);
+    let used = strings(&["B", "D"]);
+    let (used_only, declared_only) = api_buckets(&declared, &used);
+    let (swapped_used_only, swapped_declared_only) = api_buckets(&used, &declared);
+    assert_eq!(used_only, swapped_declared_only, "第一桶对调后相等");
+    assert_eq!(declared_only, swapped_used_only, "第二桶对调后相等");
+}
+
+/// 正向：两条边名字 `["B"]` / `["A", "B"]` → 并集 `["A", "B"]`（去重 + 字典序）。
+#[test]
+fn edge_names并集去重() {
+    let first = edge("A", "B", "src/a/x.ts", 1, &["B"]);
+    let second = edge("A", "B", "src/a/y.ts", 3, &["A", "B"]);
+    assert_eq!(
+        edge_names(&[&first, &second]),
+        strings(&["A", "B"]),
+        "跨边并集去重 + 字典序"
+    );
+}
+
+/// 边界：零边 / 边名字全空（default / glob）→ 空向量。
+#[test]
+fn edge_names空面() {
+    assert!(edge_names(&[]).is_empty(), "零边 ⇒ 空");
+    let nameless = edge("A", "B", "src/a/x.ts", 1, &[]);
+    assert!(
+        edge_names(&[&nameless]).is_empty(),
+        "名字全空 ⇒ 空（不产假名）"
+    );
+}
+
+/// 组合：与 `scan::normalize_names` 直调同一输入逐字相等（单一归一实现）。
+#[test]
+fn edge_names与归一单点同值() {
+    let cases: [&[&str]; 3] = [&["b", "a", "b"], &[], &["Z", "Z", "z"]];
+    for names in cases {
+        let named = edge("A", "B", "src/a/x.ts", 1, names);
+        assert_eq!(
+            edge_names(&[&named]),
+            scan::normalize_names(
+                names
+                    .iter()
+                    .map(|name| (*name).to_owned())
+                    .collect::<Vec<String>>()
+            ),
+            "{names:?} 与归一单点逐字相等"
+        );
+    }
+}
+
+/// 异常（直构）：边名字含重复与空串元素 → 仍每次去重 + 排序、零 panic（本函数零值面
+/// 校验，空串是一个普通名字）。
+#[test]
+fn edge_names空串元素零过滤() {
+    let named = edge("A", "B", "src/a/x.ts", 1, &["B", "", "", "A"]);
+    let other = edge("A", "B", "src/a/y.ts", 2, &["", "B"]);
+    assert_eq!(
+        edge_names(&[&named, &other]),
+        strings(&["", "A", "B"]),
+        "跨边去重后按字典序（空串排最前、不被剔除）"
+    );
+}
+
+/// 正向：多文件多行 → 按 `file` 再 `line` 升序；`specifier` / `type_only` 原样。
+#[test]
+fn occurrences_of排序与字段原样() {
+    let second = edge("A", "B", "src/a/y.ts", 4, &["B"]);
+    let first = edge("A", "B", "src/a/x.ts", 9, &["A"]);
+    let mut first = first;
+    first.type_only = true;
+    let occurrences = occurrences_of(&[&second, &first]);
+    assert_eq!(
+        occurrences
+            .iter()
+            .map(|entry| (entry.file.as_str(), entry.line, entry.type_only))
+            .collect::<Vec<(&str, u32, bool)>>(),
+        vec![("src/a/x.ts", 9, true), ("src/a/y.ts", 4, false)],
+        "按 file 再 line 升序，typeOnly 原样"
+    );
+    assert_eq!(
+        occurrences[0].specifier.as_deref(),
+        Some("./x"),
+        "specifier 原样"
+    );
+}
+
+/// 边界：零边 → 空；`line = 0`（未知位置）排最前且零 panic。
+#[test]
+fn occurrences_of边界() {
+    assert!(occurrences_of(&[]).is_empty(), "零边 ⇒ 空");
+    let unknown = edge("A", "B", "src/a/a.ts", 0, &[]);
+    let known = edge("A", "B", "src/a/b.ts", 2, &[]);
+    assert_eq!(
+        occurrences_of(&[&known, &unknown])
+            .iter()
+            .map(|entry| entry.line)
+            .collect::<Vec<u32>>(),
+        vec![0, 2],
+        "line = 0 排最前（同 file 内升序）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// `check` 两桶装配（档位只看引入方）
+// ---------------------------------------------------------------------------
+
+/// 单关系模型（`Billing → Auth`，`apis` 由入参给出；`Billing` 档位由入参给出）。
+fn api_model(temp: &TempDir, gate: &str, apis: &str) {
+    temp.write_model(&format!(
+        concat!(
+            "[element.\"Auth\"]\nkind = \"module\"\ngate = \"off\"\npath = [\"./src/auth/\"]\n\n",
+            "[element.\"Billing\"]\nkind = \"module\"\ngate = \"{gate}\"\npath = [\"./src/billing/\"]\n\n",
+            "[[relation]]\nfrom = \"Billing\"\nto = \"Auth\"\n{apis}",
+        ),
+        gate = gate,
+        apis = apis
+    ));
+    temp.write(
+        "src/auth/token.ts",
+        "export const alpha = 1;\nexport const gamma = 2;\n",
+    );
+}
+
+/// 条目里的元素对（`(from, to, kind)` 三元组清单）。
+fn entry_kinds(entries: &[super::ArchiDriftEntry]) -> Vec<(String, String, ArchiDriftKind)> {
+    entries
+        .iter()
+        .map(|entry| {
+            (
+                entry.from.clone().unwrap_or_default(),
+                entry.to.clone().unwrap_or_default(),
+                entry.kind,
+            )
+        })
+        .collect()
+}
+
+/// 观察项里的元素对（`(from, to, kind)` 三元组清单）。
+fn observation_kinds(
+    entries: &[super::ArchiDriftObservation],
+) -> Vec<(String, String, ArchiObservationKind)> {
+    entries
+        .iter()
+        .map(|entry| (entry.from.clone(), entry.to.clone(), entry.kind))
+        .collect()
+}
+
+/// 正向：strict 引入方 + 事实多出一项 → `errors` 恰一条 `undeclaredApi`，`gate =
+/// Some(strict)`，文案点名多出的名字与档位。
+#[test]
+fn 两桶装配strict多出进errors() {
+    let temp = TempDir::new("api-strict-used-only");
+    api_model(&temp, "strict", "apis = [\"alpha\"]\n");
+    temp.write(
+        "src/billing/x.ts",
+        "import { alpha, gamma } from '../auth/token';\n",
+    );
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert_eq!(
+        entry_kinds(&report.errors),
+        vec![(
+            "Billing".to_owned(),
+            "Auth".to_owned(),
+            ArchiDriftKind::UndeclaredApi
+        )],
+        "strict 引入方：用了没声明进 errors"
+    );
+    assert_eq!(
+        report.errors[0].gate,
+        Some(crate::dto::GateTier::Strict),
+        "档位取引入方"
+    );
+    assert!(
+        report.errors[0].message.contains("gamma"),
+        "文案点名多出的名字：{}",
+        report.errors[0].message
+    );
+    assert!(
+        report.errors[0].message.contains("strict"),
+        "文案点名档位：{}",
+        report.errors[0].message
+    );
+    assert!(report.warnings.is_empty(), "warn 面无条目");
+    assert_eq!(
+        report.status,
+        ArchiCheckStatus::Errors,
+        "errors 非空 ⇒ status = errors"
+    );
+    assert!(!report.passed(), "status = errors ⇒ passed = false");
+}
+
+/// 正向：warn 引入方同形态 → `warnings` 恰一条、`errors` 空、`status = warnings`、
+/// `passed = true`。
+#[test]
+fn 两桶装配warn多出进warnings() {
+    let temp = TempDir::new("api-warn-used-only");
+    api_model(&temp, "warn", "apis = [\"alpha\"]\n");
+    temp.write(
+        "src/billing/x.ts",
+        "import { alpha, gamma } from '../auth/token';\n",
+    );
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert!(report.errors.is_empty(), "warn 引入方不进 errors");
+    assert_eq!(
+        entry_kinds(&report.warnings)
+            .into_iter()
+            .filter(|(_, _, kind)| *kind == ArchiDriftKind::UndeclaredApi)
+            .collect::<Vec<(String, String, ArchiDriftKind)>>(),
+        vec![(
+            "Billing".to_owned(),
+            "Auth".to_owned(),
+            ArchiDriftKind::UndeclaredApi
+        )],
+        "warn 引入方：用了没声明进 warnings"
+    );
+    assert_eq!(report.status, ArchiCheckStatus::Warnings);
+    assert!(report.passed(), "warnings 不阻断门禁");
+}
+
+/// 正向：off 引入方同形态 → 零条目（三数组皆不出现该名字）。
+#[test]
+fn 两桶装配off零条目() {
+    let temp = TempDir::new("api-off-used-only");
+    api_model(&temp, "off", "apis = [\"alpha\"]\n");
+    temp.write(
+        "src/billing/x.ts",
+        "import { alpha, gamma } from '../auth/token';\n",
+    );
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert!(report.errors.is_empty(), "off ⇒ 零 errors");
+    assert!(report.warnings.is_empty(), "off ⇒ 零 warnings");
+    assert!(
+        !report
+            .observations
+            .iter()
+            .any(|entry| entry.kind == ArchiObservationKind::UnusedDeclaration),
+        "off 引入方也不产观察项：{:?}",
+        report.observations
+    );
+    assert_eq!(report.status, ArchiCheckStatus::Clean, "全无条目 ⇒ clean");
+}
+
+/// 正向：声明多一项（事实少 `beta`）→ `observations` 恰一条 `unusedDeclaration`、
+/// `status = clean`、`passed = true`（观察项不进门禁）。
+#[test]
+fn 两桶装配声明多出只作观察项() {
+    let temp = TempDir::new("api-declared-only");
+    api_model(&temp, "strict", "apis = [\"alpha\", \"beta\"]\n");
+    temp.write(
+        "src/billing/x.ts",
+        "import { alpha } from '../auth/token';\n",
+    );
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert!(report.errors.is_empty(), "声明多出不是错误");
+    assert_eq!(
+        observation_kinds(&report.observations),
+        vec![(
+            "Billing".to_owned(),
+            "Auth".to_owned(),
+            ArchiObservationKind::UnusedDeclaration
+        )],
+        "声明没用恰一条观察项"
+    );
+    assert_eq!(report.status, ArchiCheckStatus::Clean);
+    assert!(report.passed(), "观察项永不进 status / passed");
+    let message = &report.observations[0].message;
+    assert!(message.contains("beta"), "文案点名未出现的名字：{message}");
+    assert!(
+        message.contains("不再依赖") && message.contains("名字写错"),
+        "文案并列两成因（R4 / R5）：{message}"
+    );
+    assert!(
+        message.contains("unfulfilledDeclaration"),
+        "文案点名「本对无 import 时另有 unfulfilledDeclaration」：{message}"
+    );
+    assert!(
+        message.contains("方法调用")
+            && message.contains("内联限定路径")
+            && message.contains("glob"),
+        "文案点名三条取数上限：{message}"
+    );
+}
+
+/// 边界：关系省略 `apis`（冷启动）→ 零新增条目（两桶段整体跳过）。
+#[test]
+fn 两桶装配省略apis零条目() {
+    let temp = TempDir::new("api-absent");
+    api_model(&temp, "strict", "");
+    temp.write(
+        "src/billing/x.ts",
+        "import { alpha, gamma } from '../auth/token';\n",
+    );
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert!(report.errors.is_empty(), "省略 apis ⇒ 零 errors");
+    assert!(report.warnings.is_empty(), "省略 apis ⇒ 零 warnings");
+    assert!(
+        !report
+            .observations
+            .iter()
+            .any(|entry| entry.kind == ArchiObservationKind::UnusedDeclaration),
+        "省略 apis ⇒ 零 unusedDeclaration：{:?}",
+        report.observations
+    );
+    assert_eq!(report.status, ArchiCheckStatus::Clean);
+}
+
+/// 边界：declared 与 used 完全相同 → 两桶皆空、零条目。
+#[test]
+fn 两桶装配全匹配零条目() {
+    let temp = TempDir::new("api-exact");
+    api_model(&temp, "strict", "apis = [\"alpha\", \"gamma\"]\n");
+    temp.write(
+        "src/billing/x.ts",
+        "import { alpha, gamma } from '../auth/token';\n",
+    );
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert!(report.errors.is_empty(), "全匹配零错误");
+    assert!(report.warnings.is_empty(), "全匹配零警告");
+    assert!(report.observations.is_empty(), "全匹配零观察项");
+    assert_eq!(report.status, ArchiCheckStatus::Clean);
+}
+
+/// 边界：同一元素对无 import 且 `apis` 非空 → `unfulfilledDeclaration` 与
+/// `unusedDeclaration` 并存（两条事实不同，允许并存）。
+#[test]
+fn 两桶装配两观察项并存() {
+    let temp = TempDir::new("api-both-observations");
+    api_model(&temp, "strict", "apis = [\"alpha\"]\n");
+    temp.write("src/billing/x.ts", "export const local = 1;\n");
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert_eq!(
+        observation_kinds(&report.observations),
+        vec![
+            (
+                "Billing".to_owned(),
+                "Auth".to_owned(),
+                ArchiObservationKind::UnfulfilledDeclaration
+            ),
+            (
+                "Billing".to_owned(),
+                "Auth".to_owned(),
+                ArchiObservationKind::UnusedDeclaration
+            ),
+        ],
+        "声明未兑现与声明没用并存（两条事实、零去重）"
+    );
+}
+
+/// 异常：两桶条目的 `occurrences` 与该元素对全部命中边逐条同形（按 file / line 排序，
+/// `line` 非 0），且与 `relation_detail` 侧同一聚合口径。
+#[test]
+fn 两桶条目命中点同形() {
+    let temp = TempDir::new("api-occurrences");
+    api_model(&temp, "strict", "apis = [\"alpha\"]\n");
+    temp.write(
+        "src/billing/b.ts",
+        "import { gamma } from '../auth/token';\n",
+    );
+    temp.write(
+        "src/billing/a.ts",
+        "import { gamma } from '../auth/token';\n",
+    );
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert_eq!(report.errors.len(), 1, "恰一条 undeclaredApi");
+    let occurrences = &report.errors[0].occurrences;
+    assert_eq!(occurrences.len(), 2, "两条命中边各一条命中点");
+    assert_eq!(
+        occurrences
+            .iter()
+            .map(|entry| (entry.file.as_str(), entry.line))
+            .collect::<Vec<(&str, u32)>>(),
+        vec![("src/billing/a.ts", 1), ("src/billing/b.ts", 1)],
+        "按 file 再 line 升序且 line 非 0"
+    );
+    for occurrence in occurrences {
+        assert_eq!(occurrence.specifier.as_deref(), Some("../auth/token"));
+        assert!(!occurrence.type_only);
+    }
+}
+
+/// 边界：报告 `version` 与顶层字段集不因两桶而扩（`version == 3`，条目键集不变）。
+#[test]
+fn 两桶不扩报告字段集() {
+    let temp = TempDir::new("api-report-shape");
+    api_model(&temp, "strict", "apis = [\"alpha\"]\n");
+    temp.write(
+        "src/billing/x.ts",
+        "import { gamma } from '../auth/token';\n",
+    );
+    let report = run_full(temp.root()).expect("判定应成功");
+    let json = serde_json::to_value(&report).expect("序列化失败");
+    let object = json.as_object().expect("报告为对象");
+    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec![
+            "apiFindings",
+            "base",
+            "change",
+            "errors",
+            "mode",
+            "model",
+            "modelHash",
+            "observations",
+            "root",
+            "scan",
+            "status",
+            "suppressed",
+            "timestamp",
+            "version",
+            "warnings",
+        ],
+        "顶层键集零扩张"
+    );
+    assert_eq!(json["version"], 3, "报告版本仍为 3");
+    let entry = json["errors"][0].as_object().expect("条目为对象");
+    let mut entry_keys: Vec<&str> = entry.keys().map(String::as_str).collect();
+    entry_keys.sort();
+    assert_eq!(
+        entry_keys,
+        vec!["from", "gate", "kind", "message", "occurrences", "to"],
+        "条目键集零扩张（新增取值不扩字段）"
+    );
+    assert_eq!(
+        json["errors"][0]["kind"], "undeclaredApi",
+        "线格式 camelCase"
+    );
+}
+
+/// 异常（防御臂）：`from` 元素缺席于模型（gate 取不到）→ 结构错停摆、两桶装配跳过、
+/// 零 panic（不产 `undeclaredApi` / `unusedDeclaration`）。
+#[test]
+fn 两桶装配from元素缺席跳过() {
+    let temp = TempDir::new("api-from-absent");
+    temp.write_model(concat!(
+        "[element.\"Auth\"]\nkind = \"module\"\ngate = \"off\"\npath = [\"./src/auth/\"]\n\n",
+        "[[relation]]\nfrom = \"Ghost\"\nto = \"Auth\"\napis = [\"alpha\"]\n",
+    ));
+    temp.write("src/auth/token.ts", "export const alpha = 1;\n");
+    let report = run_full(temp.root()).expect("元素缺席不 panic");
+    assert!(
+        !report
+            .errors
+            .iter()
+            .chain(report.warnings.iter())
+            .any(|entry| entry.kind == ArchiDriftKind::UndeclaredApi),
+        "gate 取不到 ⇒ 零 undeclaredApi：{:?}",
+        entry_kinds(&report.errors)
+    );
+    assert!(
+        !report
+            .observations
+            .iter()
+            .any(|entry| entry.kind == ArchiObservationKind::UnusedDeclaration),
+        "gate 取不到 ⇒ 零 unusedDeclaration：{:?}",
+        report.observations
+    );
+    assert!(
+        !report.model.structural_errors.is_empty(),
+        "未定义引用以结构诊断呈现（装配段根本不跑）"
+    );
+}
+
+/// 边界（定级分支单点，源码复核）：`errors.push` / `warnings.push` 只出现在既有 ⑥ 段与
+/// 新增两桶段（⑦ᵃ）——无第三处定级点、⑦ 之后零 push。
+#[test]
+fn 定级分支单点源码复核() {
+    let source = include_str!("mod.rs");
+    let six = source
+        .split("// ⑥ 对账：声明 vs 依赖事实")
+        .nth(1)
+        .expect("⑥ 段在案")
+        .split("// ⑦ ① 声明未兑现")
+        .next()
+        .expect("⑦ 段边界在案");
+    assert_eq!(
+        six.matches("errors.push(").count(),
+        2,
+        "⑥ 段两处：引入方 strict + path 失效 strict"
+    );
+    assert_eq!(
+        six.matches("warnings.push(").count(),
+        3,
+        "⑥ 段三处：目标未建模 + warn 引入方 + path 失效 warn"
+    );
+    let two_bucket = source
+        .split("// ⑦ᵃ 名字级两桶")
+        .nth(1)
+        .expect("⑦ᵃ 段在案")
+        .split("// ⑧ 契约判据")
+        .next()
+        .expect("⑧ 段边界在案");
+    assert_eq!(
+        two_bucket.matches("errors.push(").count(),
+        1,
+        "两桶段只一处 errors.push（strict 臂）"
+    );
+    assert_eq!(
+        two_bucket.matches("warnings.push(").count(),
+        1,
+        "两桶段只一处 warnings.push（warn 臂）"
+    );
+    assert!(
+        two_bucket.contains("GateTier::Off => {}"),
+        "off 引入方零条目臂在案"
+    );
+    // 全文件合计：定级面 push 恰为两段之和，其余 push 只属模型警告面
+    assert_eq!(
+        source.matches("errors.push(").count(),
+        3,
+        "全文件 errors.push 恰三处（⑥ 两处 + 两桶一处）"
+    );
+    assert_eq!(
+        source.matches("model_warnings.push(").count(),
+        2,
+        "模型警告两处（noPath / pathNotFound），不属定级面"
+    );
+    assert_eq!(
+        source.matches("warnings.push(").count(),
+        6,
+        "全文件 warnings.push = ⑥ 三处 + 两桶一处 + 模型警告两处"
+    );
+}
+
+/// 组合（AC-1 零噪声）：既有 16 份语料金样逐字节不变（`apis` 省略的语料零产，不出现
+/// 新词面）；新增四 case 的金样则**只多取值**——两桶命中时出现新词面，冷启动两 case
+/// 与基线同色。
+#[test]
+fn 语料金样零新词面() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/drift/expected");
+    let mut baseline = 0;
+    let mut added = 0;
+    for entry in fs::read_dir(&dir).expect("读语料金样目录失败").flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_owned();
+        let text = fs::read_to_string(&path).expect("读金样失败");
+        let added_case = matches!(
+            name.as_str(),
+            "api-declared-exact.full.json"
+                | "api-absent.full.json"
+                | "api-used-not-declared.full.json"
+                | "api-declared-not-used.full.json"
+        );
+        if added_case {
+            added += 1;
+        } else {
+            baseline += 1;
+        }
+        let expected_word = match name.as_str() {
+            "api-used-not-declared.full.json" => Some("undeclaredApi"),
+            "api-declared-not-used.full.json" => Some("unusedDeclaration"),
+            _ => None,
+        };
+        match expected_word {
+            Some(word) => assert!(
+                text.contains(word),
+                "{} 应含 {word}（新增 case 的取值面）",
+                path.display()
+            ),
+            None => {
+                for word in ["undeclaredApi", "unusedDeclaration"] {
+                    assert!(
+                        !text.contains(word),
+                        "{} 出现 {word}（冷启动零噪声被破坏）",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+    assert_eq!(baseline, 16, "既有语料金样 16 份零噪声");
+    assert_eq!(added, 4, "新增两桶语料 4 份");
 }

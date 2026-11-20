@@ -3,7 +3,7 @@
 //! 纯数据（零 IO、零判定）：词汇与字段面在这里单点定义，判定与装配在
 //! [`super::check`]，报告落盘在 `crates/infra/archi`。
 //!
-//! **词汇封闭且单点**：`status`（五值）、漂移条目 `kind`（四值）、观察项 `kind`
+//! **词汇封闭且单点**：`status`（五值）、漂移条目 `kind`（**五值**）、观察项 `kind`
 //! （两值）、**契约判据 `kind`（十三值）** 各持一份 `ALL` 常量——新增变体必须同补
 //! `ALL`（长度即红灯），语料对拍覆盖全部取值。四组词汇 MUST NOT 复用既有 DTO 词汇
 //! （`DiagnosticKind` 结构诊断九类 / `EdgeMark` / `NodeMark` 画布标记）——混用会让
@@ -85,9 +85,10 @@ impl ArchiDriftMode {
     pub const ALL: [ArchiDriftMode; 2] = [ArchiDriftMode::Full, ArchiDriftMode::Incremental];
 }
 
-/// 漂移条目种类（封闭四值；线格式 camelCase）：`undeclaredDependency`（未声明
-/// 依赖，进 errors / warnings）、`pathNotFound`（元素 path 失效）、`ambiguousOwner`
-/// （归属不确定）、`noPath`（元素未声明 path）。
+/// 漂移条目种类（封闭五值；线格式 camelCase）：`undeclaredDependency`（未声明
+/// 依赖，进 errors / warnings）、`undeclaredApi`（关系写了 `apis` 而代码用了清单外
+/// 的名字，与前者同档规则、粒度到符号）、`pathNotFound`（元素 path 失效）、
+/// `ambiguousOwner`（归属不确定）、`noPath`（元素未声明 path）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ArchiDriftKind {
@@ -99,6 +100,8 @@ pub enum ArchiDriftKind {
     AmbiguousOwner,
     /// 元素未声明 `path`（不参与归属）
     NoPath,
+    /// 关系写了 `apis` 而代码对该元素对用了 `apis` 之外的名字（符号级对偶）
+    UndeclaredApi,
 }
 
 impl ArchiDriftKind {
@@ -109,26 +112,28 @@ impl ArchiDriftKind {
             ArchiDriftKind::PathNotFound => "pathNotFound",
             ArchiDriftKind::AmbiguousOwner => "ambiguousOwner",
             ArchiDriftKind::NoPath => "noPath",
+            ArchiDriftKind::UndeclaredApi => "undeclaredApi",
         }
     }
 
-    /// 全部合法值。
-    pub const ALL: [ArchiDriftKind; 4] = [
+    /// 全部合法值（新值置末：既有四值的位置不因扩充而变）。
+    pub const ALL: [ArchiDriftKind; 5] = [
         ArchiDriftKind::UndeclaredDependency,
         ArchiDriftKind::PathNotFound,
         ArchiDriftKind::AmbiguousOwner,
         ArchiDriftKind::NoPath,
+        ArchiDriftKind::UndeclaredApi,
     ];
 }
 
 /// 观察项种类（封闭二值；线格式 camelCase）：`unfulfilledDeclaration`（声明未
-/// 兑现）、`unusedDeclaration`（长期未使用——本期不产出，词汇位由 spec 明列）。
+/// 兑现）、`unusedDeclaration`（`declared ∖ used` 时产出——`ALL` 仍二值）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ArchiObservationKind {
     /// 模型声明 `A -> B` 而代码无该 import
     UnfulfilledDeclaration,
-    /// 声明长期未被使用（本期不产出）
+    /// 关系 `apis` 里的名字未在扫描事实里出现（`declared ∖ used` 时产出）
     UnusedDeclaration,
 }
 

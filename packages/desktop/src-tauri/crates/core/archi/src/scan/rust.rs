@@ -111,15 +111,14 @@ impl RustResolver {
                 continue;
             };
             let line = item_use.span().start().line.max(1) as u32;
-            let mut paths: Vec<String> = Vec::new();
+            let mut paths: Vec<(String, Option<String>)> = Vec::new();
             flatten_use_tree(&item_use.tree, &mut Vec::new(), &mut paths);
-            for path in paths {
-                facts.push(ImportFact {
-                    specifier: path,
-                    line,
+            for (path, name) in paths {
+                facts.push(ImportFact::new(
+                    path, line,
                     // `use` 声明本身无 type-only 面（Rust 的 `use` 不区分值 / 类型）
-                    type_only: false,
-                });
+                    false, name,
+                ));
             }
         }
         (facts, unresolved)
@@ -579,9 +578,17 @@ fn path_attribute(attrs: &[syn::Attribute]) -> Option<String> {
     None
 }
 
-/// `use` 树展开为路径字符串清单（`use a::{b, c}` → `a::b` / `a::c`；`as` 别名
-/// 丢弃；`*` glob 记模块路径）。
-fn flatten_use_tree(tree: &syn::UseTree, prefix: &mut Vec<String>, out: &mut Vec<String>) {
+/// `use` 树展开为（路径字符串, 可选尾段名）清单（`use a::{b, c}` → `a::b` / `a::c`
+/// 两条，各带自己的名字）。
+///
+/// 名字口径（唯一实现）：`Name` → 该标识符；`Rename` → **被引入名**（`node.ident`，
+/// 不是别名 `rename`）；`Glob` → 模块路径、**无名**（glob 没有可枚举的符号）；
+/// 末段恰为 `self` → **无名**（`self` 就是模块本身，最长前缀会吃掉全部段）。
+fn flatten_use_tree(
+    tree: &syn::UseTree,
+    prefix: &mut Vec<String>,
+    out: &mut Vec<(String, Option<String>)>,
+) {
     match tree {
         syn::UseTree::Path(node) => {
             prefix.push(node.ident.to_string());
@@ -589,18 +596,22 @@ fn flatten_use_tree(tree: &syn::UseTree, prefix: &mut Vec<String>, out: &mut Vec
             prefix.pop();
         }
         syn::UseTree::Name(node) => {
+            let ident = node.ident.to_string();
             let mut segments = prefix.clone();
-            segments.push(node.ident.to_string());
-            out.push(segments.join("::"));
+            segments.push(ident.clone());
+            let name = (ident != "self").then_some(ident);
+            out.push((segments.join("::"), name));
         }
         syn::UseTree::Rename(node) => {
+            let ident = node.ident.to_string();
             let mut segments = prefix.clone();
-            segments.push(node.ident.to_string());
-            out.push(segments.join("::"));
+            segments.push(ident.clone());
+            let name = (ident != "self").then_some(ident);
+            out.push((segments.join("::"), name));
         }
         syn::UseTree::Glob(_) => {
             if !prefix.is_empty() {
-                out.push(prefix.join("::"));
+                out.push((prefix.join("::"), None));
             }
         }
         syn::UseTree::Group(node) => {

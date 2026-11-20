@@ -1,7 +1,7 @@
 //! `archi_knowledge` 的单元测试：知识文本的分层收口（骨架只留不可脚本化的散文与
 //! 一行工具指路，示例 TOML 与字段形态归 `archi_scaffold`）、A 档指路句逐句在场
 //! （含自检纪律两句：结构诊断带 `file:line`、生成物重生成命令名）、派生段收缩为
-//! 四面词表 + 两处目录，以及拼装 / 降级 / 体量锚（实测值冻结 2142 B / 2632 B）。
+//! 四面词表 + 两处目录，以及拼装 / 降级 / 体量锚（实测值冻结 2139 B / 2629 B）。
 //!
 //! 零 mock：`include_str!` 取编译期内嵌的同一份字节（禁测试内复制副本）；
 //! `layout` 派生与 `ElementKind::ALL` / `GateTier::ALL` / `ApiStatus::ALL` /
@@ -328,14 +328,14 @@ fn 骨架保留写面可见性与续接() {
 // 体量锚与占位符纪律
 // ---------------------------------------------------------------------------
 
-/// 边界：骨架体量冻结在**实测值 2142 B**（design 目标区间 2000–2150 B），门限
+/// 边界：骨架体量冻结在**实测值 2139 B**（design 目标区间 2000–2150 B），门限
 /// ≤ 2252 B 仍在断言内——增删内容须同批更新冻结值，MUST NOT 以「贴近门限」冒充达标。
 #[test]
 fn 骨架体量锚() {
     let bytes = skeleton().trim_end().len();
     assert_eq!(
-        bytes, 2142,
-        "骨架体量实测 2142 B 已冻结；内容变更须同批更新本值与全文锚"
+        bytes, 2139,
+        "骨架体量实测 2139 B 已冻结；内容变更须同批更新本值与全文锚"
     );
     assert!(
         (2000..=2150).contains(&bytes),
@@ -347,14 +347,14 @@ fn 骨架体量锚() {
     );
 }
 
-/// 边界：全文（骨架 + 派生段）体量冻结在**实测值 2632 B**（design 目标区间
+/// 边界：全文（骨架 + 派生段）体量冻结在**实测值 2629 B**（design 目标区间
 /// 2550–2750 B），门限 ≤ 2867 B 仍在断言内。
 #[test]
 fn 全文体量锚() {
     let bytes = text().len();
     assert_eq!(
-        bytes, 2632,
-        "全文体量实测 2632 B 已冻结；内容变更须同批更新本值与骨架锚"
+        bytes, 2629,
+        "全文体量实测 2629 B 已冻结；内容变更须同批更新本值与骨架锚"
     );
     assert!(
         (2550..=2750).contains(&bytes),
@@ -426,4 +426,70 @@ fn 模块doc保留降级纪律() {
         "骨架经 `include_str!` 内嵌（编译期静态资产）"
     );
     assert!(!source.contains("契约索引"), "模块 doc 零契约索引残留");
+}
+
+// ===========================================================================
+// 关系第四键 `apis`（`relation-api-dependency-check` / AC-11 / D20）
+//
+// 骨架只留一句纪律：`apis` 是**开放值集**的名字清单（与 `doc` / `entry` 同类），故它
+// 不进任何派生词表；判据长表（`undeclaredApi` / `unusedDeclaration` 一类）也不得下沉
+// 到骨架——实体读数一律看 `archi_drift`。
+// ===========================================================================
+
+/// 正向：关系键面由三键改四键——`（from / to / desc / apis）` 逐字在场，旧三键串缺场。
+#[test]
+fn 骨架关系四键在场() {
+    let source = skeleton();
+    assert!(
+        source.contains("`from` / `to` / `desc` / `apis`"),
+        "关系四键串逐字在场"
+    );
+    assert!(
+        !source.contains("`from` / `to` / `desc`）"),
+        "旧三键串缺场（不并列保留两套键面）"
+    );
+}
+
+/// 边界：`apis` 纪律句含四要素——只写名字 / 可留空 / 生成物面留空 / 结论看
+/// `archi_drift`。
+#[test]
+fn 骨架apis纪律四要素() {
+    let source = skeleton();
+    let line = source
+        .lines()
+        .find(|line| line.starts_with("- `apis`"))
+        .expect("骨架含 `apis` 纪律行");
+    for needle in ["只写名字", "可留空", "生成物面留空", "archi_drift"] {
+        assert!(line.contains(needle), "纪律要素 `{needle}` 在场：{line}");
+    }
+}
+
+/// 异常：零判据长表——`apis` 的值面 / 两桶判据词不进骨架（读数归 `archi_drift`）。
+#[test]
+fn 骨架零apis判据长表() {
+    let source = skeleton();
+    for piece in [
+        "undeclaredApi",
+        "unusedDeclaration",
+        "docMissing",
+        "usedNotDeclared",
+    ] {
+        assert!(!source.contains(piece), "零判据长表：`{piece}` 不得下沉");
+    }
+}
+
+/// 边界：`apis` 与 `doc` / `entry` 同列（单值 / 开放值集语义句在场），且不进派生词表
+/// ——派生段逐词取自封闭词汇常量，`apis` 不在其中。
+#[test]
+fn 骨架apis不入派生词表() {
+    let full = text();
+    let head_len = skeleton().trim_end().len();
+    let derived = &full[head_len..];
+    assert!(
+        !derived.contains("apis"),
+        "派生段零 `apis`（开放值集不进词表）"
+    );
+    for closed in ["kind", "gate", "api 状态", "结构诊断"] {
+        assert!(derived.contains(closed), "封闭词表段仍在场：`{closed}`");
+    }
 }

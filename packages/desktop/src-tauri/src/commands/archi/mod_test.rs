@@ -23,7 +23,8 @@ use super::{
     archi_api_check, archi_api_check_inner, archi_api_generate, archi_api_generate_inner,
     archi_change_summary, archi_change_summary_inner, archi_drift, archi_drift_inner,
     archi_file_tree, archi_file_tree_inner, archi_graph, archi_graph_inner, archi_module,
-    archi_module_inner, archi_set_gate, archi_set_gate_inner, check_root,
+    archi_module_inner, archi_relation, archi_relation_inner, archi_set_gate, archi_set_gate_inner,
+    check_root,
 };
 
 /// 确定性时间戳（UTC unix 毫秒）。
@@ -230,15 +231,15 @@ fn change_summary包装与inner一致() {
 }
 
 // ---------------------------------------------------------------------------
-// root 校验（八命令共用）
+// root 校验（九命令共用）
 // ---------------------------------------------------------------------------
 
-/// 异常：root 为 `""` / 空白 / 指向文件 / 不存在 → 八命令（含 `archi_api_check` /
-/// `archi_api_generate` 及其 `*_inner`）一律 `Err`，且不触达投影（写命令零写入）。
-/// `archi_drift` / `archi_file_tree` / 两新命令的校验均前置，故 `Err` 时零 vcs
-/// 零枚举零比对零写盘。
+/// 异常：root 为 `""` / 空白 / 指向文件 / 不存在 → 九命令（含 `archi_api_check` /
+/// `archi_api_generate` / `archi_relation` 及其 `*_inner`）一律 `Err`，且不触达投影
+/// （写命令零写入）。`archi_drift` / `archi_file_tree` / 三新命令的校验均前置，故
+/// `Err` 时零 vcs 零枚举零比对零装载零写盘。
 #[tokio::test]
-async fn 八命令root校验四形态一律err() {
+async fn 九命令root校验四形态一律err() {
     let temp = TempDir::new("root-check");
     let file_root = temp.write("not-a-dir.txt", "我是文件\n");
     let missing = temp.path().join("no-such-dir");
@@ -299,6 +300,19 @@ async fn 八命令root校验四形态一律err() {
         assert!(
             archi_api_generate_inner(root).is_err(),
             "archi_api_generate_inner root 非法应 Err"
+        );
+        assert!(
+            archi_relation(
+                rendering.clone(),
+                "App.Billing".to_owned(),
+                "App.Auth".to_owned()
+            )
+            .is_err(),
+            "archi_relation root 非法应 Err（校验前置，零装载）"
+        );
+        assert!(
+            archi_relation_inner(root, "App.Billing", "App.Auth").is_err(),
+            "archi_relation_inner root 非法应 Err"
         );
     }
 
@@ -1279,8 +1293,8 @@ fn 命令层零领域规则() {
         .collect();
     assert_eq!(
         sync_commands.len(),
-        12,
-        "四条同步命令 与 八条 *_inner 各一件（实际：{sync_commands:?}）"
+        14,
+        "五条同步命令 与 九条 *_inner 各一件（实际：{sync_commands:?}）"
     );
     let async_commands: Vec<&str> = source
         .lines()
@@ -1390,13 +1404,13 @@ fn 命令层零领域规则() {
 
     assert_eq!(
         source.matches("#[tauri::command]").count(),
-        8,
-        "命令面八条（typed 包装各带一注解）"
+        9,
+        "命令面九条（typed 包装各带一注解）"
     );
     assert_eq!(
         source.matches("#[specta::specta]").count(),
-        8,
-        "八条命令均走 specta 出线"
+        9,
+        "九条命令均走 specta 出线"
     );
 }
 
@@ -1774,7 +1788,7 @@ fn archi_file_tree命令层零领域规则() {
         source.contains("ArchiFileTree"),
         "`use` 区含 `ArchiFileTree`（返回类型在册）"
     );
-    for stale in ["五命令", "四命令", "六命令", "其余五条"] {
+    for stale in ["五命令", "四命令", "六命令", "八命令", "其余五条"] {
         assert!(
             !source.contains(stale),
             "文件头口径已改符实（零残留 `{stale}`）"
@@ -1785,7 +1799,7 @@ fn archi_file_tree命令层零领域规则() {
         .take_while(|line| line.starts_with("//!"))
         .collect::<Vec<&str>>()
         .join("\n");
-    assert!(header.contains("八命令"), "文件头口径为八命令");
+    assert!(header.contains("九命令"), "文件头口径为九命令");
     assert!(header.contains("写命令两条"), "文件头写明命令两条");
 }
 
@@ -2036,7 +2050,7 @@ fn 命令层零领域规则与头注释口径() {
         .take_while(|line| line.starts_with("//!"))
         .collect();
     let header = header.join("\n");
-    assert!(header.contains("八命令"), "文件头「八命令」在位");
+    assert!(header.contains("九命令"), "文件头「九命令」在位");
     assert!(header.contains("写命令两条"), "文件头「写命令两条」在位");
     assert!(!header.contains("六命令"), "文件头零旧口径「六命令」");
 
@@ -2052,19 +2066,20 @@ fn 命令层零领域规则与头注释口径() {
             "模块头执行契约注记含 `{note}`：\n{header}"
         );
     }
-    for stale in ["五命令", "四命令", "六命令", "其余五条"] {
+    for stale in ["五命令", "四命令", "六命令", "八命令", "其余五条"] {
         assert!(
             !header.contains(stale),
             "模块头零旧口径 `{stale}`：\n{header}"
         );
     }
 
-    // 另四条命令与八条 `*_inner` 的同步形态零变化（diff 只看 wrapper / D9）
+    // 另五条命令与九条 `*_inner` 的同步形态（形态差异只在四条取数 wrapper）
     for name in [
         "archi_module",
         "archi_change_summary",
         "archi_set_gate",
         "archi_api_generate",
+        "archi_relation",
     ] {
         assert!(
             source.contains(&format!("pub fn {name}(")),
@@ -2088,6 +2103,7 @@ fn 命令层零领域规则与头注释口径() {
         "archi_api_check_inner",
         "archi_set_gate_inner",
         "archi_api_generate_inner",
+        "archi_relation_inner",
     ] {
         let signature = source
             .split_once(&format!("pub fn {inner}("))
@@ -2173,6 +2189,258 @@ async fn api命令root字符串边界() {
         assert!(
             archi_api_generate(root.clone()).is_err(),
             "不存在的 root 应 Err（形态边界不 panic）：{root}"
+        );
+    }
+}
+
+// ===========================================================================
+// `archi_relation`（第九条命令：按需事实取样）（`relation-api-dependency-check` /
+// AC-5 / D11）
+//
+// 命令层零领域规则：参数转换 → `archi::relation::relation_detail` → 错误映射。两桶与
+// 命中点都由 `archi` 出，本命令不出 `status` / `passed`；`archi_drift` 与它对同一
+// `(from, to)` 必须逐字同结论（同一 `drift::api_buckets`）。
+// ===========================================================================
+
+/// 单关系语料根（`App.Billing → App.Auth`，`apis` 由入参给出；两元素各持源目录）。
+fn relation_fixture(tag: &str, apis: &str) -> TempDir {
+    let temp = TempDir::new(tag);
+    temp.write_model(
+        "01-relation.toml",
+        &format!(
+            concat!(
+                "[element.\"App\"]\nkind = \"package\"\n\n",
+                "[element.\"App.Auth\"]\nkind = \"module\"\npath = [\"./src/auth/\"]\n\n",
+                "[element.\"App.Billing\"]\nkind = \"module\"\ngate = \"strict\"\npath = [\"./src/billing/\"]\n\n",
+                "[[relation]]\nfrom = \"App.Billing\"\nto = \"App.Auth\"\n{apis}",
+            ),
+            apis = apis
+        ),
+    );
+    temp.write(
+        "src/auth/token.ts",
+        "export const alpha = 1;\nexport const beta = 2;\nexport const gamma = 3;\n",
+    );
+    temp.write(
+        "src/billing/x.ts",
+        "import { alpha, beta, gamma } from '../auth/token';\n",
+    );
+    temp
+}
+
+/// 正向：包装与 `_inner` 同入参下逐字段相等（命令层零加工）。
+#[test]
+fn archi_relation包装与inner逐字段一致() {
+    let temp = relation_fixture("relation-wrap", "apis = [\"alpha\", \"beta\"]\n");
+    let wrapped = archi_relation(temp.root(), "App.Billing".to_owned(), "App.Auth".to_owned())
+        .expect("包装应 Ok");
+    let inner = archi_relation_inner(temp.path(), "App.Billing", "App.Auth").expect("_inner 应 Ok");
+    assert_eq!(
+        serde_json::to_value(&wrapped).expect("序列化失败"),
+        serde_json::to_value(&inner).expect("序列化失败"),
+        "包装与领域纯函数逐字段一致"
+    );
+}
+
+/// 正向：健康盘 → 声明 / 事实 / 两桶 / 声明行 / 命中点齐备。
+#[test]
+fn archi_relation健康盘全字段() {
+    let temp = relation_fixture("relation-healthy", "apis = [\"alpha\", \"beta\"]\n");
+    let detail = archi_relation_inner(temp.path(), "App.Billing", "App.Auth").expect("应 Ok");
+    assert_eq!(
+        detail.declared,
+        vec!["alpha".to_owned(), "beta".to_owned()],
+        "声明清单"
+    );
+    assert_eq!(
+        detail.used,
+        vec!["alpha".to_owned(), "beta".to_owned(), "gamma".to_owned()],
+        "事实名"
+    );
+    assert_eq!(detail.used_not_declared, vec!["gamma".to_owned()], "两桶");
+    assert!(detail.declared_not_used.is_empty(), "无声明没用项");
+    assert_eq!(
+        detail.model_file, ".dev-team/architecture/graph/model/01-relation.toml",
+        "声明文件"
+    );
+    assert!(detail.model_line > 0, "声明行在案");
+    assert_eq!(detail.occurrences.len(), 1, "命中点一条");
+    assert_eq!(
+        detail.occurrences[0].file, "src/billing/x.ts",
+        "命中点在 from 侧文件"
+    );
+    let json = serde_json::to_value(&detail).expect("序列化失败");
+    assert!(
+        json.get("status").is_none() && json.get("passed").is_none(),
+        "命令不出 status / passed（不是一次检查）"
+    );
+}
+
+/// 边界：`from` / `to` 空串 → `Err`（元素对不存在，文案含关系总数）。
+#[test]
+fn archi_relation空元素对err() {
+    let temp = relation_fixture("relation-empty-pair", "apis = [\"alpha\"]\n");
+    for (from, to) in [("", "App.Auth"), ("App.Billing", "")] {
+        let error = archi_relation_inner(temp.path(), from, to).expect_err("空元素对必须 Err");
+        assert!(!error.is_empty(), "{from:?} → {to:?} 文案非空");
+    }
+}
+
+/// 边界：`apis` 省略的关系 → `declared = []`、`occurrences` 仍取事实（命令语义单一、
+/// 零早退分支）。
+#[test]
+fn archi_relation省略apis仍出事实() {
+    let temp = relation_fixture("relation-absent", "");
+    let detail = archi_relation_inner(temp.path(), "App.Billing", "App.Auth").expect("应 Ok");
+    assert!(detail.declared.is_empty(), "未声明 API 粒度");
+    assert_eq!(
+        detail.used.len(),
+        3,
+        "事实面照出（零早退）：{:?}",
+        detail.used
+    );
+    assert_eq!(detail.occurrences.len(), 1, "命中点仍取");
+}
+
+/// 异常：未知元素对 → `Err` 点名 `from -> to` 与关系总数。
+#[test]
+fn archi_relation未知元素对err() {
+    let temp = relation_fixture("relation-unknown-pair", "apis = [\"alpha\"]\n");
+    let error = archi_relation_inner(temp.path(), "App.Auth", "App.Billing")
+        .expect_err("未声明关系必须 Err");
+    assert!(error.contains("关系不存在"), "文案点名关系：{error}");
+    assert!(
+        error.contains("App.Auth") && error.contains("App.Billing"),
+        "文案含元素对：{error}"
+    );
+    assert!(error.contains("1 条关系"), "文案含关系总数：{error}");
+}
+
+/// 异常：坏模型（结构诊断）→ `Err` 含诊断清单文案（经 `diagnostics_error` 单点）。
+#[test]
+fn archi_relation坏模型err() {
+    let temp = TempDir::new("relation-broken");
+    temp.write_model(
+        "01-broken.toml",
+        concat!(
+            "[element.\"App.Auth\"]\nkind = \"module\"\npath = [\"./src/auth/\"]\n\n",
+            "[[relation]]\nfrom = \"App.Auth\"\nto = \"App.Legacy\"\napis = [\"A\"]\n",
+        ),
+    );
+    let error =
+        archi_relation_inner(temp.path(), "App.Auth", "App.Legacy").expect_err("坏模型必须 Err");
+    assert!(error.contains("模型结构错"), "文案为诊断清单：{error}");
+    assert!(error.contains("@ "), "逐条位置在文案内：{error}");
+}
+
+/// 异常：架构域配置非法 / 扫描失败 → `Err` 文案透传（命令层零二次加工）。
+#[test]
+fn archi_relation配置与扫描错误透传() {
+    let config_case = relation_fixture("relation-bad-config", "apis = [\"alpha\"]\n");
+    let config_path = foundation::layout::archi_config_path(config_case.path());
+    fs::create_dir_all(config_path.parent().expect("父目录")).expect("建架构域目录");
+    fs::write(&config_path, "{ \"rules\": [] }").expect("写配置");
+    let error = archi_relation_inner(config_case.path(), "App.Billing", "App.Auth")
+        .expect_err("配置非法必须 Err");
+    assert!(error.contains("unknown field"), "配置文案透传：{error}");
+
+    let scan_case = relation_fixture("relation-bad-glob", "apis = [\"alpha\"]\n");
+    let scan_path = foundation::layout::archi_config_path(scan_case.path());
+    fs::create_dir_all(scan_path.parent().expect("父目录")).expect("建架构域目录");
+    fs::write(&scan_path, "{ \"exclude\": [\"src/[legacy\"] }").expect("写配置");
+    let error = archi_relation_inner(scan_case.path(), "App.Billing", "App.Auth")
+        .expect_err("非法 glob 必须 Err");
+    assert!(error.contains("src/[legacy"), "扫描文案透传：{error}");
+}
+
+/// 边界：只读——调用前后 tempdir 盘面字节快照逐一相同（第九条命令并入「只读命令」口径）。
+#[test]
+fn archi_relation零写盘() {
+    let temp = relation_fixture("relation-readonly", "apis = [\"alpha\"]\n");
+    let before = snapshot(temp.path());
+    let _ = archi_relation(temp.root(), "App.Billing".to_owned(), "App.Auth".to_owned());
+    let after = snapshot(temp.path());
+    assert_eq!(before, after, "按需取数零写盘");
+}
+
+/// 组合（AC-5）：同一 `(from, to)`（`apis` 非空）下 `archi_relation_inner` 与
+/// `archi_drift_inner` 的两桶逐字相等（三形态各一行）。
+#[test]
+fn archi_relation与drift跨命令对拍() {
+    for (apis, import, used_only, declared_only) in [
+        (
+            "apis = [\"alpha\", \"beta\"]\n",
+            "import { alpha, beta } from '../auth/token';\n",
+            false,
+            false,
+        ),
+        (
+            "apis = [\"alpha\", \"beta\"]\n",
+            "import { alpha } from '../auth/token';\n",
+            false,
+            true,
+        ),
+        (
+            "apis = [\"alpha\"]\n",
+            "import { alpha, gamma } from '../auth/token';\n",
+            true,
+            false,
+        ),
+    ] {
+        let temp = relation_fixture("relation-cross", apis);
+        temp.write("src/billing/x.ts", import);
+        let detail = archi_relation_inner(temp.path(), "App.Billing", "App.Auth").expect("应 Ok");
+        let vcs = FakeVcs::with(&[]);
+        let report = archi_drift_inner(temp.path(), ArchiDriftMode::Full, &vcs).expect("判定应 Ok");
+
+        let drift_error = report.errors.iter().find(|entry| {
+            entry.from.as_deref() == Some("App.Billing") && entry.to.as_deref() == Some("App.Auth")
+        });
+        assert_eq!(
+            drift_error.is_some(),
+            used_only,
+            "{import:?} 用了没声明两面口径一致"
+        );
+        let drift_observation = report
+            .observations
+            .iter()
+            .any(|entry| entry.from == "App.Billing" && entry.to == "App.Auth");
+        assert_eq!(
+            drift_observation, declared_only,
+            "{import:?} 声明没用两面口径一致"
+        );
+        if let Some(entry) = drift_error {
+            assert_eq!(
+                entry.occurrences.len(),
+                detail.occurrences.len(),
+                "{import:?} 命中点逐条同形"
+            );
+        }
+    }
+}
+
+/// 边界：`root` 四形态（空 / 空白 / 文件 / 不存在）→ 包装与 `_inner` 一律 `Err`，且
+/// 文案逐字相同（既有 `check_root` 口径零漂移）。
+#[test]
+fn archi_relation_root校验四形态() {
+    let temp = TempDir::new("relation-root");
+    let file_root = temp.write("not-a-dir.txt", "我是文件\n");
+    let missing = temp.path().join("no-such-dir");
+    let invalid: [PathBuf; 4] = [PathBuf::from(""), PathBuf::from("   "), file_root, missing];
+    for root in &invalid {
+        let rendering = root.to_string_lossy().into_owned();
+        let wrapped = archi_relation(
+            rendering.clone(),
+            "App.Billing".to_owned(),
+            "App.Auth".to_owned(),
+        );
+        let inner = archi_relation_inner(root, "App.Billing", "App.Auth");
+        assert!(wrapped.is_err(), "archi_relation root 非法应 Err");
+        assert!(inner.is_err(), "archi_relation_inner root 非法应 Err");
+        assert_eq!(
+            wrapped.expect_err("已断言 Err"),
+            inner.expect_err("已断言 Err"),
+            "错误映射一致（命令层零二次加工）"
         );
     }
 }

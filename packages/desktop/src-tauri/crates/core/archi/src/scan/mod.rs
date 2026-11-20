@@ -46,6 +46,36 @@ pub struct ImportFact {
     pub line: u32,
     /// 是否 type-only（只标注，MUST NOT 因它豁免）
     pub type_only: bool,
+    /// 被引入的符号名（去重 + 字典序；空 = 取不到名字——glob / `self` / default /
+    /// namespace / `export *` 都不产名）
+    pub names: Vec<String>,
+}
+
+impl ImportFact {
+    /// 唯一构造点：名字的「去重 + 字典序」归一化在内（两套抽取器 MUST NOT 各写一份）。
+    pub(crate) fn new(
+        specifier: String,
+        line: u32,
+        type_only: bool,
+        names: impl IntoIterator<Item = String>,
+    ) -> ImportFact {
+        ImportFact {
+            specifier,
+            line,
+            type_only,
+            names: normalize_names(names),
+        }
+    }
+}
+
+/// 名字并集归一（去重 + 字典序）：[`ImportFact::new`] 与 `drift::edge_names` 共用的
+/// **唯一实现**。
+pub(crate) fn normalize_names(names: impl IntoIterator<Item = String>) -> Vec<String> {
+    names
+        .into_iter()
+        .collect::<std::collections::BTreeSet<String>>()
+        .into_iter()
+        .collect()
 }
 
 /// 跨元素依赖事实（已剔除同元素内边；目标不可归属的边不在此列）。
@@ -68,6 +98,8 @@ pub struct DependencyEdge {
     pub type_only: bool,
     /// 内联豁免理由（`// archi-ignore-next-line: <reason>`；空 reason 视为未标记）
     pub inline_ignore: Option<String>,
+    /// 被引入的符号名（[`ImportFact::names`] 原样透传；空 = 取不到名字）
+    pub names: Vec<String>,
 }
 
 /// 扫描入参（观察根 + 模式 + 变更集 + 配置排除 + 取消标志 + 已建好的模型元素表）。
@@ -244,6 +276,7 @@ pub fn scan(input: ScanInput<'_>) -> Result<ScanOutcome, CheckError> {
                 specifier: fact.specifier.clone(),
                 type_only: fact.type_only,
                 inline_ignore: inline_ignore(&source, fact.line),
+                names: fact.names,
             });
         }
     }

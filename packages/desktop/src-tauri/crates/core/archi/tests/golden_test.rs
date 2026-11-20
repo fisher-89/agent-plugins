@@ -499,7 +499,7 @@ struct DriftExpectation {
     api_findings: u32,
 }
 
-/// 判定语料登记面（14 个 case 目录 / 16 行驱动；`unfulfilled-declaration` 与
+/// 判定语料登记面（18 个 case 目录 / 20 行驱动；`unfulfilled-declaration` 与
 /// `two-modes-consistent` 各以全量 + 增量双行驱动同一目录——① 观察项在增量模式
 /// 同样产出、两模式元素对级一致两条断言的事实源）。
 const DRIFT_CASES: &[DriftExpectation] = &[
@@ -806,6 +806,82 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         observations: &[],
         type_only_occurrences: 0,
         api_findings: 1,
+    },
+    // 17. 名字级两桶：声明与事实全匹配 ⇒ 两桶皆空、零条目（clean）
+    DriftExpectation {
+        case: "api-declared-exact",
+        mode: "full",
+        changed: &[],
+        status: "clean",
+        changed_files: 0,
+        scanned_files: 2,
+        excluded: &[],
+        unmatched: &[],
+        unresolved: 0,
+        structural_errors: 0,
+        errors: &[],
+        warnings: &[],
+        suppressed: &[],
+        observations: &[],
+        type_only_occurrences: 0,
+        api_findings: 0,
+    },
+    // 18. 用了没声明：事实多出 `SessionPanel` ⇒ strict 引入方进 errors（符号级）
+    DriftExpectation {
+        case: "api-used-not-declared",
+        mode: "full",
+        changed: &[],
+        status: "errors",
+        changed_files: 0,
+        scanned_files: 2,
+        excluded: &[],
+        unmatched: &[],
+        unresolved: 0,
+        structural_errors: 0,
+        errors: &[("App.Consumer", "App.Api", 1)],
+        warnings: &[],
+        suppressed: &[],
+        observations: &[],
+        type_only_occurrences: 0,
+        api_findings: 0,
+    },
+    // 19. 声明没用：事实少 `SessionPanel` ⇒ 只作观察项（不进门禁）
+    DriftExpectation {
+        case: "api-declared-not-used",
+        mode: "full",
+        changed: &[],
+        status: "clean",
+        changed_files: 0,
+        scanned_files: 2,
+        excluded: &[],
+        unmatched: &[],
+        unresolved: 0,
+        structural_errors: 0,
+        errors: &[],
+        warnings: &[],
+        suppressed: &[],
+        observations: &[("App.Consumer", "App.Api")],
+        type_only_occurrences: 0,
+        api_findings: 0,
+    },
+    // 20. 关系省略 `apis`（冷启动基线）：零新增条目，与改造前逐条相同
+    DriftExpectation {
+        case: "api-absent",
+        mode: "full",
+        changed: &[],
+        status: "clean",
+        changed_files: 0,
+        scanned_files: 2,
+        excluded: &[],
+        unmatched: &[],
+        unresolved: 0,
+        structural_errors: 0,
+        errors: &[],
+        warnings: &[],
+        suppressed: &[],
+        observations: &[],
+        type_only_occurrences: 0,
+        api_findings: 0,
     },
 ];
 
@@ -1194,7 +1270,7 @@ fn 判定语料目录与登记面互为镜像() {
     );
     let dangling: Vec<&String> = registered.difference(&on_disk).collect();
     assert!(dangling.is_empty(), "登记了不存在的 case：{dangling:?}");
-    assert_eq!(registered.len(), 14, "判定语料 14 个 case（语料维度封闭）");
+    assert_eq!(registered.len(), 18, "判定语料 18 个 case（语料维度封闭）");
 }
 
 /// 边界（快照对拍 + 显式重写闸）：未置位 `DESKTOP_GOLDEN_REWRITE=1` 时只读比对
@@ -1434,7 +1510,7 @@ fn 既有金样重写面键集一致() {
         .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
         .collect();
     files.sort();
-    assert_eq!(files.len(), 16, "快照总数 16（14 个 case，两 case 各双行）");
+    assert_eq!(files.len(), 20, "快照总数 20（18 个 case，两 case 各双行）");
 
     for path in files {
         let label = path.file_name().unwrap_or_default().to_string_lossy();

@@ -327,6 +327,8 @@ export const commands = {
 	archiApiCheck: (root: string) => __TAURI_INVOKE<ArchiApiCheck>("archi_api_check", { root }),
 	/**  契约生成物写盘（只增只改、从不删）。 */
 	archiApiGenerate: (root: string) => __TAURI_INVOKE<ArchiApiWriteOutcome>("archi_api_generate", { root }),
+	/**  单条关系的详情（模型面 + 实际使用 + 两桶 + 命中点；点开即取）。 */
+	archiRelation: (root: string, from: string, to: string) => __TAURI_INVOKE<ArchiRelationDetail>("archi_relation", { root, from, to }),
 	/**  通用文件读取（唯一内容出口）：字节分页 + 同批 stat。 */
 	readFile: (path: string, offset: number | null, limit: number | null) => __TAURI_INVOKE<FileSlice | null>("read_file", { path, offset, limit }),
 };
@@ -977,9 +979,10 @@ export type ArchiDriftEntry = {
 };
 
 /**
- *  漂移条目种类（封闭四值；线格式 camelCase）：`undeclaredDependency`（未声明
- *  依赖，进 errors / warnings）、`pathNotFound`（元素 path 失效）、`ambiguousOwner`
- *  （归属不确定）、`noPath`（元素未声明 path）。
+ *  漂移条目种类（封闭五值；线格式 camelCase）：`undeclaredDependency`（未声明
+ *  依赖，进 errors / warnings）、`undeclaredApi`（关系写了 `apis` 而代码用了清单外
+ *  的名字，与前者同档规则、粒度到符号）、`pathNotFound`（元素 path 失效）、
+ *  `ambiguousOwner`（归属不确定）、`noPath`（元素未声明 path）。
  */
 export type ArchiDriftKind = 
 /**  代码存在跨元素 import 而模型未声明该关系 */
@@ -989,7 +992,9 @@ export type ArchiDriftKind =
 /**  同一最长前缀命中多个元素（归属不确定） */
 "ambiguousOwner" | 
 /**  元素未声明 `path`（不参与归属） */
-"noPath";
+"noPath" | 
+/**  关系写了 `apis` 而代码对该元素对用了 `apis` 之外的名字（符号级对偶） */
+"undeclaredApi";
 
 /**
  *  检查模式（封闭二值）：`full` = workspace 级全量（不落盘）、`incremental` =
@@ -1224,12 +1229,12 @@ export type ArchiModuleDetail = {
 
 /**
  *  观察项种类（封闭二值；线格式 camelCase）：`unfulfilledDeclaration`（声明未
- *  兑现）、`unusedDeclaration`（长期未使用——本期不产出，词汇位由 spec 明列）。
+ *  兑现）、`unusedDeclaration`（`declared ∖ used` 时产出——`ALL` 仍二值）。
  */
 export type ArchiObservationKind = 
 /**  模型声明 `A -> B` 而代码无该 import */
 "unfulfilledDeclaration" | 
-/**  声明长期未被使用（本期不产出） */
+/**  关系 `apis` 里的名字未在扫描事实里出现（`declared ∖ used` 时产出） */
 "unusedDeclaration";
 
 /**  关系投影（`reason` 本期恒 `null`，`exempt` 场景的呈现载体）。 */
@@ -1244,6 +1249,47 @@ export type ArchiRelation = {
 	mark: EdgeMark,
 	/**  豁免理由（本期恒 `null`） */
 	reason: string | null,
+	/**
+	 *  依赖 API 名清单（模型字段的投影拷贝、**字段不省略**、顺序按模型原文；空数组
+	 *  = 未声明 API 粒度）。画布据此在点开前呈现声明清单，零额外取数
+	 */
+	apis: string[],
+};
+
+/**
+ *  单条关系的详情投影（`archi_relation` 的出参）。
+ * 
+ *  模型面（`from` / `to` / `description` / `mark` / `reason` / `modelFile` /
+ *  `modelLine` / `declared`）与事实面（`used`）+ 两桶（`usedNotDeclared` /
+ *  `declaredNotUsed`）+ 命中点（`occurrences`，复用 [`ArchiDriftOccurrence`]）。
+ *  两桶由 `drift::api_buckets` 求差（**同一纯函数**，命令层零领域规则）；
+ *  **不是一次检查**：不出 `status` / `passed`、不组装报告、零缓存、零写盘。
+ */
+export type ArchiRelationDetail = {
+	/**  起点元素 FQN */
+	from: string,
+	/**  终点元素 FQN */
+	to: string,
+	/**  关系说明 */
+	description: string | null,
+	/**  边标记（与 [`ArchiRelation::mark`] 同源） */
+	mark: EdgeMark,
+	/**  豁免理由（与 [`ArchiRelation::reason`] 同源） */
+	reason: string | null,
+	/**  该 `[[relation]]` 声明所在文件（repo 相对） */
+	modelFile: string,
+	/**  声明所在行（`from` 键行，1 起始） */
+	modelLine: number,
+	/**  模型 `apis`（空 = 未声明 API 粒度） */
+	declared: string[],
+	/**  扫描事实名（该元素对命中边的名字并集，去重 + 字典序） */
+	used: string[],
+	/**  用了没声明（`used ∖ declared`） */
+	usedNotDeclared: string[],
+	/**  声明没用（`declared ∖ used`；两种成因不可机械分辨，呈现时须并列） */
+	declaredNotUsed: string[],
+	/**  命中点（同一批边，按文件 / 行排序） */
+	occurrences: ArchiDriftOccurrence[],
 };
 
 /**

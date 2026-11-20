@@ -1,5 +1,5 @@
 //! 架构模型纯读域：解析 / 内存图 / 结构诊断 / 入口文档 / 检索 / 结构 diff /
-//! `gate` 写回纯函数 / 三面共用投影 / 架构漂移判定（scan + drift）。
+//! `gate` 写回纯函数 / 三面共用投影 / 关系详情 / 架构漂移判定（scan + drift）。
 //!
 //! 消费面同源（进程内结构校验、agent 工具 `archi_*`、IPC 命令面、画布、架构漂移
 //! 门禁），五条机械纪律：
@@ -27,6 +27,7 @@ pub mod edit;
 pub mod graph;
 pub mod model;
 pub mod parse;
+pub mod relation;
 pub mod scan;
 pub mod search;
 pub mod tree;
@@ -53,6 +54,7 @@ pub use dto::{
     SearchScope,
 };
 pub use model::{Diagnostic, Element, Model, Relation};
+pub use relation::relation_detail;
 pub use scan::{scan, ScanInput, ScanOutcome};
 pub use tree::file_tree;
 
@@ -66,6 +68,8 @@ mod edit_test;
 mod graph_test;
 #[cfg(test)]
 mod model_test;
+#[cfg(test)]
+mod relation_test;
 #[cfg(test)]
 mod search_test;
 #[cfg(test)]

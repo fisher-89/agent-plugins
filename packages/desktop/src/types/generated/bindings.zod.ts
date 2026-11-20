@@ -282,6 +282,11 @@ export const argsSchemas = {
 	get "archiApiGenerate"() { return z.strictObject({
 			"root": z.string(),
 		}); },
+	get "archiRelation"() { return z.strictObject({
+			"root": z.string(),
+			"from": z.string(),
+			"to": z.string(),
+		}); },
 	get "readFile"() { return z.strictObject({
 			"path": z.string(),
 			"offset": z.number().nullable(),
@@ -353,6 +358,7 @@ export const resultSchemas = {
 	get "archiFileTree"() { return z.lazy(() => ArchiFileTreeSchema); },
 	get "archiApiCheck"() { return z.lazy(() => ArchiApiCheckSchema); },
 	get "archiApiGenerate"() { return z.lazy(() => ArchiApiWriteOutcomeSchema); },
+	get "archiRelation"() { return z.lazy(() => ArchiRelationDetailSchema); },
 	get "readFile"() { return z.lazy(() => FileSliceSchema).nullable(); },
 } as const;
 
@@ -486,6 +492,8 @@ export const channelArgs = {
 	get "archiApiCheck"() { return {
 		}; },
 	get "archiApiGenerate"() { return {
+		}; },
+	get "archiRelation"() { return {
 		}; },
 	get "readFile"() { return {
 		}; },
@@ -783,7 +791,7 @@ export const ArchiDriftEntrySchema = z.strictObject({
 	get occurrences() { return z.array(ArchiDriftOccurrenceSchema); },
 });
 
-export const ArchiDriftKindSchema = z.union([z.literal("undeclaredDependency"), z.literal("pathNotFound"), z.literal("ambiguousOwner"), z.literal("noPath")]);
+export const ArchiDriftKindSchema = z.union([z.literal("undeclaredDependency"), z.literal("pathNotFound"), z.literal("ambiguousOwner"), z.literal("noPath"), z.literal("undeclaredApi")]);
 
 export const ArchiDriftModeSchema = z.union([z.literal("full"), z.literal("incremental")]);
 
@@ -911,6 +919,22 @@ export const ArchiRelationSchema = z.strictObject({
 	get description() { return z.string().nullable(); },
 	get mark() { return EdgeMarkSchema; },
 	get reason() { return z.string().nullable(); },
+	get apis() { return z.array(z.string()); },
+});
+
+export const ArchiRelationDetailSchema = z.strictObject({
+	get from() { return z.string(); },
+	get to() { return z.string(); },
+	get description() { return z.string().nullable(); },
+	get mark() { return EdgeMarkSchema; },
+	get reason() { return z.string().nullable(); },
+	get modelFile() { return z.string(); },
+	get modelLine() { return z.int().min(0).max(4294967295); },
+	get declared() { return z.array(z.string()); },
+	get used() { return z.array(z.string()); },
+	get usedNotDeclared() { return z.array(z.string()); },
+	get declaredNotUsed() { return z.array(z.string()); },
+	get occurrences() { return z.array(ArchiDriftOccurrenceSchema); },
 });
 
 export const ArchiResolvedEntrySchema = z.strictObject({

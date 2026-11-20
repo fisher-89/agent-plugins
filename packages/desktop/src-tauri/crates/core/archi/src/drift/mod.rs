@@ -3,7 +3,9 @@
 //! 唯一入口（命令面 `archi_drift` 与门禁 runner `LocalArchiCheck` 都调本函数）：
 //! 模型读取（[`crate::dto::graph_view`]，图单点构建）→ 看护配置 → 扫描
 //! （[`crate::scan`]）→ ① / ② / ④ 对账 → 定级（**只看引入方**）→ 豁免裁决
-//! （声明 > 配置 > 内联）→ `occurrences` 聚合 → `status` 推导 → 报告装配。
+//! （声明 > 配置 > 内联）→ 名字级两桶（仅 `apis` 非空的关系：`used ∖ declared` 按
+//! 引入方档位定级、`declared ∖ used` 只作观察项，求差单点见 [`api_buckets`]）→
+//! `occurrences` 聚合 → `status` 推导 → 报告装配。
 //!
 //! 边界：纯读盘、**零写盘**、**零 spawn**（报告落盘在 `crates/infra/archi`，本
 //! crate 只出结构）。`status` 推导序见 [`derive_status`]——`api_findings` 经纳管子集
@@ -290,6 +292,64 @@ pub fn check(input: CheckInput<'_>) -> Result<Report, CheckError> {
         });
     }
 
+    // ⑦ᵃ 名字级两桶（前置：关系在模型内且写了 `apis`）：`used ∖ declared` 有证据
+    //     （import 是硬事实）⇒ 按引入方档位落 errors / warnings；`declared ∖ used`
+    //     无证据（≠ 反证）⇒ 观察项，永不进 `status` / `passed`。`apis` 为空即跳过
+    //     （缺省语义是「不声明 API 粒度」，不是「零依赖」）。
+    for relation in &graph.relations {
+        if relation.apis.is_empty() {
+            continue;
+        }
+        let key = (relation.from.clone(), relation.to.clone());
+        let edges: &[&DependencyEdge] = buckets.get(&key).map_or(&[], Vec::as_slice);
+        let (used_not_declared, declared_not_used) =
+            api_buckets(&relation.apis, &edge_names(edges));
+        let Some(gate) = gates.get(relation.from.as_str()).copied() else {
+            continue;
+        };
+        if !used_not_declared.is_empty() {
+            let entry = ArchiDriftEntry {
+                kind: ArchiDriftKind::UndeclaredApi,
+                from: Some(relation.from.clone()),
+                to: Some(relation.to.clone()),
+                gate: Some(gate),
+                message: format!(
+                    "用了没声明：{} → {} 的 import 用了 apis 之外的名字（{}）；引入方 \
+                     gate={}，{} 处命中",
+                    relation.from,
+                    relation.to,
+                    used_not_declared.join(" / "),
+                    gate.as_str(),
+                    edges.len()
+                ),
+                occurrences: occurrences_of(edges),
+            };
+            match gate {
+                GateTier::Strict => errors.push(entry),
+                GateTier::Warn => warnings.push(entry),
+                GateTier::Off => {}
+            }
+        }
+        if !declared_not_used.is_empty() {
+            // 「同一个值 MUST NOT 承载两种缺口」的显式豁免点：`used` 是 under-approx，
+            // 两种成因（真没用 / 写错或看不见）不可机械分辨，故只作观察项且文案并列。
+            observations.push(ArchiDriftObservation {
+                kind: ArchiObservationKind::UnusedDeclaration,
+                from: relation.from.clone(),
+                to: relation.to.clone(),
+                message: format!(
+                    "声明没用：{} → {} 的 apis 中 {} 未出现在扫描事实里——可能已不再依赖，\
+                     也可能名字写错或该依赖以方法调用 / 内联限定路径 / glob 形态存在而扫描\
+                     看不见（观察项，不参与门禁判据；本对无 import 时另有 \
+                     unfulfilledDeclaration 一条）",
+                    relation.from,
+                    relation.to,
+                    declared_not_used.join(" / ")
+                ),
+            });
+        }
+    }
+
     // ⑧ 契约判据（与模型面并列；装配单点在 `crate::api::findings`，drift 侧零第二份
     //    装配）。`status` 只吃**纳管子集**（入口文档承诺已成立元素的判据，筛选单点在
     //    `crate::api::gating_findings`）；`passed` 经 `Report::passed` 读同一子集的
@@ -414,8 +474,43 @@ fn skipped_report(input: &CheckInput<'_>, timestamp: String, model_hash: String)
     }
 }
 
-/// 命中点聚合（按文件 / 行排序，同元素对不再铺开）。
-fn occurrences_of(edges: &[&DependencyEdge]) -> Vec<ArchiDriftOccurrence> {
+/// 依赖 API 两桶求差（**唯一实现**：drift 对账与 `relation::relation_detail` 都只调
+/// 本函数，MUST NOT 第二份集合差 / 第二处 `contains`）。
+///
+/// 返回 `(used ∖ declared, declared ∖ used)`；两侧各自去重 + 字典序（同一名字在多
+/// 文件命中只算一项，两消费面对同一元素对输出逐字相同）。比对**逐字符**：MUST NOT
+/// 大小写折叠、MUST NOT 驼峰归一——否则判定侧常驻第二处映射规则。
+///
+/// 两侧不对称的原因在取数精度：`used` 是 under-approx（方法调用、内联限定路径、
+/// 观察根无 workspace 清单时的 Rust 事实都看不见），故 `declared ∖ used` 只作观察项。
+pub fn api_buckets(declared: &[String], used: &[String]) -> (Vec<String>, Vec<String>) {
+    let declared: BTreeSet<&str> = declared.iter().map(String::as_str).collect();
+    let used: BTreeSet<&str> = used.iter().map(String::as_str).collect();
+    let used_not_declared = used
+        .difference(&declared)
+        .map(|name| (*name).to_owned())
+        .collect();
+    let declared_not_used = declared
+        .difference(&used)
+        .map(|name| (*name).to_owned())
+        .collect();
+    (used_not_declared, declared_not_used)
+}
+
+/// 元素对的事实名并集（去重 + 字典序）：drift 两桶装配与 `relation` 的按需取样共用
+/// 同一聚合口径。
+pub(crate) fn edge_names(edges: &[&DependencyEdge]) -> Vec<String> {
+    scan::normalize_names(
+        edges
+            .iter()
+            .flat_map(|edge| edge.names.iter().cloned())
+            .collect::<Vec<String>>(),
+    )
+}
+
+/// 命中点聚合（按文件 / 行排序，同元素对不再铺开）。`pub(crate)`：`relation` 的按需
+/// 取样复用同一聚合形状与排序（MUST NOT 另拼第二份）。
+pub(crate) fn occurrences_of(edges: &[&DependencyEdge]) -> Vec<ArchiDriftOccurrence> {
     let mut occurrences: Vec<ArchiDriftOccurrence> = edges
         .iter()
         .map(|edge| ArchiDriftOccurrence {

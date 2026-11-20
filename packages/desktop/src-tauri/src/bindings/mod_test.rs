@@ -180,6 +180,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "archiFileTree",
     "archiApiCheck",
     "archiApiGenerate",
+    "archiRelation",
     "readFile",
 ];
 
@@ -240,6 +241,7 @@ const COMMAND_NAMES: &[&str] = &[
     "archi_file_tree",
     "archi_api_check",
     "archi_api_generate",
+    "archi_relation",
     "read_file",
 ];
 
@@ -341,6 +343,7 @@ const DTO_TYPES: &[&str] = &[
     "ArchiModuleDetail",
     "ArchiObservationKind",
     "ArchiRelation",
+    "ArchiRelationDetail",
     "ArchiScanReport",
     "ArchiSuppressVia",
     "ArchiUnresolvedFile",
@@ -1221,13 +1224,13 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     // 其后补 agent_steer（50 → 51）；本变更再补两条契约面命令（51 → 53）
     assert_eq!(
         COMMAND_NAMES.len(),
-        56,
-        "命令清单本变更补录两条（workspace_config_apply / list_config_chat_sessions，54 → 56）"
+        57,
+        "命令清单本变更补录一条（archi_relation，56 → 57）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        56,
-        "包装清单本变更补录两条（workspaceConfigApply / listConfigChatSessions，54 → 56）"
+        57,
+        "包装清单本变更补录一条（archiRelation，56 → 57）"
     );
     assert!(
         COMMAND_NAMES.contains(&"agent_steer"),
@@ -1305,8 +1308,8 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
 fn dto类型清单零补录_条目数与首尾锚持衡() {
     assert_eq!(
         DTO_TYPES.len(),
-        104,
-        "清单 99 → 104：本变更补录五类型（AgentEffortTiers / AgentProviderTuning / ModelCatalog / CatalogProtocol / CatalogModel）"
+        105,
+        "清单 104 → 105：本变更补录一类型（ArchiRelationDetail）"
     );
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(
@@ -1849,7 +1852,7 @@ fn 登记面_新命令为清单末条且既有清单零遗漏() {
 // ---------------------------------------------------------------------------
 
 /// 架构域命令族（invoke 名 / 包装名成对）。
-const ARCHI_COMMANDS: [(&str, &str); 8] = [
+const ARCHI_COMMANDS: [(&str, &str); 9] = [
     ("archi_graph", "archiGraph"),
     ("archi_module", "archiModule"),
     ("archi_change_summary", "archiChangeSummary"),
@@ -1858,10 +1861,11 @@ const ARCHI_COMMANDS: [(&str, &str); 8] = [
     ("archi_file_tree", "archiFileTree"),
     ("archi_api_check", "archiApiCheck"),
     ("archi_api_generate", "archiApiGenerate"),
+    ("archi_relation", "archiRelation"),
 ];
 
 /// 架构域出线类型名（`Archi*` 投影 + 五组封闭词汇）。
-const ARCHI_DTO_TYPES: [&str; 21] = [
+const ARCHI_DTO_TYPES: [&str; 22] = [
     "ArchiApiCheck",
     "ArchiApiMeta",
     "ArchiApiWriteOutcome",
@@ -1877,6 +1881,7 @@ const ARCHI_DTO_TYPES: [&str; 21] = [
     "ArchiGraph",
     "ArchiModuleDetail",
     "ArchiRelation",
+    "ArchiRelationDetail",
     "EdgeMark",
     "ElementKind",
     "FileEntryKind",
@@ -1928,6 +1933,7 @@ fn archi命令族在册且既有条目零位移() {
             "archi_file_tree",
             "archi_api_check",
             "archi_api_generate",
+            "archi_relation",
             "read_file",
         ],
         "archi 命令尾部追加（既有条目零位移）"
@@ -2215,12 +2221,12 @@ fn 登记面_架构页会话清单命令在册() {
 fn 登记面_命令总数加三且两清单持衡() {
     assert_eq!(
         COMMAND_NAMES.len(),
-        56,
-        "累计补录五条后的命令总数（51 → 56）"
+        57,
+        "累计补录六条后的命令总数（51 → 57）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        56,
+        57,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
 }
@@ -2690,10 +2696,10 @@ fn 登记面_三新命令在两清单与生成物各在册() {
 /// 尾锚仍为 `read_file`（`list_model_catalog` 插在 agents 组内，尾锚零位移）。
 #[test]
 fn 登记面_总数五十且尾锚零位移() {
-    assert_eq!(COMMAND_NAMES.len(), 56, "命令清单总数 51 → 56");
+    assert_eq!(COMMAND_NAMES.len(), 57, "命令清单总数 51 → 57");
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        56,
+        57,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
     assert_eq!(
@@ -4189,4 +4195,107 @@ fn zod产物_两新命令返回schema指向报告类型() {
         ),
         "listConfigChatSessions 返回 schema 指向 SessionPageSchema"
     );
+}
+
+// ===========================================================================
+// 关系详情面（`relation-api-dependency-check` / AC-10 / D22）
+//
+// 生成物零手改：新类型与新命令只来自 `bindings:export` 重导。判据面是「清单在册 +
+// 产物逐名含」，清单顺序按字典序（`ArchiRelation` 之后紧跟 `ArchiRelationDetail`）。
+// ===========================================================================
+
+/// 正向：`ARCHI_DTO_TYPES` 字典序中 `ArchiRelationDetail` 紧随 `ArchiRelation`，
+/// 且两者都在产物中出线。
+#[test]
+fn 生成物_关系详情类型紧随关系类型在册() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    let index = ARCHI_DTO_TYPES
+        .iter()
+        .position(|name| *name == "ArchiRelation")
+        .expect("ArchiRelation 在册");
+    assert_eq!(
+        ARCHI_DTO_TYPES[index + 1],
+        "ArchiRelationDetail",
+        "字典序紧随关系类型（清单序即可读性锚）"
+    );
+    for name in ["ArchiRelation", "ArchiRelationDetail"] {
+        assert!(
+            content.contains(&format!("export type {name} =")),
+            "产物缺 `export type {name} =`"
+        );
+    }
+    assert!(
+        content.contains("archiRelation: (root: string, from: string, to: string)"),
+        "产物含三条参数的 `archiRelation` 包装"
+    );
+    assert!(
+        content.contains("\"archi_relation\""),
+        "产物含 invoke 命令名 `archi_relation`"
+    );
+}
+
+/// 边界：`ArchiRelation` 的 `apis` 为末尾第六字段（前五字段零位移），`ArchiRelationDetail`
+/// 十二字段按声明序出线（两桶 camelCase）。
+#[test]
+fn 生成物_关系与详情字段面() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    let relation = type_section(&content, "ArchiRelation");
+    assert_eq!(
+        field_names(&relation),
+        vec!["from", "to", "description", "mark", "reason", "apis"],
+        "关系投影六字段（`apis` 末位追加）"
+    );
+    assert!(
+        relation.contains("apis: string[]"),
+        "`apis` 出线为非可选字符串数组：\n{relation}"
+    );
+
+    let detail = type_section(&content, "ArchiRelationDetail");
+    assert_eq!(
+        field_names(&detail),
+        vec![
+            "from",
+            "to",
+            "description",
+            "mark",
+            "reason",
+            "modelFile",
+            "modelLine",
+            "declared",
+            "used",
+            "usedNotDeclared",
+            "declaredNotUsed",
+            "occurrences",
+        ],
+        "关系详情十二字段按声明序出线（两桶 camelCase）"
+    );
+    assert!(
+        detail.contains("occurrences: ArchiDriftOccurrence[]"),
+        "命中点复用既有聚集类型（零新嵌套类型）"
+    );
+}
+
+/// 组合：清单与产物双向自洽——清单每条都在产物命中，产物里的 `ArchiRelation*` 类型
+/// 也都已在清单登记（不做单侧信任）。
+#[test]
+fn 生成物_关系面清单与产物双向自洽() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    for name in ARCHI_DTO_TYPES {
+        assert!(
+            content.contains(&format!("export type {name} =")),
+            "清单在册但产物缺声明：{name}"
+        );
+    }
+    for name in ["ArchiRelation", "ArchiRelationDetail"] {
+        assert!(
+            DTO_TYPES.contains(&name),
+            "产物有该类型而总清单漏登：{name}"
+        );
+    }
 }

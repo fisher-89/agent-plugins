@@ -56,6 +56,7 @@ function healthyGraph(): ArchiGraph {
         description: '认证依赖父包',
         mark: 'none',
         reason: null,
+        apis: [],
       },
     ],
     diagnostics: [],

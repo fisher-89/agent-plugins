@@ -1,20 +1,22 @@
-//! 架构命令轨道：八命令薄包装（`archi_graph` / `archi_module` /
+//! 架构命令轨道：九命令薄包装（`archi_graph` / `archi_module` /
 //! `archi_change_summary` / `archi_set_gate` / `archi_drift` / `archi_file_tree` /
-//! `archi_api_check` / `archi_api_generate`）+ 八个 `*_inner` 领域组装纯函数
-//! （`*_inner` app 层微形态先例，离 Tauri 运行时可测）。文档正文读取归
+//! `archi_api_check` / `archi_api_generate` / `archi_relation`）+ 九个 `*_inner` 领域
+//! 组装纯函数（`*_inner` app 层微形态先例，离 Tauri 运行时可测）。文档正文读取归
 //! `commands::fs::read_file`（通用读面，不再有架构专用读取命令）。
 //!
 //! `archi_drift` 是**架构漂移检查**的命令面（两模式）：全量模式直接调判定、增量
 //! 模式经 vcs 缝取变更集后同源判定；判定规则全在 `archi::drift`——命令层零判定
 //! （无归属匹配、无定级分支、无 `status` 推导），两条消费面（本命令与门禁 runner）
-//! 共用同一实现（判定单源）。
+//! 共用同一实现（判定单源）。`archi_relation` 是**按需事实取样**：只调
+//! `archi::relation::relation_detail`（模型面 + 定向扫描 + 两桶），不组装报告、不产出
+//! `status` / `passed`、零缓存。
 //!
 //! 三件事纪律沿 `commands/config` 模板：参数转换 → 调用 → 错误映射。投影、诊断、
 //! diff 与待落盘产物全在 `archi`——命令层零领域规则（不建图、不解析、不推导）。
 //! 写命令两条（`archi_set_gate` / `archi_api_generate`）：前者的写前校验在
 //! `archi::edit::plan_set_gate` 且落盘经命令层共用原子写
 //! （`commands::atomic::write_atomic`），后者的写盘单点在
-//! `archi_runtime::api_artifacts::write_artifacts`（只增只改、从不删）；其余六条
+//! `archi_runtime::api_artifacts::write_artifacts`（只增只改、从不删）；其余七条
 //! MUST NOT 写盘。
 //!
 //! 空白 / 不可读 root 一律 `Err`（画布无 root 画不出东西；静默空图会与「模型为
@@ -26,7 +28,7 @@
 //! 不随取数冻结。执行线程纪律与判据的唯一持有者是 `desktop-app-shell` 的「命令执行
 //! 线程纪律（批量子系统 IO）」，本文件不复述。
 //!
-//! 能力 spec：`specs/desktop-archi-model/spec.md`（IPC 八命令契约）。
+//! 能力 spec：`specs/desktop-archi-model/spec.md`（IPC 九命令契约）。
 
 use std::fs;
 use std::path::Path;
@@ -34,7 +36,7 @@ use std::path::Path;
 use archi::drift::{ArchiDriftMode, ArchiDriftReport, CheckInput};
 use archi::dto::{
     self, ArchiApiCheck, ArchiApiWriteOutcome, ArchiChangeSummary, ArchiFileTree, ArchiGraph,
-    ArchiModuleDetail,
+    ArchiModuleDetail, ArchiRelationDetail,
 };
 use archi::GateTier;
 use foundation::cancel::CancelFlag;
@@ -237,4 +239,30 @@ pub fn archi_api_generate_inner(root: &Path) -> Result<ArchiApiWriteOutcome, Str
     check_root(root)?;
     let files = archi::workspace_render(root).map_err(|error| error.message())?;
     archi_runtime::api_artifacts::write_artifacts(root, &files)
+}
+
+/// 单条关系的详情（模型面 + 实际使用 + 两桶 + 命中点；点开即取）。
+#[tauri::command]
+#[specta::specta]
+pub fn archi_relation(
+    root: String,
+    from: String,
+    to: String,
+) -> Result<ArchiRelationDetail, String> {
+    archi_relation_inner(Path::new(&root), &from, &to)
+}
+
+/// [`archi_relation`] 的领域组装纯函数：root 检查 → `archi::relation`（同一装载取声明
+/// 与声明行、按 `from` 侧白名单定向取样、求差调 `drift` 的同一纯函数）。
+///
+/// 只读取数（零写盘、零缓存）；模型结构错 / 关系或元素缺席 → `Err` 并点名。命令层
+/// 零判定：两桶与命中点都由 `archi` 出，`used ∖ declared` 的档位语义归
+/// `desktop-archi-drift`（本命令不出 `status` / `passed`）。
+pub fn archi_relation_inner(
+    root: &Path,
+    from: &str,
+    to: &str,
+) -> Result<ArchiRelationDetail, String> {
+    check_root(root)?;
+    archi::relation::relation_detail(root, from, to)
 }

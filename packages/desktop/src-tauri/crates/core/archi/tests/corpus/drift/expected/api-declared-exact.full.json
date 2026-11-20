@@ -1,0 +1,48 @@
+{
+  "version": 3,
+  "timestamp": "<timestamp>",
+  "mode": "full",
+  "root": "<root>",
+  "change": "api-declared-exact",
+  "base": null,
+  "modelHash": "sha256:d654d0215f2d879dd19b130a15d9f9e4477dc3d3a8d3620149978ec0cb0e65d1",
+  "model": {
+    "elements": 3,
+    "relations": 1,
+    "byGate": {
+      "strict": 2,
+      "warn": 0,
+      "off": 1
+    },
+    "structuralErrors": [],
+    "warnings": []
+  },
+  "scan": {
+    "mode": "full",
+    "changedFiles": 0,
+    "scannedFiles": 2,
+    "excluded": [],
+    "unmatchedFiles": [],
+    "matched": [
+      {
+        "element": "App.Api",
+        "files": [
+          "src/api/index.ts"
+        ]
+      },
+      {
+        "element": "App.Consumer",
+        "files": [
+          "src/consumer/x.ts"
+        ]
+      }
+    ],
+    "unresolved": []
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [],
+  "apiFindings": [],
+  "status": "clean"
+}
