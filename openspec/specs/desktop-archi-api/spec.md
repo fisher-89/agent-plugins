@@ -278,7 +278,7 @@
 
 生成物 SHALL 落**实现入口文件同级**（`<入口主干>.i.rs` / `<入口主干>.i.ts`），其中 `<入口主干>` SHALL 为入口文件名的**去扩展名形态**（`crates/infra/archi/src/lib.rs` → `lib`、`views/welcome-view.tsx` → `welcome-view`、`packages/desktop/src-tauri/src/lib.rs` → `lib`）。入口 SHALL 由本节的三态解析链给出，生成物路径因此是**入口的单值函数**；元素根路径（`path.first()`）MUST NOT 再参与落点派生（它只回答「根在哪」）。
 
-- **`<root>` 归一在模型解析层完成**：`<root>` SHALL 为 `path.first()` 经 `normalize_root` 归一后的形态（`OwnerIndex::normalize` 已处理 `./` 前缀与尾 `/`），MUST NOT 批量改写存量 models——实测存量 44 条 `path` 全部带 `./` 前缀 + 尾 `/`、一律需要归一（文件型根的扩展名是「根即入口」的判据，故归一 MUST NOT 去扩展名）。
+- **`<root>` 归一在模型解析层完成**：`<root>` SHALL 为 `path.first()` 经 `normalize_root` 归一后的形态（`OwnerIndex::normalize` 已处理 `./` 前缀与尾 `/`），MUST NOT 批量改写存量 models——实测存量 46 条 `path` 全部带 `./` 前缀（目录型根另带尾 `/`）、一律需要归一（文件型根的扩展名是「根即入口」的判据，故归一 MUST NOT 去扩展名）。
 - **入口解析链封闭三态，MUST NOT 增分支**（候选派生**零 IO**，只做字符串运算）：
 
   ```
@@ -299,7 +299,7 @@
 
   `<root>` SHALL 为 `path.first()` 经 `normalize_root` 归一的形态（`\` → `/`、剥 `./`、去尾 `/`，**MUST NOT 去扩展名**——文件型根的扩展名正是「根即入口」的判据）。**③ 不做语言判定**：目录型根没有扩展名（`language_of` 对它是 `Unknown`），故四种约定形态一律列出、按序取首个落盘者——四种形态互不相交（同一目录不可能既是 crate 又是视图），因此「按序」不构成语言猜测，也**不**退化成 R2 的列目录规则（R2 已明确否决：新增一个源文件就换默认入口，正是本变更要消灭的漂移源）。`<dir>/lib.rs` MUST NOT 在候选列内（crate 的 `lib.rs` 恒在 `src/` 下）；`<dir>.rs` / `<dir>.ts` / `<dir>.tsx` 三条 MUST NOT 在列（对目录型根它们只能指到 `path` 之外的兄弟文件，必违落位判据）。
 - **`entry` 的四条判据**（字段定义见 `desktop-archi-model`「架构模型文件格式与字段封闭」）：**基准** repo 相对 POSIX 路径（与 `path` 同口径，`./` 前缀不参与身份）；**落位** MUST 等于某条 `path` 条目或落在某条**目录型** `path` 之内（单文件根元素声明「同目录的另一个文件」也判 `OutsidePath`）；**存在** 声明或默认命中的文件 MUST 在盘上；**跨元素** 任何两个元素 MUST NOT 解析到同一入口文件。四条违反一律走 `EntryState::Invalid`，由 `apiEntryMissing` 报出（语义见 `desktop-archi-api-check`），MUST NOT 进结构化诊断（九类诊断会让整图停摆，过重）。
-- **「无入口」是合法终态**：`Absent` 即该元素不参与契约面（`apiEntryMissing` 的语义：**未声明且无约定默认**）。本仓现基线**无一例**——12 个前端目录根已由 `desktop-frontend-module-entry` 的 `index.ts` / `index.tsx` 经 ③ 命中；该状态仍然合法（新加目录元素在其入口落地前就会落此态），MUST NOT 用 `api = none` 冒充——两者是不同的事实（「没有门」vs「明说无公共 API」）。
+- **「无入口」是合法终态**：`Absent` 即该元素不参与契约面（`apiEntryMissing` 的语义：**未声明且无约定默认**）。本仓现基线**恰一例**（本变更新增的生成物中继元素 `App.Frontend.GeneratedBindings`：`path` 指向生成目录，目录内是三个叶子文件、没有 `index.ts(x)`，且它 `api = none` 已退出入口判据 ⇒ **零 `apiEntryMissing`**）；其余元素由 ①②③ 命中。该状态仍然合法（新加目录元素在其入口落地前就会落此态），MUST NOT 用 `api = none` 冒充——两者是不同的事实（「没有门」vs「明说无公共 API」）；反向也 MUST NOT 为消一个 `Absent` 而给生成目录造 `index.ts`（生成目录不是模块入口，造了即造假入口）。
 - **`<name>` 的旧口径只剩透传命名面**：`module_name(<root>)`（路径末段）SHALL 继续只服务 Rust / TS 透传命名（D40），MUST NOT 参与生成物文件名——两者的判据不同（`App.Backend.Infra.ArchiRuntime` 的 FQN 末段是 `ArchiRuntime`、路径末段是 `archi`、入口主干是 `lib`）。
 - **不强制模块成目录，也不禁止目录成模块**：前端 14 个单文件根元素零模型改动——② 让「根文件自身」成为入口；目录型根的门由约定默认（③）或显式 `entry` 给出。反向同理：目录型根补一个 `index.ts(x)` 即由 ③ 命中，**无需**声明 `entry`（本仓 12 个目录模块入口即此形态，见 `repo-archi-model`「基线落位与模型文件划分」）；本能力 MUST NOT 因「目录型根没有入口」要求新增字段或解析分支。
 - **入口编排 SHALL 固定为**：入口文件顶部 `#[path = "<文件名>"] mod api_gen; pub use api_gen::*;`，既有 `pub mod` 声明原样不动。生成类型经 `pub use` 对外可引用；与既有同名类型冲突时编译器直接报 E0255，**不会静默覆盖**。
@@ -329,7 +329,7 @@
 - **并集 MUST NOT 实现为候选短路**：命中集 SHALL 为「对每个候选各跑一遍最长前缀后合并去重」，再按前缀长度定档（同长仍归 `Ambiguous`）；MUST NOT 写成「候选 1 命中即返回」——那会让 `src/dir.i.ts`（候选 1 全等 `src/dir`、候选 2 得 `src/dir.ts`）只走一条路径，与并集语义不符。定档用例：元素根 `src/dir/` 与 `src/dir.ts` 同时在场、探针 `src/dir.i.ts` ⇒ 归更具体的单文件根（前缀更长者胜出）；`src/a.ts` 与 `src/a.tsx` 同时在场、探针 `src/a.i.ts` ⇒ 两文件型根的主干同长，归 `Ambiguous`（MUST NOT 任选）。
 - **白名单外后缀零误剥**：`.i.py` / `.d.rs` / 大写 `.I.rs` / 无扩展名 `.i` SHALL 原样返回单个候选（不剥），归属与改动前逐值相同。
 - **父子路径重叠不缩窄父契约**：子元素根路径是父元素根路径的前缀，最长前缀匹配已正确处理（`.../src/scan/x.rs` 归 `Scan`、`.../src/dto.rs` 归 `Archi`；`components/agent/` 与 7 个 `components/agent/*.tsx` 子元素的文件型根同理——子元素优先，`index.tsx` 归目录模块）。
-- **无可用入口即 `apiEntryMissing`**：`EntryState` 为 `Absent` 或 `Invalid(_)` ⇒ 该元素不是可用模块 → 报一条 `apiEntryMissing`（定义与档位见 `desktop-archi-api-check`）。它比 `apiMissing` 更基础——**在契约生成之前就失效**，防止给不存在的模块写契约。`.i` 生成物的存在 MUST NOT 再当作入口的替代证据：生成物路径是入口的函数，无入口即无生成物路径可派生。
+- **无可用入口即 `apiEntryMissing`**：`EntryState` 为 `Absent` 或 `Invalid(_)` ⇒ 该元素不是可用模块 → 报一条 `apiEntryMissing`（定义与档位见 `desktop-archi-api-check`）。它比 `apiMissing` 更基础——**在契约生成之前就失效**，防止给不存在的模块写契约。`.i` 生成物的存在 MUST NOT 再当作入口的替代证据：生成物路径是入口的函数，无入口即无生成物路径可派生。**例外恒定**：`api = none` 元素退出入口判据（见 `desktop-archi-api-check`「`api = none` 元素退出入口判据」），故本仓唯一那例 `Absent`（生成物中继元素）零 `apiEntryMissing`。
 
 #### Scenario: 入口解析链三态各命中一条
 
@@ -361,10 +361,15 @@
 - **WHEN** 对 `src/mod/mod.i.py`、`src/mod/mod.d.rs`、`src/mod/mod.I.rs`、`src/mod/mod.i` 求归属（元素根 `src/mod/`）
 - **THEN** 四者按原路径判定归属（不剥），结果与改动前逐值相同；`.i.<白名单外后缀>` 不产生第二 / 第三个候选
 
-#### Scenario: 本仓入口面实测 44 / 0 / 0
+#### Scenario: 本仓入口面实测 46 / 45 / 1 / 0
 
-- **WHEN** 对本仓 44 个 `path` 非空元素跑 `entry_state`
-- **THEN** `Resolved` **44** 条：14 个 crate 由 ③ 命中 `src/lib.rs` + 多文件根 `App.Frontend.Shell` 由 ② 命中 `app.tsx` + **14** 个前端单文件根由 ② 命中自身（7 个 `components/agent/*.tsx` + 5 个 `standard/*.tsx` + `views/welcome-view.tsx` + `App.Frontend.Components.Agent` 翻转前）——翻转后 `Components.Agent` 改由 ③ 命中 `components/agent/index.tsx` + **12** 个目录模块根由 ③ 命中 `index.ts(x)` + 壳 `App.Backend.Shell` 与两个工具 crate 由 ① 命中显式 `entry` = 44；`Absent` **0** 条、`Invalid` 0 条。三处显式 `entry` 仍是本节 ① 在本仓的**唯一实例**（12 个目录模块入口走 ③，MUST NOT 为其补 `entry` 行——否则违 `repo-archi-model` 的字段纪律）；反向判据：删掉任一目录的 `index.ts` 即该元素回落 `Absent` 并产一条 `apiEntryMissing`，说明「入口面清零」是**文件在盘**的结果而不是判据放宽
+- **WHEN** 对本仓 46 个 `path` 非空元素跑 `entry_state`
+- **THEN** `Resolved` **45** 条：14 个自研 crate 由 ③ 命中 `src/lib.rs` + 多文件根 `App.Frontend.Shell` 由 ② 命中 `app.tsx` + **14** 个前端单文件根由 ② 命中自身（7 个 `components/agent/*.tsx` + 6 个 `standard/*.tsx`（含 `combobox.tsx`）+ `views/welcome-view.tsx`）——其中目录模块 `App.Frontend.Components.Agent` 改由 ③ 命中 `components/agent/index.tsx` + **12** 个目录模块根由 ③ 命中 `index.ts(x)` + 壳 `App.Backend.Shell` 与两个工具 crate 由 ① 命中显式 `entry` = **45**；`Absent` **1** 条（`App.Frontend.GeneratedBindings`：`path` 为生成目录、目录内无 `index.ts(x)`，且它 `api = none` ⇒ **零 `apiEntryMissing`**）、`Invalid` **0** 条。三处显式 `entry` 仍是本节 ① 在本仓的**唯一实例**（12 个目录模块入口走 ③，MUST NOT 为其补 `entry` 行；生成物中继元素也 MUST NOT 为它补 `entry`——生成目录的叶子文件不是模块入口）；反向判据：删掉任一目录的 `index.ts` 即该元素回落 `Absent` 并产一条 `apiEntryMissing`，说明「入口面清零」是**文件在盘**的结果而不是判据放宽
+
+#### Scenario: 生成物中继元素的 Absent 不是债
+
+- **WHEN** 对生成物中继元素（`kind = module` / `api = none` / `path = ./packages/desktop/src/types/generated/`）跑一次全量检查
+- **THEN** 它零 `apiEntryMissing`（`api = none` 退出入口判据）、恰一条 `docMissing`（`doc` 未声明）；给它造一个 `index.ts` 会让 `entry_state` 转 `Resolved` 但**不减少任何判据条目**（`docMissing` 仍在）——故「造入口」不是可接受的处置，MUST NOT 在本变更或后续变更里为消 `Absent` 而造生成目录的 `index.ts`
 
 #### Scenario: 生成物与手写 impl 共存编译
 
@@ -818,3 +823,29 @@
 | `verify(contract: &Contract, schema: &Value) -> Result<(), ApiError>` | 改（签名零变化） | 追加第四条闸：前置 `ops` / `types` / `reexports` 任一非空；断言抽取集 ∩（op id ∪ `api-types` 键 ∪ `api-reexport` 键）= ∅；非空即 `ApiError::Contract`，点名文件 + 交集名字 + 出路句（名字归 fence、散文只留语义）。既有各项（三闸 + 闸一 + 落点闸 + 自洽闸）逐字不变 |
 
 - **零变化面（同批断言，不是省略）**：`api::load_contracts` / `api::enabled` / `api::check` / `api::bootstrap` / `api::render_all` / `api::api_ref` 签名与语义逐字不变（第四条闸经既有 `contract::verify` 调用点自动生效）；`Contract` / `ApiSnapshot` / `ArchiApiFinding` / `ArchiDriftReport` 零字段新增、零新 finding kind、`REPORT_VERSION = 3` 不变；IPC 命令面 / DTO / `src/types/generated/**` 零改动（`bindings:export` 幂等、`client:check` 零 diff）；`crates/tools/archi-api-gen` 与 `packages/desktop/package.json` 三条命令串零改动（闸只作用于装载期，不参与渲染 ⇒ `.schema.json` / `INDEX.toml` / `.i.rs` / `.i.ts` 逐字节零 diff）；`views/architecture/components/contract-panel.tsx` / `model-info.tsx` 零改动（无 `kind` / `category` 增删）。
+
+### 模块增量：入口面读数与生成物中继元素（relation-api-dependency-check）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约 |
+|------|------|----------|
+| `crates/core/archi/src/api/paths.rs` | 入口解析与落点派生（零改动） | `entry_state` 三态链、四条判据、`generated_path` 与 `ts_import_specifier` 逐字不变（新元素只走既有 ③ / ④ 分支） |
+| `crates/core/archi/src/api/check.rs` | 入口判据（零改动） | `api = none` 退出 `apiEntryMissing` 的语义不变；`Absent` 只在 `api = declared` 时产条目 |
+| `crates/core/archi/src/dto.rs`（`resolved_entry` 投影） | 入口读数（零改动） | `archi_module` 的 `resolvedEntry` 对 `Absent` 给 `via = null` + `problem` 文案；新元素因此可被 `archi_module` 直接判出「无入口」 |
+| `.dev-team/architecture/graph/model/06-frontend.toml` | 数据面（见 `repo-archi-model`） | 新元素 `api = none` / 无 `entry` / `path` = 生成目录；不为其造 `index.ts`、不为其补 `entry` 行 |
+| 本能力实测段（spec 面） | 改 | 入口面读数 44 / 0 / 0 → **46 / 45 / 1 / 0**，并把「`Absent` 一例为何不是债」写实 |
+
+### Function: `crates/core/archi/src/api/paths.rs`
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `entry_state` | 零改动 | 三态链与四条判据逐字不变；新元素落 `Absent`（目录型根、默认候选全不落盘） |
+| `generated_path` / `ts_import_specifier` | 零改动 | 落点派生与 TS 侧规则不变；`Absent` 不产生成物路径 |
+| `carrier_path`（入口文档载体） | 零改动 | `api = none` 取 `doc`（新元素未声明 ⇒ `docMissing`），`declared` 取派生契约路径 |
+
+### API: `archi_module.resolvedEntry`
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `ArchiModuleDetail.resolvedEntry` | 字段级（零改动） | 新元素呈 `path = null` + `via = null` + `problem`（「无可用入口」）；`archiEntryMissing` 不因它产出（`api = none` 退出入口判据） |
