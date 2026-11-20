@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type * as XyflowModule from '@xyflow/react';
 import { createElement, type ComponentType } from 'react';
@@ -18,16 +21,23 @@ import { ArchitectureCanvas } from './architecture-canvas';
  * 布局、缺省 1-hop 聚焦、聚焦切换零取数、空模型与取数失败两态、`mode` 透传、
  * 改档后刷新的三触发纪律。
  *
+ * 左栏缺省视图 = 元素树（文件树 / 契约面板只在切到对应分段时挂载）——「缺省视图」
+ * 判据一律以元素树在场 + `archi_file_tree` 调用计数表达；`archi-file-tree` 的否定
+ * 断言只出现在另有正锚的行旁（元素树在场 / 契约面板在场 / 空模型早退 / 失败行 /
+ * 加载占位），禁区是「只用单一否定断言判缺省」。
+ *
  * 渲染面断言分两路：节点 / 边集合、边 style、节点坐标、`ReactFlow` 选项
  * 经**观测垫片**取 `ReactFlow` 的入参（非语义替身：真实 `ReactFlow` 照常渲染，
  * 垫片只在渲染前记录入参）；边另有一条**真实 DOM** 断言（`.react-flow__edge`）——
  * xyflow 只在节点挂 Handle 后才为边求位置，堵「props 有边、DOM 无边」的回归盲区。
  * 节点集合 / 坐标 / 文案一律从 jsdom 真实 DOM 断言。
  *
- * 进程边界 mock：`@tauri-apps/api/core` 的 `invoke`（`archi_graph` /
- * `archi_module` / `archi_set_gate` 按命令名分发）。xyflow 度量垫片
- * （ResizeObserver / offsetWidth / DOMMatrixReadOnly / getBBox）照抄
- * `change-flow-graph.test.tsx`——环境缺口而非业务 mock。
+ * 进程边界 mock：`@tauri-apps/api/core` 的 `invoke`（按命令名分发 `archi_graph` /
+ * `archi_module` / `archi_set_gate` / `archi_drift` / `archi_file_tree` / 契约两命令）。
+ * xyflow 度量垫片（ResizeObserver / offsetWidth / DOMMatrixReadOnly / getBBox）照抄
+ * `change-flow-graph.test.tsx`——环境缺口而非业务 mock。非活动分段面板由 base-ui
+ * `Tabs`（`keepMounted = false`）真实卸载——这正是「非活动面板不挂载 ⇒ 首屏零
+ * 取数」的判据本体，替身化会让本单测自证。
  */
 
 const { invokeMock, flowProps } = vi.hoisted(() => ({
@@ -435,16 +445,50 @@ describe('停摆态（全或无）', () => {
 });
 
 describe('正常态：缺省 1-hop 渲染面', () => {
-  it('应渲染三段布局并以首个顶层元素为聚焦（左栏缺省为文件树）', async () => {
+  it('应渲染三段布局并以首个顶层元素为聚焦（左栏缺省为元素树）', async () => {
     render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
-    expect(screen.queryByTestId('archi-element-tree')).toBeNull();
+    // 正锚：左栏缺省分支是元素树（缺省视图判据 MUST NOT 只由否定断言承担）
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    expect(screen.getAllByTestId('archi-tree-node').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('archi-tree-mode')).toBeTruthy();
     expect(screen.getByTestId('archi-canvas')).toBeTruthy();
     expect(screen.getByTestId('archi-drawer')).toBeTruthy();
+    // 文件树不参与首屏：既不挂载也不取数
+    expect(callsOf('archi_file_tree')).toHaveLength(0);
+    expect(screen.queryByTestId('archi-file-tree')).toBeNull();
+    expect(screen.queryByTestId('archi-file-tree-loading')).toBeNull();
 
     await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
     expect(callsOf('archi_module')[0]).toEqual({ root: 'C:\\demo\\alpha', element: 'App' });
     expect(screen.getByTestId('archi-drawer-fqn').textContent).toBe('App');
+    expect(callsOf('archi_graph')).toHaveLength(1);
+  });
+
+  it('应在点「文件」后恰取数一次（载荷逐字）且切回元素态零新增取数', async () => {
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    const baseline = {
+      graph: callsOf('archi_graph').length,
+      module: callsOf('archi_module').length,
+      drift: callsOf('archi_drift').length,
+    };
+    expect(callsOf('archi_file_tree')).toHaveLength(0);
+
+    switchTo('文件');
+    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
+    expect(callsOf('archi_file_tree')).toHaveLength(1);
+    expect(callsOf('archi_file_tree')[0]).toEqual({ root: 'C:\\demo\\alpha' });
+    expect(screen.getAllByTestId('archi-file-node').length).toBeGreaterThan(0);
+    // 两视图不共存：元素树已卸载（正锚 = 文件树在场 + 计数）
+    expect(screen.queryByTestId('archi-element-tree')).toBeNull();
+    // 切换只换左栏组件：图 / 抽屉 / 漂移计数不变
+    expect(callsOf('archi_graph')).toHaveLength(baseline.graph);
+    expect(callsOf('archi_module')).toHaveLength(baseline.module);
+    expect(callsOf('archi_drift')).toHaveLength(baseline.drift);
+
+    switchTo('元素');
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    expect(callsOf('archi_file_tree')).toHaveLength(1);
   });
 
   it('应只把聚焦元素的 1-hop 成员画成节点（出边 / 入边 / 直接子元素，孙元素与点前缀兄弟不入图）', async () => {
@@ -713,8 +757,7 @@ describe('缺省聚焦与 1-hop 边界', () => {
   it('应在元素树点击后按新邻域重算且零取数（archi_graph 计数不变）', async () => {
     serveGraph(hubGraph());
     render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
-    switchTo('元素');
+    // 缺省即元素树：无需切换即可点击
     await waitFor(() => expect(screen.getAllByTestId('archi-tree-node').length).toBeGreaterThan(0));
     const graphCalls = callsOf('archi_graph').length;
 
@@ -904,7 +947,9 @@ describe('漂移面接线（AC-19）', () => {
       expect(screen.getByTestId('archi-drawer-fqn').textContent).toBe('App.Auth'),
     );
 
-    // 文件树归属行点击再切一次（第二触发面：左栏缺省文件树）
+    // 文件树归属行点击再切一次（第二触发面：切到「文件」后文件树挂载）
+    switchTo('文件');
+    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
     const fileRow = screen
       .getAllByTestId('archi-file-node')
       .find((node) => node.getAttribute('data-path') === 'crates/core/archi');
@@ -948,8 +993,9 @@ describe('空态 / 加载态 / 取数失败 / 无根', () => {
     await act(async () => {
       resolveGraph?.(healthyGraph());
     });
-    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     expect(screen.queryByTestId('archi-canvas-loading')).toBeNull();
+    expect(callsOf('archi_file_tree')).toHaveLength(0);
   });
 
   it('应在 root 为 null 时不发 invoke 并呈现无根空态', async () => {
@@ -969,7 +1015,7 @@ describe('空态 / 加载态 / 取数失败 / 无根', () => {
     expect(screen.queryAllByTestId(/^rf__node-/)).toHaveLength(0);
 
     rerender(<ArchitectureCanvas root={'C:\\demo\\beta'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
   });
 
   it('应在 root 由 A 换到 B 时重新取数（新根新图）', async () => {
@@ -1063,33 +1109,37 @@ describe('停摆与文档警告无关', () => {
   it('应不因文档警告停摆（diagnostics 空即正常态，文档缺失不进图面判据）', async () => {
     serveGraph(healthyGraph());
     render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     expect(screen.queryByTestId('archi-error-panel')).toBeNull();
     await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
   });
 });
 
 describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
-  it('应缺省渲文件树且切到元素树时 testid 换面（两视图不共存）', async () => {
+  it('应缺省渲元素树且切到文件树时 testid 换面（两视图不共存）', async () => {
     render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
-    expect(screen.queryByTestId('archi-element-tree')).toBeNull();
-    expect(screen.getAllByTestId('archi-file-node').length).toBeGreaterThan(0);
-
-    switchTo('元素');
+    // 正锚：元素树在场 + 文件树零取数（否定断言只作补充）
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
-    expect(screen.queryByTestId('archi-file-tree')).toBeNull();
     expect(screen.getAllByTestId('archi-tree-node').length).toBeGreaterThan(0);
+    expect(callsOf('archi_file_tree')).toHaveLength(0);
 
     switchTo('文件');
     await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
+    expect(screen.getAllByTestId('archi-file-node').length).toBeGreaterThan(0);
+    expect(callsOf('archi_file_tree')).toHaveLength(1);
     expect(screen.queryByTestId('archi-element-tree')).toBeNull();
+
+    switchTo('元素');
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    expect(screen.getAllByTestId('archi-tree-node').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('archi-file-tree')).toBeNull();
+    expect(callsOf('archi_file_tree')).toHaveLength(1);
   });
 
-  it('应在两视图间来回切换四次后只让文件树随重挂重取（图 / 抽屉 / 漂移零重取）', async () => {
+  it('应在两视图往返切换后只让文件树随重挂重取（图 / 抽屉 / 漂移零重取）', async () => {
     serveGraph(hubGraph());
     render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
 
     const before = {
@@ -1098,12 +1148,18 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
       drift: callsOf('archi_drift').length,
       tree: callsOf('archi_file_tree').length,
     };
-    expect(before.tree).toBeGreaterThan(0);
+    // 缺省视图零文件树取数：基准必为 0（切换后才有第 1 次）
+    expect(before.tree).toBe(0);
 
-    for (let round = 0; round < 2; round += 1) {
-      switchTo('元素');
+    for (let round = 1; round <= 3; round += 1) {
       switchTo('文件');
       await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
+      expect(callsOf('archi_file_tree')).toHaveLength(before.tree + round);
+
+      switchTo('元素');
+      await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+      // 非活动分段面板整块卸载：元素态下文件树零节点
+      expect(screen.queryAllByTestId('archi-file-node')).toHaveLength(0);
     }
     await act(async () => {
       await Promise.resolve();
@@ -1112,8 +1168,8 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
     expect(callsOf('archi_graph')).toHaveLength(before.graph);
     expect(callsOf('archi_module')).toHaveLength(before.module);
     expect(callsOf('archi_drift')).toHaveLength(before.drift);
-    // 非活动分段面板卸载：每次切回「文件」都重挂 FileTree，其自身取数随之重发
-    expect(callsOf('archi_file_tree')).toHaveLength(before.tree + 2);
+    // 每次切回「文件」都重挂 FileTree，其自身取数随之重发 ⇒ 累计 = 基准 + 3
+    expect(callsOf('archi_file_tree')).toHaveLength(before.tree + 3);
   });
 
   it('应在点文件树归属行后圈定范围并让抽屉取该元素（链路：tree → focus → drawer）', async () => {
@@ -1130,6 +1186,9 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
       return Promise.resolve(null);
     });
     render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    // 文件树是懒取数：切到「文件」分段才挂载
+    switchTo('文件');
     await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
 
     const row = screen
@@ -1161,7 +1220,11 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
     });
     render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
+    // 文件树在场需先切到「文件」分段（缺省分支是元素树）
+    switchTo('文件');
+    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
     const treeCalls = callsOf('archi_file_tree').length;
+    expect(treeCalls).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByTestId('rf__node-Svc.A'));
     await waitFor(() => expect(screen.getByTestId('archi-drawer-fqn').textContent).toBe('Svc.A'));
@@ -1187,6 +1250,9 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
       return Promise.resolve(null);
     });
     render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    // 文件树是懒取数：切到「文件」才发起（失败面只发生在切过去之后）
+    switchTo('文件');
 
     await waitFor(() => expect(screen.getByTestId('archi-file-tree-error')).toBeTruthy());
     const notice = screen.getByTestId('archi-file-tree-error').textContent ?? '';
@@ -1199,6 +1265,11 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
     expect(flow().nodes.length).toBeGreaterThan(0);
     // 失败态不渲文件树本体
     expect(screen.queryByTestId('archi-file-tree')).toBeNull();
+
+    // 切回「元素」：视图卸载 / 重挂语义不变，失败只留在文件视图
+    switchTo('元素');
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    expect(screen.queryByTestId('archi-file-tree-error')).toBeNull();
   });
 
   it('应在文件树首轮未回时渲「解析中…」占位（树本体不挂载）', async () => {
@@ -1213,6 +1284,8 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
       return Promise.resolve(null);
     });
     render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    switchTo('文件');
 
     await waitFor(() => expect(screen.getByTestId('archi-file-tree-loading')).toBeTruthy());
     expect(screen.getByTestId('archi-file-tree-loading').textContent).toBe('解析中…');
@@ -1234,6 +1307,8 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
       return Promise.resolve(null);
     });
     render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    switchTo('文件');
 
     await waitFor(() => expect(screen.getByTestId('archi-file-tree-empty')).toBeTruthy());
     expect(screen.getByTestId('archi-file-tree-empty').textContent).toBe('仓库内无源文件');
@@ -1259,9 +1334,15 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
       return Promise.resolve(null);
     });
     const { rerender } = render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    switchTo('文件');
     await waitFor(() => expect(screen.getByTestId('archi-file-tree-error')).toBeTruthy());
 
     rerender(<ArchitectureCanvas root={'B'} mode="full" />);
+    // 换 root 触发图重取：正常态重挂 ⇒ 左栏回落缺省元素树（缺省值单点的又一证据）
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    expect(screen.queryByTestId('archi-file-tree-error')).toBeNull();
+    switchTo('文件');
     await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
     expect(screen.queryByTestId('archi-file-tree-error')).toBeNull();
     expect(callsOf('archi_file_tree').at(-1)).toEqual({ root: 'B' });
@@ -1275,26 +1356,32 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
     render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
 
     await waitFor(() => expect(screen.getByTestId('archi-canvas-empty')).toBeTruthy());
-    expect(screen.queryByTestId('archi-file-tree')).toBeNull();
-    expect(screen.queryByTestId('archi-element-tree')).toBeNull();
+    // 正锚：早退分支 ⇒ 左栏整块不挂载，故文件树零取数（否定断言的支撑面）
+    expect(callsOf('archi_file_tree')).toHaveLength(0);
     expect(screen.queryByTestId('archi-tree-mode')).toBeNull();
+    expect(screen.queryByTestId('archi-element-tree')).toBeNull();
+    expect(screen.queryByTestId('archi-file-tree')).toBeNull();
   });
 
   it('应让左栏三视图共用同一可调宽栏位（宽度不随视图变化）', async () => {
     render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     const columnOf = (): HTMLElement => screen.getByTestId('archi-tree-mode').parentElement!;
     const panelOf = (): HTMLElement => columnOf().closest('[data-panel]')!;
     const panel = panelOf();
     expect(panel, '左栏由 ResizablePanel 承载').not.toBeNull();
     expect(panel.closest('[data-group]')).not.toBeNull();
 
-    switchTo('元素');
-    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
-    expect(columnOf(), '元素视图沿用同一栏位').toBe(
+    switchTo('文件');
+    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
+    expect(columnOf(), '文件视图沿用同一栏位').toBe(
       screen.getByTestId('archi-tree-mode').parentElement,
     );
     expect(panelOf(), '面板元素不随视图切换重建').toBe(panel);
+
+    switchTo('元素');
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    expect(panelOf(), '往返切换后仍不重建面板').toBe(panel);
   });
 });
 
@@ -1368,15 +1455,19 @@ function reportWithFindings(): ArchiDriftReport {
 }
 
 describe('左栏第三视图（契约）', () => {
-  it('应在点「契约」后只渲契约面板（文件树 / 元素树均不在场）', async () => {
+  it('应在点「契约」后只渲契约面板（两树均不在场）', async () => {
     serveWithApiCheck(healthyGraph(), reportWithFindings());
     render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
-    await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+    // 正锚先行：缺省分支是元素树（否定断言不得单独承担缺省判据）
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    expect(screen.getByTestId('archi-tree-mode')).toBeTruthy();
 
     switchToContract();
     await waitFor(() => expect(screen.getByTestId('archi-contract-panel')).toBeTruthy());
-    expect(screen.queryByTestId('archi-file-tree')).toBeNull();
+    // 已切到第三视图：正锚 = 契约面板在场 + 文件树零取数，两树均不在场
+    expect(callsOf('archi_file_tree')).toHaveLength(0);
     expect(screen.queryByTestId('archi-element-tree')).toBeNull();
+    expect(screen.queryByTestId('archi-file-tree')).toBeNull();
     // 三段布局齐备：左栏 + 画布 + 抽屉
     expect(screen.getByTestId('archi-canvas')).toBeTruthy();
     expect(screen.getByTestId('archi-drawer')).toBeTruthy();
@@ -1385,7 +1476,7 @@ describe('左栏第三视图（契约）', () => {
   it('应在三视图往返切换时零重取图 / 抽屉 / 漂移三条命令', async () => {
     serveWithApiCheck(healthyGraph(), reportWithFindings());
     render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
-    await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     await waitFor(() => expect(callsOf('archi_graph').length).toBeGreaterThan(0));
     const baseline = {
       graph: callsOf('archi_graph').length,
@@ -1499,9 +1590,11 @@ describe('左栏第三视图（契约）', () => {
     const panelOf = (): HTMLElement => columnOf().closest('[data-panel]')!;
     const panel = panelOf();
     expect(panel).not.toBeNull();
-    switchTo('元素');
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     expect(panelOf(), '元素视图沿用同一栏位').toBe(panel);
+    switchTo('文件');
+    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
+    expect(panelOf(), '文件视图沿用同一栏位').toBe(panel);
     switchToContract();
     await waitFor(() => expect(screen.getByTestId('archi-contract-panel')).toBeTruthy());
     expect(panelOf(), '契约视图沿用同一栏位').toBe(panel);
@@ -1608,5 +1701,160 @@ describe('停摆 / 空模型 / 报告缺席三态的左栏', () => {
     expect(findingsAxis.textContent).toContain('判据（0）');
     expect(within(findingsAxis).queryAllByTestId('archi-contract-chip')).toHaveLength(0);
     expect(screen.getByTestId('archi-drift-error')).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 缺省视图的时机与分段控件（AC-5 / AC-6）
+// ---------------------------------------------------------------------------
+
+describe('左栏分段控件与缺省视图（AC-5 / AC-6）', () => {
+  it('应按「元素 / 文件 / 契约」声明分段钮且缺省选中「元素」', async () => {
+    render(<ArchitectureCanvas root={'/ws'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+
+    const tabs = within(screen.getByTestId('archi-tree-mode')).getAllByRole('tab');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['元素', '文件', '契约']);
+    // 选中态由 base-ui `TabsTab` 提供（退役口径：自绘 `aria-pressed` / `data-mode`）
+    expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual([
+      'true',
+      'false',
+      'false',
+    ]);
+  });
+
+  it('应在三视图切换后把选中态移到目标钮（零重取图 / 抽屉 / 漂移）', async () => {
+    serveWithApiCheck(healthyGraph(), driftReport());
+    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+
+    const selected = (): (string | null)[] =>
+      within(screen.getByTestId('archi-tree-mode'))
+        .getAllByRole('tab')
+        .filter((tab) => tab.getAttribute('aria-selected') === 'true')
+        .map((tab) => tab.textContent);
+    const baseline = {
+      graph: callsOf('archi_graph').length,
+      module: callsOf('archi_module').length,
+      drift: callsOf('archi_drift').length,
+    };
+    // 缺省恰一枚选中且是「元素」
+    expect(selected()).toEqual(['元素']);
+
+    for (const [label, anchor] of [
+      ['文件', 'archi-file-tree'],
+      ['契约', 'archi-contract-panel'],
+      ['元素', 'archi-element-tree'],
+    ] as const) {
+      switchTo(label);
+      await waitFor(() => expect(screen.getByTestId(anchor)).toBeTruthy());
+      expect(selected()).toEqual([label]);
+    }
+
+    expect(callsOf('archi_graph')).toHaveLength(baseline.graph);
+    expect(callsOf('archi_module')).toHaveLength(baseline.module);
+    expect(callsOf('archi_drift')).toHaveLength(baseline.drift);
+  });
+
+  it('应在两处挂载形态（full / incremental）下都缺省渲元素树且零文件树取数', async () => {
+    for (const mode of ['full', 'incremental'] as const) {
+      invokeMock.mockReset();
+      serveGraphAndDrift(healthyGraph(), driftReport());
+      render(<ArchitectureCanvas root={'C:demoalpha'} mode={mode} />);
+
+      await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+      expect(callsOf('archi_file_tree')).toHaveLength(0);
+      // 漂移载荷逐值透传（两挂载点的模式分流不被缺省视图影响）
+      await waitFor(() => expect(callsOf('archi_drift').length).toBeGreaterThan(0));
+      expect(callsOf('archi_drift').at(-1)).toEqual({ root: 'C:demoalpha', mode });
+      cleanup();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 源码自证：缺省值与声明序各自单点（AC-8 / D7 / D8）
+// ---------------------------------------------------------------------------
+
+describe('源码自证（缺省值单点 / 声明序单点）', () => {
+  it('应把缺省视图与分段声明序各自单点持有（architecture-canvas.tsx）', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/views/architecture/components/architecture-canvas.tsx'),
+      'utf8',
+    );
+
+    // 插桩不敏感形态：Stryker 沙箱把初始化式包成
+    // `stryMutAct_*(…) ? "" : (stryCov_*(…), 'element')`，整表达式逐字邻接在沙箱内消失，
+    // 故判据只取「声明锚 + 同行字面量」两段（先例 use-config-chat.test.ts:601）。
+    // 缺省值单点：全源恰一处 `TreeMode` 初值声明，且该行初值为 'element'
+    expect(source.match(/useState<TreeMode>\(/g) ?? []).toHaveLength(1);
+    expect(source).toMatch(/useState<TreeMode>\([^\n]*'element'/);
+    // 否定臂：'file' / 'contract' 不作初值（缺省不是文件树）
+    expect(source).not.toMatch(/useState<TreeMode>\([^\n]*'(file|contract)'/);
+
+    // 声明序单点：三钮显示名首现次序 元素 → 文件 → 契约
+    // （锚显示名字面量而非 `mode: '…'` 邻接——字面量不被插桩，邻接会）
+    const displayOrder = ["'元素'", "'文件'", "'契约'"].map((label) => source.indexOf(label));
+    for (const index of displayOrder) expect(index).toBeGreaterThan(-1);
+    expect(displayOrder).toEqual([...displayOrder].sort((left, right) => left - right));
+    expect(source).toMatch(/label: [^\n]*'元素'/);
+    expect(source).toMatch(/label: [^\n]*'文件'/);
+    expect(source).toMatch(/label: [^\n]*'契约'/);
+
+    // 分段钮与面板内容都由同一份 options 派生（JSX 内零第二份顺序）
+    expect(source.includes('<TabsTrigger value={option.mode}>')).toBe(true);
+    expect(source.includes('<TabsContent value={option.mode}>')).toBe(true);
+    expect(source.includes('options.map(')).toBe(true);
+    expect(source.includes('data-testid="archi-tree-mode"')).toBe(true);
+    expect(source.includes('role="group"')).toBe(true);
+
+    // 旧注释口径零命中（缺省陈述只由 treeMode 初值持有）
+    expect(source.includes('缺省文件树')).toBe(false);
+    expect(source.includes('左栏缺省为文件树')).toBe(false);
+  });
+
+  it('应让 file-tree.tsx 的注释不再自行持有缺省值', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/views/architecture/components/file-tree.tsx'),
+      'utf8',
+    );
+
+    // 旧注释形态（「缺省」后接反引号包裹的 file）零命中
+    expect(source.includes('缺省 `file`')).toBe(false);
+    // 仍出现「缺省」的行必须指向单点持有者：不得在本文件重新持有缺省值
+    const lines = source.split('\n').filter((line) => line.includes('缺省'));
+    expect(lines).toHaveLength(1);
+    for (const line of lines) expect(line.includes('architecture-canvas.tsx')).toBe(true);
+    // 跨文件反证：本文件零 `TreeMode` 初值声明（缺省值单点只在 architecture-canvas.tsx）
+    expect(source).not.toMatch(/useState<TreeMode>\(/);
+
+    // 三值联合齐备（声明锚 + 三取值 indexOf 均在锚后；不锚整句逐字）
+    const unionAnchor = source.indexOf('export type TreeMode =');
+    expect(unionAnchor).toBeGreaterThan(-1);
+    expect(source.match(/export type TreeMode =/g) ?? []).toHaveLength(1);
+    for (const literal of ["'file'", "'element'", "'contract'"]) {
+      expect(source.indexOf(literal)).toBeGreaterThan(unionAnchor);
+    }
+
+    // 导出面与 testid 零变动（组件行为与「缺省视图」解耦）
+    expect(source.includes('export function FileTree')).toBe(true);
+    expect(source.includes('export interface FileTreeProps')).toBe(true);
+    for (const testId of [
+      'archi-file-tree',
+      'archi-file-node',
+      'archi-file-mark',
+      'archi-file-tree-error',
+      'archi-file-tree-loading',
+      'archi-file-tree-empty',
+    ]) {
+      expect(source.includes(`data-testid="${testId}"`)).toBe(true);
+    }
+
+    // 对照臂：旧缺省口径在缺省值持有者内同样零命中
+    const canvasSource = readFileSync(
+      resolve(process.cwd(), 'src/views/architecture/components/architecture-canvas.tsx'),
+      'utf8',
+    );
+    expect(canvasSource.includes('缺省文件树')).toBe(false);
   });
 });

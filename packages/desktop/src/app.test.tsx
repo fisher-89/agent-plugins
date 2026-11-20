@@ -1777,6 +1777,47 @@ describe('App：架构页路由（/architecture）', () => {
     await waitFor(() => expect(countOf('archi_graph')).toBe(2));
   });
 
+  it('应在 hash 直入 #/architecture 时零文件树取数（缺省元素树）', async () => {
+    window.location.hash = '#/architecture';
+    render(<App />);
+
+    // 正锚：画布与元素树在场（缺省视图 = 元素树）
+    await waitFor(() => expect(screen.getByTestId('archi-canvas') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree') !== null).toBe(true));
+    expect(countOf('archi_graph')).toBe(1);
+    // 文件树懒取数：既不挂载也不取数（既不发起也不处加载态）
+    expect(countOf('archi_file_tree')).toBe(0);
+    expect(screen.queryByTestId('archi-file-tree-loading')).toBeNull();
+    expect(screen.getByTestId('nav-architecture').hasAttribute('data-active')).toBe(true);
+  });
+
+  it('应从侧栏进入架构页时零文件树取数（第二入口）', async () => {
+    await restored();
+    fireEvent.click(screen.getByTestId('nav-architecture'));
+
+    await waitFor(() => expect(screen.getByTestId('archi-canvas') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree') !== null).toBe(true));
+    expect(window.location.hash).toBe('#/architecture');
+    expect(countOf('archi_graph')).toBe(1);
+    expect(countOf('archi_file_tree')).toBe(0);
+  });
+
+  it('应在切走再切回后仍零文件树取数（每次挂载回落缺省元素树）', async () => {
+    window.location.hash = '#/architecture';
+    render(<App />);
+    await waitFor(() => expect(countOf('archi_graph')).toBe(1));
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree') !== null).toBe(true));
+
+    fireEvent.click(screen.getByTestId('nav-changes'));
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+
+    // 第二次挂载：左栏仍回落缺省元素树，图重新取数（不做跨挂载缓存）
+    fireEvent.click(screen.getByTestId('nav-architecture'));
+    await waitFor(() => expect(countOf('archi_graph')).toBe(2));
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree') !== null).toBe(true));
+    expect(countOf('archi_file_tree')).toBe(0);
+  });
+
   it('收起态下新增架构 Agent 面板不引入会话取数（invoke 序列按 filter 口径稳定）', async () => {
     window.location.hash = '#/architecture';
     render(<App />);

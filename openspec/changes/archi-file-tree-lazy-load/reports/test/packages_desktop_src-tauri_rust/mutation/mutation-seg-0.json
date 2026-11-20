@@ -1,0 +1,237 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/archi/mod.rs:70:5: replace archi_graph -> Result<ArchiGraph, String> with Ok(Default::default())",
+          "package": "dev-team",
+          "file": "src/commands/archi/mod.rs",
+          "function": {
+            "function_name": "archi_graph",
+            "return_type": "-> Result<ArchiGraph, String>",
+            "span": {
+              "start": {
+                "line": 66,
+                "column": 1
+              },
+              "end": {
+                "line": 73,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 70,
+              "column": 5
+            },
+            "end": {
+              "line": 72,
+              "column": 55
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__archi__mod.rs_line_70_col_5.log",
+      "diff_path": "diff/src__commands__archi__mod.rs_line_70_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 120.0208208,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/archi/mod.rs:150:5: replace archi_drift -> Result<ArchiDriftReport, String> with Ok(Default::default())",
+          "package": "dev-team",
+          "file": "src/commands/archi/mod.rs",
+          "function": {
+            "function_name": "archi_drift",
+            "return_type": "-> Result<ArchiDriftReport, String>",
+            "span": {
+              "start": {
+                "line": 146,
+                "column": 1
+              },
+              "end": {
+                "line": 154,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 150,
+              "column": 5
+            },
+            "end": {
+              "line": 153,
+              "column": 56
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__archi__mod.rs_line_150_col_5.log",
+      "diff_path": "diff/src__commands__archi__mod.rs_line_150_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 219.948155,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/archi/mod.rs:190:5: replace archi_file_tree -> Result<ArchiFileTree, String> with Ok(Default::default())",
+          "package": "dev-team",
+          "file": "src/commands/archi/mod.rs",
+          "function": {
+            "function_name": "archi_file_tree",
+            "return_type": "-> Result<ArchiFileTree, String>",
+            "span": {
+              "start": {
+                "line": 186,
+                "column": 1
+              },
+              "end": {
+                "line": 193,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 190,
+              "column": 5
+            },
+            "end": {
+              "line": 192,
+              "column": 55
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__archi__mod.rs_line_190_col_5.log",
+      "diff_path": "diff/src__commands__archi__mod.rs_line_190_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 229.4215223,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/archi/mod.rs:208:5: replace archi_api_check -> Result<ArchiApiCheck, String> with Ok(Default::default())",
+          "package": "dev-team",
+          "file": "src/commands/archi/mod.rs",
+          "function": {
+            "function_name": "archi_api_check",
+            "return_type": "-> Result<ArchiApiCheck, String>",
+            "span": {
+              "start": {
+                "line": 204,
+                "column": 1
+              },
+              "end": {
+                "line": 211,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 208,
+              "column": 5
+            },
+            "end": {
+              "line": 210,
+              "column": 56
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__archi__mod.rs_line_208_col_5.log",
+      "diff_path": "diff/src__commands__archi__mod.rs_line_208_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 233.5638594,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 4,
+  "missed": 0,
+  "caught": 0,
+  "timeout": 0,
+  "unviable": 4,
+  "success": 0,
+  "start_time": "2026-11-20T12:50:16.7741537Z",
+  "end_time": "2026-11-20T12:54:13.9084928Z",
+  "cargo_mutants_version": "27.1.0"
+}

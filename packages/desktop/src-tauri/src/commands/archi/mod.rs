@@ -20,6 +20,12 @@
 //! 空白 / 不可读 root 一律 `Err`（画布无 root 画不出东西；静默空图会与「模型为
 //! 空」的冷启动合法态不可辨）。
 //!
+//! 执行契约：四条取数命令（`archi_graph` / `archi_drift` / `archi_file_tree` /
+//! `archi_api_check`）的成本随仓库规模增长（批量读子系统 / 全仓解析），故一律为
+//! `pub async fn`，底经 `spawn_blocking` 落阻塞池——命令体不在 IPC 线程内联，窗口
+//! 不随取数冻结。执行线程纪律与判据的唯一持有者是 `desktop-app-shell` 的「命令执行
+//! 线程纪律（批量子系统 IO）」，本文件不复述。
+//!
 //! 能力 spec：`specs/desktop-archi-model/spec.md`（IPC 八命令契约）。
 
 use std::fs;
@@ -60,8 +66,10 @@ fn check_root(root: &Path) -> Result<(), String> {
 /// 画布数据（停摆 / 正常两态）。
 #[tauri::command]
 #[specta::specta]
-pub fn archi_graph(root: String) -> Result<ArchiGraph, String> {
-    archi_graph_inner(Path::new(&root))
+pub async fn archi_graph(root: String) -> Result<ArchiGraph, String> {
+    tauri::async_runtime::spawn_blocking(move || archi_graph_inner(Path::new(&root)))
+        .await
+        .map_err(|error| format!("架构图任务失败: {error}"))?
 }
 
 /// [`archi_graph`] 的领域组装纯函数：root 检查 → `archi::dto` 投影。
@@ -138,9 +146,11 @@ pub fn archi_set_gate_inner(root: &Path, element: &str, gate: GateTier) -> Resul
 /// 架构漂移检查（两模式；命令层零判定）。
 #[tauri::command]
 #[specta::specta]
-pub fn archi_drift(root: String, mode: ArchiDriftMode) -> Result<ArchiDriftReport, String> {
+pub async fn archi_drift(root: String, mode: ArchiDriftMode) -> Result<ArchiDriftReport, String> {
     let vcs = ProcessArchiveVcs::new();
-    archi_drift_inner(Path::new(&root), mode, &vcs)
+    tauri::async_runtime::spawn_blocking(move || archi_drift_inner(Path::new(&root), mode, &vcs))
+        .await
+        .map_err(|error| format!("漂移检查任务失败: {error}"))?
 }
 
 /// [`archi_drift`] 的领域组装纯函数：root 检查 → 增量经 vcs 缝取变更集 → 调判定
@@ -176,8 +186,10 @@ pub fn archi_drift_inner(
 /// 左栏文件树数据（仓库源文件与模块根的扁平条目投影）。
 #[tauri::command]
 #[specta::specta]
-pub fn archi_file_tree(root: String) -> Result<ArchiFileTree, String> {
-    archi_file_tree_inner(Path::new(&root))
+pub async fn archi_file_tree(root: String) -> Result<ArchiFileTree, String> {
+    tauri::async_runtime::spawn_blocking(move || archi_file_tree_inner(Path::new(&root)))
+        .await
+        .map_err(|error| format!("文件树任务失败: {error}"))?
 }
 
 /// [`archi_file_tree`] 的领域组装纯函数：root 检查 → `archi::tree::file_tree`。
@@ -192,8 +204,10 @@ pub fn archi_file_tree_inner(root: &Path) -> Result<ArchiFileTree, String> {
 /// 契约生成物新鲜度的检查（零写盘）。
 #[tauri::command]
 #[specta::specta]
-pub fn archi_api_check(root: String) -> Result<ArchiApiCheck, String> {
-    archi_api_check_inner(Path::new(&root))
+pub async fn archi_api_check(root: String) -> Result<ArchiApiCheck, String> {
+    tauri::async_runtime::spawn_blocking(move || archi_api_check_inner(Path::new(&root)))
+        .await
+        .map_err(|error| format!("契约检查任务失败: {error}"))?
 }
 
 /// [`archi_api_check`] 的领域组装纯函数：root 检查 → `archi::api::artifact_check`

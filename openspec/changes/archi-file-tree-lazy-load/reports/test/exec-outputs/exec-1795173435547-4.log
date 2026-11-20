@@ -1,0 +1,447 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri)
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiGraph, String>>` in the current scope
+   --> src\commands\archi\mod_test.rs:169:48
+    |
+169 |     let graph_outer = archi_graph(temp.root()).expect("archi_graph 应 Ok");
+    |                                                ^^^^^^ method not found in `impl Future<Output = Result<ArchiGraph, String>>`
+    |
+    = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-1459831398354312047.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+    |
+169 |     let graph_outer = archi_graph(temp.root()).await.expect("archi_graph 应 Ok");
+    |                                                ++++++
+
+    Checking export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\crates\tools\export-bindings)
+error[E0599]: no method named `is_err` found for opaque type `impl Future<Output = Result<ArchiGraph, String>>` in the current scope
+   --> src\commands\archi\mod_test.rs:257:44
+    |
+257 |             archi_graph(rendering.clone()).is_err(),
+    |                                            ^^^^^^
+    |
+help: there is a method `inspect_err` with a similar name, but with different arguments
+   --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\futures-util-0.3.34\src\future\try_future\mod.rs:493:5
+    |
+493 | /     fn inspect_err<F>(self, f: F) -> InspectErr<Self, F>
+494 | |     where
+495 | |         F: FnOnce(&Self::Error),
+496 | |         Self: Sized,
+    | |____________________^
+    = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-1459831398354312047.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+    |
+257 |             archi_graph(rendering.clone()).await.is_err(),
+    |                                            ++++++
+
+error[E0599]: no method named `is_err` found for opaque type `impl Future<Output = Result<ArchiDriftReport, String>>` in the current scope
+   --> src\commands\archi\mod_test.rs:278:66
+    |
+278 |             archi_drift(rendering.clone(), ArchiDriftMode::Full).is_err(),
+    |                                                                  ^^^^^^
+    |
+help: there is a method `inspect_err` with a similar name, but with different arguments
+   --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\futures-util-0.3.34\src\future\try_future\mod.rs:493:5
+    |
+493 | /     fn inspect_err<F>(self, f: F) -> InspectErr<Self, F>
+494 | |     where
+495 | |         F: FnOnce(&Self::Error),
+496 | |         Self: Sized,
+    | |____________________^
+    = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-817530034089252141.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+    |
+278 |             archi_drift(rendering.clone(), ArchiDriftMode::Full).await.is_err(),
+    |                                                                  ++++++
+
+error[E0599]: no method named `is_err` found for opaque type `impl Future<Output = Result<ArchiFileTree, String>>` in the current scope
+   --> src\commands\archi\mod_test.rs:282:48
+    |
+282 |             archi_file_tree(rendering.clone()).is_err(),
+    |                                                ^^^^^^
+    |
+help: there is a method `inspect_err` with a similar name, but with different arguments
+   --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\futures-util-0.3.34\src\future\try_future\mod.rs:493:5
+    |
+493 | /     fn inspect_err<F>(self, f: F) -> InspectErr<Self, F>
+494 | |     where
+495 | |         F: FnOnce(&Self::Error),
+496 | |         Self: Sized,
+    | |____________________^
+    = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-9057493822254760601.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+    |
+282 |             archi_file_tree(rendering.clone()).await.is_err(),
+    |                                                ++++++
+
+error[E0599]: no method named `is_err` found for opaque type `impl Future<Output = Result<ArchiApiCheck, String>>` in the current scope
+   --> src\commands\archi\mod_test.rs:286:48
+    |
+286 |             archi_api_check(rendering.clone()).is_err(),
+    |                                                ^^^^^^
+    |
+help: there is a method `inspect_err` with a similar name, but with different arguments
+   --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\futures-util-0.3.34\src\future\try_future\mod.rs:493:5
+    |
+493 | /     fn inspect_err<F>(self, f: F) -> InspectErr<Self, F>
+494 | |     where
+495 | |         F: FnOnce(&Self::Error),
+496 | |         Self: Sized,
+    | |____________________^
+    = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-2528452822694166844.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+    |
+286 |             archi_api_check(rendering.clone()).await.is_err(),
+    |                                                ++++++
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiGraph, String>>` in the current scope
+   --> src\commands\archi\mod_test.rs:318:42
+    |
+318 |     let graph = archi_graph(temp.root()).expect("Ok");
+    |                                          ^^^^^^ method not found in `impl Future<Output = Result<ArchiGraph, String>>`
+    |
+    = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-1459831398354312047.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+    |
+318 |     let graph = archi_graph(temp.root()).await.expect("Ok");
+    |                                          ++++++
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiGraph, String>>` in the current scope
+   --> src\commands\archi\mod_test.rs:325:44
+    |
+325 |     let graph = archi_graph(broken.root()).expect("停摆仍 Ok");
+    |                                            ^^^^^^ method not found in `impl Future<Output = Result<ArchiGraph, String>>`
+    |
+    = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-1459831398354312047.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+    |
+325 |     let graph = archi_graph(broken.root()).await.expect("停摆仍 Ok");
+    |                                            ++++++
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiFileTree, String>>` in the current scope
+   --> src\commands\archi\mod_test.rs:374:50
+    |
+374 |     let file_tree = archi_file_tree(temp.root()).expect("文件树命令应 Ok");
+    |                                                  ^^^^^^ method not found in `impl Future<Output = Result<ArchiFileTree, String>>`
+    |
+    = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-9057493822254760601.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+    |
+374 |     let file_tree = archi_file_tree(temp.root()).await.expect("文件树命令应 Ok");
+    |                                                  ++++++
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiApiCheck, String>>` in the current scope
+   --> src\commands\archi\mod_test.rs:376:50
+    |
+376 |     let api_check = archi_api_check(temp.root()).expect("检查即生成预览应 Ok");
+    |                                                  ^^^^^^ method not found in `impl Future<Output = Result<ArchiApiCheck, String>>`
+    |
+    = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-2528452822694166844.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+    |
+376 |     let api_check = archi_api_check(temp.root()).await.expect("检查即生成预览应 Ok");
+    |                                                  ++++++
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiDriftReport, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1025:64
+     |
+1025 |     let outer = archi_drift(temp.root(), ArchiDriftMode::Full).expect("包装应 Ok");
+     |                                                                ^^^^^^ method not found in `impl Future<Output = Result<ArchiDriftReport, String>>`
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-817530034089252141.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1025 |     let outer = archi_drift(temp.root(), ArchiDriftMode::Full).await.expect("包装应 Ok");
+     |                                                                ++++++
+
+error[E0599]: no method named `expect_err` found for opaque type `impl Future<Output = Result<ArchiDriftReport, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1060:14
+     |
+1059 |           let error = archi_drift(root.to_string_lossy().into_owned(), ArchiDriftMode::Full)
+     |  _____________________-
+1060 | |             .expect_err("无效 root 必须 Err");
+     | |_____________-^^^^^^^^^^
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-817530034089252141.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1060 |             .await.expect_err("无效 root 必须 Err");
+     |              ++++++
+help: there is a method `inspect_err` with a similar name
+     |
+1060 -             .expect_err("无效 root 必须 Err");
+1060 +             .inspect_err("无效 root 必须 Err");
+     |
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiFileTree, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1363:46
+     |
+1363 |     let outer = archi_file_tree(temp.root()).expect("包装应 Ok");
+     |                                              ^^^^^^ method not found in `impl Future<Output = Result<ArchiFileTree, String>>`
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-9057493822254760601.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1363 |     let outer = archi_file_tree(temp.root()).await.expect("包装应 Ok");
+     |                                              ++++++
+
+error[E0599]: no method named `expect_err` found for opaque type `impl Future<Output = Result<ArchiFileTree, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1401:56
+     |
+1401 |         let outer = archi_file_tree(rendering.clone()).expect_err("包装 root 非法应 Err");
+     |                                                        ^^^^^^^^^^
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-9057493822254760601.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1401 |         let outer = archi_file_tree(rendering.clone()).await.expect_err("包装 root 非法应 Err");
+     |                                                        ++++++
+help: there is a method `inspect_err` with a similar name
+     |
+1401 -         let outer = archi_file_tree(rendering.clone()).expect_err("包装 root 非法应 Err");
+1401 +         let outer = archi_file_tree(rendering.clone()).inspect_err("包装 root 非法应 Err");
+     |
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiFileTree, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1421:42
+     |
+1421 |     let _ = archi_file_tree(temp.root()).expect("读命令 Ok");
+     |                                          ^^^^^^ method not found in `impl Future<Output = Result<ArchiFileTree, String>>`
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-9057493822254760601.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1421 |     let _ = archi_file_tree(temp.root()).await.expect("读命令 Ok");
+     |                                          ++++++
+
+error[E0599]: no method named `expect_err` found for opaque type `impl Future<Output = Result<ArchiFileTree, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1461:48
+     |
+1461 |     let error = archi_file_tree(broken.root()).expect_err("结构诊断非空应 Err");
+     |                                                ^^^^^^^^^^
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-9057493822254760601.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1461 |     let error = archi_file_tree(broken.root()).await.expect_err("结构诊断非空应 Err");
+     |                                                ++++++
+help: there is a method `inspect_err` with a similar name
+     |
+1461 -     let error = archi_file_tree(broken.root()).expect_err("结构诊断非空应 Err");
+1461 +     let error = archi_file_tree(broken.root()).inspect_err("结构诊断非空应 Err");
+     |
+
+error[E0599]: no method named `is_ok` found for opaque type `impl Future<Output = Result<ArchiFileTree, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1467:41
+     |
+1467 |         archi_file_tree(healthy.root()).is_ok(),
+     |                                         ^^^^^
+     |
+help: there is a method `inspect_ok` with a similar name, but with different arguments
+    --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\futures-util-0.3.34\src\future\try_future\mod.rs:467:5
+     |
+ 467 | /     fn inspect_ok<F>(self, f: F) -> InspectOk<Self, F>
+ 468 | |     where
+ 469 | |         F: FnOnce(&Self::Ok),
+ 470 | |         Self: Sized,
+     | |____________________^
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-9057493822254760601.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1467 |         archi_file_tree(healthy.root()).await.is_ok(),
+     |                                         ++++++
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiFileTree, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1484:49
+     |
+1484 |         let tree = archi_file_tree(temp.root()).expect("空模型应 Ok（冷启动合法起点）");
+     |                                                 ^^^^^^ method not found in `impl Future<Output = Result<ArchiFileTree, String>>`
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-9057493822254760601.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1484 |         let tree = archi_file_tree(temp.root()).await.expect("空模型应 Ok（冷启动合法起点）");
+     |                                                 ++++++
+
+error[E0599]: no method named `expect_err` found for opaque type `impl Future<Output = Result<ArchiFileTree, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1507:49
+     |
+1507 |     let error = archi_file_tree(invalid.root()).expect_err("非法配置必须 Err");
+     |                                                 ^^^^^^^^^^
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-9057493822254760601.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1507 |     let error = archi_file_tree(invalid.root()).await.expect_err("非法配置必须 Err");
+     |                                                 ++++++
+help: there is a method `inspect_err` with a similar name
+     |
+1507 -     let error = archi_file_tree(invalid.root()).expect_err("非法配置必须 Err");
+1507 +     let error = archi_file_tree(invalid.root()).inspect_err("非法配置必须 Err");
+     |
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiFileTree, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1519:46
+     |
+1519 |     let tree = archi_file_tree(valid.root()).expect("合法配置应 Ok");
+     |                                              ^^^^^^ method not found in `impl Future<Output = Result<ArchiFileTree, String>>`
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-9057493822254760601.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1519 |     let tree = archi_file_tree(valid.root()).await.expect("合法配置应 Ok");
+     |                                              ++++++
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiGraph, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1536:42
+     |
+1536 |     let graph = archi_graph(temp.root()).expect("图命令 Ok");
+     |                                          ^^^^^^ method not found in `impl Future<Output = Result<ArchiGraph, String>>`
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-1459831398354312047.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1536 |     let graph = archi_graph(temp.root()).await.expect("图命令 Ok");
+     |                                          ++++++
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiFileTree, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1538:45
+     |
+1538 |     let tree = archi_file_tree(temp.root()).expect("树命令 Ok");
+     |                                             ^^^^^^ method not found in `impl Future<Output = Result<ArchiFileTree, String>>`
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-9057493822254760601.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1538 |     let tree = archi_file_tree(temp.root()).await.expect("树命令 Ok");
+     |                                             ++++++
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiApiCheck, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1650:46
+     |
+1650 |     let outer = archi_api_check(temp.root()).expect("包装应 Ok");
+     |                                              ^^^^^^ method not found in `impl Future<Output = Result<ArchiApiCheck, String>>`
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-2528452822694166844.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1650 |     let outer = archi_api_check(temp.root()).await.expect("包装应 Ok");
+     |                                              ++++++
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiApiCheck, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1669:47
+     |
+1669 |     let before = archi_api_check(temp.root()).expect("检查应 Ok");
+     |                                               ^^^^^^ method not found in `impl Future<Output = Result<ArchiApiCheck, String>>`
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-2528452822694166844.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1669 |     let before = archi_api_check(temp.root()).await.expect("检查应 Ok");
+     |                                               ++++++
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiApiCheck, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1690:46
+     |
+1690 |     let after = archi_api_check(temp.root()).expect("复检应 Ok");
+     |                                              ^^^^^^ method not found in `impl Future<Output = Result<ArchiApiCheck, String>>`
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-2528452822694166844.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1690 |     let after = archi_api_check(temp.root()).await.expect("复检应 Ok");
+     |                                              ++++++
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiApiCheck, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1721:47
+     |
+1721 |     let report = archi_api_check(temp.root()).expect("复检应 Ok");
+     |                                               ^^^^^^ method not found in `impl Future<Output = Result<ArchiApiCheck, String>>`
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-2528452822694166844.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1721 |     let report = archi_api_check(temp.root()).await.expect("复检应 Ok");
+     |                                               ++++++
+
+error[E0599]: no method named `expect_err` found for opaque type `impl Future<Output = Result<ArchiApiCheck, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1745:52
+     |
+1745 |     let check_error = archi_api_check(temp.root()).expect_err("检查应 Err");
+     |                                                    ^^^^^^^^^^
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-2528452822694166844.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1745 |     let check_error = archi_api_check(temp.root()).await.expect_err("检查应 Err");
+     |                                                    ++++++
+help: there is a method `inspect_err` with a similar name
+     |
+1745 -     let check_error = archi_api_check(temp.root()).expect_err("检查应 Err");
+1745 +     let check_error = archi_api_check(temp.root()).inspect_err("检查应 Err");
+     |
+
+error[E0599]: no method named `expect` found for opaque type `impl Future<Output = Result<ArchiApiCheck, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1775:48
+     |
+1775 |     let checked = archi_api_check(temp.root()).expect("未启用仍 Ok");
+     |                                                ^^^^^^ method not found in `impl Future<Output = Result<ArchiApiCheck, String>>`
+     |
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-2528452822694166844.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1775 |     let checked = archi_api_check(temp.root()).await.expect("未启用仍 Ok");
+     |                                                ++++++
+
+error[E0599]: no method named `is_err` found for opaque type `impl Future<Output = Result<ArchiApiCheck, String>>` in the current scope
+    --> src\commands\archi\mod_test.rs:1888:43
+     |
+1888 |             archi_api_check(root.clone()).is_err(),
+     |                                           ^^^^^^
+     |
+help: there is a method `inspect_err` with a similar name, but with different arguments
+    --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\futures-util-0.3.34\src\future\try_future\mod.rs:493:5
+     |
+ 493 | /     fn inspect_err<F>(self, f: F) -> InspectErr<Self, F>
+ 494 | |     where
+ 495 | |         F: FnOnce(&Self::Error),
+ 496 | |         Self: Sized,
+     | |____________________^
+     = note: the full name for the type has been written to 'D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree-lazy-load\packages\desktop\src-tauri\target\debug\deps\dev_team-5dea20c3fe934c0a.long-type-2528452822694166844.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+     |
+1888 |             archi_api_check(root.clone()).await.is_err(),
+     |                                           ++++++
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `dev-team` (lib test) due to 28 previous errors
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

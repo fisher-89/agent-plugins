@@ -1,0 +1,21 @@
+
+=== packages_desktop_vite-plus (vite-plus) · files=2 ===
+[32m19:58:08 (32928) INFO ProjectReader[39m Found 2 of 35382 file(s) to be mutated.
+[32m19:58:09 (32928) INFO Instrumenter[39m Instrumented 2 source file(s) with 446 mutant(s)
+[32m19:58:10 (32928) INFO ConcurrencyTokenProvider[39m Creating 8 test runner process(es).
+[32m19:58:31 (32928) INFO DryRunExecutor[39m Starting initial test run (vitest test runner with "perTest" coverage analysis). This may take a while.
+[32m19:59:00 (32928) INFO DryRunExecutor[39m Initial test run succeeded. Ran 307 tests in 28 seconds (net 14679.800800000015 ms, overhead 14238.199199999985 ms).
+[32m20:04:11 (32928) INFO JsonReporter[39m Your report can be found at: file:///D:/Projects/.worktrees/wps-claude-plugin/archi-file-tree-lazy-load/openspec/changes/archi-file-tree-lazy-load/reports/test/packages_desktop_vite-plus/mutation/mutation-seg-0.json
+[32m20:04:11 (32928) INFO MutationTestExecutor[39m Done in 6 minutes and 5 seconds.
+npm warn EBADDEVENGINES The developer of this package has specified the following through devEngines
+npm warn EBADDEVENGINES Invalid devEngines.packageManager
+npm warn EBADDEVENGINES Invalid name "pnpm" does not match "npm" for "packageManager"
+npm warn EBADDEVENGINES {
+npm warn EBADDEVENGINES   current: { name: 'npm', version: '11.20.0' },
+npm warn EBADDEVENGINES   required: { name: 'pnpm', onFail: 'warn' }
+npm warn EBADDEVENGINES }
+
+=== packages_desktop_src-tauri_rust (rust) · files=2 ===
+Found 4 mutants to test
+4 mutants tested in 4m: 4 unviable
+ WARN No mutants were viable: perhaps there is a problem with building in a scratch directory. Look in mutants.out/log/* for more information.

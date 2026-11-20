@@ -1,0 +1,29 @@
+npm warn EBADDEVENGINES The developer of this package has specified the following through devEngines
+npm warn EBADDEVENGINES Invalid devEngines.packageManager
+npm warn EBADDEVENGINES Invalid name "pnpm" does not match "npm" for "packageManager"
+npm warn EBADDEVENGINES {
+npm warn EBADDEVENGINES   current: { name: 'npm', version: '11.20.0' },
+npm warn EBADDEVENGINES   required: { name: 'pnpm', onFail: 'warn' }
+npm warn EBADDEVENGINES }
+[32m19:39:48 (2872) INFO ProjectReader[39m Found 2 of 35257 file(s) to be mutated.
+[32m19:39:48 (2872) INFO Instrumenter[39m Instrumented 2 source file(s) with 446 mutant(s)
+[32m19:39:50 (2872) INFO ConcurrencyTokenProvider[39m Creating 8 test runner process(es).
+[32m19:40:09 (2872) INFO DryRunExecutor[39m Starting initial test run (vitest test runner with "perTest" coverage analysis). This may take a while.
+[91m19:40:25 (2872) ERROR DryRunExecutor[39m One or more tests failed in the initial test run:
+	源码自证（缺省值单点 / 声明序单点） 应把缺省视图与分段声明序各自单点持有（architecture-canvas.tsx）
+		expected [] to have a length of 1 but got +0
+[91m19:40:25 (2872) ERROR Stryker[39m There were failed tests in the initial test run.
+file:///D:/Projects/.worktrees/wps-claude-plugin/archi-file-tree-lazy-load/packages/desktop/node_modules/@stryker-mutator/core/dist/src/process/3-dry-run-executor.js:65
+                    throw new ConfigError('There were failed tests in the initial test run.');
+                          ^
+
+ConfigError: There were failed tests in the initial test run.
+    at DryRunExecutor.validateResultCompleted (file:///D:/Projects/.worktrees/wps-claude-plugin/archi-file-tree-lazy-load/packages/desktop/node_modules/@stryker-mutator/core/dist/src/process/3-dry-run-executor.js:65:27)
+    at DryRunExecutor.executeDryRun (file:///D:/Projects/.worktrees/wps-claude-plugin/archi-file-tree-lazy-load/packages/desktop/node_modules/@stryker-mutator/core/dist/src/process/3-dry-run-executor.js:100:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async WorkItem.execute (file:///D:/Projects/.worktrees/wps-claude-plugin/archi-file-tree-lazy-load/packages/desktop/node_modules/@stryker-mutator/core/dist/src/concurrent/pool.js:32:28)
+    at async file:///D:/Projects/.worktrees/wps-claude-plugin/archi-file-tree-lazy-load/packages/desktop/node_modules/@stryker-mutator/core/dist/src/concurrent/pool.js:69:13 {
+  innerError: undefined
+}
+
+Node.js v26.13.1

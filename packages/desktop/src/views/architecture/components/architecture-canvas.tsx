@@ -224,7 +224,7 @@ function toEdges(graph: ArchiGraph, focus: string): Edge[] {
     });
 }
 
-/** 左栏树栏位：分段控件 + 三态行（缺省文件树，可切元素树 / 契约视图）。切换只换左栏
+/** 左栏树栏位：分段控件 + 三态行（缺省元素树，可切文件 / 契约视图）。切换只换左栏
  * 组件，`focus` 共用；取数失败只落本栏行内提示，画布与抽屉照常渲染。 */
 function TreeColumn({
   root,
@@ -247,14 +247,14 @@ function TreeColumn({
 }): React.JSX.Element {
   const options: { mode: TreeMode; label: string; content: React.JSX.Element }[] = [
     {
-      mode: 'file',
-      label: '文件',
-      content: <FileTree root={root} focused={focused} onFocus={onFocus} />,
-    },
-    {
       mode: 'element',
       label: '元素',
       content: <ElementTree elements={elements} focused={focused} onFocus={onFocus} />,
+    },
+    {
+      mode: 'file',
+      label: '文件',
+      content: <FileTree root={root} focused={focused} onFocus={onFocus} />,
     },
     {
       mode: 'contract',
@@ -333,7 +333,7 @@ function ModelRelationGraph({
   );
 }
 
-/** 正常态三段布局（左栏树——缺省文件树，可切元素树 / 画布 / 抽屉）。漂移取数失败时
+/** 正常态三段布局（左栏树——缺省元素树，可切文件 / 契约视图；画布；抽屉）。漂移取数失败时
  * 零标记照常渲染 + 画布区顶部一行内提示（叠加信息不阻断图）。 */
 function CanvasBody({
   graph,
@@ -351,7 +351,7 @@ function CanvasBody({
   apiFindings: ArchiApiFinding[];
 }): React.JSX.Element {
   const [focusOverride, setFocusOverride] = useState<string | null>(null);
-  const [treeMode, setTreeMode] = useState<TreeMode>('file');
+  const [treeMode, setTreeMode] = useState<TreeMode>('element');
   const focus = useMemo(() => {
     if (focusOverride !== null && graph.elements.some((element) => element.fqn === focusOverride)) {
       return focusOverride;
