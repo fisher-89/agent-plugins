@@ -343,7 +343,8 @@
 
 - **引擎两面的入参恒定**：`mode = Full`、`changed = &[]`、`change = None`、`root = 会话执行根`；MUST NOT 传 `Incremental`（`infra/agent` 不依赖 `vcs`，取不到 `change_edit_set`；而 archi 臂与相位会话的 root 皆无 change 基准语义）、MUST NOT 由消费面自行拼报告。
 - **引擎面零写盘**：调用方 MUST NOT 落盘报告（命令面同款裁定）；落盘者恒为门禁 runner（`reports/archi/<timestamp>.json`）。
-- **取消除外**：引擎工具面与收口自检 SHALL 以 `CancelFlag::never()` 调用（不为几十毫秒扩取消通道）；`CheckError::Stopped` 对其不可达，出现即按失败面处置（`is_error` / `skipped` notice）。
+- **取消除外**：引擎工具面与收口自检 SHALL 以 `CancelFlag::never()` 调用（不为几十毫秒扩取消通道）；`CheckError::Stopped` 对其不可达，出现即按失败面处置（`is_error` / `skipped` notice）。命令面同款：`CancelFlag::never()`，**无取消 ⇒ 无 in-flight 去重、无节流**（下文「并发扫描」条）。
+- **并发扫描（已知限制，零代码护栏）**：命令面在阻塞池执行后窗口可交互，重复触发 SHALL 产生**并行的全仓扫描**——连点刷新（`refreshTick` 变 ⇒ `<ArchitectureCanvas key>` 整块重挂 ⇒ 三个 hook 全重取）、反复切页、重挂载各起一条，每条各扫同一批文件并各产完整报告。本能力 MUST NOT 因此新增取消通道、MUST NOT 引入 in-flight 去重或节流、MUST NOT 为此调整 blocking 池配置；此类治理（取消 / 去重 / 增量触发）SHALL 归独立变更。并发扫描 MUST NOT 被读作回归：单次成本改造前后等同，变化只发生在「窗口挡不挡住第二次触发」。
 
 #### Scenario: 命令面与门禁面逐字段同源
 
@@ -359,6 +360,11 @@
 
 - **WHEN** 审查命令面、infra runner、`sdk/archi_tool.rs` 的 `archi_drift` 分支与 `sdk/preclose.rs` 的源码
 - **THEN** 五处调用点均只做「取输入 → 调判定纯函数 → 投影 / 落盘」，无归属匹配、无定级分支、无 status 推导的第二份实现；模式差异只体现为入参，不体现为实现分支；引擎两面的投影共用 `drift_summary` 单点
+
+#### Scenario: 重复触发产生并行扫描（已知限制）
+
+- **WHEN** 在命令面一次全量检查未完成时连点刷新两次，使两次检查的扫描窗口重叠
+- **THEN** 两次检查各自完整执行并各产出一份逐字段等价（除 `timestamp`）的报告；命令面零取消（`CancelFlag::never()` 不变）、零去重、零节流；该形态在案为已知限制，MUST NOT 驱动出「为命令面加取消 / 去重」的顺带改动
 
 ### Requirement: 运行期预算与语料
 
@@ -446,7 +452,7 @@
 | `crates/core/archi/src/drift/report_test.rs` | 报告面测试 | `apiFindings` 空 / 非空两态、`version = 3`、纳管子集三条臂（契约在案 `error` 档 ⇒ `errors` / 契约在案 `warn` 档 ⇒ `warnings` / 承诺未成立 ⇒ 结论不变）、既有 14 字段逐字不变、JSON 往返、稳定序 |
 | `crates/core/archi/tests/corpus/drift/expected/*.json` | 既有金样 | 十六份随「首错短路 + 纳管分档」显式重录并逐份留痕成因；`api-mismatch` case 保持非空 `apiFindings`；沿 `DESKTOP_GOLDEN_REWRITE=1` 显式重写 |
 | `crates/core/archi/Cargo.toml` | 依赖扩展 | 新增外部依赖 `oxc_parser` / `oxc_allocator` / `oxc_resolver` / `syn`（+ `globset` 提为直接依赖）；仍零 Tauri / 零 store / 零 spawn / 零 `workflow` / 零 `config` 依赖 |
-| `src-tauri/src/commands/archi/mod.rs`（`archi_drift`） | 命令面薄包装 | `archi_drift(root: String, mode: ArchiDriftMode) -> Result<ArchiDriftReport, String>`（`ArchiDriftMode` = `full` \| `incremental`，serde 小写词、specta `Type` 出线）：增量模式经 vcs 缝取 `change_edit_set(root, "HEAD")` 后调判定纯函数；全量模式直接调；命令层零判定规则 |
+| `src-tauri/src/commands/archi/mod.rs`（`archi_drift`） | 命令面薄包装 | `archi_drift(root: String, mode: ArchiDriftMode) -> Result<ArchiDriftReport, String>`（`ArchiDriftMode` = `full` \| `incremental`，serde 小写词、specta `Type` 出线）：增量模式经 vcs 缝取 `change_edit_set(root, "HEAD")` 后调判定纯函数；全量模式直接调；命令层零判定规则。命令形态自 archi-file-tree-lazy-load 起为 `pub async fn` + `spawn_blocking`（执行线程纪律的唯一持有者是 `desktop-app-shell`「命令执行线程纪律」）；`archi_drift_inner` 的入参（`mode` / `&dyn ArchiveVcsPort` / `CancelFlag::never()`）与错误文案零改动；命令面零取消、零去重、零节流（并发扫描为在案已知限制） |
 | `crates/core/archi/tests/` | 语料与预算 | `corpus/<case>/` + `expected/<case>.json` + `golden_test.rs` + Rust 模块树语料集 + `perf.rs`（release p95）；`tests/README.md` 记实测表 |
 
 ### API: `crates/core/archi/src/drift/{mod,report}.rs`

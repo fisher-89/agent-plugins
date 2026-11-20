@@ -34,7 +34,7 @@ Rust 侧 SHALL 新增 `commands/stats/` 命令轨道，提供 `code_stats(root: 
 - 一次调用 SHALL 完成一次遍历并产出三面数据：汇总（文件数 / 代码行 / 注释行 / 空行）、语言行（按代码行降序的逐语言统计）、目录树（至多 `depth` 级目录节点的聚合统计 + 父目录在深度内的文件叶，见目录树面 Requirement）——树面 MUST NOT 触发第二次独立遍历；
 - 命令 MUST NOT 注册 store 模型、MUST NOT 落库、MUST NOT 持有任何缓存（内存或磁盘）——每次调用都完整重新解析；
 - DTO SHALL `specta::Type` + `serde(rename_all = "camelCase")` 出线，经既有 bindings 重导出管线生成 typed 包装，前端 MUST NOT 以裸 `invoke('code_stats')` 调用；
-- 命令形态沿用 sync 命令惯例（sync 命令不在主线程执行）；如需 async + `spawn_blocking` 由 design 定夺并记录理由；
+- 命令形态 SHALL 沿用同步形态（`pub fn`，本能力零代码改动），且本能力 MUST NOT 陈述「sync 命令不在主线程执行」——Tauri 同步命令在 IPC 线程（Windows = 主线程）内联执行，长任务会冻结窗口。`code_stats`（tokei 全仓解析）属 `desktop-app-shell`「命令执行线程纪律」的**登记债务**：其 async 化（`pub async fn` + `spawn_blocking`）SHALL 归独立变更，本能力 MUST NOT 预铺、MUST NOT 无该变更时擅自改命令形态；
 - root 不存在或不可读 SHALL 返回 `Err(String)` 走前端 reject，MUST NOT panic、MUST NOT 静默返回空。
 
 #### Scenario: 薄包装结构证明
@@ -61,6 +61,11 @@ Rust 侧 SHALL 新增 `commands/stats/` 命令轨道，提供 `code_stats(root: 
 
 - **WHEN** 以不存在的 root 调用 `code_stats`
 - **THEN** 命令返回 `Err(String)`，前端收到错误字符串，进程无 panic、无空报告假成功
+
+#### Scenario: sync 形态与登记债务在案
+
+- **WHEN** 审查 `commands/stats` 的命令形态与本 spec 的表述
+- **THEN** 命令仍为 `pub fn`（本变更零代码改动）；spec 内零「sync 命令不在主线程执行」一类陈述；async 化的债务、判据与适用面只在 `desktop-app-shell`「命令执行线程纪律」一处持有（本能力不复述判据、不新增计时 / 线程断言）
 
 ### Requirement: 统计呈现面
 
@@ -152,7 +157,7 @@ Rust 侧 SHALL 新增 `commands/stats/` 命令轨道，提供 `code_stats(root: 
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `packages/desktop/src-tauri/src/commands/stats/`（新轨道） | 代码统计解析命令轨道 | `code_stats(root, depth) -> Result<CodeStatsReport, String>` 薄包装（三件事）；`code_stats_inner` 纯函数微形态（可离 Tauri 测试）；单次遍历出三面；不落库、无缓存、无第二次遍历 |
+| `packages/desktop/src-tauri/src/commands/stats/`（新轨道） | 代码统计解析命令轨道 | `code_stats(root, depth) -> Result<CodeStatsReport, String>` 薄包装（三件事）；`code_stats_inner` 纯函数微形态（可离 Tauri 测试）；单次遍历出三面；不落库、无缓存、无第二次遍历。命令形态恒 `pub fn`（sync）：在 IPC 线程内联执行，长任务会冻结窗口这一事实在案；其 async 化是 `desktop-app-shell`「命令执行线程纪律」的登记债务，不在本能力预铺 |
 | `CodeStatsReport` / `CodeTotals` / `LanguageStats` / `DirNode` / `FileNode` / `TreeEntry`（DTO） | 出线数据面 | `specta::Type` + camelCase；汇总 / 语言行（代码行降序）/ 树条目信封（`TreeEntry` tag `kind` 目录 / 文件叶双变体，目录名 + 聚合统计 + 子条目 / 文件名 + 单文件行统计）；字段级形状 design 定夺 |
 | `packages/desktop/src-tauri/Cargo.toml` + workspace.dependencies | tokei 依赖落位 | tokei 仅落 desktop-app；版本精确 pin；不进 core / infra crate |
 | `packages/desktop/src-tauri/src/bindings/mod.rs` | 命令注册 | `collect_commands!` 增 `code_stats`；bindings 重导出管线（入库 + diff 守卫）不变 |

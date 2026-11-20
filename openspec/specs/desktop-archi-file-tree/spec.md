@@ -224,11 +224,11 @@ none               以上都不成立
 
 `/architecture`（与 change 详情「架构」页签共用的同一画布组件）的两栏布局左栏 SHALL 提供文件树，并与元素树、契约视图以分段控件切换：
 
-- **缺省文件树**：左栏缺省渲文件树；分段控件（`Tabs` / `TabsList` / `TabsTrigger` / `TabsContent`，栏位 `data-testid="archi-tree-mode"` 落在 `TabsList`）SHALL 切换左栏组件；三钮以 `role="tab"` + 文案「文件」/「元素」/「契约」寻址，选中态由 base-ui 的 `aria-selected` / `data-active` 表达（MUST NOT 依赖自绘 `aria-pressed` 与 `data-mode`）。切换只换左栏、`focus` 共用，MUST NOT 触发画布或元素信息面板重新取数。
-- **非活动面板不挂载**：`TabsContent` 的非活动面板 SHALL 不挂载（base-ui 缺省 `keepMounted = false`），故切回「文件」时 `FileTree` 重挂、其自身取数随之重发一次；该重取属于文件树的挂载触发，MUST NOT 连带 `archi_graph` / `archi_module` / `archi_drift`。
+- **缺省元素树**：左栏缺省渲元素树；文件视图 SHALL NOT 参与首屏——缺省进入页面时 `FileTree` MUST NOT 挂载、`archi_file_tree` 调用数 MUST 为 **0**。分段控件（`Tabs` / `TabsList` / `TabsTrigger` / `TabsContent`，栏位 `data-testid="archi-tree-mode"` 落在 `TabsList`）SHALL 切换左栏组件；三钮的声明序 SHALL 为「元素」/「文件」/「契约」（缺省值即首项，`treeMode` 初值与 `TabsTrigger` 首项同为「元素」——两处 MUST NOT 分叉），以 `role="tab"` + 文案寻址，选中态由 base-ui 的 `aria-selected` / `data-active` 表达（MUST NOT 依赖自绘 `aria-pressed` 与 `data-mode`）。切换只换左栏、`focus` 共用，MUST NOT 触发画布或元素信息面板重新取数。
+- **非活动面板不挂载**：`TabsContent` 的非活动面板 SHALL 不挂载（base-ui 缺省 `keepMounted = false`），故文件视图的**首次挂载 = 用户显式切到「文件」**，切回「文件」时 `FileTree` 重挂、其自身取数随之重发一次；该重取属于文件树的挂载触发，MUST NOT 连带 `archi_graph` / `archi_module` / `archi_drift`。
 - **栏宽可调且跨视图恒定**：左栏 SHALL 由 `ResizablePanel` 承载（`defaultSize={300}` / `minSize={200}`，Tabs 以 `w-full h-full` 铺满），三视图共用同一面板；栏宽可拖拽调整，MUST NOT 随视图切换变化。
 - **契约视图转指**：`value="contract"` 的视图形态、两轴呈现、生成交互与取数纪律归 `desktop-archi-contract-panel`；本能力只登记「分段控件存在第三值且切换不引发画布 / 元素信息面板重取数」。
-- **元素树保留**：元素树 MUST NOT 删除——容器元素（`path` 空）只在 FQN 树上可见，且「谁依赖谁」在 FQN 树上更顺；其入参、渲染与既有 testid（`archi-element-tree` / `archi-tree-node`）零变化。
+- **元素树保留**：元素树 MUST NOT 删除——容器元素（`path` 空）只在 FQN 树上可见，且「谁依赖谁」在 FQN 树上更顺；其入参、渲染与既有 testid（`archi-element-tree` / `archi-tree-node`）零变化。缺省视图换成它 MUST NOT 附带任何取数变化（它消费画布已取的 `elements`，零新增 invoke）。
 - **渲染顺序**：SHALL 目录先于文件、各自按 `name` 排序（后端只按 `path` 字节序，呈现序由前端派生）；缩进表达层级。
 - **标记呈现**（标记节点 / 名称 / tooltip；`member` 不渲标记节点，仅名称弱化）：
 
@@ -246,15 +246,25 @@ none               以上都不成立
 - **测试挂钩**：SHALL 用 `data-testid`（`archi-file-tree` / `archi-file-node` / `archi-file-mark` / `archi-tree-mode` / `archi-file-tree-error` / `archi-file-tree-loading` / `archi-file-tree-empty`），MUST NOT 以样式类名作查询挂钩；`archi-file-mark` 只出现在 `elementRoot` / `ambiguous` / `containsElements` 三值的标记节点上并携 `data-mark`（`member` / `none` 无标记节点）；分段钮按 `role="tab"` + 文案寻址。
 - **不抽公共件**：文件树组件 MUST NOT 与 `views/info/components/dir-tree.tsx` 抽公共抽象——数据面不同（marks / owners vs 行数聚合），抽象需泛型参数化而收益为零。
 
-#### Scenario: 缺省渲文件树且可切回元素树
+#### Scenario: 缺省渲元素树且切到文件树
 
 - **WHEN** 打开 `/architecture`（或 change 详情「架构」页签）
-- **THEN** 左栏缺省为文件树（`archi-file-tree` 在场、`archi-element-tree` 不在场）；点分段钮「元素」后元素树在场且其 testid 与切换前既有断言一致；`archi_graph` / `archi_module` / `archi_drift` 调用次数不因切换增加
+- **THEN** 左栏缺省为元素树（`archi-element-tree` 在场、`archi-file-tree` 不在场）且 `archi_file_tree` 调用数为 0；点分段钮「文件」后文件树在场（其 testid 与切换前既有断言一致）且 `archi_file_tree` 恰 1 次；`archi_graph` / `archi_module` / `archi_drift` 调用次数不因切换增加
+
+#### Scenario: 三种缺省入口均零文件树取数
+
+- **WHEN** 分别以 hash 直入 `#/architecture`、点侧栏「架构」进入、切走再切回三次路径进入页面
+- **THEN** 每次挂载的 `archi_file_tree` 调用数均为 0、`archi_graph` 各恰 1 次；文件树既不挂载也不处加载态（`archi-file-tree-loading` 零出现）
+
+#### Scenario: 分段钮声明序与缺省选中
+
+- **WHEN** 审查分段控件 DOM 或按 `role="tab"` 逐个取文案
+- **THEN** 声明序为「元素」/「文件」/「契约」；缺省选中「元素」（`aria-selected` / `data-active` 之一为真）；三视图挂在同一 `ResizablePanel` 内、切换前后栏宽不变
 
 #### Scenario: 切回文件树只重取文件树
 
 - **WHEN** 在「文件」/「元素」两视图间往返两次后回到「文件」
-- **THEN** `FileTree` 每次重挂各发一次 `archi_file_tree`（非活动面板不挂载），而 `archi_graph` / `archi_module` / `archi_drift` 计数不变
+- **THEN** 文件视图每次挂载各发一次 `archi_file_tree`（首次切到「文件」亦恰 1 次）；非活动面板不挂载语义不变，而 `archi_graph` / `archi_module` / `archi_drift` 计数不变
 
 #### Scenario: 第三钮切到契约视图
 
@@ -327,7 +337,7 @@ none               以上都不成立
 
 | 项 | 变化 | 描述 |
 |------|------|------|
-| `archi_file_tree` | 新增 | `(root: String) -> Result<ArchiFileTree, String>`；`check_root` → `archi_file_tree_inner` → 错误映射；只读、零写盘、零 spawn |
+| `archi_file_tree` | 新增 | `(root: String) -> Result<ArchiFileTree, String>`；`check_root` → `archi_file_tree_inner` → 错误映射；只读、零写盘、零 spawn（子进程）。命令形态自 archi-file-tree-lazy-load 起为 `pub async fn` + `tauri::async_runtime::spawn_blocking(move \|\| archi_file_tree_inner(…))`，`JoinError` → `Err`；IPC 签名（命令名 / 参数 / 返回类型 / 错误文案）逐字不变——执行线程形态与判据的唯一持有者是 `desktop-app-shell`「命令执行线程纪律」 |
 | `archi_file_tree_inner` | 新增 | `(root: &Path) -> Result<ArchiFileTree, String>`：读模型（结构诊断非空 → `Err`）→ `load_config` 取 `exclude` → `archi::tree::file_tree`；离 Tauri 可测 |
 | 既有五命令与五个 `*_inner` | 零改动 | 签名 / 语义逐字不变；文件头注释的「五命令」更正为「六命令」 |
 
@@ -381,13 +391,13 @@ none               以上都不成立
 | 项 | Props / 变化 | 描述 |
 |------|------|------|
 | `FileTree` | `{ root: string \| null; focused: string \| null; onFocus: (fqn: string) => void }` | 组件自取数（内联 `useArchiFileTree(root)`，条目不再由上层传入）；前端派生嵌套（目录先于文件、各自按 `name`）、per-path 翻转展开集合（默认前 3 段）、折叠不渲 DOM、`ScrollArea`；标记呈现与 tooltip（`member` 仅名称弱化）；`elementRoot` / `member` 点击 → `onFocus(owners[0])`，其余三值只切展开；`focused` 变化按「条目 `owners` 含该 FQN」定位全部命中条目并展开祖先链 + 多行高亮 + 滚到第一条（零命中 → 静默：零提示 / 零高亮 / 零滚动）；三态早退（取数失败 / 未回 / 正常）分别渲 `archi-file-tree-error` / `archi-file-tree-loading` / 本体；testid `archi-file-tree` / `archi-file-node` / `archi-file-mark`（`data-mark`） |
-| `TreeMode` | `'file' \| 'element' \| 'contract'` | 左栏三视图枚举（第三值 = 契约视图，视图本体归 `desktop-archi-contract-panel`）；分段控件本体已移至 `architecture-canvas.tsx`（`TreeModeSwitch` 退役） |
+| `TreeMode` | `'file' \| 'element' \| 'contract'` | 左栏三视图枚举（第三值 = 契约视图，视图本体归 `desktop-archi-contract-panel`）；分段控件本体已移至 `architecture-canvas.tsx`（`TreeModeSwitch` 退役）；三值与全部渲染 / 标记 / 点击 / 反查 / 展开态语义零改动，`TreeMode` 上方注释不陈述缺省（缺省值单点在 `architecture-canvas.tsx`） |
 
 ### Component: `packages/desktop/src/views/architecture/components/architecture-canvas.tsx`（改）
 
 | 项 | 变化 | 描述 |
 |------|------|------|
-| `CanvasBody` 左栏 | 改 | `TreeColumn` 改为 `ResizablePanel` 内的 base-ui `Tabs`：`value` 受控于 `treeMode`，`TabsList`（`data-testid="archi-tree-mode"`，`role="group"`）内三枚 `TabsTrigger`（文案「文件」/「元素」/「契约」），三枚 `TabsContent` 各渲 `FileTree` / `ElementTree` / `ContractPanel`；`FileTree` 改收 `root` 自取数（`useArchiFileTree` 内联），左栏 `defaultSize={300}` / `minSize={200}`；`ElementTree` / `ContractPanel` 入参与 testid 零变化 |
+| `CanvasBody` 左栏 | 改 | `TreeColumn` 改为 `ResizablePanel` 内的 base-ui `Tabs`：`value` 受控于 `treeMode`（初值 `'element'`），`TabsList`（`data-testid="archi-tree-mode"`，`role="group"`）内三枚 `TabsTrigger` 声明序「元素」/「文件」/「契约」（`options` 与 `TabsTrigger` 同源，缺省值即首项），三枚 `TabsContent` 各渲 `ElementTree` / `FileTree` / `ContractPanel`；`FileTree` 改收 `root` 自取数（`useArchiFileTree` 内联），左栏 `defaultSize={300}` / `minSize={200}`；切换零额外取数（缺省不挂载 `FileTree` ⇒ `archi_file_tree` 零调用）；`ElementTree` / `ContractPanel` 入参与 testid 零变化 |
 | `toNodes` / `toEdges` / `neighborhoodPositions` / `defaultFocus` / 停摆分支 / 元素信息面板接线 / `driftMarks` 合并 | 零改动 | 本变更内画布与标记呈现逐字不变；节点视图由 `components/graph/model-node.tsx` 的 `ModelNode`（叶子短名徽章）与 `components/graph/model-group-node.tsx` 的 `ModelGroupNode`（分组容器）承担，testid `archi-canvas-node` 不变 |
 
 ### Function: `packages/desktop/src/views/architecture/hooks/use-archi-file-tree.ts`（新增）
@@ -421,7 +431,8 @@ none               以上都不成立
 
 | 模块 | 说明 |
 |------|------|
-| `components/element-tree.tsx` / `element-tree.test.tsx` | 元素树保留为「元素」分段视图，入参 / 渲染 / testid 零改动 |
+| `components/element-tree.tsx` / `element-tree.test.tsx` | 元素树保留为「元素」分段视图（archi-file-tree-lazy-load 起成为缺省视图），入参 / 渲染 / testid 零改动、零新增 invoke |
+| `components/file-tree.test.tsx` / `hooks/use-archi-file-tree.test.ts` | 直测 `FileTree` 与钩子、不经缺省视图 ⇒ 零改动（挂载 / `root` 变化 / 上层 `key` 重挂三触发与返回形状不变，缺省不挂载只是触发次数变少） |
 | `components/model-info.tsx` / `structure-error-panel.tsx` / `lib/marks.ts` / `lib/drift-marks.ts` / `lib/fqn.ts` | 元素信息面板、停摆面板、边标记映射与标记派生、短名工具零改动 |
 | `crates/core/archi/src/drift/**`、`crates/infra/archi/**` | 漂移判定与门禁 runner 零改动（本能力只消费 `drift::config::load_config`） |
 | `crates/core/archi/src/scan/exclude.rs` / `exclude_test.rs` | `ExcludeSet::build(extra)` 语义即所需，零改动、零新增入口 |

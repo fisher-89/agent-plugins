@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义 dev-team Tauri 壳层的组织契约：command 按 changes / exec / db 等命令组组织（queries 轨道已由 move-queries-command-to-change 消解、三读命令并入 changes 组；exec 轨道已由 agent 执行命令开通；db 轨道已由 数据库命令开通），workspace 经文件夹选择器选定，React 前端以显式刷新取数模型收口在 hooks 内。
+定义 dev-team Tauri 壳层的组织契约：command 按 changes / exec / db 等命令组组织（queries 轨道已由 move-queries-command-to-change 消解、三读命令并入 changes 组；exec 轨道已由 agent 执行命令开通；db 轨道已由 数据库命令开通），命令的执行线程由命令形态决定（批量子系统 IO 走阻塞池，不走 IPC 线程），workspace 经文件夹选择器选定，React 前端以显式刷新取数模型收口在 hooks 内。
 
 ## Requirements
 
@@ -267,6 +267,46 @@ command 层 MUST NOT 实现领域解释（属领域解释的编排 SHALL 下推 
 - **WHEN** 审查 `commands/workspaces` 实现
 - **THEN** IPC 命令为薄包装并经 `*_inner(&Store)` 纯函数调用 store，错误映射在命令层完成；该模式未被"内联回命令体"的重构破坏
 
+### Requirement: 命令执行线程纪律（批量子系统 IO）
+
+Tauri 命令的执行线程由**命令形态**决定，批量子系统 IO / 阻塞计算的命令 SHALL 落阻塞池而非 IPC 线程：
+
+- **同步形态即冻结**：`pub fn` 命令 = `ExecutionContext::Blocking` = 命令体在 IPC 线程（Windows = 主线程）内联执行 = webview 冻结。命令体「看起来快」不构成豁免——同一线程上的慢命令会把快命令一起排队，症状总落在最后未返回的那条命令上。
+- **形态**：此类命令 SHALL 为 `#[tauri::command]` + `#[specta::specta]` + `pub async fn`，命令体内经 `tauri::async_runtime::spawn_blocking(move || …)` 调既有 `*_inner` 领域组装纯函数，`.await` 后映射错误。`*_inner` 的签名与语义 MUST NOT 因 async 化而改动（三件事纪律与 `*_inner` 微形态不变），领域组装 MUST NOT 被搬进 async 体的同步段。
+- **反形态 MUST NOT 采用**：`#[tauri::command(async)]` + 保持 `pub fn`——该形态落 tokio **worker** 池（上限 = 核数），与 agent 流式任务抢同一池；blocking 池才是为阻塞 IO 设计的。
+- **判据（机械可验）**：命令 future 的**首次 poll MUST 为 `Pending`**。同步实现（async 体内直接调 `*_inner`）在首次 poll 内跑完返回 `Ready`；`spawn_blocking` 实现必然先 `Pending`。该判据 MUST NOT 被替换为计时断言（时长随机器 / 缓存漂移）。
+- **`JoinError` 为前向防御**：阻塞任务 panic 时 `JoinError` SHALL 映射为 `Err`（文案含错误原因）；该分支只在阻塞任务 panic 时出现，属不可测面（前向防御），MUST NOT 为其新增 test-only 注入点。
+- **并发度不变**：async 化 MUST NOT 改变并发语义——命令面恒 `CancelFlag::never()`、无 in-flight 去重、无节流，重复触发（连点刷新 / 反复切页 / 刷新触发的 `key` 重挂）SHALL **真正并行**执行每次任务。本纪律 MUST NOT 被读作提供取消 / 去重 / 节流；此类治理属各命令所属能力的独立变更。
+- **出线面零变化**：`specta` 显式处理 asyncness ⇒ 生成绑定（typed 包装 / zod 表项 / 逐字签名）与 `all_commands!` 命令清单 SHALL 逐字不变；async 化 MUST NOT 改动命令名、参数、返回类型与错误文案。
+- **本次适用面（四条取数命令）**：`archi_graph` / `archi_drift` / `archi_file_tree` / `archi_api_check`。形态统一的理由：只把最慢的一条改 async 也能解冻，但四条取数命令留在同一 IPC 线程上排队时，快命令仍被慢命令按线程阻塞。
+- **明确不在适用面**：`archi_module`（点击级、单模型解析）、`archi_change_summary`（低频；带 `State<WorkspaceStores>`，改 async 须先 `for_root` 取 `Arc<Store>` 再移入闭包）、`archi_set_gate`（毫秒级写）、`archi_api_generate`（写命令；`workspace_render` 只读模型 + 契约资产，成本随模型规模而非仓库规模增长）、`workspace_config`（单文件读，非批量子系统 IO）。
+- **登记债务**：`code_stats`（tokei 全仓解析）同属本纪律的病灶面、SHALL 判为待清偿；其 async 化归独立变更。本纪律 MUST NOT 被读作「全仓已满足」，MUST NOT 为消债在本变更内顺带改它。
+
+#### Scenario: 四条命令首次 poll 为 Pending
+
+- **WHEN** 对 `archi_graph` / `archi_drift` / `archi_file_tree` / `archi_api_check` 各取一条命令 future，并以 `Waker::noop()` 的 `Context` 做首次 `poll`
+- **THEN** 四次均返回 `Pending`（命令体未在 IPC 线程内联执行）；若把任一命令体改回「async 体内直接调 `*_inner`」，该用例立刻变 `Ready` 而红
+
+#### Scenario: 新增批量子系统 IO 命令的审查判据
+
+- **WHEN** 新增或改动一条命令，其命令体做整仓枚举 / 全文件读 / 全模型解析 / 全量 AST 扫描
+- **THEN** 该命令为 `pub async fn` + `spawn_blocking` 调 `*_inner`，`*_inner` 签名与语义不变；MUST NOT 以 `#[tauri::command(async)]` + `pub fn` 形态落地；`code_stats` 的 async 化 MUST NOT 被顺带夹带进其他变更
+
+#### Scenario: 出线面与命令清单零变化
+
+- **WHEN** 四条命令 async 化后执行 `bindings:export` 并审查 `all_commands!`
+- **THEN** `src/types/generated/**` 零 diff（typed 包装签名逐字不变）、`all_commands!` 零 diff、命令清单与相邻序断言照旧通过；IPC 参数、返回类型与错误文案逐字不变
+
+#### Scenario: 并发度不承诺取消与去重
+
+- **WHEN** 用户在检查未完成时连点刷新两次（每次刷新经 `key` 重挂重新发起取数）
+- **THEN** 两条扫描并行执行、各自产出完整结果（后到者覆盖呈现），命令面零取消、零去重、零节流；该现象 SHALL 被视为「命令不再冻结窗口」的直接后果，MUST NOT 被读作 async 化回归
+
+#### Scenario: JoinError 映射且无注入缝
+
+- **WHEN** 审查四条命令的 `JoinError` 分支与测试面
+- **THEN** 该分支映射为 `Err`（文案含原因）并在本 requirement 登记为前向防御；源码零 test-only 注入点（无「测试用 panic 开关」一类导出）
+
 ### Requirement: app crate 翻转信号
 
 出现下列任一信号时 SHALL 重新决策是否抽独立 app 层 crate（决策触发，不等架构回顾）：
@@ -454,4 +494,25 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | `packages/desktop/src-tauri/capabilities/default.json` | 最小权限面 | 增 opener 打开 URL 权限项，scope 仅 `http://*` / `https://*`；`description` 同步；无宽权限项 |
 | `packages/desktop/package.json` | 前端依赖 | 增 `@tauri-apps/plugin-opener`（`^2` 系）；版本号随用户可见功能变更上抬 |
 | `packages/desktop/src/components/agent/message-cards/blocks.tsx` | 唯一外链调用点 | `ExternalLink` 经 opener 打开 http(s) 目标；非 http(s) 不渲染为链接；失败不上抛 |
+
+### 模块增量：命令执行线程纪律落地（archi-file-tree-lazy-load）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约 |
+|---|---|---|
+| `packages/desktop/src-tauri/src/commands/archi/mod.rs`（`archi_graph` / `archi_drift` / `archi_file_tree` / `archi_api_check`） | 命令面形态 | `pub fn` → `pub async fn` + `tauri::async_runtime::spawn_blocking(move \|\| *_inner(…))`，`.await` 后 `JoinError` 映射为 `Err`。IPC 签名（命令名 / 参数 / 返回类型 / 错误文案）逐字不变 ⇒ 出线面零 diff |
+| `packages/desktop/src-tauri/src/commands/archi/mod.rs`（其余四命令） | 命令面形态 | 零改动：`archi_module` / `archi_change_summary` / `archi_set_gate` / `archi_api_generate` 保持同步形态（理由见「命令执行线程纪律」的「明确不在适用面」），`workspace_config` 同理 |
+| `archi_graph_inner` / `archi_drift_inner` / `archi_file_tree_inner` / `archi_api_check_inner` | 领域组装（零变化） | 签名（`&Path` / `&dyn ArchiveVcsPort` / `ArchiDriftMode`）、语义、错误文案逐字不变；只被移入阻塞闭包 |
+| `check_root` 与领域投影（`archi::dto` / `archi::tree` / `archi::drift` / `archi::api`） | 零改动 | root 校验与全部领域规则仍在闭包内执行，命令层零规则不变 |
+| `bindings:export` / `all_commands!` / `pnpm check` 链（`server:check` → `bindings:export` → `api:check` → `client:check`） | 零变化 | specta 显式处理 asyncness ⇒ 产物逐字节不变（幂等）；命令清单与顺序逐字不变；段序与命令串不变 |
+| 前端调用面 | 零改动 | 生成的 typed 包装仍返回 `Promise<T>`，hooks 与视图无感（本纪律无前端改动） |
+
+### 零 delta 的能力交叉点（archi-file-tree-lazy-load）
+
+| 能力 | 理由 |
+|---|---|
+| `desktop-archi-model`（IPC 八命令契约） | 其陈述「八命令薄包装 + 各配 `*_inner`」在 async 化后仍成立（wrapper 仍是薄包装）；线程形态的唯一持有者是「命令执行线程纪律」，MUST NOT 在两处复述 |
+| `desktop-ipc-type-bindings` | 生成物零 diff、清单零改动 |
+| `desktop-workspace-config` | 其 spec 未陈述错误事实；`workspace_config` 不在适用面内 |
 
