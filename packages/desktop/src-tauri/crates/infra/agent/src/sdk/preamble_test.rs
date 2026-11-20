@@ -1,7 +1,7 @@
-//! `preamble` 的单元测试（AC-2）：AGENT.md 读取语义——在场逐字、缺席或读取
-//! 失败一律 `None`、32KB 截断（char 边界对齐）、每轮重读无缓存。文件为进程
-//! 边界依赖白名单：tempfile tempdir 真实文件系统承载 fixture（写 / 改 / 删均
-//! 为真实盘上操作，不 mock 文件）。
+//! `preamble` 的单元测试（AC-2）：AGENT.md 读取语义——在场时正文逐字 + 外层
+//! `<agent_md path="…">` 包装、缺席或读取失败一律 `None`、32KB 截断（char 边界
+//! 对齐，只作用于正文）、每轮重读无缓存。文件为进程边界依赖白名单：tempfile
+//! tempdir 真实文件系统承载 fixture（写 / 改 / 删均为真实盘上操作，不 mock 文件）。
 
 use std::path::Path;
 
@@ -19,12 +19,20 @@ fn write_agent_md(root: &Path, content: &str) {
     std::fs::write(root.join("AGENT.md"), content).expect("写 AGENT.md 失败");
 }
 
+/// 注入期望形态：正文逐字 + 外层 `<agent_md path="…">` 包装（路径 = AGENT.md
+/// 绝对路径；与 `load` 的同形口径）。
+fn wrapped(root: &Path, body: &str) -> String {
+    let path = root.join("AGENT.md");
+    let path = path.to_str().expect("临时路径为 UTF-8");
+    format!("<agent_md path=\"{path}\">\n{body}\n</agent_md>")
+}
+
 // ---------------------------------------------------------------------------
-// 正向：在场逐字
+// 正向：在场时正文逐字（外层带 `<agent_md>` 包装）
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn agent_md在场逐字返回_含中文emoji换行无包装无前后缀() {
+async fn agent_md在场正文逐字且外层带agent_md包装() {
     let dir = tempdir("verbatim");
     let content = "# 工作区约定 🎉\n\n- 提交信息用中文\n- 表格对齐\n第二段落\n";
     write_agent_md(dir.path(), content);
@@ -32,9 +40,9 @@ async fn agent_md在场逐字返回_含中文emoji换行无包装无前后缀() 
     let preamble = load(dir.path()).await.expect("在场必返回 Some");
 
     assert_eq!(
-        preamble.as_str(),
-        content,
-        "逐字语义：与文件内容逐字节一致（无包装、无前缀后缀）"
+        preamble,
+        wrapped(dir.path(), content),
+        "正文逐字节一致（含中文 / emoji / 换行），外层为 `<agent_md path=…>` 包装"
     );
 }
 
@@ -92,8 +100,11 @@ async fn agent_md恰32kb不截断全文返回无留痕() {
 
     let preamble = load(dir.path()).await.expect("在场必返回 Some");
 
-    assert_eq!(preamble.len(), 32 * 1024, "恰阈值全文返回（不截断）");
-    assert_eq!(preamble, content, "内容逐字一致");
+    assert_eq!(
+        preamble,
+        wrapped(dir.path(), &content),
+        "恰阈值全文返回（正文全文 + 包装，不截断）"
+    );
     assert!(
         !preamble.contains("已截断"),
         "无截断留痕（体量上限内不注入痕迹）"
@@ -111,7 +122,7 @@ async fn agent_md超32kb截前缀且多字节字符不劈半() {
     let cjk_preamble = load(dir.path()).await.expect("在场必返回 Some");
     assert_eq!(
         cjk_preamble,
-        "a".repeat(32 * 1024 - 1),
+        wrapped(dir.path(), &"a".repeat(32 * 1024 - 1)),
         "超限截前 32KB 内的最长 char 边界前缀（多字节字符整体让位，不劈半）"
     );
 
@@ -121,15 +132,17 @@ async fn agent_md超32kb截前缀且多字节字符不劈半() {
     let emoji_preamble = load(dir.path()).await.expect("在场必返回 Some");
     assert_eq!(
         emoji_preamble,
-        "a".repeat(32 * 1024 - 2),
+        wrapped(dir.path(), &"a".repeat(32 * 1024 - 2)),
         "emoji 边界同口径：回退至完整字符起点"
     );
 
-    // 前缀逐字语义：截断产物是原文前缀（非包装改写）
-    assert!(
-        emoji_content.starts_with(emoji_preamble.as_str()),
-        "截断产物恒为原文前缀"
-    );
+    // 前缀逐字语义：包装内正文恒为原文前缀（截断不包装改写）
+    let body = emoji_preamble
+        .strip_prefix("<agent_md path=\"")
+        .and_then(|rest| rest.split_once("\">\n"))
+        .and_then(|(_, rest)| rest.strip_suffix("\n</agent_md>"))
+        .expect("包装形态可解析");
+    assert!(emoji_content.starts_with(body), "截断产物恒为原文前缀");
 }
 
 // ---------------------------------------------------------------------------
@@ -142,15 +155,15 @@ async fn agent_md每轮重读_两次调用之间改写即生效无缓存() {
     write_agent_md(dir.path(), "第一轮版本");
 
     let first = load(dir.path()).await.expect("首读 Some");
-    assert_eq!(first.as_str(), "第一轮版本");
+    assert_eq!(first, wrapped(dir.path(), "第一轮版本"));
 
     // 两次连续 load 之间真实改写文件（bash 入工具面后 agent 可自改系统提示词）
     write_agent_md(dir.path(), "第二轮改后版本 🚀");
 
     let second = load(dir.path()).await.expect("次读 Some");
     assert_eq!(
-        second.as_str(),
-        "第二轮改后版本 🚀",
+        second,
+        wrapped(dir.path(), "第二轮改后版本 🚀"),
         "无缓存语义：改动下一轮即生效"
     );
     assert_ne!(first, second, "两次读返回值随文件而变");

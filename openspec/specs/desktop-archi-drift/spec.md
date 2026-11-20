@@ -510,4 +510,4 @@
 | 项 | 变化 | 描述 |
 |---|---|---|
 | `archi_drift` 工具分支 | 新增（详见 `desktop-archi-agent`） | `scope` 三值；恒全量；`cap_result` 收口 |
-| `preclose::run` | 新增（详见 `desktop-archi-agent`） | 自然收敛前一次全量判定；失败面 `archi_preclose_skipped` |
+| `preclose`（`BeforeDoneHook` 实现） | 新增（详见 `desktop-archi-agent`） | 自然收敛前一次全量判定；装配由 `SessionInjections.before_done = ArchiPreclose` 档位表达；失败面 `archi_preclose_skipped` |

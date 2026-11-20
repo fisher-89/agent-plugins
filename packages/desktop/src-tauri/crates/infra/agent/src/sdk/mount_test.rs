@@ -420,6 +420,7 @@ fn definitions的finish位缺席时零追加() {
             finish: None,
             ask: None,
             protect: None,
+            before_done: None,
         };
         let mounts = definitions(&injections, "## 静态清单\n| C1 | 项 | 据 |\n").expect("合法");
         assert!(
@@ -467,6 +468,7 @@ fn definitions的finish位置位时末尾追加finish_step() {
         finish: Some(FinishSpec::EvaluatorChecklist),
         ask: None,
         protect: None,
+        before_done: None,
     };
     let mounts = definitions(&injections, &prompt).expect("finish 位置位合法");
     assert_eq!(mounts.len(), 8, "七内建 + finish_step");
@@ -749,6 +751,7 @@ fn injected_ask(
         finish,
         ask,
         protect: None,
+        before_done: None,
     }
 }
 
@@ -909,6 +912,7 @@ fn definitions的ask位缺席时零追加() {
             finish: None,
             ask: None,
             protect: None,
+            before_done: None,
         };
         let mounts = definitions(&injections, "").expect("合法");
         assert_eq!(mounts.len(), 7, "AskUserQuestion 不追加到内建七件");
@@ -938,6 +942,7 @@ fn definitions的tools三形态与ask两位组合() {
                 finish: None,
                 ask,
                 protect: None,
+                before_done: None,
             };
             let mounts = definitions(&injections, "").expect("组合合法");
             let projected = names(&mounts);
@@ -1682,6 +1687,7 @@ fn 提案工具在六名注入面下按清单序下发() {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     };
     let mounts = definitions(&injections, "").expect("config 六名装配应成功");
     assert_eq!(names(&mounts).len(), 6, "恰六项");
@@ -1714,6 +1720,7 @@ fn 提案工具不进tools_none语义且ask位独立追加() {
         finish: None,
         ask: Some(AskMode::Generic),
         protect: None,
+        before_done: None,
     };
     let mounts = definitions(&injections, "").expect("内建名单装配应成功");
     let mut expected: Vec<String> = TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
@@ -1843,6 +1850,7 @@ fn 清单含未知名err文案前缀不变() {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     };
     let error = definitions(&injections, "").expect_err("未知名必须 Err");
     assert!(

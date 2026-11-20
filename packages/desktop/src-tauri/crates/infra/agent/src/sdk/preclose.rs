@@ -1,22 +1,27 @@
-//! 收口前的架构判据自检（引擎兜底读数）。
+//! 收口前的架构判据自检（引擎兜底读数）——[`BeforeDoneHook`] 的架构域实现。
 //!
-//! 唯一调用点 = `loop` 的自然收敛支（**先于** `finish_success`）。三条硬约束：
-//! 不回灌模型、不催轮次、不发新请求——本模块只发一条 `SystemNotice` 并写引擎日志。
+//! 装配 = 组合根按会话来源在注入面置位 `SessionInjections.before_done`
+//! （`BeforeDoneSpec::ArchiPreclose` 的唯一置位点是 archi 臂）；runner 按档位铸造
+//! 本实现，loop 在自然收敛支、**先于** `finish_success` 调用。判据不读
+//! `preamble`——知识是尽力增强项，与自检装配解耦。
 //!
-//! 触发 = T1（本轮写过架构域）∪ T2（架构资产哈希变了）；皆为假只在引擎日志留一行
-//! skip（纯问答不产生转录噪声）。fail-open 三面：`CheckError` / `JoinError` 一律发
-//! `archi_preclose_skipped`（带成因）后照常收口，MUST NOT 阻断、MUST NOT 改
-//! `TurnDone`。
-//!
-//! 会话判据是 `preamble` 位（该位唯一生产者就是 archi 臂），MUST NOT 用
-//! `turn.archi`（change 相位也下发 archi 工具，会误命中）。
+//! 三条硬约束：不回灌模型、不催轮次、不发新请求——本模块只发一条 `SystemNotice`
+//! 并写引擎日志。触发 = T1（本轮写过架构域）∪ T2（架构资产哈希变了）；皆为假只在
+//! 引擎日志留一行 skip（纯问答不产生转录噪声）。fail-open 三面：`CheckError` /
+//! `JoinError` 一律发 `archi_preclose_skipped`（带成因）后照常收口，MUST NOT 阻断、
+//! MUST NOT 改 `TurnDone`。
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 
 use agent::AgentEventKind;
+use futures::future::BoxFuture;
 use serde_json::Value;
+use tokio::sync::mpsc;
 
 use crate::sdk::archi_drift_view::drift_summary;
+use crate::sdk::before_done::BeforeDoneHook;
 use crate::sdk::log::append_engine_log;
 use crate::sdk::r#loop::LoopTurn;
 
@@ -26,19 +31,57 @@ const ARCHI_PRECLOSE: &str = "archi_preclose";
 /// 自检被跳过（失败面）时的 notice 子类。
 const ARCHI_PRECLOSE_SKIPPED: &str = "archi_preclose_skipped";
 
-/// 起手基线：非 archi 会话（`preamble` 缺席）直接 `None`（零 IO）；否则在阻塞池里
-/// 求本轮的资产哈希起点值（T2 需要「本轮起点 vs 收口时」两侧）。
-pub(crate) async fn baseline(turn: &LoopTurn) -> Option<String> {
-    // 会话判据 = `preamble` 位（该位唯一生产者是 archi 臂；`turn.archi` 不可用——
-    // change 相位也下发 archi 工具）
-    let archi_session = turn.injections.preamble.is_some();
-    if !archi_session {
-        return None;
+/// 架构域收口自检钩子（`BeforeDoneSpec::ArchiPreclose` 的唯一实现）。
+pub(crate) struct ArchiPreclose {
+    /// 起手基线的资产哈希（`None` = 起手求值任务失败，fail-open 静默早退）
+    baseline: OnceLock<String>,
+    /// T1：本 turn 写过架构域（跨轮累积）
+    touched: AtomicBool,
+}
+
+impl ArchiPreclose {
+    /// 空态钩子：起点哈希与 T1 标记分别由 `start` / `observe_tool` 填入。
+    pub(crate) fn new() -> Self {
+        Self {
+            baseline: OnceLock::new(),
+            touched: AtomicBool::new(false),
+        }
     }
-    let cwd = turn.cwd.clone();
-    tokio::task::spawn_blocking(move || archi::drift::assets_hash(&cwd))
-        .await
-        .ok()
+}
+
+impl BeforeDoneHook for ArchiPreclose {
+    /// 起手：在阻塞池里求本轮的资产哈希起点值（T2 需要「本轮起点 vs 收口时」
+    /// 两侧）。
+    fn start<'a>(&'a self, turn: &'a LoopTurn) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let cwd = turn.cwd.clone();
+            if let Ok(hash) =
+                tokio::task::spawn_blocking(move || archi::drift::assets_hash(&cwd)).await
+            {
+                let _ = self.baseline.set(hash);
+            }
+        })
+    }
+
+    fn observe_tool(&self, name: &str, input: &Value, cwd: &Path) {
+        if touched(name, input, cwd) {
+            self.touched.store(true, Ordering::SeqCst);
+        }
+    }
+
+    fn before_done<'a>(
+        &'a self,
+        sender: &'a mpsc::Sender<AgentEventKind>,
+        turn: &'a LoopTurn,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            // 起手哈希缺席 = 起手求值任务失败：fail-open 零 notice（与既有口径一致）
+            let Some(before) = self.baseline.get() else {
+                return;
+            };
+            run(sender, turn, self.touched.load(Ordering::SeqCst), before).await;
+        })
+    }
 }
 
 /// 本次工具调用是否写了架构域（`write` / `edit` 取沙箱后的 `path`、`bash` 取
@@ -81,16 +124,12 @@ fn hits_prefix(path: &str, cwd: &Path, prefixes: &[String; 2]) -> bool {
 }
 
 /// 收口自检执行体：判触发 → 全量判定 → notice / 引擎日志。三臂一律不抛错。
-pub(crate) async fn run(
+async fn run(
     sender: &tokio::sync::mpsc::Sender<AgentEventKind>,
     turn: &LoopTurn,
     touched: bool,
-    baseline: Option<&str>,
+    before: &str,
 ) {
-    // `preamble` 缺席已由 `baseline` 表达（非 archi 会话零 notice、零日志）
-    let Some(before) = baseline else {
-        return;
-    };
     let changed_assets = archi::drift::assets_hash(&turn.cwd) != before;
     if !touched && !changed_assets {
         append_engine_log(&format!(

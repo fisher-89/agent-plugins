@@ -1507,8 +1507,8 @@ async fn step_archi_check(
 /// [`step_static_check_terminal`] 逐段同型——单节点 running → 全量判定（携
 /// `ArchiCheckMode::Full`，零 vcs 触碰）→ pass / fail 收口。pass：`passed` + 诊断
 /// 摘要后 Proceed（runner 侧文本携 `mode=full` / 状态词 / 扫描文件数；`skipped` /
-/// `noChanges` 两态逐字原样透出，MUST NOT 写成「检查通过」）；fail：failed 节点
-/// + `Terminal::failed`（archi 基线红文案携 `reports/archi` 目录——`{dir}` 占位
+/// `noChanges` 两态逐字原样透出，MUST NOT 写成「检查通过」）；fail：failed 节点 +
+/// `Terminal::failed`（archi 基线红文案携 `reports/archi` 目录——`{dir}` 占位
 /// 由 `outcome.report_dir` 供给）。
 ///
 /// **单发一次、零会话、零反馈边、零 fail checklist 代写**（`Terminal` 语义天然

@@ -27,7 +27,7 @@ use crate::sdk::mount::{
     DB_QUERY_TOOL, DB_TABLES_TOOL, EXPLORE_NOTE_TOOL, PROPOSE_CONFIG_TOOL,
 };
 use crate::sdk::protect::ProtectRules;
-use crate::sdk::{context, r#loop, reasoning, resume};
+use crate::sdk::{before_done::BeforeDoneHook, context, preclose, r#loop, reasoning, resume};
 use crate::ResumeTranscript;
 
 /// 事件通道有界容量（背压阻塞 send，事件不丢、内存有界）。
@@ -503,6 +503,22 @@ pub(crate) fn mint_config_context(
     workspace_root.map(|root| ConfigContext::new(root.to_path_buf()))
 }
 
+/// 收口前钩子 per-turn 铸造（单点；`session_pump` 唯一调用处）：注入面档位 →
+/// 具体实现，`None` = 不装配（loop 侧零开销）。
+///
+/// 判据是**显式档位**（装配层按来源置位），MUST NOT 由工具名清单 / `preamble`
+/// 等旁证推断——change 相位同样下发 archi 工具，旁证会误命中。
+pub(crate) fn mint_before_done(
+    spec: Option<agent::BeforeDoneSpec>,
+) -> Option<Arc<dyn BeforeDoneHook>> {
+    match spec {
+        None => None,
+        Some(agent::BeforeDoneSpec::ArchiPreclose) => {
+            Some(Arc::new(preclose::ArchiPreclose::new()))
+        }
+    }
+}
+
 /// 本轮名字清单是否包含某工具名（per-turn 铸造判据单点）。
 fn contains_tool(injections: &agent::SessionInjections, tool: &str) -> bool {
     injections
@@ -567,6 +583,9 @@ async fn session_pump(
         open.injections.tools.as_deref().unwrap_or_default(),
         payload.workspace_root.as_deref(),
     );
+    // 收口前钩子 per-turn 铸造：判据 = 注入面显式档位（装配层按来源置位；
+    // `None` = 不装配）
+    let before_done = mint_before_done(open.injections.before_done);
     // ask 执行上下文 per-turn 铸造：判据 = `ask` 位存在（与 explore / archi 的
     // 「名字包含」判据并列的第二类铸造判据）；`core_session_id` 取
     // `SessionOpen.session_id`（core 铸 id），MUST NOT 取引擎侧 `sdk-…` 标识
@@ -624,6 +643,7 @@ async fn session_pump(
         protect,
         web_search: payload.web_search,
         effort_params: payload.effort_params.clone(),
+        before_done,
     };
     let pump_handle = handle.clone();
     let pump_session = turn.session_id.clone();

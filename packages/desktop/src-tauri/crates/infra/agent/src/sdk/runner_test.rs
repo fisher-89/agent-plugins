@@ -10,8 +10,8 @@ use crate::sdk::config::{EngineConfig, Protocol};
 use crate::sdk::model_spec::{parse_model_spec, BETA_CONTEXT_1M, MILLION_CONTEXT_WINDOW};
 use crate::sdk::mount::ARCHI_MODULE_TOOL;
 use crate::sdk::runner::{
-    anthropic_provider, build_model, derive_output_tokens, mint_archi_context, openai_provider,
-    resolve_output_tokens, with_prompt_cache, SdkRunner, MIN_OUTPUT_TOKENS,
+    anthropic_provider, build_model, derive_output_tokens, mint_archi_context, mint_before_done,
+    openai_provider, resolve_output_tokens, with_prompt_cache, SdkRunner, MIN_OUTPUT_TOKENS,
 };
 use crate::{EngineFacade, EngineKind, ResumeTranscript};
 use rig::driver::DynModel;
@@ -759,6 +759,7 @@ fn explore_injections() -> SessionInjections {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     }
 }
 
@@ -2960,6 +2961,7 @@ async fn flow档未注入port时open仍成功() {
             finish: None,
             ask: Some(agent::AskMode::Flow),
             protect: None,
+            before_done: None,
         },
         ..open_new()
     };
@@ -3274,6 +3276,7 @@ async fn 泵内铸ask上下文_泛用档键为core会话id且port为none() {
             finish: None,
             ask: Some(agent::AskMode::Generic),
             protect: None,
+            before_done: None,
         },
         session_id: "core-session-1".to_owned(),
         ..open_new()
@@ -3363,6 +3366,7 @@ async fn 泵内铸ask上下文_流程档携带注入的port() {
             finish: None,
             ask: Some(agent::AskMode::Flow),
             protect: None,
+            before_done: None,
         },
         session_id: "core-session-flow".to_owned(),
         ..open_new()
@@ -3428,6 +3432,7 @@ async fn 泵内ask位为none时不铸上下文且硬调即拒() {
             finish: None,
             ask: None,
             protect: None,
+            before_done: None,
         },
         session_id: "core-session-none".to_owned(),
         ..open_new()
@@ -3495,6 +3500,7 @@ async fn 泵内铸造流程档无port时调用以is_error回灌() {
             finish: None,
             ask: Some(agent::AskMode::Flow),
             protect: None,
+            before_done: None,
         },
         session_id: "core-session-no-port".to_owned(),
         ..open_new()
@@ -3565,6 +3571,7 @@ fn names_of(names: &[&str]) -> SessionInjections {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     }
 }
 
@@ -3583,6 +3590,7 @@ fn change_arm_injections() -> SessionInjections {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     }
 }
 
@@ -3732,6 +3740,7 @@ fn mint_db_context位置与重复无关() {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     };
     assert!(
         mint_db_context(
@@ -4199,6 +4208,7 @@ fn config_injections() -> SessionInjections {
         finish: None,
         ask: Some(agent::AskMode::Generic),
         protect: None,
+        before_done: None,
     }
 }
 
@@ -4393,6 +4403,21 @@ async fn 泵内装配config上下文取主仓root的盘面() {
         payload["current"]["context"],
         serde_json::json!("主仓注入"),
         "泵内装配点取 payload.workspace_root（主仓），不取 ctx.workspace_root"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：收口前钩子 per-turn 铸造（`runner::mint_before_done` 档位映射）
+// ---------------------------------------------------------------------------
+
+/// 正向 / 边界（表驱动）：`None` → 不装配；`ArchiPreclose` → 装配（loop 侧可辨
+/// 的 `Some` 形态）。判据是注入面显式档位，不看 `preamble` / 工具名。
+#[test]
+fn mint_before_done档位映射() {
+    assert!(mint_before_done(None).is_none(), "None 即不装配（零开销）");
+    assert!(
+        mint_before_done(Some(agent::BeforeDoneSpec::ArchiPreclose)).is_some(),
+        "ArchiPreclose 档位铸造收口前自检钩子"
     );
 }
 

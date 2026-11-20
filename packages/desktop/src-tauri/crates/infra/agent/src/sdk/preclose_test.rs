@@ -1,6 +1,9 @@
-//! `preclose`（收口前架构判据自检）的单元测试：`baseline` 的会话判定与起点哈希、
-//! `touched` 的写面三支判据，以及 `run` 的 T1 / T2 触发、notice 文案面与 fail-open
-//! 三面。
+//! `preclose`（收口前架构判据自检钩子）的单元测试：`ArchiPreclose` 三面
+//! （`start` 起点哈希 / `observe_tool` 写面观测 / `before_done` 的 T1 / T2 触发与
+//! notice 文案面）、`touched` 的写面三支判据，以及 fail-open 三面。
+//!
+//! 会话判定已不在本模块——判据是装配层的 `SessionInjections.before_done` 档位
+//! （装配 / loop 挂点归 `compose_test` / `loop_test`）；本文件只测实现自身。
 //!
 //! Mock 只发生在进程边界：`Sender` 用真实 `tokio::sync::mpsc::channel`（「发了什么、
 //! 发了几条」即被测面）；`spawn_blocking` / `assets_hash` / `drift::check` /
@@ -13,6 +16,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 use crate::sdk::archi_drift_view::drift_summary;
+use crate::sdk::before_done::BeforeDoneHook;
 use crate::sdk::preclose;
 use crate::sdk::protect::ProtectRules;
 use crate::sdk::r#loop::{LoopTurn, StreamLiveness, StreamRetry};
@@ -59,8 +63,8 @@ fn healthy_root(tag: &str) -> tempfile::TempDir {
     dir
 }
 
-/// 轮参数：`preamble` 位即「archi 会话」判据（`None` = 非 archi 会话）。
-fn loop_turn(cwd: &Path, preamble: Option<&str>) -> LoopTurn {
+/// 轮参数（钩子实现不读 `injections` / `before_done` 位——装配归 runner）。
+fn loop_turn(cwd: &Path) -> LoopTurn {
     LoopTurn {
         question: "把模型补一下".to_owned(),
         cwd: cwd.to_path_buf(),
@@ -70,28 +74,35 @@ fn loop_turn(cwd: &Path, preamble: Option<&str>) -> LoopTurn {
         defense: crate::sdk::context::ContextDefense::resolve(None),
         liveness: StreamLiveness::default(),
         retry: StreamRetry::default(),
-        injections: agent::SessionInjections {
-            preamble: preamble.map(str::to_owned),
-            ..agent::SessionInjections::default()
-        },
+        injections: agent::SessionInjections::default(),
         explore_note: None,
         archi: None,
         db: None,
         ask: None,
+        config: None,
         protect: ProtectRules::load(None),
         web_search: false,
         effort_params: None,
+        before_done: None,
     }
 }
 
-/// 跑一次自检并把事件流取空（收端在用例侧 drain——「发了什么」即被测面）。
-async fn collect_events(
+/// 跑一次钩子全生命周期并取空事件流：`touched` 表示起手后是否经 `observe_tool`
+/// 观测一次架构域写入（T1）；`mutate` 在起手与收口之间改动盘面（T2）。
+async fn drive(
+    hook: &preclose::ArchiPreclose,
     turn: &LoopTurn,
     touched: bool,
-    baseline: Option<&str>,
+    mutate: impl FnOnce(&Path),
 ) -> Vec<AgentEventKind> {
+    hook.start(turn).await;
+    if touched {
+        let input = serde_json::json!({ "path": new_model_file(&turn.cwd).to_string_lossy() });
+        hook.observe_tool("write", &input, &turn.cwd);
+    }
+    mutate(&turn.cwd);
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(32);
-    preclose::run(&sender, turn, touched, baseline).await;
+    hook.before_done(&sender, turn).await;
     drop(sender);
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
@@ -116,71 +127,14 @@ fn model_file(root: &Path) -> PathBuf {
     foundation::layout::archi_graph_model_dir(root).join("01-test.toml")
 }
 
+/// 模型声明目录内新文件（T1 观测的写入目标）的绝对路径。
+fn new_model_file(root: &Path) -> PathBuf {
+    foundation::layout::archi_graph_model_dir(root).join("02-new.toml")
+}
+
 /// 契约资产目录内某 `.md` 的绝对路径。
 fn contract_file(root: &Path) -> PathBuf {
     foundation::layout::archi_models_dir(root).join("App/Auth.md")
-}
-
-// ---------------------------------------------------------------------------
-// `baseline`
-// ---------------------------------------------------------------------------
-
-/// 正向：`preamble` 在场 → `Some(hash)` 且与直调 `archi::drift::assets_hash(cwd)` 逐字
-/// 相等（起点值单点，零第二份哈希）。
-#[tokio::test]
-async fn baseline取起点资产哈希() {
-    let root = healthy_root("baseline-hit");
-    let turn = loop_turn(root.path(), Some("架构知识"));
-    let value = preclose::baseline(&turn)
-        .await
-        .expect("archi 会话应有起点值");
-    assert_eq!(
-        value,
-        archi::drift::assets_hash(root.path()),
-        "起点值 = assets_hash 直调值"
-    );
-    assert!(value.starts_with("sha256:"), "哈希形态 sha256 前缀");
-    assert_eq!(value.len(), "sha256:".len() + 64, "64 位十六进制");
-}
-
-/// 边界（表驱动）：`preamble = None`（非 archi 会话）→ `None`；`cwd` 指向不存在目录
-/// 亦 `None`（零 IO，零 panic）。
-#[tokio::test]
-async fn baseline非archi会话恒none() {
-    let root = healthy_root("baseline-miss");
-    let missing = root.path().join("does-not-exist");
-    for cwd in [root.path(), missing.as_path()] {
-        let turn = loop_turn(cwd, None);
-        assert!(
-            preclose::baseline(&turn).await.is_none(),
-            "preamble 缺席即 None（零 IO）：{cwd:?}"
-        );
-    }
-}
-
-/// 边界：`preamble = Some("")`（空串）→ 仍 `Some`——判据是 `is_some()`，不按内容判
-/// 会话（空 preamble 也是 archi 臂的产物形态）。
-#[tokio::test]
-async fn baseline空preamble仍判archi会话() {
-    let root = healthy_root("baseline-empty");
-    let turn = loop_turn(root.path(), Some(""));
-    assert!(
-        preclose::baseline(&turn).await.is_some(),
-        "空串 preamble 仍判为 archi 会话"
-    );
-}
-
-/// 异常：三处资产根皆不存在 → 返回全空盘稳定值（不抛错、两次相等）。
-#[tokio::test]
-async fn baseline空盘稳定值不报错() {
-    let root = tempfile::Builder::new()
-        .prefix("sdk-preclose-baseline-empty-")
-        .tempdir()
-        .expect("创建合成目录失败");
-    let turn = loop_turn(root.path(), Some("架构知识"));
-    let first = preclose::baseline(&turn).await.expect("仍应给出起点值");
-    let second = preclose::baseline(&turn).await.expect("仍应给出起点值");
-    assert_eq!(first, second, "同一盘面稳定");
 }
 
 // ---------------------------------------------------------------------------
@@ -361,17 +315,17 @@ fn touched不可解析写目标跳过() {
 }
 
 // ---------------------------------------------------------------------------
-// `run`：触发面
+// `start` / `before_done`：触发面
 // ---------------------------------------------------------------------------
 
-/// 正向：T1 命中（`touched = true`）且盘面未变 → 发一条 `archi_preclose`，payload 含
-/// `status` / `passed` / `counts` / `durationMs` / `changedAssets = false`。
+/// 正向：T1 命中（`observe_tool` 观测到架构域写入）且盘面未变 → 发一条
+/// `archi_preclose`，payload 含 `status` / `passed` / `counts` / `durationMs` /
+/// `changedAssets = false`。
 #[tokio::test]
-async fn run_t1命中发notice() {
+async fn t1命中发notice() {
     let root = healthy_root("run-t1");
-    let turn = loop_turn(root.path(), Some("架构知识"));
-    let baseline = preclose::baseline(&turn).await.expect("起点值");
-    let events = collect_events(&turn, true, Some(&baseline)).await;
+    let turn = loop_turn(root.path());
+    let events = drive(&preclose::ArchiPreclose::new(), &turn, true, |_| {}).await;
 
     let notices = notices(&events);
     assert_eq!(notices.len(), 1, "恰一条 notice");
@@ -388,26 +342,27 @@ async fn run_t1命中发notice() {
     );
 }
 
-/// 正向：T2 命中（`touched = false`、盘面在两测点之间被改）→ 同样发 notice 且
-/// `changedAssets = true`。
+/// 正向：T2 命中（零 `observe_tool`、盘面在两测点之间被改）→ 同样发 notice 且
+/// `changedAssets = true`（起点哈希由 `start` 记录）。
 #[tokio::test]
-async fn run_t2命中发notice() {
+async fn t2命中发notice() {
     let root = healthy_root("run-t2");
-    let turn = loop_turn(root.path(), Some("架构知识"));
-    let baseline = preclose::baseline(&turn).await.expect("起点值");
-    write_model(
-        root.path(),
-        concat!(
-            "[element.\"App\"]\n",
-            "kind = \"package\"\n",
-            "\n",
-            "[element.\"App.Auth\"]\n",
-            "kind = \"module\"\n",
-            "path = [\"./src/auth/\"]\n",
-            "summary = \"认证模块\"\n",
-        ),
-    );
-    let events = collect_events(&turn, false, Some(&baseline)).await;
+    let turn = loop_turn(root.path());
+    let events = drive(&preclose::ArchiPreclose::new(), &turn, false, |cwd| {
+        write_model(
+            cwd,
+            concat!(
+                "[element.\"App\"]\n",
+                "kind = \"package\"\n",
+                "\n",
+                "[element.\"App.Auth\"]\n",
+                "kind = \"module\"\n",
+                "path = [\"./src/auth/\"]\n",
+                "summary = \"认证模块\"\n",
+            ),
+        );
+    })
+    .await;
 
     let notices = notices(&events);
     assert_eq!(notices.len(), 1, "恰一条 notice");
@@ -421,34 +376,52 @@ async fn run_t2命中发notice() {
 
 /// 边界：T1、T2 皆假 → 接收端零事件（纯问答不产生转录噪声，只留引擎日志）。
 #[tokio::test]
-async fn run双假零notice() {
+async fn 双假零notice() {
     let root = healthy_root("run-skip");
-    let turn = loop_turn(root.path(), Some("架构知识"));
-    let baseline = preclose::baseline(&turn).await.expect("起点值");
-    let events = collect_events(&turn, false, Some(&baseline)).await;
+    let turn = loop_turn(root.path());
+    let events = drive(&preclose::ArchiPreclose::new(), &turn, false, |_| {}).await;
     assert!(events.is_empty(), "零事件，实际: {events:?}");
 }
 
-/// 边界：`baseline = None`（非 archi 会话）→ 早退：零 notice、零事件。
+/// 边界：未 `start`（无起点哈希）→ `before_done` 静默早退：零事件、零 panic
+/// （起手任务失败的 fail-open 同臂）。
 #[tokio::test]
-async fn run非archi会话早退() {
-    let root = healthy_root("run-not-archi");
-    let turn = loop_turn(root.path(), None);
-    let events = collect_events(&turn, true, None).await;
-    assert!(events.is_empty(), "非 archi 会话零事件，实际: {events:?}");
+async fn 未起手直接收口静默() {
+    let root = healthy_root("run-no-start");
+    let turn = loop_turn(root.path());
+    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(32);
+    preclose::ArchiPreclose::new()
+        .before_done(&sender, &turn)
+        .await;
+    drop(sender);
+    assert!(
+        receiver.recv().await.is_none(),
+        "无起点哈希即零事件（fail-open 早退）"
+    );
+}
+
+/// 边界：空盘（三处资产根皆不存在）→ `start` 不报错、T1/T2 皆假时零事件。
+#[tokio::test]
+async fn 空盘起手稳定零事件() {
+    let root = tempfile::Builder::new()
+        .prefix("sdk-preclose-baseline-empty-")
+        .tempdir()
+        .expect("创建合成目录失败");
+    let turn = loop_turn(root.path());
+    let events = drive(&preclose::ArchiPreclose::new(), &turn, false, |_| {}).await;
+    assert!(events.is_empty(), "空盘起手稳定且零事件，实际: {events:?}");
 }
 
 /// 异常：`drift::check` 返回 `CheckError`（架构域配置非法）→ 发
 /// `archi_preclose_skipped` 且 `reason` 含成因，函数正常返回（不抛错、不阻断收口）。
 #[tokio::test]
-async fn run配置非法fail_open() {
+async fn 配置非法fail_open() {
     let root = healthy_root("run-config-error");
     let config = foundation::layout::archi_config_path(root.path());
     std::fs::create_dir_all(config.parent().expect("父目录")).expect("建架构域目录");
     std::fs::write(&config, "{ \"unknownKey\": [] }").expect("写配置");
-    let turn = loop_turn(root.path(), Some("架构知识"));
-    let baseline = preclose::baseline(&turn).await.expect("起点值");
-    let events = collect_events(&turn, true, Some(&baseline)).await;
+    let turn = loop_turn(root.path());
+    let events = drive(&preclose::ArchiPreclose::new(), &turn, true, |_| {}).await;
 
     let notices = notices(&events);
     assert_eq!(notices.len(), 1, "fail-open 仍恰一条 notice");
@@ -465,11 +438,10 @@ async fn run配置非法fail_open() {
 /// 边界：零请求增量 / 零历史追加——函数发出的事件种类集合 ⊆ `{SystemNotice}`（不回灌
 /// 模型、不催轮次）。
 #[tokio::test]
-async fn run事件种类只有notice() {
+async fn 事件种类只有notice() {
     let root = healthy_root("run-only-notice");
-    let turn = loop_turn(root.path(), Some("架构知识"));
-    let baseline = preclose::baseline(&turn).await.expect("起点值");
-    let events = collect_events(&turn, true, Some(&baseline)).await;
+    let turn = loop_turn(root.path());
+    let events = drive(&preclose::ArchiPreclose::new(), &turn, true, |_| {}).await;
     assert!(!events.is_empty(), "触发面应有事件");
     for event in &events {
         assert!(
@@ -482,15 +454,14 @@ async fn run事件种类只有notice() {
 /// 边界：空架构域（无模型）→ notice `status = "skipped"` 照常发出，`passed` 与
 /// `report.passed()` 一致。
 #[tokio::test]
-async fn run空架构域仍发notice() {
+async fn 空架构域仍发notice() {
     let root = tempfile::Builder::new()
         .prefix("sdk-preclose-run-empty-")
         .tempdir()
         .expect("创建合成目录失败");
     write_file(root.path(), "src/loose/orphan.ts", "export const x = 1;\n");
-    let turn = loop_turn(root.path(), Some("架构知识"));
-    let baseline = preclose::baseline(&turn).await.expect("起点值");
-    let events = collect_events(&turn, true, Some(&baseline)).await;
+    let turn = loop_turn(root.path());
+    let events = drive(&preclose::ArchiPreclose::new(), &turn, true, |_| {}).await;
     let notices = notices(&events);
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].1["status"], "skipped", "无模型即 skipped");
@@ -504,7 +475,7 @@ async fn run空架构域仍发notice() {
 /// 边界：常态大报告（数百条 unmatched）→ payload 只在计数字段出现该数量，JSON 文本零
 /// unmatched 路径串。
 #[tokio::test]
-async fn run常态大报告只出计数() {
+async fn 常态大报告只出计数() {
     let root = tempfile::Builder::new()
         .prefix("sdk-preclose-run-scale-")
         .tempdir()
@@ -527,9 +498,8 @@ async fn run常态大报告只出计数() {
         write_file(root.path(), &relative, "export const x = 1;\n");
         orphans.push(relative);
     }
-    let turn = loop_turn(root.path(), Some("架构知识"));
-    let baseline = preclose::baseline(&turn).await.expect("起点值");
-    let events = collect_events(&turn, true, Some(&baseline)).await;
+    let turn = loop_turn(root.path());
+    let events = drive(&preclose::ArchiPreclose::new(), &turn, true, |_| {}).await;
     let notices = notices(&events);
     assert_eq!(notices.len(), 1);
     let payload = notices[0].1;
@@ -550,11 +520,10 @@ async fn run常态大报告只出计数() {
 /// 组合：notice payload = `drift_summary(report, duration_ms)` 逐字段 + 追加
 /// `changedAssets`（投影单点，零第二份装配）。
 #[tokio::test]
-async fn run_payload与drift_summary同源() {
+async fn payload与drift_summary同源() {
     let root = healthy_root("run-same-source");
-    let turn = loop_turn(root.path(), Some("架构知识"));
-    let baseline = preclose::baseline(&turn).await.expect("起点值");
-    let events = collect_events(&turn, true, Some(&baseline)).await;
+    let turn = loop_turn(root.path());
+    let events = drive(&preclose::ArchiPreclose::new(), &turn, true, |_| {}).await;
     let payload = notices(&events)[0].1;
 
     let report = archi::drift::check(archi::drift::CheckInput {
@@ -580,7 +549,7 @@ async fn run_payload与drift_summary同源() {
 /// 产报告（结构错属 `model.structuralErrors`，不是 `CheckError`）→ notice 照常为
 /// `archi_preclose`，`status = "errors"` 且结构错明细在场（fail-open 不 panic）。
 #[tokio::test]
-async fn run坏模型态出结构错报告而非跳过() {
+async fn 坏模型态出结构错报告而非跳过() {
     let root = tempfile::Builder::new()
         .prefix("sdk-preclose-bad-model-")
         .tempdir()
@@ -606,9 +575,8 @@ async fn run坏模型态出结构错报告而非跳过() {
         "src/auth/token.ts",
         "export const token = 1;\n",
     );
-    let turn = loop_turn(root.path(), Some("架构知识"));
-    let baseline = preclose::baseline(&turn).await.expect("起点值");
-    let events = collect_events(&turn, true, Some(&baseline)).await;
+    let turn = loop_turn(root.path());
+    let events = drive(&preclose::ArchiPreclose::new(), &turn, true, |_| {}).await;
 
     let notices = notices(&events);
     assert_eq!(notices.len(), 1, "坏模型也恰一条 notice");
@@ -641,14 +609,13 @@ async fn run坏模型态出结构错报告而非跳过() {
 /// `exclude` 含语法非法 glob）→ 发 `archi_preclose_skipped`，`reason` 含非法条目原文，
 /// 函数正常返回（不阻断收口）。
 #[tokio::test]
-async fn run扫描面检查错误跳过并携成因() {
+async fn 扫描面检查错误跳过并携成因() {
     let root = healthy_root("run-scan-error");
     let config = foundation::layout::archi_config_path(root.path());
     std::fs::create_dir_all(config.parent().expect("父目录")).expect("建架构域目录");
     std::fs::write(&config, "{ \"exclude\": [\"src/[legacy\"] }").expect("写配置");
-    let turn = loop_turn(root.path(), Some("架构知识"));
-    let baseline = preclose::baseline(&turn).await.expect("起点值");
-    let events = collect_events(&turn, true, Some(&baseline)).await;
+    let turn = loop_turn(root.path());
+    let events = drive(&preclose::ArchiPreclose::new(), &turn, true, |_| {}).await;
 
     let notices = notices(&events);
     assert_eq!(notices.len(), 1, "fail-open 仍恰一条 notice");

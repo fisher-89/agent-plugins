@@ -1,3 +1,4 @@
+import { cn } from 'cn';
 import { ChevronDownIcon } from 'lucide-react';
 import { memo, useState } from 'react';
 
@@ -34,24 +35,6 @@ function userTextLines(text: string): number {
     );
 }
 
-/** 折叠预览：按行预算截取（末行超额时按字符截断），尾部补省略号 */
-function userTextPreview(text: string): string {
-  const kept: string[] = [];
-  let remaining = USER_COLLAPSE_MAX_LINES;
-  for (const line of text.split('\n')) {
-    if (remaining <= 0) break;
-    const width = Math.max(1, Math.ceil(line.length / USER_COLLAPSE_LINE_CHARS));
-    if (width <= remaining) {
-      kept.push(line);
-      remaining -= width;
-    } else {
-      kept.push(line.slice(0, remaining * USER_COLLAPSE_LINE_CHARS));
-      remaining = 0;
-    }
-  }
-  return `${kept.join('\n').trimEnd()}…`;
-}
-
 /** user 气泡正文：短提问照常渲染部件；超长时默认折叠为纯文本预览，
  * 展开后回到 markdown / 部件渲染 */
 function UserBubbleBody({ message }: { message: AgentUIMessage }): React.JSX.Element {
@@ -59,25 +42,13 @@ function UserBubbleBody({ message }: { message: AgentUIMessage }): React.JSX.Ele
   const text = userPartsText(message);
   const collapsible = text !== null && userTextLines(text) > USER_COLLAPSE_MAX_LINES;
   if (!collapsible) {
-    return (
-      <>
-        {message.parts.map((part, index) => {
-          if (part.type === 'text') return <TextBlock key={index} text={part.text} />;
-        })}
-      </>
-    );
+    return <TextBlock text={text ?? ''} />;
   }
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      {open ? (
-        message.parts.map((part, index) => {
-          if (part.type === 'text') return <TextBlock key={index} text={part.text} />;
-        })
-      ) : (
-        <div className="whitespace-pre-line" data-testid="user-bubble-preview">
-          {userTextPreview(text)}
-        </div>
-      )}
+      <div className={cn('overflow-hidden', { 'h-12 **:m-0.5 mask-b-to-card/15': !open })}>
+        <TextBlock text={text} />
+      </div>
       <CollapsibleTrigger
         data-testid="user-bubble-toggle"
         render={

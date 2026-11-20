@@ -291,7 +291,7 @@ run 状态机 SHALL 位于 `core/agent`（治理面）：running → completed |
 - 自建 agent loop（多轮：流式响应 → 映射事件 → 执行工具 → 回灌 → 续轮；收敛与统计填充全自控）——rig 仅用作 provider client 与消息/工具类型层；**工具执行体 SHALL 允许阻塞等待外部输入**（ask 工具的 turn 内应答等待，见「ask 工具协议与阻塞应答通道」），阻塞期间该轮不收敛、不产生额外模型请求
 - **流面双层交付**：流内 `Text` / `Reasoning` 片段增量 SHALL 映射为 `MessageDelta`（text/thinking 可辨，只上传输面；rig 0.43 流事件模型为部分生命周期——Start / Arguments / End 为簿记事件不出增量）；轮末 `finish()` 折叠的 `choice` SHALL 收口为**恰一条密封 `Message`**（全部块收进；MUST NOT 把每个 text delta 当完整块出密封 Message——碎事件根因修复）
 - 自建工具面：默认（无会话注入）工具集 = read / grep / glob / ls / write / edit / **bash** 七工具（bash 执行体与档位见「SDK 引擎 bash 工具」）；会话级注入 SHALL 以**名字清单**收窄该面、以专用工具**名字**追加受控工具面（工具定义与准入档唯一真源在 infra 挂载清单，见「会话级工具面注入与 explore 笔记工具」）；**`AskUserQuestion` 为基线交互工具**——与七工具并列的能力，MUST NOT 进 `TOOL_NAMES`（它不是「名字清单可收窄的七件之一」），其在场与否由 `SessionInjections.ask` 位决定；MCP 与子代理 MUST NOT 实现（`parent_tool_use_id` 恒空）
-- **系统提示词**：请求系统提示词 SHALL 由引擎自读 workspace root `AGENT.md` 注入（见「SDK 引擎系统提示词（AGENT.md 注入）」）；`SessionInjections.preamble` 位按来源装配（生产者 = archi 臂与 config 臂），其余四位（`tools` / `finish` / `ask` / `protect`）同样按来源装配（见「会话级工具面注入与 explore 笔记工具」；`toolset` 位已随枚举退役）
+- **系统提示词**：请求系统提示词 SHALL 由引擎自读 workspace root `AGENT.md` 注入（见「SDK 引擎系统提示词（AGENT.md 注入）」）；`SessionInjections.preamble` 位按来源装配（生产者 = archi 臂与 config 臂），其余五位（`tools` / `finish` / `ask` / `protect` / `before_done`）同样按来源装配（见「会话级工具面注入与 explore 笔记工具」与「自然收敛前的收口前钩子与收敛事件序」；`toolset` 位已随枚举退役）
 - **上下文管理**：喂 provider 的请求史 SHALL 经 L1-L3 上下文防线治理（见「SDK 引擎工具质量与单结果上限（L1）」「SDK 引擎上下文窗防线（L2 剪裁与 L3 compaction）」）；store 转录全量不变；窗长来源含模型名 `[1m]` 后缀（见「SDK 引擎模型名 `[1m]` 后缀与输出上限定档」）
 - 事件归一化：归一化 SHALL 只消费 rig 抽象事件词汇（`StreamEvent` / `Completion` / `Message`），工具调用映射为 ToolUse 块并与 ToolResult 成对（同 id）；协议差异 MUST NOT 出现在归一化层（openai chat completions 形状 fixture 仅为测试形状，不是运行时协议判定；anthropic 经 Messages wire 产出同一抽象）；`RunStarted` SHALL 各报各的（model 报**裸名**——`[1m]` 后缀已剥离，tools 报本轮实际下发的工具面——默认七工具、注入面含 `finish_step` / `AskUserQuestion` 见「会话级工具面注入与 explore 笔记工具」）；统计口径依 TurnDone 字段面（`cost_usd` 恒缺省 `None`——无价格表，降级不违约）；API 重试 / 错误 SHALL 经 `SystemNotice{subtype}`（开放枚举）流出
 - 依赖足迹：workspace 依赖 SHALL 为 `rig` facade 单条目（`=0.43.0` 锁版——升版经显式修订而非静默漂移；`default-features = false` + 显式 features：`reqwest` / `native-tls` / memory feature，reqwest / native-tls 经 facade 转发到 rig-core）；代码 `rig_core::` 路径零残留。0.42 时代的 `rig-core` 双条目解析钉子退役（2026-10-06 修订）：0.43 家族拆出 rig-reqwest / rig-http / rig-tungstenite 等同伴 crate 后双条目只钉得住 rig-core 一个，全家族精确版本由 Cargo.lock 承担
@@ -316,10 +316,10 @@ run 状态机 SHALL 位于 `core/agent`（治理面）：running → completed |
 - **WHEN** 分别以 `protocol = openai` 与 `protocol = anthropic` 的 provider 发起运行
 - **THEN** 两者都走同一 `sdk/loop.rs` 全链（工具面 / 防线 / 事件词汇一致），仅 wire 与请求参数不同；归一化层与 core 侧无协议分支
 
-#### Scenario: 注入位词面为五位
+#### Scenario: 注入位词面为六位
 
 - **WHEN** 审查 `SessionInjections` 字段面与本条工具面约定
-- **THEN** 只出现 `preamble` / `tools` / `finish` / `ask` / `protect` 五位；产品源码（`crates/**` / `src/**`）中 `toolset` 与 `SessionToolset` 零命中
+- **THEN** 只出现 `preamble` / `tools` / `finish` / `ask` / `protect` / `before_done` 六位；产品源码（`crates/**` / `src/**`）中 `toolset` 与 `SessionToolset` 零命中
 
 #### Scenario: 阻塞执行体不额外消耗请求
 
@@ -328,7 +328,7 @@ run 状态机 SHALL 位于 `core/agent`（治理面）：running → completed |
 
 ### Requirement: SDK 引擎系统提示词（AGENT.md 注入）
 
-SDK 引擎 SHALL 在起播前读取 workspace root 的 `AGENT.md` 单份文件作为系统提示词来源：文件存在 → 内容**逐字**注入请求系统提示词位（rig 0.43 起 `preamble` 字段退役，以 chat_history 首条 `Message::System` 承载；不包装、不改写）；文件缺席 → 不注入 System 消息（现状语义不变）。读取范围 SHALL 严格限于 `AGENT.md`，MUST NOT 做 `CLAUDE.md` 等兜底回退。注入 SHALL **每轮重读**：会话中途修改 `AGENT.md`，改动自下一轮请求生效（不做起播快照——bash 引入后 agent 可改自己的系统提示词，该语义行为最简且可预期）。
+SDK 引擎 SHALL 在起播前读取 workspace root 的 `AGENT.md` 单份文件作为系统提示词来源：文件存在 → 收尾拼接xml标签，内容**逐字**注入请求系统提示词位（rig 0.43 起 `preamble` 字段退役，以 chat_history 首条 `Message::System` 承载；不包装、不改写）；文件缺席 → 不注入 System 消息（现状语义不变）。读取范围 SHALL 严格限于 `AGENT.md`，MUST NOT 做 `CLAUDE.md` 等兜底回退。注入 SHALL **每轮重读**：会话中途修改 `AGENT.md`，改动自下一轮请求生效（不做起播快照——bash 引入后 agent 可改自己的系统提示词，该语义行为最简且可预期）。
 
 该机制 SHALL 为引擎内部特性（P2 原则：跨会话持久上下文是 agent 产品特性非协议义务），`crates/core/agent` 零改动；工具面注入位自「会话级工具面注入与 explore 笔记工具」起按 provenance 来源装配（compose 不再恒传 default）。注入体量上限 32KB（char 边界截断）、嵌套 `AGENT.md` 不级联。
 
@@ -1422,17 +1422,18 @@ compose_turn(stores, registry, streams, store, agent, workspace_root: &Path)
 - **WHEN** 用户配置显式保护了模型目录（`write_protection.files` 命中），且当前会话不在写权白名单内
 - **THEN** 拒绝串取**会话规则**（相位锁文案携指路）而非用户规则文案——会话规则位次在内置之后、用户之前；内置 `config.json` 规则仍恒最先
 
-### Requirement: 自然收敛前的架构判据自检与收敛事件序
+### Requirement: 自然收敛前的收口前钩子与收敛事件序
 
-SDK 引擎 loop SHALL 在**自然收敛**收口前执行一次会话级的收口前自检，并把结果作为一条 `SystemNotice` 落在该轮 `TurnDone` **之前**；该机制 SHALL 对模型不可见（不回灌、不催轮、不发新请求），且 MUST NOT 改变任何收敛语义：
+SDK 引擎 loop SHALL 提供**可注入的收口前钩子**（`BeforeDoneHook`）：钩子实例按会话注入面档位（`SessionInjections.before_done`）由 runner per-turn 铸造，`None` = 不装配；loop 只承载扩展点与调用序，MUST NOT 认识任何具体钩子语义（判据归各实现，见 `desktop-archi-agent`「收口前引擎自检（架构判据读数）」）。已装配的钩子在**自然收敛**收口前执行一次，结果作为一条 `SystemNotice` 落在该轮 `TurnDone` **之前**；该机制 SHALL 对模型不可见（不回灌、不催轮、不发新请求），且 MUST NOT 改变任何收敛语义：
 
-- **事件序**：`Message`（终答密封）→ `SystemNotice{subtype:"archi_preclose"}`（或 `archi_preclose_skipped`）→ `TurnDone`。notice MUST 先于 `finish_success` 发出；`TurnDone` 的 `subtype` / `is_error` / `num_turns` / `usage` 与本变更前逐字一致（自检结论 MUST NOT 进入 `TurnDone`）。
-- **挂点唯一**：只在「无 tool_calls ∧ 非 `pause_turn`」自然收敛支执行一次；空 choice / 输出截断 / 异常终局（拒答 / 未知终局）/ `stop_requested`（轮间 / 轮头 / 续跑间隙）/ `pause_turn` 续跑到顶五个出口 MUST NOT 执行。触发布尔与判据由会话侧决定（见 `desktop-archi-agent`「收口前引擎自检（架构判据读数）」），本能力只承载「何时跑」与「事件序」。
-- **零请求增量**：自检 MUST NOT 触发模型请求、MUST NOT 追加对话史消息（`history` 逐条不变）、MUST NOT 增加轮次（`turn_index` 不因它推进）。
+- **钩子三面**：`start`（loop 起手一次，建观测起点）/ `observe_tool`（每次工具调用，沙箱 ∧ 保护闸通过后、执行前——零额外 IO）/ `before_done`（自然收敛前一次）。三面 MUST NOT 返回错误、MUST NOT 阻断 run（fail-open 归实现自决）。
+- **事件序**：`Message`（终答密封）→ `SystemNotice{subtype:"archi_preclose"}`（或 `archi_preclose_skipped`）→ `TurnDone`。notice MUST 先于 `finish_success` 发出；`TurnDone` 的 `subtype` / `is_error` / `num_turns` / `usage` 与本变更前逐字一致（钩子结论 MUST NOT 进入 `TurnDone`）。
+- **挂点唯一**：只在「无 tool_calls ∧ 非 `pause_turn`」自然收敛支执行一次；空 choice / 输出截断 / 异常终局（拒答 / 未知终局）/ `stop_requested`（轮间 / 轮头 / 续跑间隙）/ `pause_turn` 续跑到顶五个出口 MUST NOT 执行。装配判据 SHALL 为 `SessionInjections.before_done` 档位——未装配的会话零射程；loop MUST NOT 以 `preamble` 在场 / `turn.archi` / 工具名清单等旁证自行推断（config 臂同样生产 preamble；change 相位同样下发 archi 工具）。
+- **零请求增量**：钩子 MUST NOT 触发模型请求、MUST NOT 追加对话史消息（`history` 逐条不变）、MUST NOT 增加轮次（`turn_index` 不因它推进）。
 - **阻塞面**：判据为 CPU / IO 型同步工作，SHALL 经 `tokio::task::spawn_blocking` 执行；loop 的 async 泵 MUST NOT 被其阻塞（自检期间不得阻断事件通道的其它在途发送）。
-- **fail-open**：自检任何失败（判据返回 `Err` / 任务 panic 兜底）SHALL 以 `SystemNotice{subtype:"archi_preclose_skipped", payload:{reason}}` 留痕后照常收敛；MUST NOT 阻断、MUST NOT 把失败升级为 `api_error`、MUST NOT 新增收敛退出码或事件词汇。
+- **fail-open**：钩子任何失败（判据 `Err` / 任务 panic 兜底）SHALL 以 `SystemNotice{subtype:"archi_preclose_skipped", payload:{reason}}` 留痕后照常收敛；MUST NOT 阻断、MUST NOT 把失败升级为 `api_error`、MUST NOT 新增收敛退出码或事件词汇。
 - **subtype 开放词典**：`archi_preclose` 与 `archi_preclose_skipped` 为 `SystemNotice` 开放词典的两个新词（与 `api_retry` / `context_pruned` / `output_truncated` 同列），MUST NOT 引入新的信封类型或事件变体。
-- **非 archi 会话零射程**：判据为假（无会话 preamble）时会话 MUST NOT 产生任何 notice、MUST NOT 增加可观测事件（最多一行引擎日志）。
+- **未装配会话零射程**：`before_done = None` 时会话 MUST NOT 产生任何钩子 notice、MUST NOT 增加可观测事件（最多一行引擎日志）。
 
 #### Scenario: notice 先于 TurnDone
 
@@ -1939,11 +1940,11 @@ SDK 引擎 SHALL 消费 provider 记录的 `efforts{high, low}`，把「同一�
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/core/agent/src/runner.rs` | 会话契约（第五位） | `SessionInjections { preamble, tools, finish, ask, protect }`；`protect: Option<Vec<SessionProtectRule>>` 为 `#[serde(default)]` 的纯数据（`SessionProtectRule { glob, reason }`），`Clone + Eq`、**无 `specta::Type`**（不进 TS bindings）；`load` / round-trip / 缺字段读 `None` 语义 additive |
+| `crates/core/agent/src/runner.rs` | 会话契约（第六位） | `SessionInjections { preamble, tools, finish, ask, protect, before_done }`；`protect: Option<Vec<SessionProtectRule>>` 为 `#[serde(default)]` 的纯数据（`SessionProtectRule { glob, reason }`）；`before_done: Option<BeforeDoneSpec>` 为收口前钩子档位（`#[serde(default)]`、`None` = 不装配，行为归 infra）；均 `Clone + Eq`、**无 `specta::Type`**（不进 TS bindings）；`load` / round-trip / 缺字段读 `None` 语义 additive |
 | `crates/infra/agent/src/compose.rs` | 装配单点 | `assemble_injections` 三臂 + `injected(...)` 签名携带 `protect`；`model_write_lock(provenance)` 为唯一置位点（archi 臂与 `(proposal｜dev-design, executor)` → `None`，其余 → `Some([一条])`）；`archi_matrix` 8 行含两新工具列；archi 臂名字清单五 archi 名 |
 | `crates/infra/agent/src/sdk/runner.rs` | 装配挂载 | `ProtectRules::load(workspace_root).with_session(injections.protect)`；`mint_archi_context` 判据含五名；`with_workspace_root` 通道逐字不变 |
-| `crates/infra/agent/src/sdk/loop.rs` | 守卫链 + 收敛挂点 | 四段顺序（成员校验 → 档位 → 沙箱 → 保护闸）逐字不变；自然收敛支 `preclose::run` 先于 `finish_success`；其余四出口零调用 |
-| `crates/infra/agent/src/sdk/preclose.rs`（新） | 收口自检执行体 | `spawn_blocking`；`CancelFlag::never()`；fail-open → `archi_preclose_skipped`；零额外请求、零历史追加 |
+| `crates/infra/agent/src/sdk/loop.rs` | 守卫链 + 收敛挂点 | 四段顺序（成员校验 → 档位 → 沙箱 → 保护闸）逐字不变；自然收敛支调用已装配的 `before_done` 钩子（先于 `finish_success`）；其余四出口零调用 |
+| `crates/infra/agent/src/sdk/preclose.rs`（新） | 收口自检钩子实现 | `BeforeDoneHook` 三面：`start`（起点资产哈希）/ `observe_tool`（T1 写面观测）/ `before_done`（判定 + notice）；`spawn_blocking`；`CancelFlag::never()`；fail-open → `archi_preclose_skipped`；零额外请求、零历史追加 |
 | `crates/infra/agent/src/sdk/protect/{mod,rules,reason}.rs` | 第三规则来源（详见 `desktop-write-protection`） | `with_session` 合并 + `ReasonKind::Session` + 模板出口；`load` 签名不变 |
 
 ### 模块增量：config 会话臂与 `propose_config` 工具面（config-agent-session）
@@ -1973,6 +1974,6 @@ SDK 引擎 SHALL 消费 provider 记录的 `efforts{high, low}`，把「同一�
 
 | 项 | 变化 | 描述 |
 |---|---|---|
-| `run`（自然收敛支） | 改 | 先 `preclose::run(&sender, turn, archi_touched)` 再 `finish_success`；`archi_touched` 在工具执行前由写入面调用置位 |
+| `run`（自然收敛支） | 改 | 先调用已装配的 `before_done` 钩子再 `finish_success`；T1 由钩子 `observe_tool` 在工具执行前置位 |
 | 其余四出口 | 零改动 | 空 choice / 截断 / 异常终局 / 停止 / `pause_turn` 到顶的收敛路径与文案逐字不变 |
 | 守卫链 | 零改动 | 四段顺序、拒绝形态、`deny()` 双面传递逐字不变（会话规则只是 `ProtectRules` 的一条来源） |

@@ -1115,6 +1115,7 @@ fn definitions_explore收窄_不含write_保序追加专用工具() {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     };
 
     let defs = defs(&injections, "");
@@ -1153,6 +1154,7 @@ fn definitions空tools子集_零定义() {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     };
     assert!(
         defs(&empty_tools, "").is_empty(),
@@ -1182,6 +1184,7 @@ fn definitions非法名显式err携非法名() {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     };
     let error = definitions(&injections, "").expect_err("清单外名字应 Err");
     assert!(error.contains("hacker"), "文案携非法名: {error}");
@@ -1259,6 +1262,7 @@ fn create_explore_note定义形状_name_content双参且无path字段() {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     };
     let defs = defs(&injections, "");
     let note = defs
@@ -1429,6 +1433,7 @@ fn archi_injections(module: bool, search: bool) -> SessionInjections {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     }
 }
 
@@ -1526,6 +1531,7 @@ fn 既有注入臂零回归() {
             finish: None,
             ask: None,
             protect: None,
+            before_done: None,
         },
         "",
     );

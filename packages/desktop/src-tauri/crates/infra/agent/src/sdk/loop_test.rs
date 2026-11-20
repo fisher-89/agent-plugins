@@ -429,6 +429,7 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
             protect: turn.protect.clone(),
             web_search: turn.web_search,
             effort_params: turn.effort_params.clone(),
+            before_done: turn.before_done.clone(),
         };
         let handle = handle.clone();
         async move {
@@ -478,6 +479,7 @@ async fn drive_loop_collecting_history(
             protect: turn.protect.clone(),
             web_search: turn.web_search,
             effort_params: turn.effort_params.clone(),
+            before_done: turn.before_done.clone(),
         };
         let handle = handle.clone();
         async move {
@@ -575,6 +577,7 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
         protect: crate::sdk::protect::ProtectRules::load(None),
         web_search: false,
         effort_params: None,
+        before_done: None,
     }
 }
 
@@ -1759,6 +1762,7 @@ fn loop_turn字段面完整构造锚定() {
         protect: crate::sdk::protect::ProtectRules::load(None),
         web_search: false,
         effort_params: None,
+        before_done: None,
     };
     assert_eq!(turn.question, "q");
     assert_eq!(turn.session_id, "sdk-0-1");
@@ -1767,6 +1771,14 @@ fn loop_turn字段面完整构造锚定() {
 // ---------------------------------------------------------------------------
 // preamble 每轮重读接入请求（AC-2：loop 请求构造编排半边）
 // ---------------------------------------------------------------------------
+
+/// `AGENT.md` 注入的期望形态：正文逐字 + 外层 `<agent_md path="…">` 包装
+/// （与 `preamble::load` 同形，路径取 `AGENT.md` 绝对路径）。
+fn agent_md_preamble(root: &Path, body: &str) -> String {
+    let path = root.join("AGENT.md");
+    let path = path.to_str().expect("临时路径为 UTF-8");
+    format!("<agent_md path=\"{path}\">\n{body}\n</agent_md>")
+}
 
 #[tokio::test]
 async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
@@ -1805,18 +1817,20 @@ async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
     }
     task.await.expect("loop 正常结束");
 
-    // 首轮请求系统提示词逐字含文件内容；轮间改写 → 次轮请求为改后内容
-    // （0.43 承载口径：chat_history 首条 System 消息）
+    // 首轮请求系统提示词含首版 AGENT.md（正文逐字 + `<agent_md path=…>` 包装）；
+    // 轮间改写 → 次轮请求为改后内容（0.43 承载口径：chat_history 首条 System 消息）
     let requests = fake.captured_requests();
     assert_eq!(requests.len(), 2, "两轮请求（工具续轮）");
+    let first = agent_md_preamble(dir.path(), "第一版系统提示词");
     assert_eq!(
         requests[0].system_instructions(),
-        Some("第一版系统提示词"),
-        "首轮请求系统提示词逐字含 AGENT.md 内容"
+        Some(first.as_str()),
+        "首轮请求系统提示词含 AGENT.md 正文（包装形态同 preamble::load）"
     );
+    let second = agent_md_preamble(dir.path(), "第二版系统提示词 🚀");
     assert_eq!(
         requests[1].system_instructions(),
-        Some("第二版系统提示词 🚀"),
+        Some(second.as_str()),
         "轮间改写文件 → 次轮请求为改后内容（每轮重读无缓存）"
     );
     let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
@@ -1882,10 +1896,11 @@ async fn preamble在场时请求系统提示词逐字含文件内容() {
     let _history = task.await.expect("loop 正常结束");
 
     let requests = model.captured_requests();
+    let expected = agent_md_preamble(dir.path(), "# 约定 🎉\n- 提交信息用中文");
     assert_eq!(
         requests[0].system_instructions(),
-        Some("# 约定 🎉\n- 提交信息用中文"),
-        "请求系统提示词逐字含文件内容（含中文 / emoji / 换行）"
+        Some(expected.as_str()),
+        "请求系统提示词含 AGENT.md 正文（含中文 / emoji / 换行）与路径包装"
     );
 }
 
@@ -2250,6 +2265,7 @@ fn explore_injections() -> agent::SessionInjections {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     }
 }
 
@@ -4637,6 +4653,7 @@ fn archi_injections(module: bool, search: bool) -> agent::SessionInjections {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     }
 }
 
@@ -5125,7 +5142,8 @@ fn system_prompt纯函数性() {
 }
 
 /// 运行态：`preamble = Some(K)` + root 有 `AGENT.md` → 首轮请求恰一条 System，
-/// 内容 = `K\n\n<AGENT.md 原文>`（不为两段各推一条）。
+/// 内容 = `K\n\n<AGENT.md 注入体>`（注入体 = 正文 + `<agent_md path=…>` 包装；
+/// 不为两段各推一条）。
 #[tokio::test]
 async fn run系统消息合成双在场恰一条system() {
     let dir = tempdir("system-merge-both");
@@ -5138,6 +5156,7 @@ async fn run系统消息合成双在场恰一条system() {
             finish: None,
             ask: None,
             protect: None,
+            before_done: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
@@ -5152,10 +5171,12 @@ async fn run系统消息合成双在场恰一条system() {
         .filter(|message| matches!(message, Message::System { .. }))
         .count();
     assert_eq!(systems, 1, "恰一条 System 消息（不为两段各推一条）");
+    let agent_md = agent_md_preamble(dir.path(), "文件约定 🎉");
+    let expected = format!("架构知识段\n\n{agent_md}");
     assert_eq!(
         requests[0].system_instructions(),
-        Some("架构知识段\n\n文件约定 🎉"),
-        "合成内容 = 知识在前 + AGENT.md 逐字在后（单空行分隔）"
+        Some(expected.as_str()),
+        "合成内容 = 知识在前 + AGENT.md 注入体在后（单空行分隔）"
     );
     turn_done_of(&events);
 }
@@ -5173,6 +5194,7 @@ async fn run系统消息合成仅preamble恰一条system() {
             finish: None,
             ask: None,
             protect: None,
+            before_done: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
@@ -5218,6 +5240,7 @@ async fn run系统消息合并每轮重读知识段不重读盘() {
             finish: None,
             ask: None,
             protect: None,
+            before_done: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
@@ -5226,14 +5249,22 @@ async fn run系统消息合并每轮重读知识段不重读盘() {
 
     let requests = fake.captured_requests();
     assert_eq!(requests.len(), 2, "两轮请求（工具续轮）");
+    let first = format!(
+        "架构知识段\n\n{}",
+        agent_md_preamble(dir.path(), "第一版约定")
+    );
     assert_eq!(
         requests[0].system_instructions(),
-        Some("架构知识段\n\n第一版约定"),
-        "首轮：知识 + 首版 AGENT.md"
+        Some(first.as_str()),
+        "首轮：知识 + 首版 AGENT.md 注入体"
+    );
+    let second = format!(
+        "架构知识段\n\n{}",
+        agent_md_preamble(dir.path(), "第二版约定 🚀")
     );
     assert_eq!(
         requests[1].system_instructions(),
-        Some("架构知识段\n\n第二版约定 🚀"),
+        Some(second.as_str()),
         "次轮：知识段逐字相同、AGENT.md 段取自重读后的磁盘内容"
     );
     assert_eq!(sealed_messages(&events).len(), 2, "续轮不中断");
@@ -5260,6 +5291,7 @@ fn archi_session_injections(knowledge: Option<&str>) -> agent::SessionInjections
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     }
 }
 
@@ -5645,6 +5677,7 @@ async fn finish_step收口成功零额外请求() {
                 finish: Some(agent::FinishSpec::EvaluatorChecklist),
                 ask: None,
                 protect: None,
+                before_done: None,
             },
             ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
         };
@@ -5943,6 +5976,7 @@ async fn finish_step的protocol档在default下放行() {
             finish: Some(agent::FinishSpec::EvaluatorChecklist),
             ask: None,
             protect: None,
+            before_done: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::Default)
     };
@@ -6235,6 +6269,7 @@ fn loop_turn_with_ask(
             finish: None,
             ask: Some(ask_mode),
             protect: None,
+            before_done: None,
         },
         ask: ctx,
         ..loop_turn(cwd, mode)
@@ -6941,6 +6976,7 @@ async fn ask位缺席时硬调即tool_unavailable且零登记() {
             finish: None,
             ask: None,
             protect: None,
+            before_done: None,
         },
         ask: Some(ask_context(Arc::clone(&registry), None)),
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
@@ -7020,6 +7056,7 @@ async fn drive_loop_with_steers_and_history(
             protect: turn.protect.clone(),
             web_search: turn.web_search,
             effort_params: turn.effort_params.clone(),
+            before_done: turn.before_done.clone(),
         };
         let handle = handle.clone();
         async move { r#loop::run(&dyn_model, &turn, history, steers, sender, handle).await }
@@ -7061,6 +7098,7 @@ async fn drive_loop_with_steers_and_handle(
             protect: turn.protect.clone(),
             web_search: turn.web_search,
             effort_params: turn.effort_params.clone(),
+            before_done: turn.before_done.clone(),
         };
         async move { r#loop::run(&dyn_model, &turn, Vec::new(), steers, sender, handle).await }
     });
@@ -7882,6 +7920,7 @@ fn db_injections() -> agent::SessionInjections {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     }
 }
 
@@ -8078,6 +8117,7 @@ async fn 未下发会话调用db工具被成员校验拒绝且零执行() {
                 finish: None,
                 ask: None,
                 protect: None,
+                before_done: None,
             },
         ),
     ];
@@ -8405,20 +8445,14 @@ async fn 两轮会话每轮请求均携同一载荷不累积不改写() {
 }
 
 // ===========================================================================
-// 本变更：收口前架构自检（`preclose::run` 挂在自然收敛支，先于 `TurnDone`）
+// 本变更：收口前钩子（`BeforeDoneHook` 挂在自然收敛支，先于 `TurnDone`）
 // ===========================================================================
 
-/// 携 `preamble` 的轮参数（archi 会话判据 = `preamble` 位在场）。
-fn loop_turn_with_preamble(
-    cwd: &Path,
-    mode: AgentPermissionMode,
-    preamble: Option<&str>,
-) -> LoopTurn {
+/// 装配收口前钩子的轮参数（archi 会话口径）：钩子由 runner 按
+/// `SessionInjections.before_done` 档位铸造，测试直注同一实现。
+fn loop_turn_with_before_done(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
     LoopTurn {
-        injections: agent::SessionInjections {
-            preamble: preamble.map(str::to_owned),
-            ..agent::SessionInjections::default()
-        },
+        before_done: Some(Arc::new(crate::sdk::preclose::ArchiPreclose::new())),
         ..loop_turn(cwd, mode)
     }
 }
@@ -8479,11 +8513,7 @@ async fn 自然收敛支自检notice先于turn_done() {
     ]);
     let events = drive_loop(
         &model,
-        &loop_turn_with_preamble(
-            dir.path(),
-            AgentPermissionMode::BypassPermissions,
-            Some("架构知识"),
-        ),
+        &loop_turn_with_before_done(dir.path(), AgentPermissionMode::BypassPermissions),
         &RunHandle::default(),
     )
     .await;
@@ -8508,11 +8538,7 @@ async fn 纯问答零notice() {
     let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
     let events = drive_loop(
         &model,
-        &loop_turn_with_preamble(
-            dir.path(),
-            AgentPermissionMode::BypassPermissions,
-            Some("架构知识"),
-        ),
+        &loop_turn_with_before_done(dir.path(), AgentPermissionMode::BypassPermissions),
         &RunHandle::default(),
     )
     .await;
@@ -8558,11 +8584,7 @@ async fn t1标记跨轮累积() {
     ]);
     let events = drive_loop(
         &model,
-        &loop_turn_with_preamble(
-            dir.path(),
-            AgentPermissionMode::BypassPermissions,
-            Some("架构知识"),
-        ),
+        &loop_turn_with_before_done(dir.path(), AgentPermissionMode::BypassPermissions),
         &RunHandle::default(),
     )
     .await;
@@ -8585,11 +8607,7 @@ async fn 非自然收敛出口零notice() {
     ]]);
     let events = drive_loop(
         &model,
-        &loop_turn_with_preamble(
-            dir.path(),
-            AgentPermissionMode::BypassPermissions,
-            Some("架构知识"),
-        ),
+        &loop_turn_with_before_done(dir.path(), AgentPermissionMode::BypassPermissions),
         &RunHandle::default(),
     )
     .await;
@@ -8618,11 +8636,7 @@ async fn 停止先置位出口零notice() {
 
     let events = drive_loop(
         &model,
-        &loop_turn_with_preamble(
-            dir.path(),
-            AgentPermissionMode::BypassPermissions,
-            Some("架构知识"),
-        ),
+        &loop_turn_with_before_done(dir.path(), AgentPermissionMode::BypassPermissions),
         &handle,
     )
     .await;
@@ -8657,11 +8671,7 @@ async fn pause_turn到顶出口零notice() {
     let model = FakeModel::with_turns(turns);
     let turn = LoopTurn {
         web_search: true,
-        ..loop_turn_with_preamble(
-            dir.path(),
-            AgentPermissionMode::BypassPermissions,
-            Some("架构知识"),
-        )
+        ..loop_turn_with_before_done(dir.path(), AgentPermissionMode::BypassPermissions)
     };
 
     let events = drive_loop(&model, &turn, &RunHandle::default()).await;
@@ -8682,7 +8692,7 @@ async fn pause_turn到顶出口零notice() {
     assert_eq!(subtype, "success", "到顶按 stop 语义成功收敛");
 }
 
-/// 异常：`api_error` 重试耗尽 → 零 notice（失败出口先于自检挂点），`TurnDone`
+/// 异常：`api_error` 重试耗尽 → 零 notice（失败出口先于钩子挂点），`TurnDone`
 /// 形态不变。
 #[tokio::test]
 async fn api_error出口零notice() {
@@ -8690,10 +8700,7 @@ async fn api_error出口零notice() {
     write_archi_model(dir.path());
     let model = FakeModel::failing("连接被重置");
     let turn = LoopTurn {
-        injections: agent::SessionInjections {
-            preamble: Some("架构知识".to_owned()),
-            ..agent::SessionInjections::default()
-        },
+        before_done: Some(Arc::new(crate::sdk::preclose::ArchiPreclose::new())),
         ..loop_turn_with_fast_io(dir.path(), AgentPermissionMode::BypassPermissions)
     };
 
@@ -8723,11 +8730,7 @@ async fn 空choice出口零notice() {
 
     let events = drive_loop(
         &model,
-        &loop_turn_with_preamble(
-            dir.path(),
-            AgentPermissionMode::BypassPermissions,
-            Some("架构知识"),
-        ),
+        &loop_turn_with_before_done(dir.path(), AgentPermissionMode::BypassPermissions),
         &RunHandle::default(),
     )
     .await;
@@ -8778,11 +8781,7 @@ async fn turn_done收口形态不因自检改变() {
     ]);
     let events = drive_loop(
         &model,
-        &loop_turn_with_preamble(
-            dir.path(),
-            AgentPermissionMode::BypassPermissions,
-            Some("架构知识"),
-        ),
+        &loop_turn_with_before_done(dir.path(), AgentPermissionMode::BypassPermissions),
         &RunHandle::default(),
     )
     .await;
@@ -8817,10 +8816,7 @@ async fn turn_done收口形态不因自检改变() {
     write_archi_model(dir.path());
     let model = FakeModel::failing("连接被重置");
     let turn = LoopTurn {
-        injections: agent::SessionInjections {
-            preamble: Some("架构知识".to_owned()),
-            ..agent::SessionInjections::default()
-        },
+        before_done: Some(Arc::new(crate::sdk::preclose::ArchiPreclose::new())),
         ..loop_turn_with_fast_io(dir.path(), AgentPermissionMode::BypassPermissions)
     };
     let events = drive_loop(&model, &turn, &RunHandle::default()).await;
@@ -8846,10 +8842,10 @@ async fn turn_done收口形态不因自检改变() {
     );
 }
 
-/// 边界：会话判定取 `preamble` 位——change 相位会话（`tools` 含 `archi_drift` 但
-/// `preamble = None`）零 notice（不误命中 `turn.archi`）。
+/// 边界：钩子装配取显式档位——change 相位会话（`tools` 含 `archi_drift` 但
+/// `injections.before_done = None`）零 notice（不误命中 `turn.archi` / 工具名）。
 #[tokio::test]
-async fn 非archi会话即便有archi工具也零notice() {
+async fn 未装配钩子的会话即便有archi工具也零notice() {
     let dir = tempdir("preclose-change-session");
     write_archi_model(dir.path());
     let model_path = dir
@@ -8890,7 +8886,7 @@ async fn 非archi会话即便有archi工具也零notice() {
     assert_eq!(
         notice_index(&events, "archi_preclose"),
         None,
-        "preamble 缺席即非 archi 会话（零 notice）"
+        "未装配 before_done 钩子即零 notice（判据是显式档位，非工具名旁证）"
     );
 }
 
@@ -8924,11 +8920,7 @@ async fn 自检不追加请求() {
     ]);
     let events = drive_loop(
         &model,
-        &loop_turn_with_preamble(
-            dir.path(),
-            AgentPermissionMode::BypassPermissions,
-            Some("架构知识"),
-        ),
+        &loop_turn_with_before_done(dir.path(), AgentPermissionMode::BypassPermissions),
         &RunHandle::default(),
     )
     .await;
@@ -8941,7 +8933,7 @@ async fn 自检不追加请求() {
     turn_done_of(&events);
 }
 
-/// 组合：相位锁拒绝的模型写入（放行路径未达）→ `archi_touched` 不置位，且盘面未变
+/// 组合：相位锁拒绝的模型写入（放行路径未达）→ 钩子的 T1 不置位，且盘面未变
 /// ⇒ T1 / T2 皆假 ⇒ 零 notice（不误命中）。
 #[tokio::test]
 async fn 被拒的模型写入不置位t1() {
@@ -8961,11 +8953,7 @@ async fn 被拒的模型写入不置位t1() {
     };
     let turn = LoopTurn {
         protect: crate::sdk::protect::ProtectRules::load(None).with_session(Some(vec![lock])),
-        ..loop_turn_with_preamble(
-            dir.path(),
-            AgentPermissionMode::BypassPermissions,
-            Some("架构知识"),
-        )
+        ..loop_turn_with_before_done(dir.path(), AgentPermissionMode::BypassPermissions)
     };
     let model = FakeModel::with_turns(vec![
         vec![
@@ -9021,6 +9009,7 @@ fn config_injections() -> agent::SessionInjections {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     }
 }
 
@@ -9281,6 +9270,7 @@ async fn config工具名不在清单落成员校验拒绝() {
             finish: None,
             ask: None,
             protect: None,
+            before_done: None,
         },
         config: None,
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)

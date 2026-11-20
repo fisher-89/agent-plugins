@@ -447,6 +447,7 @@ fn crate根路径ask_mode可达且可赋给注入面ask位() {
         finish: None,
         ask: Some(flow),
         protect: None,
+        before_done: None,
     };
     assert_eq!(injections.ask, Some(AskMode::Flow), "ask 位承接档位");
 
@@ -493,7 +494,7 @@ fn finish_spec经根再导出线值为camelcase且双向回转() {
 }
 
 #[test]
-fn crate根路径session_injections_default三位全none() {
+fn crate根路径session_injections_default全none() {
     let default_injections = SessionInjections::default();
     assert_eq!(default_injections.preamble, None, "preamble None");
     assert_eq!(default_injections.tools, None, "tools None");
@@ -504,6 +505,10 @@ fn crate根路径session_injections_default三位全none() {
     assert_eq!(
         default_injections.ask, None,
         "ask None（显式禁用——装配层 MUST 逐臂显式置位）"
+    );
+    assert_eq!(
+        default_injections.before_done, None,
+        "before_done None（收口前钩子不装配）"
     );
 }
 

@@ -591,5 +591,6 @@ pub(crate) fn injected_finish(
         finish,
         ask: None,
         protect: None,
+        before_done: None,
     }
 }

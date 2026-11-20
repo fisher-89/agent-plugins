@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::event::AgentEventKind;
 use crate::runner::{
     AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, AskMode,
-    FinishSpec, ModelLevel, RunHandle, SessionCtx, SessionInjections, SessionOpen,
+    BeforeDoneSpec, FinishSpec, ModelLevel, RunHandle, SessionCtx, SessionInjections, SessionOpen,
     SessionProtectRule, SessionRef,
 };
 
@@ -87,6 +87,7 @@ fn new_open() -> SessionOpen {
             finish: None,
             ask: None,
             protect: None,
+            before_done: None,
         },
         ctx: SessionCtx {
             workspace_root: PathBuf::from("D:\\工作区\\demo 🎉"),
@@ -339,6 +340,7 @@ fn session_injections默认形态tools与preamble均为none() {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     };
     assert_ne!(default_injections, narrowed);
 }
@@ -602,16 +604,17 @@ fn finish_spec派生面与源码自证() {
     );
 }
 
-/// `SessionInjections` 三字段 round-trip（正向）：键面恰 `preamble` / `tools` /
-/// `finish` 三键（`toolset` 零命中）且逐字段相等。
+/// `SessionInjections` 六字段 round-trip（正向）：键面恰 `preamble` / `tools` /
+/// `finish` / `ask` / `protect` / `beforeDone` 六键（`toolset` 零命中）且逐字段相等。
 #[test]
-fn session_injections五字段round_trip() {
+fn session_injections六字段round_trip() {
     let injections = SessionInjections {
         preamble: Some("前导".to_owned()),
         tools: Some(vec!["read".to_owned(), "archi_module".to_owned()]),
         finish: Some(FinishSpec::Decision),
         ask: Some(AskMode::Flow),
         protect: None,
+        before_done: Some(BeforeDoneSpec::ArchiPreclose),
     };
     let value = serde_json::to_value(&injections).expect("序列化");
     let mut keys: Vec<&str> = value
@@ -623,8 +626,15 @@ fn session_injections五字段round_trip() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        vec!["ask", "finish", "preamble", "protect", "tools"],
-        "键面恰五键（toolset 零命中）"
+        vec![
+            "ask",
+            "before_done",
+            "finish",
+            "preamble",
+            "protect",
+            "tools"
+        ],
+        "键面恰六键（toolset 零命中）"
     );
     let back: SessionInjections = serde_json::from_value(value).expect("反序列化");
     assert_eq!(back, injections, "逐字段相等");
@@ -910,6 +920,7 @@ fn session_injections缺省与等值三断言() {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     };
     assert_eq!(default_injections, explicit, "default 与显式三 None 等值");
 
@@ -1138,10 +1149,10 @@ fn session_rule() -> SessionProtectRule {
     }
 }
 
-/// 正向：五键恰为 `preamble` / `tools` / `finish` / `ask` / `protect`（序列化键集
-/// 逐项断言）。
+/// 正向：六键恰为 `preamble` / `tools` / `finish` / `ask` / `protect` /
+/// `before_done`（序列化键集逐项断言；本结构零 `rename_all`，键即字段名）。
 #[test]
-fn session_injections五键键面() {
+fn session_injections六键键面() {
     let value = serde_json::to_value(SessionInjections::default()).expect("序列化成功");
     let mut keys: Vec<&str> = value
         .as_object()
@@ -1152,8 +1163,15 @@ fn session_injections五键键面() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        vec!["ask", "finish", "preamble", "protect", "tools"],
-        "五键恰为 preamble / tools / finish / ask / protect"
+        vec![
+            "ask",
+            "before_done",
+            "finish",
+            "preamble",
+            "protect",
+            "tools"
+        ],
+        "六键恰为 preamble / tools / finish / ask / protect / before_done"
     );
 }
 
@@ -1168,6 +1186,7 @@ fn session_injections全字段round_trip() {
             finish: Some(FinishSpec::EvaluatorChecklist),
             ask: Some(AskMode::Flow),
             protect: protect.clone(),
+            before_done: Some(BeforeDoneSpec::ArchiPreclose),
         };
         let value = serde_json::to_value(&injections).expect("序列化成功");
         let back: SessionInjections = serde_json::from_value(value).expect("反序列化成功");

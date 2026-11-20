@@ -256,7 +256,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 - **`archi_drift` 只给两处直接产出漂移的相位**：`dev-design/executor`（写元素与边）与 `implement/executor`（改代码 ⇒ 未声明依赖）。`code-review` / `acceptance` MUST NOT 下发（越界判断仍只读模型面；「时机差」作为将来放宽的理由需独立裁决，MUST NOT 由本期实现顺手放开）。
 - **`archi_scaffold` 只给两处写权相位**（`proposal/executor`、`dev-design/executor`）与 archi 来源臂——模型写权之外的下发等于许诺一个不会被允许落地的模板。
 - **`archi_api` 只给 implement/executor 与 archi 臂**：其余相位 MUST NOT 下发（生成物新鲜度由门禁与契约面板承担）。
-- **archi 来源臂**：`source = "archi"` 的会话 SHALL 装配为七内建全量（含 `write` / `edit` / `bash`）+ 五个 archi 工具名（`archi_module` / `archi_search` / `archi_api` / `archi_drift` / `archi_scaffold`）+ `preamble = Some(<架构会话知识文本>)`（知识内容见「架构会话的系统知识注入」）。该臂 SHALL 以 `source` 短路命中，MUST NOT 进入 `source_ref` 相位解析——`source_ref` 为 null（一 workspace 一份历史）与该定式无关，且其取任意值（含畸形四段）MUST NOT 改变该臂的下发面，MUST NOT 因解析失败退化为零 archi 工具。
+- **archi 来源臂**：`source = "archi"` 的会话 SHALL 装配为七内建全量（含 `write` / `edit` / `bash`）+ 五个 archi 工具名（`archi_module` / `archi_search` / `archi_api` / `archi_drift` / `archi_scaffold`）+ `preamble = Some(<架构会话知识文本>)`（知识内容见「架构会话的系统知识注入」）+ `before_done = Some(ArchiPreclose)`（收口前自检装配档位，见「收口前引擎自检（架构判据读数）」）。该臂 SHALL 以 `source` 短路命中，MUST NOT 进入 `source_ref` 相位解析——`source_ref` 为 null（一 workspace 一份历史）与该定式无关，且其取任意值（含畸形四段）MUST NOT 改变该臂的下发面，MUST NOT 因解析失败退化为零 archi 工具。
 - `phase` / `role` SHALL 取自既有 provenance `source_ref` 定式 `{change_id}/{phase}/{role}/{attempt}`（不新增契约字段）；解析 SHALL 取尾三段的定式（`attempt` → `role` → `phase`），段数 < 4 或末段非数字即 `None`。
 - 解析不出该定式（畸形 / 短段 / 未知 phase）SHALL **fail-closed**：零 archi 工具（MUST NOT 退化为"给全部工具"）。
 - 相位矩阵 SHALL 只对 `source = "change"` 生效（archi 来源臂不查矩阵、恒五工具全开）。
@@ -281,7 +281,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 #### Scenario: archi 来源全工具面加知识
 
 - **WHEN** 以 `source = "archi"`（`source_ref = null`）发起会话并审查该轮请求组装
-- **THEN** `tools` 位为七内建全量（含 `write`）另加五个 archi 工具名、`preamble` 为架构会话知识文本；definitions 含五个 archi 定义且 `RunStarted.tools` 逐名一致
+- **THEN** `tools` 位为七内建全量（含 `write`）另加五个 archi 工具名、`preamble` 为架构会话知识文本、`before_done` 为 `Some(ArchiPreclose)`；definitions 含五个 archi 定义且 `RunStarted.tools` 逐名一致
 
 #### Scenario: archi 臂不因 source_ref 变形漂移
 
@@ -401,7 +401,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 两条工程约束：
 
 - **自证可解析**：字段形态的机械锚 SHALL 由 `archi_scaffold` 的草稿承担（`TomlParser` 零诊断，见「archi_scaffold 只读工具的新元素模板契约」）；知识文本本身 MUST NOT 再承载示例 TOML（示例是重复的第二事实源）。
-- **尽力增强、不炸 run**：知识拼装失败（派生异常 / 读取失败）SHALL 降级为 `preamble = None`，MUST NOT 让发起点 `Err`、MUST NOT 中断 run；知识文本 MUST NOT 含 `<>` 一类占位符（路径由派生注入），体量 SHALL 受上限约束（**骨架 ≤ 2.2 KB、全文 ≤ 2.8 KB，实测值冻结**，防与 `AGENT.md` 合体后挤压上下文）。降级时收口自检亦不执行（`preamble` 判据）。
+- **尽力增强、不炸 run**：知识拼装失败（派生异常 / 读取失败）SHALL 降级为 `preamble = None`，MUST NOT 让发起点 `Err`、MUST NOT 中断 run；知识文本 MUST NOT 含 `<>` 一类占位符（路径由派生注入），体量 SHALL 受上限约束（**骨架 ≤ 2.2 KB、全文 ≤ 2.8 KB，实测值冻结**，防与 `AGENT.md` 合体后挤压上下文）。收口自检的装配与本知识解耦（`before_done` 档位按来源置位），知识降级 MUST NOT 影响自检。
 - **单条 System**：该知识 MUST NOT 以独立第二条 System 消息下发（合并规则见 `desktop-agent-execution`「SDK 引擎系统提示词（AGENT.md 注入）」）。
 
 #### Scenario: 词表由代码派生
@@ -417,7 +417,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 #### Scenario: 拼装失败降级
 
 - **WHEN** 知识拼装路径出现异常（派生产物不可用）
-- **THEN** 装配结果为 `preamble = None`，session 照常发起、run 正常推进（七工具面 + 五 archi 工具不变），MUST NOT 抛装配错误；该轮收口零 `archi_preclose` notice（自检判据依赖 `preamble`）
+- **THEN** 装配结果为 `preamble = None`，session 照常发起、run 正常推进（七工具面 + 五 archi 工具不变），MUST NOT 抛装配错误；收口前自检照常装配（`before_done` 档位与知识解耦；T1 / T2 皆假时仍零 notice）
 
 #### Scenario: 自检纪律与可见性在知识中可指认
 
@@ -496,17 +496,17 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 
 ### Requirement: 收口前引擎自检（架构判据读数）
 
-archi 会话（`SessionInjections.preamble` 在场）在**自然收敛**收口前 SHALL 由引擎执行一次架构判据自检，结果作为一条 `SystemNotice` 落转录并写引擎日志——**不回灌模型、不催轮次、不发新请求**：
+archi 会话（装配层在 `SessionInjections.before_done` 置位 `ArchiPreclose` 档位）在**自然收敛**收口前 SHALL 由引擎执行一次架构判据自检，结果作为一条 `SystemNotice` 落转录并写引擎日志——**不回灌模型、不催轮次、不发新请求**：
 
 - **唯一挂点**：只在 loop 的「无 tool_calls 且非 `pause_turn`」自然收敛支执行一次；空 choice / 输出截断 / 异常终局 / `stop_requested`（轮间 / 轮头 / 续跑间隙）/ `pause_turn` 续跑到顶五个出口 MUST NOT 执行（模型没给终答时读数无意义，停止是逃逸阀不能被拖慢）。
-- **会话判定**：判据 SHALL 为 `turn.injections.preamble.is_some()`（该位唯一生产者是 archi 臂，见「架构会话的系统知识注入」）；MUST NOT 用 `turn.archi.is_some()`（change 相位同样下发 archi 工具，会误命中）。`preamble = None`（知识降级）时本自检不执行——fail-open，与「知识是尽力增强项」同口径。
+- **装配判据**：自检的装配 SHALL 由 `SessionInjections.before_done = Some(ArchiPreclose)` 档位表达，唯一置位点是 `source = "archi"` 臂（装配单点在 `compose::assemble_injections`）；MUST NOT 以 `preamble` 在场、`turn.archi.is_some()` 或工具名清单等旁证推断（config 臂同样生产 preamble；change 相位同样下发 archi 工具，皆会误命中）。知识降级（`preamble = None`）MUST NOT 影响自检装配——两者解耦。
 - **触发两条件（析取）**：
   - **T1** 本轮写过架构域：`write` / `edit` 的 sandboxed `path`、`bash` 经 `protect::written_paths` 得到的写目标（复用同一提取面，MUST NOT 第二份写面解析）命中 `<archi_dir>/graph/**` 或 `<archi_dir>/models/**`（前缀经 `foundation::layout` 派生，MUST NOT 行内字面量）。
   - **T2** 资产变化：本轮起点与收口时的 `archi::drift::assets_hash(root)` 不相等。
   - 两条件皆假 ⇒ 只在**引擎日志**留一行 skip，MUST NOT 发 notice（纯问答不产生转录噪声）。
 - **执行面**：判据 SHALL 为 `archi::drift::check(CheckInput { root, mode: Full, changed: &[], change: None, cancel })`（与命令面全量分支同源，零第二套判定）；SHALL 以 `tokio::task::spawn_blocking` 执行；取消标志 SHALL 为 `CancelFlag::never()`（MUST NOT 为几十毫秒扩 `RunHandle` 的公开面）。
 - **载荷**：`SystemNotice{subtype: "archi_preclose", payload}`，载荷 = `drift_summary` 投影（与 `archi_drift` 工具 `summary` 共用单点）+ `changedAssets: bool`；整份 `Report` MUST NOT 入转录（一次几 KB 反而烧 token）。
-- **事件序**：notice SHALL **先于** `finish_success`（即 `TurnDone`）流出（见 `desktop-agent-execution`「自然收敛前的架构判据自检与收敛事件序」）。
+- **事件序**：notice SHALL **先于** `finish_success`（即 `TurnDone`）流出（见 `desktop-agent-execution`「自然收敛前的收口前钩子与收敛事件序」）。
 - **fail-open 三面**：任何 `CheckError` ⇒ `SystemNotice{subtype:"archi_preclose_skipped", payload:{reason}}` + 引擎日志，**照常收口**；MUST NOT 阻断收敛、MUST NOT 改写 `TurnDone` 的 `subtype` / `is_error`、MUST NOT 把成因回灌模型。
 - **知识文本随动**：自检纪律 SHALL 由「模型义务」降为「可提前自查」（引擎已兜底），MUST NOT 出现「不调自检工具就不算完」一类义务句。
 - **零缓存**：每次收口现算（沿 `archi_search` 纪律），MUST NOT 跨轮缓存报告或哈希以外的中间态。
@@ -529,14 +529,14 @@ archi 会话（`SessionInjections.preamble` 在场）在**自然收敛**收口�
 #### Scenario: 非 archi 会话零射程
 
 - **WHEN** 以 `source = "change"`（`implement/executor`，工具面含 archi 工具）与 `source = "debug"` 发起会话并自然收敛
-- **THEN** 两者零 `archi_preclose` / `archi_preclose_skipped` notice（`preamble = None` 即不判为 archi 会话）
+- **THEN** 两者零 `archi_preclose` / `archi_preclose_skipped` notice（未装配 `before_done` 档位即不跑自检）
 
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/core/agent/src/runner.rs` | 注入词表（零改动） | 注入面即 `SessionInjections.tools: Option<Vec<String>>`（工具名字清单）；`SessionToolset` / `toolset` 已退役（产品源码零命中，`sdk/runner_test.rs` 有零命中断言），本表不再登记该枚举 |
-| `crates/infra/agent/src/compose.rs` | 注入装配（新增第三臂） | `assemble_injections`：explore 臂逐字不变 → **archi 臂**（`source == "archi"` 短路命中：`preamble = Some(knowledge())`、`tools = Some(七内建全量 + 三个 archi 工具名)`，不碰相位解析）→ change 臂（7 行矩阵 + fail-closed，`archi_matrix` 为矩阵单点）→ default（显式构造，非默认值兜底）；`ARCHI_SOURCE` 常量为来源词单点 |
+| `crates/core/agent/src/runner.rs` | 注入词表 | `SessionInjections` 六位（`preamble` / `tools` / `finish` / `ask` / `protect` / `before_done`）；`before_done: Option<BeforeDoneSpec>` 为收口前钩子档位（serde additive，`None` = 不装配；`BeforeDoneSpec::ArchiPreclose` 由 archi 臂唯一置位）；`SessionToolset` / `toolset` 已退役（产品源码零命中，`sdk/runner_test.rs` 有零命中断言），本表不再登记该枚举 |
+| `crates/infra/agent/src/compose.rs` | 注入装配 | `assemble_injections`：explore 臂逐字不变 → **archi 臂**（`source == "archi"` 短路命中：`preamble = Some(knowledge())`、`tools = Some(七内建全量 + 五个 archi 工具名)`、`before_done = Some(ArchiPreclose)`，不碰相位解析）→ change 臂（7 行矩阵 + fail-closed，`archi_matrix` 为矩阵单点）→ default（显式构造，非默认值兜底）；`ARCHI_SOURCE` 常量为来源词单点 |
 | `crates/infra/agent/src/archi_knowledge.rs` | 骨架 + 派生段拼装（本变更：目录方位串换段） | 注入段 SHALL 由「契约目录：`<archi_api_rel_dir>`」改为「契约资产：`<archi_models_rel_dir>/<分层目录…>/<FQN>.md`（索引 `<archi_graph_rel_dir>/INDEX.toml`）」——`api` 段串零残留；四面词表注入、纯函数零 IO、降级为 `None` 的语义逐字不变。原拼接面：`knowledge() -> Option<String>`：`include_str!("archi-knowledge.md")` + `ElementKind::ALL` / `GateTier::ALL` / `GateTier::default()` / `ApiStatus::ALL` / `DiagnosticKind::ALL` / `foundation::layout` 相对路径派生族；`entry` / `doc` MUST NOT 进派生词表（开放值集）；纯函数零 IO；降级为 `None` 而非 `Err` |
 | `crates/infra/agent/src/archi-knowledge.md`（新） | 知识静态骨架（`include_str!` 内嵌） | 格式与键形约定（「格式约定」段的元素字段面为八项：`kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata`，并含 `entry` 三条纪律与 `doc` 的「只有 `api = none` 可写」纪律）/ 层级推导 / `gate` 缺省 / 边界 / 自检 / 写面与可见性 / 历史会话续接 + 两段形态的可解析示例 TOML（`api = "none"` + `doc` / declared 零 `doc` 行；经 `TomlParser` 零诊断）；零 `<>` 占位符、体量受上限约束、零 `include_str!` 之外的动态指令 |
 | `crates/infra/agent/src/archi_knowledge_test.rs` | 知识语料（本变更：断言串换段） | 「契约目录：」引导语断言改为「契约资产：」+「契约索引：」两条并各断言 `<archi_models_rel_dir>` / `<archi_graph_rel_dir>` 逐字注入；示例片段可解析（含 `entry` 单值形态）、四面词表在场、体量上限、纯函数性（三次调用逐字相等）四条语义不变 |
@@ -614,7 +614,8 @@ archi 会话（`SessionInjections.preamble` 在场）在**自然收敛**收口�
 | `crates/infra/agent/src/archi_knowledge.rs` | 拼装（派生段收缩） | 派生段 = 四面词表 + 模型目录 + 契约资产（**删契约索引**）；降级为 `None` 语义逐字不变；体量锚由测试冻结 |
 | `crates/infra/agent/src/archi-knowledge.md` | 知识骨架（分层重写） | 删示例 TOML / 字段序清单 / `entry` 三档 / `doc` 判据细节；新增 `kind` 四值语义、计数单源、看护配置三块；`path` / `entry` / `doc` 三行纪律 + 工具指路；自检纪律降为「可提前自查」 |
 | `crates/infra/agent/src/compose.rs` | 装配单点 | archi 臂名字清单加两名；`archi_matrix` 8 行（`dev-design` 执行 / 评估分行，新增 `drift` / `scaffold` 两维）；`model_write_lock(provenance)` 单点（会话级锁的置位规则，见 `desktop-write-protection`） |
-| `crates/infra/agent/src/sdk/loop.rs` | 挂点 | 自然收敛支 `preclose::run` 先于 `finish_success`；循环内维护 `archi_touched`（沙箱后入参在手时判定，零额外 IO）；其余四出口零调用 |
+| `crates/infra/agent/src/sdk/loop.rs` | 挂点 | 自然收敛支调用已装配的 `before_done` 钩子（先于 `finish_success`）；T1 观测点在工具执行前（沙箱后入参在手时判定，零额外 IO）；其余四出口零调用 |
+| `crates/infra/agent/src/sdk/preclose.rs` | 钩子实现 | `BeforeDoneHook` 三面（`start` 起点哈希 / `observe_tool` T1 观测 / `before_done` 判定 + notice）；`spawn_blocking`；`CancelFlag::never()`；fail-open → `archi_preclose_skipped` |
 | `crates/infra/agent/src/sdk/runner.rs` | 铸造与装配 | `mint_archi_context` 的 any 判据加两名；`ProtectRules::load(...).with_session(...)` |
 | `crates/core/workflow/src/prompts/*.md`（矩阵命中 7 份） | 角色知识 | 按新矩阵补 `archi_module` / `archi_drift` / `archi_scaffold` 的「何时用 / 返回什么」一句；两处写权相位另加写面与自查句（见 `desktop-phase-prompts`） |
 

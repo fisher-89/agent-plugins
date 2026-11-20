@@ -3555,6 +3555,38 @@ fn archi臂全字段() {
         "archi 臂名字清单 = 七工具名 + 五 archi 名"
     );
     assert_eq!(injections.finish, None, "archi 臂无收口档位");
+    assert_eq!(
+        injections.before_done,
+        Some(agent::BeforeDoneSpec::ArchiPreclose),
+        "archi 臂装配收口前自检钩子（档位 = 来源判据，不读 preamble）"
+    );
+}
+
+/// 正向 / 边界（表驱动）：`before_done` 档位只由 archi 臂置位，其余来源一律
+/// `None`——判据是**来源**，与 `preamble`（知识）和工具名清单一律解耦；change
+/// 相位即便下发 archi 工具也不得装配。
+#[test]
+fn before_done档位只由archi臂置位() {
+    for source_ref in [None, Some("chg-1/implement/executor/1")] {
+        assert_eq!(
+            injections_of("archi", source_ref).before_done,
+            Some(agent::BeforeDoneSpec::ArchiPreclose),
+            "archi 臂恒装配（source_ref = {source_ref:?} 不改变判据）"
+        );
+    }
+    for (source, source_ref) in [
+        ("explore", None),
+        ("config", None),
+        ("change", Some("chg-1/implement/executor/1")),
+        ("change", Some("chg-1/dev-design/executor/1")),
+        ("debug", None),
+    ] {
+        assert_eq!(
+            injections_of(source, source_ref).before_done,
+            None,
+            "来源 {source:?}（{source_ref:?}）不装配收口前钩子"
+        );
+    }
 }
 
 /// 边界：`source_ref` 七形态一律落 archi 臂（不碰相位解析）——含合法四段
@@ -3708,6 +3740,11 @@ fn 降级范围单字段preamble独立() {
     assert_ne!(
         injections, default,
         "知识拼不出时只剩 preamble 缺席，注入面仍非 default"
+    );
+    assert_eq!(
+        injections.before_done,
+        Some(agent::BeforeDoneSpec::ArchiPreclose),
+        "收口前自检的装配与 preamble（知识）解耦：知识降级不影响档位"
     );
     assert!(
         archi_bits(&default).is_none(),
@@ -3919,6 +3956,7 @@ fn 装配层非法名err携名与来源() {
         None,
         None,
         Some(agent::AskMode::Generic),
+        None,
         &provenance,
     )
     .expect_err("清单外名字应 Err");
@@ -4117,6 +4155,7 @@ fn 装配非法名err语义零改() {
             finish: None,
             ask: Some(agent::AskMode::Generic),
             protect: None,
+            before_done: None,
         },
         "",
     )
@@ -4423,6 +4462,7 @@ fn 手工构造ask位none的注入面零ask名单项() {
         finish: None,
         ask: None,
         protect: None,
+        before_done: None,
     };
     let mounts = mount::definitions(&injections, "").expect("内建名单装配应成功");
     let names: Vec<String> = mounts
@@ -4785,6 +4825,7 @@ fn injected成员校验_db名命中且未知名err() {
         None,
         None,
         Some(agent::AskMode::Flow),
+        None,
         &provenance,
     )
     .expect("两 DB 名在挂载清单内");
@@ -4795,8 +4836,8 @@ fn injected成员校验_db名命中且未知名err() {
     );
     assert_eq!(ok.ask, Some(agent::AskMode::Flow));
 
-    let error =
-        injected(&["fly", DB_QUERY_TOOL], None, None, None, &provenance).expect_err("未知名应 Err");
+    let error = injected(&["fly", DB_QUERY_TOOL], None, None, None, None, &provenance)
+        .expect_err("未知名应 Err");
     assert!(error.contains("fly"), "文案携非法名: {error}");
     assert!(error.contains("change"), "文案携来源: {error}");
 }
@@ -5681,6 +5722,7 @@ fn config臂复用成员校验单源() {
         None,
         None,
         Some(agent::AskMode::Generic),
+        None,
         &provenance,
     )
     .expect_err("非法名必须 Err");

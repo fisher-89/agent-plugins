@@ -85,12 +85,12 @@ pub struct SessionProtectRule {
     pub reason: String,
 }
 
-/// 会话级注入五位：`preamble`（会话级系统前导）/ `tools`（本轮下发的工具**名字
+/// 会话级注入六位：`preamble`（会话级系统前导）/ `tools`（本轮下发的工具**名字
 /// 清单**，`None` = infra 内建七件）/ `finish`（收口档位，`None` = 本步无收口
 /// 工具）/ `ask`（ask 装配档位，`None` = 显式禁用）/ `protect`（会话级写入禁区
-/// 规则，`None` = 不追加）。工具定义与准入档唯一真源在 infra 挂载清单——core 只
-/// 承载名字与档位词汇，非法名在装配层（compose）`Err`。serde additive：旧线 JSON
-/// 缺字段读出 `None`。
+/// 规则，`None` = 不追加）/ `before_done`（收口前钩子档位，`None` = 不装配）。
+/// 工具定义与准入档唯一真源在 infra 挂载清单——core 只承载名字与档位词汇，非法名
+/// 在装配层（compose）`Err`。serde additive：旧线 JSON 缺字段读出 `None`。
 ///
 /// `ask = None` 是**显式禁用**（该会话拿不到 ask 工具），非「未实现」——装配层
 /// MUST 逐臂显式置位（`SessionInjections::default()` 的 `ask = None` 是
@@ -113,6 +113,19 @@ pub struct SessionInjections {
     /// 会话级写入禁区规则（None = 不追加；Some = 插在内置之后、用户之前）
     #[serde(default)]
     pub protect: Option<Vec<SessionProtectRule>>,
+    /// 收口前钩子档位（None = 不装配；具体行为归 infra，core 只承载词汇）
+    #[serde(default)]
+    pub before_done: Option<BeforeDoneSpec>,
+}
+
+/// 收口前钩子档位词汇（与 [`FinishSpec`] 同型：core 只承载词汇，行为归 infra；
+/// serde camelCase 线值，**不派生 `specta::Type`**——引擎侧会话词汇不出线 IPC）。
+/// 由装配层按会话来源置位，MUST NOT 由引擎侧从 `preamble` / 工具名等旁证推断。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BeforeDoneSpec {
+    /// 架构域收口自检（`source = "archi"` 会话）
+    ArchiPreclose,
 }
 
 /// 模型等级（轮级选型档位）：引擎侧按档取 provider 双档模型（High = 高能力

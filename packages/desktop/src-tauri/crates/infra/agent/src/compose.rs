@@ -50,6 +50,10 @@ const CONFIG_SOURCE: &str = "config";
 /// `desktop-write-protection`）：archi 臂与两处写权相位 `None`（不挂锁），其余一切
 /// `Some(一条)`。
 ///
+/// `before_done` 位（收口前钩子档位）只由 archi 臂置位 `Some(ArchiPreclose)`——
+/// 自检装配的判据是**来源**，与 `preamble`（知识，尽力增强项）及工具名清单解耦；
+/// 其余臂一律 `None`。
+///
 /// 四臂的每个名字 SHALL 经 [`mount::lookup`] 成员校验（未知名 `Err`）。`ask` 位
 /// 逐臂显式置位：explore / archi / config / 其余来源 → `Generic`，change（**不分
 /// role / 不分矩阵命中**）→ `Flow`。
@@ -71,6 +75,7 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
             None,
             None,
             Some(agent::AskMode::Generic),
+            None,
             provenance,
         );
     }
@@ -81,12 +86,14 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
         names.push(mount::ARCHI_API_TOOL);
         names.push(mount::ARCHI_DRIFT_TOOL);
         names.push(mount::ARCHI_SCAFFOLD_TOOL);
-        // 知识为尽力增强项：拼装失败（`None`）只丢 preamble 位，工具面不变。
+        // 知识为尽力增强项：拼装失败（`None`）只丢 preamble 位，工具面与收口前
+        // 自检装配（`before_done` 档位）不受影响
         return injected(
             &names,
             crate::archi_knowledge::knowledge(),
             None,
             Some(agent::AskMode::Generic),
+            Some(agent::BeforeDoneSpec::ArchiPreclose),
             provenance,
         );
     }
@@ -106,6 +113,7 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
             crate::config_knowledge::knowledge(),
             None,
             Some(agent::AskMode::Generic),
+            None,
             provenance,
         );
     }
@@ -118,6 +126,7 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
             finish: None,
             ask: Some(agent::AskMode::Generic),
             protect: model_write_lock(provenance),
+            before_done: None,
         });
     }
     let mut names: Vec<&'static str> = mount::builtin().to_vec();
@@ -136,7 +145,14 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
         _ => None,
     };
     // change 来源的 ask 档位恒 Flow（不分 role / 不分矩阵命中）
-    injected(&names, None, finish, Some(agent::AskMode::Flow), provenance)
+    injected(
+        &names,
+        None,
+        finish,
+        Some(agent::AskMode::Flow),
+        None,
+        provenance,
+    )
 }
 
 /// 装配产物单点（成员校验 + 名字清单落地）：未知名显式 `Err` 携名与来源，
@@ -146,6 +162,7 @@ fn injected(
     preamble: Option<String>,
     finish: Option<agent::FinishSpec>,
     ask: Option<agent::AskMode>,
+    before_done: Option<agent::BeforeDoneSpec>,
     provenance: &SessionProvenance,
 ) -> Result<agent::SessionInjections, String> {
     let protect = model_write_lock(provenance);
@@ -163,6 +180,7 @@ fn injected(
         finish,
         ask,
         protect,
+        before_done,
     })
 }
 

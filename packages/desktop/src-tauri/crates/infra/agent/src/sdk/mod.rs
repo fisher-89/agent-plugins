@@ -1,6 +1,7 @@
 pub(crate) mod archi_drift_view;
 pub(crate) mod archi_tool;
 pub(crate) mod bash;
+pub(crate) mod before_done;
 pub(crate) mod blocks;
 pub(crate) mod compact;
 pub(crate) mod config;

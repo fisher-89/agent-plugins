@@ -491,6 +491,7 @@ fn compensate_add_failure(
 /// 目录树 / explore.md 写出失败补偿（D3 尽力链）：`remove_worktree --force`
 /// → `delete_branch` → 删本次建档（按 id）。任一失败 → Err 呈现残留对象
 ///（worktree / branch / 记录 id）与双源对账指引。
+#[allow(clippy::too_many_arguments)]
 fn compensate_tree_failure(
     store: &dyn ChangeStateStore,
     vcs: &dyn WorktreePort,

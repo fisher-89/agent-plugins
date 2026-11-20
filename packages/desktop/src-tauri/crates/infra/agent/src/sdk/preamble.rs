@@ -1,9 +1,3 @@
-//! AGENT.md 系统提示词读取（sdk 引擎内部特性，core 零触）：读 workspace root
-//! 的 `AGENT.md` 单份文件作为请求 preamble 来源——存在逐字注入、缺席或任何
-//! 读取失败一律 `None`、严格无 `CLAUDE.md` 等兜底回退、单文件不级联嵌套目录。
-//! 每轮重读由 loop 调用点保证（bash 入工具面后 agent 可改自己的系统提示词，
-//! 会话中改动下一轮生效，不做起播快照）。
-
 use std::path::Path;
 
 /// preamble 体量上限：超限截前 32KB（char 边界），尽力增强语义不炸 run。
@@ -13,10 +7,13 @@ const MAX_PREAMBLE_BYTES: usize = 32 * 1024;
 /// 任何读取失败（非 UTF-8、非 NotFound 的 IO 错误同列）返回 `None`——读取
 /// 侧永不报错，`None` 即「本轮无系统提示词」的合法形态。
 pub(crate) async fn load(root: &Path) -> Option<String> {
-    let text = tokio::fs::read_to_string(root.join("AGENT.md"))
-        .await
-        .ok()?;
-    Some(truncate(&text))
+    let agent_file_path_buf = root.join("AGENT.md");
+    let text = tokio::fs::read_to_string(&agent_file_path_buf).await.ok()?;
+    let agent_file_path = agent_file_path_buf.to_str().unwrap_or("AGENT.md");
+    let truncate_text = truncate(&text);
+    Some(format!(
+        "<agent_md path=\"{agent_file_path}\">\n{truncate_text}\n</agent_md>"
+    ))
 }
 
 /// 32KB 截断：超限时回退至不越界的 char 边界（逐字语义 = 前缀原文，不包装
