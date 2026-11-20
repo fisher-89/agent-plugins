@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义 desktop 工作区配置能力：core/config crate 的配置读取与校验契约（校验以 `core/config` 实现为权威 + `config.schema.json` 静态镜像双断言、默认值填充、passthrough、不复刻吞错的 `ConfigReport` 信封）、`projects` 项目协议（目录锚点 / 编码语言标注 / 项目间依赖声明）的语义边界与消费点纪律、`workspace_config` 命令轨道、`/config` 只读配置页的呈现面与显式刷新取数模型，以及 `config.json` 文件名字面量隔离执法与测试纪律。
+定义 desktop 工作区配置能力：core/config crate 的配置读取与校验契约（校验以 `core/config` 实现为权威 + `config.schema.json` 静态镜像双断言、默认值填充、passthrough、不复刻吞错的 `ConfigReport` 信封）、`projects` 项目协议（目录锚点 / 编码语言标注 / 项目间依赖声明）的语义边界与消费点纪律、`workspace_config` 命令轨道、`/config` 配置页的呈现面（左栏常驻 config 会话 + 右栏配置呈现 + 交互唯一写回入口）与显式刷新取数模型，以及 `config.json` 文件名字面量隔离执法与测试纪律。
 
 ## Requirements
 
@@ -153,7 +153,14 @@ Rust 侧 SHALL 新增 `commands/config/` 命令轨道，提供 `workspace_config
 
 ### Requirement: 配置页呈现面
 
-前端 SHALL 在侧栏「页面」组新增 [配置] 入口（`data-testid="nav-config"`），经路由 `/config` 承载（路由与 NavLink 契约见 desktop-page-routing）。配置页 SHALL 以**当前工作区根**为数据基准（同基础信息页，根为 sidebar 本地态不进 URL）；仅壳态可达：欢迎态（root 为 null）MUST NOT 渲染壳与该入口。页面 SHALL 为**只读**：MUST NOT 提供任何写回 config.json 的操作入口。
+前端 SHALL 在侧栏「页面」组新增 [配置] 入口（`data-testid="nav-config"`），经路由 `/config` 承载（路由与 NavLink 契约见 desktop-page-routing）。配置页 SHALL 以**当前工作区根**为数据基准（同基础信息页，根为 sidebar 本地态不进 URL）；仅壳态可达：欢迎态（root 为 null）MUST NOT 渲染壳与该入口。
+
+页面的交互形态 SHALL 为「**常驻 config 会话 + 配置呈现 + 应用**」：左栏常驻 `source = "config"` 的会话面板（契约归 `desktop-config-agent`「配置页常驻 config 会话面板」），右栏为配置呈现区与显式刷新入口。写回 SHALL 遵守**唯一入口**边界：
+
+- 写回 `config.json` 的唯一入口 SHALL 为会话提案卡（`propose_config`）上的「应用」按钮 → `workspace_config_apply` 命令（契约归 `desktop-config-agent`「写面命令 `workspace_config_apply` 与写权边界」）；命令轨道 MUST NOT 提供第二个写回命令，页面 MUST NOT 提供编辑 / 保存 / 删除入口或内联 JSON 编辑器；
+- **agent 零写权限**：`config.json` 的内置写保护语义不变（见 `desktop-write-protection`）；模型 MUST NOT 经工具面写该文件，apply 不经 agent 工具面（由用户点击触发）；
+- **零 `InvalidValue` 门**：候选不合法时写面 `Err` 且文件零变化；合法写回后页面 SHALL 重取一次报告（`useWorkspaceConfig().refresh()`），新值就地呈现；
+- **规范化明示**：可应用态 SHALL 明示「写回会规范化文件（未知子键、键序与格式会丢失 / 变化）」——用户在下笔前即知整份文件会被重排（字母序 + pretty 展开）。
 
 呈现面 SHALL 分区：
 
@@ -183,7 +190,7 @@ config.json 不存在 SHALL 呈现空态而非错误；坏 JSON 与命令 reject
 #### Scenario: projects 语言与依赖呈现
 
 - **WHEN** fixture 的 `projects` 为 `[{root: "packages/desktop", language: "typescript"}, {root: "packages/desktop/src-tauri", depends_on: ["packages/desktop"]}]`
-- **THEN** 逐 project 行呈现 `root` 与其已设字段（首行呈现 `language`，次行呈现 `depends_on` 列表）；未设字段呈现「未设」标注而非空白；页面仍为只读（无可编辑控件）
+- **THEN** 逐 project 行呈现 `root` 与其已设字段（首行呈现 `language`，次行呈现 `depends_on` 列表）；未设字段呈现「未设」标注而非空白；呈现分区本身零编辑控件（写回只经左栏提案卡的「应用」）
 
 #### Scenario: 空态
 
@@ -195,10 +202,25 @@ config.json 不存在 SHALL 呈现空态而非错误；坏 JSON 与命令 reject
 - **WHEN** `workspace_config` reject 或报告携 JSON 语法非法情形
 - **THEN** 页面 inline 持久呈现错误（testid 承载、不自动消失），无 toast 顶替
 
-#### Scenario: 只读边界
+#### Scenario: 写权边界（唯一入口）
 
-- **WHEN** 审查配置页组件与命令轨道
-- **THEN** 无编辑 / 保存 / 删除入口，命令轨道无任何写命令，全链无对 config.json 的写路径
+- **WHEN** 审查配置页组件、命令轨道与会话工具面
+- **THEN** 写回唯一入口为提案卡「应用」→ `workspace_config_apply`；命令轨道无第二个写命令、页面无编辑 / 保存 / 删除入口；config 会话名字清单不含写工具，agent 无法写 `config.json`（内置写保护锁定在案）
+
+#### Scenario: 应用成功后重取
+
+- **WHEN** 用户在提案卡上点击「应用」且写面返回 `Ok`
+- **THEN** 页面重取一次 `workspace_config`（新值就地呈现，diagnostics 与写后盘面一致），无非显式轮询、无自动重取叠加
+
+#### Scenario: 写面失败零变化且可见
+
+- **WHEN** 「应用」触发 `workspace_config_apply` 返回 `Err`（脏候选 / 写失败）
+- **THEN** 页面 inline 持久呈现错误原因，`config.json` 内容与 mtime 逐字不变，该卡保持可重试
+
+#### Scenario: 规范化明示
+
+- **WHEN** 提案卡处于可应用态
+- **THEN** 卡片呈「写回会规范化文件（未知子键、键序与格式会丢失 / 变化）」提示；提示 MUST NOT 被藏进 tooltip 或折叠区
 
 #### Scenario: 切换工作区重取
 
@@ -249,7 +271,8 @@ desktop 前端 SHALL 维持全管线通过（`vp check --fix` / knip / `vp test`
 - **`depends_on` 是平级边，MUST NOT 充当架构模块层级来源**：A 依赖 B 只表达安装顺序与（将来的）影响面传播方向；架构模块的包含 / 父子关系唯一真相源为元素 FQN 最长前缀（`core/archi` 的 `OwnerIndex`）与模型声明纪律「子元素须先声明祖先」。第二真相源 MUST NOT 出现。
 - **`language` 协议层不归一，消费侧归一单点**：协议只存原文（不 trim、不大小写 / 别名归一）；将来按语言分派 prompt / 静态检查 / 测试 SHALL 经**唯一归一入口**（`language_key` 类函数，落 `core/config` 导出）实现，MUST NOT 在各消费点各写一套映射。
 - **新增字段须有消费点或显式标注为声明型**：配置字段的消费点 SHALL 在本 spec 可考；暂无工程消费者的新字段 SHALL 显式标注「声明型 + 计划消费者」，MUST NOT 以「先配起来，将来再说」形态沉默落盘。
-- **字段消费点表**（本期口径，随实现同步）：`$schema` / `schema` → 纯展示（`schema` 恒 `spec-driven`）；`context` / `rules` → ∅ 零消费（**存量欠账**，本变更不改，登记在案）；`static_analysis` → `checks::static_check` 单条命令；`projects[].root` → create / promote bootstrap 项目锚点；`projects[].depends_on` → bootstrap **拓扑序安装**（唯一消费者，见 desktop-change-worktree「确定性依赖 bootstrap」）；`projects[].language` → **声明型**（计划消费者：按语言 prompt 附录 / 按语言检查分派，后续切片）；`tests[]` → testexec / mutation / aggregate；`write_protection.files[]` → agent protect 规则。
+- **写面不算逐字段消费者**：写面（`plan_apply_config` / `to_file_value`）SHALL 被视为**全字段透传**而非逐字段消费——它唯一的字段名清单是 `KNOWN_KEYS` 键集与三处文件面重命名表（`static_analysis` / `write_protection` / `depends_on`），MUST NOT 出现任何按字段的语义分支（值域校验归 `validate`、键集归 `KNOWN_KEYS`、保真度归 `desktop-config-agent`「文件面写入器」的 P1–P4 锚）。故写面不为字段消费点表新增「消费者」，而作为一行**全字段透传**登记在案。
+- **字段消费点表**（本期口径，随实现同步）：`$schema` / `schema` → 纯展示（`schema` 恒 `spec-driven`）；`context` / `rules` → ∅ 零消费（**存量欠账**，本变更不改，登记在案）；`static_analysis` → `checks::static_check` 单条命令；`projects[].root` → create / promote bootstrap 项目锚点；`projects[].depends_on` → bootstrap **拓扑序安装**（唯一消费者，见 desktop-change-worktree「确定性依赖 bootstrap」）；`projects[].language` → **声明型**（计划消费者：按语言 prompt 附录 / 按语言检查分派，后续切片）；`tests[]` → testexec / mutation / aggregate；`write_protection.files[]` → agent protect 规则；**写面（`plan_apply_config` / `to_file_value`）→ 全字段透传（八键全写、按模板裁剪，无字段语义分支）**。
 
 #### Scenario: 层级唯一真相源
 
@@ -269,7 +292,12 @@ desktop 前端 SHALL 维持全管线通过（`vp check --fix` / knip / `vp test`
 #### Scenario: 消费点表可考
 
 - **WHEN** 将字段消费点表与 `KNOWN_KEYS` 八项键集、`ProjectConfig` 字段集逐项对位
-- **THEN** 每个字段都有消费点或「声明型」标注，无未登记字段；`context` / `rules` 的零消费欠账在案
+- **THEN** 每个字段都有消费点或「声明型」标注，无未登记字段；`context` / `rules` 的零消费欠账在案；写面作为「全字段透传」一行登记在案
+
+#### Scenario: 写面零字段语义分支
+
+- **WHEN** 审查写面实现（`plan_apply_config` / `to_file_value`）的字段名出现面
+- **THEN** 字段名清单只有 `KNOWN_KEYS` 键集与三处重命名表（`static_analysis` / `write_protection` / `depends_on`），零按字段的值域判断、零「某字段特殊处理」分支；字段值域校验只由 `validate` 承担
 
 ## Module Contract
 
@@ -284,7 +312,7 @@ desktop 前端 SHALL 维持全管线通过（`vp check --fix` / knip / `vp test`
 | `foundation::layout`（常量组 + config_path） | config.json 路径唯一触点 | 常量组与 `config_path` 契约见 workspace-layout-resolution 增量 |
 | `packages/desktop/src-tauri/src/commands/config/`（新轨道） | 配置解析命令轨道 | `workspace_config(root) -> Result<WorkspaceConfigReport, String>` 薄包装（三件事）；`workspace_config_inner` 纯函数；无效 root Err、缺文件空态标记；不落库无缓存 |
 | `packages/desktop/src-tauri/src/bindings.rs` | 命令注册 | `collect_commands!` 增 `workspace_config`；bindings 重导出管线不变 |
-| `packages/desktop/src/views/config/`（新） | 配置页视图域 | `config-view.tsx` + 分区组件（基础 / tests / write_protection / 未知字段 / diagnostics 警示）+ 空态与 inline 错误；只读 |
+| `packages/desktop/src/views/config/`（新） | 配置页视图域 | `config-view.tsx` + 分区组件（基础 / tests / write_protection / 未知字段 / diagnostics 警示）+ 空态与 inline 错误；呈现面零编辑控件（写回经左栏提案卡「应用」） |
 | `packages/desktop/src/views/config/hooks/use-workspace-config.ts`（新） | 取数收口 hook | `{ data, loading, error, refresh }` 形态；显式刷新模型；失败 inline |
 | `packages/desktop/src/routes.tsx` + `src/components/app-sidebar.tsx` | 路由与入口 | `/config` 路由项；「页面」组 [配置] NavLink，`data-testid="nav-config"`，active 由 URL 派生 |
 | `mod_test.rs` 隔离扫描（扩展） | 字面量执法 | `openspec` 与 `config.json` 双禁令；产品源码全扫（排除 `*_test.rs`）；唯一触点 layout/mod.rs |
@@ -301,3 +329,15 @@ desktop 前端 SHALL 维持全管线通过（`vp check --fix` / knip / `vp test`
 | `packages/desktop/src/types/generated/bindings.ts` | API（生成物） | 经 `bindings:export` 再生成：`ProjectConfig` 携 `language` / `dependsOn` 可空；MUST NOT 手改 |
 | `packages/desktop/src/views/config/components/basic-config-section.tsx` | Component | `ProjectsGroup` 逐项目呈现 `root` + 已设的 `language` / `depends_on`（未设标注「未设」）；只读，无编辑控件 |
 | `packages/desktop/src/views/config/components/basic-config-section.test.tsx` | 测试 | 呈现断言（已设字段可见 / 未设标注 / 只读无控件） |
+
+### 模块增量：config 会话写面与呈现面改判（config-agent-session）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 类型 | 职责 / 契约 |
+|------|------|-------------|
+| `packages/desktop/src-tauri/src/commands/config/mod.rs` | API | `workspace_config_apply(root: String, candidate: serde_json::Value) -> Result<WorkspaceConfigReport, String>`：check root → `plan_apply_config`（零 `InvalidValue` 门）→ `write_atomic` → 重读返回；入参为 file-face `Value`（出线 `unknown`）；不落库、无缓存；写面契约细则归 `desktop-config-agent` |
+| `packages/desktop/src-tauri/crates/core/config/src/lib.rs` | Function | `validate` / `to_file_value` / `plan_apply_config` / `known_keys` / `TestFramework::ALL` / `as_str`（纯函数、零 IO；`config.json` 字面量禁令照旧，路径经 `foundation::layout::config_path`） |
+| `packages/desktop/src-tauri/src/commands/mod.rs` | API（登记） | `all_commands!` 增 `workspace_config_apply`（`commands/config` 轨道）与 `list_config_chat_sessions`（`commands/exec` 轨道） |
+| `packages/desktop/src/views/config/config-view.tsx` | Component | 单列 → 横向分栏：左栏常驻 config 会话面板（`desktop-config-agent`），右栏既有分区 + `config-refresh`；应用成功经 `useWorkspaceConfig().refresh()` 重取 |
+| `packages/desktop/src/types/generated/bindings.ts` / `bindings.zod.ts` | API（生成物） | 经 `bindings:export` 再生成：`workspaceConfigApply`（`candidate` 出线 `unknown`）、`listConfigChatSessions`；MUST NOT 手改 |

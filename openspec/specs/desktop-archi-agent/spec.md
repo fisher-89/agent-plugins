@@ -260,8 +260,8 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 - `phase` / `role` SHALL 取自既有 provenance `source_ref` 定式 `{change_id}/{phase}/{role}/{attempt}`（不新增契约字段）；解析 SHALL 取尾三段的定式（`attempt` → `role` → `phase`），段数 < 4 或末段非数字即 `None`。
 - 解析不出该定式（畸形 / 短段 / 未知 phase）SHALL **fail-closed**：零 archi 工具（MUST NOT 退化为"给全部工具"）。
 - 相位矩阵 SHALL 只对 `source = "change"` 生效（archi 来源臂不查矩阵、恒五工具全开）。
-- `source = "explore"` 臂的 **archi 面 SHALL 恒为空**（零 archi 工具，逐字沿用）；该臂的**完整**名字清单（六工具收窄 + `create_explore_note` + 只读 DB 工具 `db_tables` / `db_query` 两件）单源见 `desktop-agent-execution`「会话级工具面注入与 explore 笔记工具」与 `desktop-agent-db-tools`，本能力 MUST NOT 另写一份；其余非 change 来源（debug 等）SHALL 恒「七内建全量 + 零 archi 工具 + `ask = Generic`」的显式构造（MUST NOT 以默认构造兜底——默认值的 `ask = None` 即静默禁用）。
-- 矩阵只决定**下发面**，不决定 prompt 文本（prompt 侧见 `desktop-phase-prompts`）；`preamble` 位只由装配层按来源决定（当前唯一生产者 = archi 臂），前端 / 自由字符串 MUST NOT 直接供给。
+- `source = "explore"` 臂的 **archi 面 SHALL 恒为空**（零 archi 工具，逐字沿用）；该臂的**完整**名字清单（六工具收窄 + `create_explore_note` + 只读 DB 工具 `db_tables` / `db_query` 两件）单源见 `desktop-agent-execution`「会话级工具面注入与 explore 笔记工具」与 `desktop-agent-db-tools`，本能力 MUST NOT 另写一份；其余**非 change、非 config** 来源（debug 等）SHALL 恒「七内建全量 + 零 archi 工具 + `ask = Generic`」的显式构造（`source = "config"` 臂的名字清单与位取值单源见 `desktop-config-agent` 与 `desktop-agent-execution`「会话级工具面注入与 explore 笔记工具」；该臂零 archi 工具、`preamble` 为配置协议知识而非架构会话知识，本能力 MUST NOT 另写一份；MUST NOT 以默认构造兜底——默认值的 `ask = None` 即静默禁用）。
+- 矩阵只决定**下发面**，不决定 prompt 文本（prompt 侧见 `desktop-phase-prompts`）；`preamble` 位只由装配层按来源决定（生产者 = archi 臂与 config 臂），前端 / 自由字符串 MUST NOT 直接供给。
 
 #### Scenario: 逐相位矩阵命中
 
@@ -323,7 +323,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 #### Scenario: 挂载清单项数
 
 - **WHEN** 审查 `mount::registry()` 的项数与归组
-- **THEN** 恰 **15** 项：七内建 + `create_explore_note` + 五 archi 只读 + 两 DB 只读；五 archi 项均 `ToolTier::Read` 且 `ToolExec::Archi`
+- **THEN** 恰 **16** 项：七内建 + `create_explore_note` + 五 archi 只读 + 两 DB 只读 + `propose_config`（`ToolTier::Read` / `ToolExec::Config`）；五 archi 项均 `ToolTier::Read` 且 `ToolExec::Archi`
 
 ### Requirement: 模型 = 源码（写纪律与不设专用写工具）
 
@@ -634,3 +634,12 @@ archi 会话（`SessionInjections.preamble` 在场）在**自然收敛**收口�
 | `dev-design-planner.md` | 改 | 工具行补 `archi_drift` / `archi_scaffold`；写面自查句 |
 | `implementation-generator.md` | 改 | 工具行补 `archi_drift`（改代码后自查未声明依赖） |
 | 其余 11 份 | 改 | 各补「架构模型已锁」一句（中文措辞、零 ASCII `archi`、evaluator 零 `backtrack`） |
+
+### 模块增量：config 来源臂的 archi 面归零（config-agent-session）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 类型 | 职责 / 契约 |
+|------|------|-------------|
+| `crates/infra/agent/src/compose.rs` | Function | archi 来源臂与矩阵逐字不动；新增的 `source == "config"` 臂**零 archi 工具**（其清单单源在 `desktop-agent-execution` 与 `desktop-config-agent`）；兜底臂表述收窄为「非 change、非 config 来源（debug 等）」 |
+| `crates/infra/agent/src/archi_knowledge.rs` | Function | 零改动（archi 臂专属知识）；`preamble` 位新增的第二生产者（config）**MUST NOT** 复用本文件 |
