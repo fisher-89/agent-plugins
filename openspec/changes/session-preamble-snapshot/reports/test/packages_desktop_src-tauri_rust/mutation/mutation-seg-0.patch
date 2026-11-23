@@ -1,0 +1,4957 @@
+diff --git a/crates/core/agent/src/lib.rs b/crates/core/agent/src/lib.rs
+index c833bea434e7..4bdacc04121c 100644
+--- a/crates/core/agent/src/lib.rs
++++ b/crates/core/agent/src/lib.rs
+@@ -22,8 +22,8 @@ pub use runner::{
+     SessionProtectRule, SessionRef, TurnQuestion,
+ };
+ pub use session::{
+-    new_session_id, NewSessionRow, SessionPage, SessionProvenance, SessionRow, SessionStats,
+-    SessionSummary, TurnSummary,
++    new_session_id, NewSessionRow, SessionPage, SessionPreambleInfo, SessionProvenance, SessionRow,
++    SessionStats, SessionSummary, TurnSummary,
+ };
+ pub use state::{AgentRunState, RunStateMachine};
+ pub use steer::{SteerMessage, SteerRegistry};
+diff --git a/crates/core/agent/src/lib_test.rs b/crates/core/agent/src/lib_test.rs
+index 2db425c58159..106f1d256659 100644
+--- a/crates/core/agent/src/lib_test.rs
++++ b/crates/core/agent/src/lib_test.rs
+@@ -13,8 +13,8 @@ use crate::runner::{
+     TurnQuestion,
+ };
+ use crate::session::{
+-    new_session_id, NewSessionRow, SessionPage, SessionProvenance, SessionRow, SessionStats,
+-    SessionSummary, TurnSummary,
++    new_session_id, NewSessionRow, SessionPage, SessionPreambleInfo, SessionProvenance, SessionRow,
++    SessionStats, SessionSummary, TurnSummary,
+ };
+ use crate::state::{AgentRunState, RunStateMachine};
+ use crate::steer::SteerRegistry;
+@@ -98,6 +98,7 @@ fn crate根导出面锚定_session_port_kernel新模块类型可达() {
+             duration_ms: None,
+             error: None,
+         }],
++        preamble: None,
+     };
+     assert_eq!(summary.row.id, row.id);
+ 
+@@ -347,6 +348,7 @@ fn 既有再导出面快照逐名可达_增补不挤掉既有词汇() {
+     let _session_word_shapes: Option<(
+         NewSessionRow,
+         SessionPage,
++        SessionPreambleInfo,
+         SessionProvenance,
+         SessionRow,
+         SessionStats,
+@@ -609,3 +611,83 @@ fn crate根路径未登记id订阅为none() {
+     assert!(registry.subscribe("ses-404", 0).is_none());
+     assert!(registry.subscribe("", 0).is_none());
+ }
++
++// ---------------------------------------------------------------------------
++// session-preamble-snapshot：`SessionPreambleInfo` 的 crate 根出口面锚定
++//（`pub use session::{…, SessionPreambleInfo, …}`；store / 壳 / specta 皆经
++//  根路径取该类型）
++// ---------------------------------------------------------------------------
++
++/// 根路径可构造且字段可读（非「仅被 use」的假锚，正向）。
++#[test]
++fn crate根路径session_preamble_info可构造且字段可读() {
++    let info = crate::SessionPreambleInfo {
++        saved_at: 1,
++        content: "x".to_owned(),
++    };
++    assert_eq!(info.saved_at, 1, "拍存时刻字段可读");
++    assert_eq!(info.content, "x", "快照正文字段可读");
++}
++
++/// 类型同一性（异常）：根路径值可传给形参为 `crate::session::SessionPreambleInfo`
++/// 的函数——根导出是 re-export 而非另立的包装类型。
++#[test]
++fn crate根路径session_preamble_info与模块路径同一类型() {
++    fn takes_module_type(info: crate::session::SessionPreambleInfo) -> i64 {
++        info.saved_at
++    }
++    let via_root = crate::SessionPreambleInfo {
++        saved_at: 42,
++        content: "同一实现".to_owned(),
++    };
++    assert_eq!(
++        takes_module_type(via_root),
++        42,
++        "根路径与 session 模块路径是同一类型（无包装层）"
++    );
++
++    // native_model 无关面的身份不受导出影响：serde 线名同源
++    let value = serde_json::to_value(crate::SessionPreambleInfo {
++        saved_at: 7,
++        content: "线名".to_owned(),
++    })
++    .expect("序列化成功");
++    assert_eq!(
++        value,
++        serde_json::json!({ "savedAt": 7, "content": "线名" }),
++        "根路径取值与模块路径同形态（派生链一致）"
++    );
++}
++
++/// 边界：`SessionSummary` 经根路径组装时可携带根路径取来的快照值（字段面
++/// 同一性在容器侧同样成立）。
++#[test]
++fn crate根路径session_summary携带快照字段可组装() {
++    let summary = crate::SessionSummary {
++        row: crate::SessionRow {
++            id: "ses-root-preamble".to_owned(),
++            remote_session_id: None,
++            config_snapshot: serde_json::json!({}),
++            provenance: crate::SessionProvenance {
++                source: "debug".to_owned(),
++                source_ref: None,
++            },
++            created_at: 1,
++            updated_at: 1,
++        },
++        stats: crate::SessionStats {
++            turn_count: 0,
++            total_duration_ms: None,
++            input_tokens: None,
++            output_tokens: None,
++        },
++        turns: Vec::new(),
++        preamble: Some(crate::SessionPreambleInfo {
++            saved_at: 9,
++            content: String::new(),
++        }),
++    };
++    let value = serde_json::to_value(&summary).expect("序列化成功");
++    assert_eq!(value["preamble"]["savedAt"], serde_json::json!(9));
++    assert_eq!(value["preamble"]["content"], serde_json::json!(""));
++}
+diff --git a/crates/core/agent/src/port_test.rs b/crates/core/agent/src/port_test.rs
+index d63e90692f06..fce4b8bc7a74 100644
+--- a/crates/core/agent/src/port_test.rs
++++ b/crates/core/agent/src/port_test.rs
+@@ -217,6 +217,7 @@ fn preset_summary(id: &str) -> SessionSummary {
+             output_tokens: Some(20),
+         },
+         turns: Vec::new(),
++        preamble: None,
+     }
+ }
+ 
+diff --git a/crates/core/agent/src/runner.rs b/crates/core/agent/src/runner.rs
+index ead24726ef9e..5faffd84c696 100644
+--- a/crates/core/agent/src/runner.rs
++++ b/crates/core/agent/src/runner.rs
+@@ -85,7 +85,7 @@ pub struct SessionProtectRule {
+     pub reason: String,
+ }
+ 
+-/// 会话级注入六位：`preamble`（会话级系统前导）/ `tools`（本轮下发的工具**名字
++/// 会话级注入六位：`preamble`（会话系统提示词快照正文）/ `tools`（本轮下发的工具**名字
+ /// 清单**，`None` = infra 内建七件）/ `finish`（收口档位，`None` = 本步无收口
+ /// 工具）/ `ask`（ask 装配档位，`None` = 显式禁用）/ `protect`（会话级写入禁区
+ /// 规则，`None` = 不追加）/ `before_done`（收口前钩子档位，`None` = 不装配）。
+@@ -100,7 +100,8 @@ pub struct SessionProtectRule {
+ /// core 不解释路径语义。本类型无 `specta::Type` ⇒ 不进 TS bindings。
+ #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+ pub struct SessionInjections {
+-    /// 会话级系统前导（None 即不注入；维持不消费）
++    /// 会话系统提示词快照正文（None = 本会话不注入 System 消息）；合成、拍存与
++    /// 读回归 infra 装配层（内核组合根），core 只作不透明承载
+     pub preamble: Option<String>,
+     /// 本轮下发的工具名字清单（None = infra 内建七件；Some = 按挂载清单序过滤）
+     pub tools: Option<Vec<String>>,
+diff --git a/crates/core/agent/src/session.rs b/crates/core/agent/src/session.rs
+index dc5a59359c30..b8328755b44e 100644
+--- a/crates/core/agent/src/session.rs
++++ b/crates/core/agent/src/session.rs
+@@ -99,6 +99,17 @@ pub struct SessionStats {
+     pub output_tokens: Option<u64>,
+ }
+ 
++/// 会话系统提示词快照的**只读**出线面：仅有 `session_detail` 单查路径携带，
++/// 会话清单路径恒为 `None`；快照在会话首轮拍存后不可变，无写命令、无编辑面。
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
++#[serde(rename_all = "camelCase")]
++pub struct SessionPreambleInfo {
++    /// 拍存时刻（UTC unix 毫秒；由落库侧时钟取）
++    pub saved_at: i64,
++    /// 快照正文全文（可能为空串——快照成立但无正文，此时会话零 System 消息）
++    pub content: String,
++}
++
+ /// 会话清单项：会话记录 + 现算聚合统计 + 轮行随行返回（重放部件与历史展示
+ /// 共用；core 契约类型，不引用 store 模型）。
+ #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+@@ -110,6 +121,9 @@ pub struct SessionSummary {
+     pub stats: SessionStats,
+     /// 轮统计行（发起顺序）
+     pub turns: Vec<TurnSummary>,
++    /// 会话系统提示词快照（清单路径恒 `None` 且实现不读快照表；单查路径按库内
++    /// `session_preamble` 行填充）
++    pub preamble: Option<SessionPreambleInfo>,
+ }
+ 
+ /// 会话清单分页信封：本页会话 + 过滤集全量计数（页界由 `total` 导出，
+diff --git a/crates/core/agent/src/session_test.rs b/crates/core/agent/src/session_test.rs
+index 4d27d4f030ba..9fc9b7d3ee3d 100644
+--- a/crates/core/agent/src/session_test.rs
++++ b/crates/core/agent/src/session_test.rs
+@@ -2,8 +2,8 @@ use serde_json::{json, Value};
+ 
+ use crate::runner::AgentRunStatus;
+ use crate::session::{
+-    new_session_id, NewSessionRow, SessionProvenance, SessionRow, SessionStats, SessionSummary,
+-    TurnSummary,
++    new_session_id, NewSessionRow, SessionPreambleInfo, SessionProvenance, SessionRow,
++    SessionStats, SessionSummary, TurnSummary,
+ };
+ 
+ /// 固定 provenance 底座。
+@@ -420,6 +420,7 @@ fn session_summary组装往返_turns空数组与多轮两形态() {
+             output_tokens: None,
+         },
+         turns: Vec::new(),
++        preamble: None,
+     };
+     let value = serde_json::to_value(&empty).expect("序列化成功");
+     assert_eq!(value["turns"], json!([]), "turns 空数组形态");
+@@ -439,10 +440,339 @@ fn session_summary组装往返_turns空数组与多轮两形态() {
+             running_summary(),
+             finished_summary(AgentRunStatus::Completed, None),
+         ],
++        preamble: Some(preamble_info()),
+     };
+     let value = serde_json::to_value(&multi).expect("序列化成功");
+     assert_eq!(value["turns"].as_array().expect("数组").len(), 2);
+     assert_eq!(value["stats"]["turnCount"], json!(2));
++    assert_eq!(
++        value["preamble"]["content"],
++        json!("快照正文\n段二"),
++        "多轮形态携快照面"
++    );
+     let roundtrip: SessionSummary = serde_json::from_value(value).expect("反序列化成功");
+     assert_eq!(roundtrip, multi, "row+stats+turns 组装往返");
+ }
++
++// ---------------------------------------------------------------------------
++// SessionPreambleInfo：会话系统提示词快照的只读出线面
++// ---------------------------------------------------------------------------
++
++/// 快照底座（拍存时刻与正文显式固定值）。
++fn preamble_info() -> SessionPreambleInfo {
++    SessionPreambleInfo {
++        saved_at: 1727000000000,
++        content: "快照正文\n段二".to_owned(),
++    }
++}
++
++/// 无轮空库形态的会话清单项底座（快照面由调用方决定）。
++fn summary_with(preamble: Option<SessionPreambleInfo>) -> SessionSummary {
++    SessionSummary {
++        row: full_row(),
++        stats: SessionStats {
++            turn_count: 0,
++            total_duration_ms: None,
++            input_tokens: None,
++            output_tokens: None,
++        },
++        turns: Vec::new(),
++        preamble,
++    }
++}
++
++#[test]
++fn session_summary_preamble有值形态驼峰线名逐字段且往返相等() {
++    let summary = summary_with(Some(SessionPreambleInfo {
++        saved_at: 1727000000000,
++        content: "快照正文\n段二".to_owned(),
++    }));
++
++    let value = serde_json::to_value(&summary).expect("序列化成功");
++    assert_eq!(
++        value["preamble"]["savedAt"],
++        json!(1727000000000_i64),
++        "拍存时刻驼峰线名"
++    );
++    assert_eq!(
++        value["preamble"]["content"],
++        json!("快照正文\n段二"),
++        "正文逐字（含换行）"
++    );
++    assert_eq!(
++        value["preamble"].as_object().expect("对象形态").len(),
++        2,
++        "快照只出面两键（无多余包装层）"
++    );
++
++    let roundtrip: SessionSummary = serde_json::from_value(value).expect("反序列化成功");
++    assert_eq!(roundtrip, summary, "含快照面往返逐字段相等");
++}
++
++#[test]
++fn session_summary_preamble为none时线面恒出null键而不省略() {
++    let summary = summary_with(None);
++
++    let value = serde_json::to_value(&summary).expect("序列化成功");
++    assert!(
++        value.get("preamble").is_some(),
++        "键恒在场（不 skip 序列化），实际: {value}"
++    );
++    assert_eq!(value["preamble"], Value::Null, "清单路径/无快照恒 null 值");
++
++    // 有值 ↔ 无值两形态线面可区分
++    let with_preamble =
++        serde_json::to_value(summary_with(Some(preamble_info()))).expect("序列化成功");
++    assert_ne!(
++        with_preamble["preamble"], value["preamble"],
++        "Some 与 None 线面可区分"
++    );
++}
++
++#[test]
++fn session_summary缺preamble键反序列化为none而其余三字段缺失均err() {
++    let full = serde_json::to_value(summary_with(Some(preamble_info()))).expect("序列化成功");
++
++    // 缺 preamble：Option 隐式缺省（存量出线路由不产半成品）
++    let mut missing_preamble = full.clone();
++    missing_preamble
++        .as_object_mut()
++        .expect("对象形态")
++        .remove("preamble")
++        .expect("移除 preamble");
++    let decoded: SessionSummary =
++        serde_json::from_value(missing_preamble).expect("缺 preamble 应可反序列化");
++    assert_eq!(decoded.preamble, None, "缺键即 None（不产半成品）");
++
++    // 对照：三字段缺失逐个 Err
++    for missing in ["row", "stats", "turns"] {
++        let mut value = full.clone();
++        value
++            .as_object_mut()
++            .expect("对象形态")
++            .remove(missing)
++            .unwrap_or_else(|| panic!("移除 {missing}"));
++        let result: Result<SessionSummary, _> = serde_json::from_value(value);
++        assert!(result.is_err(), "缺 {missing} 必须 Err，实际: {result:?}");
++    }
++
++    // 对照组：四字段齐备即可反序列化
++    assert!(serde_json::from_value::<SessionSummary>(full).is_ok());
++}
++
++#[test]
++fn session_preamble_info越界形态三形态均err不静默折成none() {
++    let ok_value = json!({ "savedAt": 1727000000000_i64, "content": "正文" });
++    assert!(
++        serde_json::from_value::<SessionPreambleInfo>(ok_value.clone()).is_ok(),
++        "对照组：两键齐备可解码"
++    );
++
++    for (label, invalid) in [
++        (
++            "preamble 为字符串",
++            json!({ "row": full_row_value(), "stats": stats_value(), "turns": [], "preamble": "字符串形态" }),
++        ),
++        (
++            "对象缺 content",
++            json!({ "row": full_row_value(), "stats": stats_value(), "turns": [], "preamble": { "savedAt": 1 } }),
++        ),
++        (
++            "savedAt 为字符串",
++            json!({ "row": full_row_value(), "stats": stats_value(), "turns": [], "preamble": { "savedAt": "1", "content": "正文" } }),
++        ),
++    ] {
++        let result: Result<SessionSummary, _> = serde_json::from_value(invalid);
++        assert!(
++            result.is_err(),
++            "越界形态「{label}」必须 Err（不静默折成 None），实际: {result:?}"
++        );
++    }
++}
++
++/// 线面底座：全字段 `SessionRow` 的 JSON 形态。
++fn full_row_value() -> Value {
++    serde_json::to_value(full_row()).expect("序列化成功")
++}
++
++/// 线面底座：全 `None` 统计的 JSON 形态。
++fn stats_value() -> Value {
++    serde_json::to_value(SessionStats {
++        turn_count: 0,
++        total_duration_ms: None,
++        input_tokens: None,
++        output_tokens: None,
++    })
++    .expect("序列化成功")
++}
++
++#[test]
++fn session_preamble_info独立构造序列化恰两键且往返等值() {
++    let info = preamble_info();
++
++    let value = serde_json::to_value(&info).expect("序列化成功");
++    assert_eq!(
++        value,
++        json!({ "savedAt": 1727000000000_i64, "content": "快照正文\n段二" }),
++        "键集恰 savedAt / content，无多余键"
++    );
++    let roundtrip: SessionPreambleInfo = serde_json::from_value(value).expect("反序列化成功");
++    assert_eq!(roundtrip, info, "往返等值");
++}
++
++#[test]
++fn session_preamble_info_content三形态逐字往返零截断() {
++    let cases = [
++        ("空串", String::new()),
++        (
++            "特殊字符",
++            "首行\n\n空行后\t制表\0空字节 🎉🚀 尾行\n".to_owned(),
++        ),
++        ("超长中文", "中".repeat(20000)),
++    ];
++    for (label, content) in cases {
++        let info = SessionPreambleInfo {
++            saved_at: 1,
++            content: content.clone(),
++        };
++        let value = serde_json::to_value(&info).expect("序列化成功");
++        assert_eq!(value["content"], json!(content), "形态「{label}」线面逐字");
++        let roundtrip: SessionPreambleInfo = serde_json::from_value(value).expect("反序列化成功");
++        assert_eq!(roundtrip.content, content, "形态「{label}」往返逐字");
++        assert_eq!(
++            roundtrip.content.chars().count(),
++            content.chars().count(),
++            "形态「{label}」零截断"
++        );
++    }
++    assert_eq!(
++        "中".repeat(20000).len(),
++        60000,
++        "超长形态越过 32KB 线（截断只在读取侧）"
++    );
++}
++
++#[test]
++fn session_preamble_info_saved_at四值线面为数字且往返保真() {
++    for saved_at in [0, -1, i64::MAX, 1_727_000_000_000] {
++        let info = SessionPreambleInfo {
++            saved_at,
++            content: String::new(),
++        };
++        let value = serde_json::to_value(&info).expect("序列化成功");
++        assert!(
++            value["savedAt"].is_number(),
++            "线面为 JSON 数字（无范围校验），实际: {}",
++            value["savedAt"]
++        );
++        assert_eq!(value["savedAt"], json!(saved_at));
++        let roundtrip: SessionPreambleInfo = serde_json::from_value(value).expect("反序列化成功");
++        assert_eq!(roundtrip.saved_at, saved_at, "{saved_at} 往返保真");
++    }
++}
++
++#[test]
++fn session_preamble_info派生链clone保真且空正文区别于无快照() {
++    let info = preamble_info();
++    let cloned = info.clone();
++    assert_eq!(cloned, info, "Clone 保真");
++
++    // 空正文 ≠ 无快照：Some(空串) 与 None 可区分（PartialEq 判据）
++    let empty_body = SessionPreambleInfo {
++        content: String::new(),
++        ..preamble_info()
++    };
++    assert_ne!(
++        Some(empty_body.clone()),
++        None,
++        "空正文不是无快照（两状态 MUST NOT 混用）"
++    );
++    assert_eq!(
++        Some(empty_body.clone()),
++        Some(SessionPreambleInfo {
++            content: String::new(),
++            ..preamble_info()
++        }),
++        "同字段值相等"
++    );
++    assert_ne!(empty_body, info, "空正文与有正文不等");
++}
++
++#[test]
++fn session_summary三字段键集零改动_快照字段不渗入() {
++    let value = serde_json::to_value(summary_with(Some(preamble_info()))).expect("序列化成功");
++
++    assert_eq!(
++        value
++            .as_object()
++            .expect("对象形态")
++            .keys()
++            .cloned()
++            .collect::<Vec<_>>(),
++        vec!["row", "stats", "turns", "preamble"],
++        "顶层键集 = 既有三字段 + 新增快照位"
++    );
++    let mut row_keys: Vec<&String> = value["row"].as_object().expect("对象").keys().collect();
++    row_keys.sort();
++    assert_eq!(
++        row_keys,
++        vec![
++            "configSnapshot",
++            "createdAt",
++            "id",
++            "provenance",
++            "remoteSessionId",
++            "updatedAt"
++        ],
++        "SessionRow 键集零改动"
++    );
++    let mut stats_keys: Vec<&String> = value["stats"].as_object().expect("对象").keys().collect();
++    stats_keys.sort();
++    assert_eq!(
++        stats_keys,
++        vec![
++            "inputTokens",
++            "outputTokens",
++            "totalDurationMs",
++            "turnCount"
++        ],
++        "SessionStats 键集零改动（快照体量不落库）"
++    );
++}
++
++/// `SessionSummary.preamble` 字段块零 `skip_serializing_if`（源码自证，边界）：
++/// 线面恒出键的机械判据——加了 skip 即 AB 面裂出「键有时在有时不在」。
++#[test]
++fn session_summary_preamble字段块零skip_serializing_if() {
++    let own = std::fs::read_to_string(
++        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/session.rs"),
++    )
++    .expect("读取 session.rs");
++    let lines: Vec<&str> = own.lines().collect();
++    let field_index = lines
++        .iter()
++        .position(|line| line.trim_start().starts_with("pub preamble:"))
++        .expect("pub preamble 字段在场");
++
++    // 字段块 = 字段行 + 其上紧邻的 doc / 属性行
++    let mut block = vec![lines[field_index]];
++    for line in lines[..field_index].iter().rev() {
++        let trimmed = line.trim_start();
++        if trimmed.starts_with("///") || trimmed.starts_with("#[") {
++            block.push(line);
++        } else {
++            break;
++        }
++    }
++    assert!(
++        block
++            .iter()
++            .all(|line| !line.contains("skip_serializing_if")),
++        "快照字段块 MUST NOT 带 skip_serializing_if，实际块: {block:?}"
++    );
++    assert!(
++        lines[field_index].contains("Option<SessionPreambleInfo>"),
++        "字段类型为可空快照 DTO，实际: {}",
++        lines[field_index]
++    );
++}
+diff --git a/crates/infra/agent/src/compose.rs b/crates/infra/agent/src/compose.rs
+index 45e8ac631db2..3f44ed69761c 100644
+--- a/crates/infra/agent/src/compose.rs
++++ b/crates/infra/agent/src/compose.rs
+@@ -57,6 +57,10 @@ const CONFIG_SOURCE: &str = "config";
+ /// 四臂的每个名字 SHALL 经 [`mount::lookup`] 成员校验（未知名 `Err`）。`ask` 位
+ /// 逐臂显式置位：explore / archi / config / 其余来源 → `Generic`，change（**不分
+ /// role / 不分矩阵命中**）→ `Flow`。
++///
++/// `preamble` 位在此按 provenance 产**知识段**；最终系统提示词由
++/// [`ComposedTurn::begin`] 冻结合成后覆盖同一位（快照语义见
++/// `desktop-agent-execution`「会话系统提示词快照的拍存与续轮复用」）。
+ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionInjections, String> {
+     if provenance.source == EXPLORE_SOURCE {
+         const EXPLORE_TOOLS: [&str; 9] = [
+@@ -398,7 +402,15 @@ pub fn compose_turn(
+ }
+ 
+ impl ComposedTurn {
+-    /// 发起一轮（Continue 校验 + prior_handle 提取 + 快照组装 + 内核 begin）
++    /// 发起一轮（Continue 校验 + prior_handle 提取 + 会话系统提示词快照的拍存 /
++    /// 读回 / 补拍 + 内核 begin）
++    ///
++    /// 快照三分支：①**首轮**（`New`，或 `Continue` 且未开轮）现算正文、本轮直接
++    /// 用内存体、`begin_turn` 返回后落库；②**续轮已开轮**读库正文覆盖注入位（不
++    /// 读文件、不算知识）；③**存量补拍**（已开轮但快照行缺席）按首轮口径现算一
++    /// 次并落库——补拍取**补拍当轮**的知识（无历史见证，唯一可实现的口径），此
++    /// 后冻结。落库 MUST 在 `begin_turn` 之后（`New` 路径只有此刻才知会话 id），
++    /// 本轮 MUST NOT 读回自己刚写的快照；落库失败仅日志留痕、MUST NOT 中断本轮。
+     pub fn begin(
+         &self,
+         session: SessionRef,
+@@ -420,8 +432,14 @@ impl ComposedTurn {
+             model,
+             permission_mode: ctx.permission_mode,
+         };
+-        let prior_handle = match &session {
+-            SessionRef::New => None,
++        // 知识段先由装配面产出；最终系统提示词由下方三分支冻结合成后覆盖同一位
++        let mut injections = assemble_injections(&provenance)?;
++        let (prior_handle, stamp) = match &session {
++            SessionRef::New => {
++                let body = freeze_preamble(&injections, &ctx);
++                injections.preamble = injectable(body.clone());
++                (None, Some(body))
++            }
+             SessionRef::Continue { id } => {
+                 let record = self
+                     .query
+@@ -430,7 +448,8 @@ impl ComposedTurn {
+                     .map_err(|e| e.to_string())?
+                     .ok_or_else(|| format!("会话不存在: {id}"))?;
+                 // 未开轮（无句柄 + 无轮行 + 无转录）：预建空会话首轮，按全新
+-                // 会话开跑 + 快照定型；其余续会话治理三连
++                // 会话开跑 + 快照定型；其余续会话治理三连。首轮判据只取一次
++                // ——`begin_turn` 落轮行后同判据必然转假
+                 if self
+                     .query
+                     .store()
+@@ -441,34 +460,82 @@ impl ComposedTurn {
+                         .store()
+                         .restamp_session_config(id, &snapshot)
+                         .map_err(|e| e.to_string())?;
+-                    None
++                    let body = freeze_preamble(&injections, &ctx);
++                    injections.preamble = injectable(body.clone());
++                    (None, Some(body))
+                 } else {
+                     if record.config_snapshot.engine != self.store_kind {
+                         return Err(format!("会话非当前引擎产出（跨引擎续会话不支持）: {id}"));
+                     }
+-                    record.engine_session_id.clone()
++                    let prior_handle = record.engine_session_id.clone();
++                    // 读点：快照正文覆盖注入位（空正文 → None）；不读文件、不算知识
++                    match self
++                        .query
++                        .store()
++                        .find_session_preamble(id)
++                        .map_err(|e| e.to_string())?
++                    {
++                        Some(preamble) => {
++                            injections.preamble = injectable(preamble.content);
++                            (prior_handle, None)
++                        }
++                        None => {
++                            // 存量补拍：本变更前创建的会话首次续轮现算一次并冻结
++                            let body = freeze_preamble(&injections, &ctx);
++                            injections.preamble = injectable(body.clone());
++                            (prior_handle, Some(body))
++                        }
++                    }
+                 }
+             }
+         };
+         let config_snapshot =
+             serde_json::to_value(snapshot).map_err(|e| format!("配置快照组装失败: {e}"))?;
+-        self.kernel
++        let running = self
++            .kernel
+             .begin_turn(
+                 Arc::clone(&self.runner),
+                 TurnRequest {
+                     session,
+                     question,
+-                    injections: assemble_injections(&provenance)?,
++                    injections,
+                     ctx,
+                     provenance,
+                     config_snapshot,
+                     prior_handle,
+                 },
+             )
+-            .map_err(|e| e.to_string())
++            .map_err(|e| e.to_string())?;
++        if let Some(body) = stamp {
++            if let Err(error) = self
++                .query
++                .store()
++                .stamp_session_preamble(&running.session_id, &body)
++            {
++                crate::sdk::log::append_engine_log(&format!(
++                    "会话系统提示词快照落库失败 session={} cause={error}",
++                    running.session_id
++                ));
++            }
++        }
++        Ok(running)
+     }
+ }
+ 
++/// 会话系统提示词快照现算（首轮与存量补拍共用）：读取根 = 会话执行根
++/// `SessionCtx.workspace_root`（worktree 即分支版），每次会话读取一次；知识段
++/// 取自注入面已产出的 `preamble` 位（provenance 判定单源在
++/// [`assemble_injections`]）。
++fn freeze_preamble(injections: &agent::SessionInjections, ctx: &agent::SessionCtx) -> String {
++    let agent_md = crate::sdk::preamble::load(&ctx.workspace_root);
++    crate::sdk::preamble::freeze(injections.preamble.as_deref(), agent_md.as_deref())
++}
++
++/// 空快照正文 → `None`：无正文可注入即零 System 消息（指引常量不单独成条）。
++fn injectable(body: String) -> Option<String> {
++    (!body.is_empty()).then_some(body)
++}
++
+ /// store 协议枚举 → 门面协议枚举（两臂 match；沿 `AgentEngineKind` →
+ /// `EngineKind` 双枚举映射先例——store 禁拖引擎门面 crate，故两侧各一枚、
+ /// 映射收组合根单点）。
+diff --git a/crates/infra/agent/src/compose_test.rs b/crates/infra/agent/src/compose_test.rs
+index b2245c1d3f46..d5b2b010ca02 100644
+--- a/crates/infra/agent/src/compose_test.rs
++++ b/crates/infra/agent/src/compose_test.rs
+@@ -3774,8 +3774,9 @@ fn archi_source字面量单点() {
+ }
+ 
+ /// 正向：调用点链路——`composed.begin` 以 `SessionProvenance { source: "archi",
+-/// source_ref: None }` 发起，记录型假 runner 捕获的 `injections` 与
+-/// `assemble_injections` 直调结果逐字段全等（臂结果唯一来源，组合根零二次改写）。
++/// source_ref: None }` 发起，记录型假 runner 捕获的 `injections` = 装配面
++/// （`assemble_injections` 直调结果）**加**首轮快照对 `preamble` 注入位的覆盖；
++/// 其余注入位逐字段不变（组合根零二次改写）。
+ #[tokio::test]
+ async fn archi臂调用点链路捕获与直调全等() {
+     let env = DualEnv::new("archi-arm-chain");
+@@ -3804,12 +3805,25 @@ async fn archi臂调用点链路捕获与直调全等() {
+         )
+         .expect("archi 来源发起应成功");
+ 
++    // 装配面（知识段来源）→ 首轮快照合成体（本用例环境无 AGENT.md ⇒ 知识 + 常量）
++    let assembled = injections_of("archi", None);
++    let knowledge = assembled.preamble.clone().expect("archi 臂知识段在位");
++    let snapshot = expected_body(Some(&knowledge), &env.root());
++    assert_eq!(
++        snapshot,
++        format!("{knowledge}\n\n{}", crate::sdk::preamble::GUIDANCE),
++        "无 AGENT.md 时快照正文 = 知识段 + 空行 + 指引常量"
++    );
++
+     let captured = runner.captured_injections();
+     assert_eq!(captured.len(), 1, "恰一次 open_session 捕获");
+     assert_eq!(
+         captured[0],
+-        injections_of("archi", None),
+-        "组合根零二次改写（捕获面与装配面逐字段全等）"
++        agent::SessionInjections {
++            preamble: Some(snapshot),
++            ..assembled
++        },
++        "捕获面 = 装配面 + 首轮快照覆盖注入位（其余位逐字段不变）"
+     );
+     assert_eq!(
+         archi_bits(&captured[0]),
+@@ -5815,3 +5829,774 @@ fn config臂preamble只取option不消费err() {
+         "装配层只取 Option：真骨架 → Some（run 不因坏骨架中断）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// session-preamble-snapshot：会话系统提示词快照的拍存 / 续轮读库 / 存量补拍
++// ---------------------------------------------------------------------------
++
++const ARCHI_SOURCE: &str = "archi";
++const CONFIG_SOURCE_NAME: &str = "config";
++const CHANGE_SOURCE: &str = "change";
++
++/// 在 workspace 根下写 `AGENT.md`（真实盘上操作）。
++fn write_agent_md(root: &str, content: &str) {
++    std::fs::write(Path::new(root).join("AGENT.md"), content).expect("写 AGENT.md 失败");
++}
++
++/// 快照正文的期望值：合成单点（`freeze`）与读取单点（`load`）的直接组合——被测
++/// 面是「拍存体 == 现算体」，不是合成算法本身（算法归 `preamble_test`）。
++fn expected_body(knowledge: Option<&str>, root: &str) -> String {
++    let agent_md = crate::sdk::preamble::load(Path::new(root));
++    crate::sdk::preamble::freeze(knowledge, agent_md.as_deref())
++}
++
++/// 装配底座：真 tempdir 双库 + 假 runner / 假 sink 的组合根。
++fn fake_composed(
++    store: std::sync::Arc<store::Store>,
++    runner: &Arc<RecordingRunner>,
++    sink: &Arc<RecordingSink>,
++) -> ComposedTurn {
++    composed_with_fakes(
++        store,
++        Arc::clone(runner),
++        Arc::clone(sink),
++        Some(("m-high".to_owned(), "m-low".to_owned())),
++        7,
++    )
++}
++
++#[test]
++fn begin首轮拍存new_注入位与库行同源且时刻为正() {
++    let env = DualEnv::new("preamble-first-new");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    write_agent_md(&env.root(), "项目约定 🎉");
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
++
++    let running = composed
++        .begin(
++            SessionRef::New,
++            "首轮提问".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: ARCHI_SOURCE.to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("New 首轮应成功");
++
++    let captured = runner.captured_injections();
++    assert_eq!(captured.len(), 1, "恰一次注入捕获");
++    let knowledge = crate::archi_knowledge::knowledge();
++    let body = expected_body(knowledge.as_deref(), &env.root());
++    assert_eq!(
++        captured[0].preamble.as_deref(),
++        Some(body.as_str()),
++        "本轮注入位 = 冻结正文（含知识段 + AGENT.md 段 + 指引）"
++    );
++
++    let record = store
++        .find_session_preamble(&running.session_id)
++        .expect("回读应成功")
++        .expect("首轮拍存应落库");
++    assert_eq!(record.content, body, "库行正文与注入位逐字同源");
++    assert!(record.saved_at > 0, "拍存时刻为正毫秒值");
++}
++
++#[test]
++fn begin首轮拍存四来源臂正文口径与有无知识段一致() {
++    let env = DualEnv::new("preamble-sources");
++    write_agent_md(&env.root(), "来源臂约定");
++    let cases = [
++        (ARCHI_SOURCE, crate::archi_knowledge::knowledge()),
++        (CONFIG_SOURCE_NAME, crate::config_knowledge::knowledge()),
++        (CHANGE_SOURCE, None),
++        ("debug", None),
++    ];
++    for (source, knowledge) in cases {
++        let stores = env.stores();
++        let store = stores.for_root(&env.root()).expect("for_root 应成功");
++        let runner = RecordingRunner::new();
++        let sink = RecordingSink::new();
++        let composed = fake_composed(Arc::clone(&store), &runner, &sink);
++
++        let running = composed
++            .begin(
++                SessionRef::New,
++                "来源臂提问".to_owned(),
++                ctx(&env.root()),
++                SessionProvenance {
++                    source: source.to_owned(),
++                    source_ref: None,
++                },
++            )
++            .unwrap_or_else(|e| panic!("来源 {source} 首轮应成功: {e}"));
++
++        let body = expected_body(knowledge.as_deref(), &env.root());
++        let captured = runner.captured_injections();
++        assert_eq!(
++            captured[0].preamble.as_deref(),
++            Some(body.as_str()),
++            "来源 {source} 的冻结正文口径"
++        );
++        if knowledge.is_none() {
++            assert!(
++                body.starts_with("<agent_md path="),
++                "来源 {source} 无知识段 → 正文首位即 AGENT.md 段（无空前导）: {body}"
++            );
++        } else {
++            assert!(
++                !body.starts_with('\n') && !body.starts_with("<agent_md"),
++                "来源 {source} 有知识段 → 知识在首位"
++            );
++        }
++        let record = store
++            .find_session_preamble(&running.session_id)
++            .unwrap()
++            .expect("落库在场");
++        assert_eq!(record.content, body, "来源 {source}：库行与注入位同源");
++    }
++}
++
++#[test]
++fn begin落库失败不中断_降级为日志且本轮注入位仍为内存体() {
++    let env = DualEnv::new("preamble-stamp-fail");
++    let stores = env.stores();
++    write_agent_md(&env.root(), "失败注入约定");
++    // user 维度库：`stamp_session_preamble` 必 Err（跨维度不可达）
++    let user_store = stores.global_shared();
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = fake_composed(Arc::clone(&user_store), &runner, &sink);
++
++    let running = composed
++        .begin(
++            SessionRef::New,
++            "落库失败一轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: ARCHI_SOURCE.to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("落库失败 MUST NOT 上抛（尽力语义）");
++
++    let knowledge = crate::archi_knowledge::knowledge();
++    let body = expected_body(knowledge.as_deref(), &env.root());
++    let captured = runner.captured_injections();
++    assert_eq!(
++        captured[0].preamble.as_deref(),
++        Some(body.as_str()),
++        "注入位不因落库失败而降级（本轮用内存体）"
++    );
++    assert!(
++        !running.session_id.is_empty(),
++        "会话 id 可用（本轮驱动不受影响）"
++    );
++    assert!(
++        user_store
++            .find_session_preamble(&running.session_id)
++            .is_err(),
++        "对照：用户维度库上写面确实不可达"
++    );
++}
++
++#[test]
++fn begin落库位置源码自证_stamp晚于begin_turn且判据只查一次() {
++    let own = std::fs::read_to_string(
++        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/compose.rs"),
++    )
++    .expect("读取 compose.rs");
++
++    let begin_body = {
++        let start = own.find("pub fn begin(").expect("fn begin 在场");
++        let rest = &own[start..];
++        let end = rest.find("\n    }\n").expect("函数体收口");
++        &rest[..end]
++    };
++
++    let stamp_at = begin_body
++        .find("stamp_session_preamble(")
++        .expect("落库调用点在 begin 内");
++    let begin_turn_at = begin_body
++        .find("begin_turn(")
++        .expect("begin_turn 调用点在 begin 内");
++    assert!(
++        stamp_at > begin_turn_at,
++        "落库 MUST 晚于 begin_turn（New 路径只有此刻才知会话 id）"
++    );
++    assert_eq!(
++        begin_body.matches("stamp_session_preamble(").count(),
++        1,
++        "落库调用点恰一处（重试口唯一）"
++    );
++    assert_eq!(
++        begin_body.matches("is_unstarted_session").count(),
++        1,
++        "首轮判据只查一次（begin_turn 之后查恒假）"
++    );
++    assert_eq!(
++        begin_body.matches("find_session_preamble").count(),
++        1,
++        "补拍入口唯一（一次读库判定行是否缺席）"
++    );
++    assert!(
++        begin_body.contains("append_engine_log"),
++        "落库失败仅日志留痕（不上抛）"
++    );
++}
++
++#[test]
++fn begin首轮拍存continue未开轮_正文与new同口径且配置快照仍定型() {
++    let env = DualEnv::new("preamble-first-continue");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    write_agent_md(&env.root(), "未开轮约定");
++    seed_sdk_session(&store, "ses-unstarted", None);
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
++
++    let running = composed
++        .begin(
++            SessionRef::Continue {
++                id: "ses-unstarted".to_owned(),
++            },
++            "首轮提问".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: ARCHI_SOURCE.to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("未开轮会话首轮应放行");
++
++    let knowledge = crate::archi_knowledge::knowledge();
++    let body = expected_body(knowledge.as_deref(), &env.root());
++    assert_eq!(
++        runner.captured_injections()[0].preamble.as_deref(),
++        Some(body.as_str()),
++        "未开轮首轮臂的快照正文与 New 同口径"
++    );
++    assert_eq!(
++        store
++            .find_session_preamble(&running.session_id)
++            .unwrap()
++            .expect("落库在场")
++            .content,
++        body,
++        "库行逐字同源"
++    );
++
++    // 既有 restamp_session_config 仍生效（快照定型为本轮引擎）
++    let session = store.find_session("ses-unstarted").unwrap().unwrap();
++    assert_eq!(
++        session.config_snapshot.engine,
++        store::AgentEngineKind::Sdk,
++        "未开轮臂的既有配置定型零改动"
++    );
++}
++
++#[test]
++fn begin续轮读库_注入位取快照且文件改写不生效() {
++    let env = DualEnv::new("preamble-continue-read");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    write_agent_md(&env.root(), "第一版约定");
++    seed_sdk_session(&store, "ses-cont", Some("sdk-1"));
++    // 已开轮：有轮行 ⇒ is_unstarted 为假 ⇒ 续轮分支
++    store
++        .begin_agent_turn("ses-cont", 1727000000000)
++        .expect("开轮行 fixture");
++    assert!(
++        store
++            .stamp_session_preamble("ses-cont", "冻结体 v1")
++            .expect("拍存 fixture"),
++        "首写生效"
++    );
++
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
++    let running = composed
++        .begin(
++            SessionRef::Continue {
++                id: "ses-cont".to_owned(),
++            },
++            "续一轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: ARCHI_SOURCE.to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("续轮应成功");
++
++    assert_eq!(
++        runner.captured_injections()[0].preamble.as_deref(),
++        Some("冻结体 v1"),
++        "续轮注入位 = 库内快照（覆盖 assemble_injections 产出的知识段）"
++    );
++
++    // 改写 AGENT.md 后再续一轮：注入位仍为快照正文，库行不变
++    write_agent_md(&env.root(), "第二版约定 🚀");
++    store
++        .begin_agent_turn("ses-cont", 1727000001000)
++        .expect("再开一轮行");
++    let before = store.find_session_preamble("ses-cont").unwrap().unwrap();
++    composed
++        .begin(
++            SessionRef::Continue {
++                id: "ses-cont".to_owned(),
++            },
++            "续二轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: ARCHI_SOURCE.to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("续二轮应成功");
++    let captured = runner.captured_injections();
++    assert_eq!(
++        captured[1].preamble.as_deref(),
++        Some("冻结体 v1"),
++        "文件改写后注入位仍为快照正文（AC-3）"
++    );
++    assert_eq!(
++        store.find_session_preamble("ses-cont").unwrap().unwrap(),
++        before,
++        "库行内容与时刻均不变"
++    );
++    assert_eq!(running.session_id, "ses-cont");
++}
++
++#[test]
++fn begin存量补拍一次性_首轮补拍后改写文件不改注入位() {
++    let env = DualEnv::new("preamble-backfill");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    write_agent_md(&env.root(), "补拍当轮约定");
++    seed_sdk_session(&store, "ses-old", Some("sdk-old"));
++    store
++        .begin_agent_turn("ses-old", 1727000000000)
++        .expect("开轮行 fixture");
++    assert!(
++        store.find_session_preamble("ses-old").unwrap().is_none(),
++        "存量形态：已开轮而快照行缺席"
++    );
++
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
++    composed
++        .begin(
++            SessionRef::Continue {
++                id: "ses-old".to_owned(),
++            },
++            "首次续轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: ARCHI_SOURCE.to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("存量会话首次续轮应成功");
++
++    let knowledge = crate::archi_knowledge::knowledge();
++    let backfilled = expected_body(knowledge.as_deref(), &env.root());
++    assert_eq!(
++        runner.captured_injections()[0].preamble.as_deref(),
++        Some(backfilled.as_str()),
++        "首次续轮注入位 = 现算体（补拍当轮的知识）"
++    );
++    let row = store
++        .find_session_preamble("ses-old")
++        .unwrap()
++        .expect("补拍行落库");
++    assert_eq!(row.content, backfilled, "库行与现算体逐字相等");
++
++    // 补拍一次性：改写文件后第二次续轮仍用首次补拍体，时刻不变
++    write_agent_md(&env.root(), "改后约定 🚀");
++    store
++        .begin_agent_turn("ses-old", 1727000002000)
++        .expect("再开一轮行");
++    composed
++        .begin(
++            SessionRef::Continue {
++                id: "ses-old".to_owned(),
++            },
++            "第二次续轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: ARCHI_SOURCE.to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("第二次续轮应成功");
++    assert_eq!(
++        runner.captured_injections()[1].preamble.as_deref(),
++        Some(backfilled.as_str()),
++        "补拍一次性：第二次续轮仍用首次补拍体"
++    );
++    let after = store.find_session_preamble("ses-old").unwrap().unwrap();
++    assert_eq!(after, row, "库行 content / saved_at 均不变（写一次）");
++}
++
++#[test]
++fn begin存量补拍取补拍当轮知识_文件缺席时仅知识与常量() {
++    let env = DualEnv::new("preamble-backfill-nofile");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    seed_sdk_session(&store, "ses-nofile", Some("sdk-nofile"));
++    store
++        .begin_agent_turn("ses-nofile", 1727000000000)
++        .expect("开轮行 fixture");
++
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
++    composed
++        .begin(
++            SessionRef::Continue {
++                id: "ses-nofile".to_owned(),
++            },
++            "首次续轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: ARCHI_SOURCE.to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("补拍应成功");
++
++    let knowledge = crate::archi_knowledge::knowledge().expect("archi 知识恒 Some");
++    let expected = format!("{knowledge}\n\n{}", crate::sdk::preamble::GUIDANCE);
++    assert_eq!(
++        runner.captured_injections()[0].preamble.as_deref(),
++        Some(expected.as_str()),
++        "AGENT.md 缺席 → 快照 = 知识 + 常量（无 AGENT.md 段、无空段占位）"
++    );
++
++    // 补拍后再写文件：本会话快照不随之改变
++    write_agent_md(&env.root(), "补拍后才出现 🎉");
++    store
++        .begin_agent_turn("ses-nofile", 1727000003000)
++        .expect("再开一轮行");
++    composed
++        .begin(
++            SessionRef::Continue {
++                id: "ses-nofile".to_owned(),
++            },
++            "第二次续轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: ARCHI_SOURCE.to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("第二次续轮应成功");
++    assert_eq!(
++        runner.captured_injections()[1].preamble.as_deref(),
++        Some(expected.as_str()),
++        "补拍后出现的文件不改本会话快照（AC-7）"
++    );
++}
++
++#[test]
++fn begin空正文快照时注入位归零为none() {
++    let env = DualEnv::new("preamble-empty-body");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    seed_sdk_session(&store, "ses-empty", Some("sdk-empty"));
++    store
++        .begin_agent_turn("ses-empty", 1727000000000)
++        .expect("开轮行 fixture");
++    assert!(
++        store
++            .stamp_session_preamble("ses-empty", "")
++            .expect("空串拍存"),
++        "空串正文可拍存（快照成立但无正文）"
++    );
++
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
++    composed
++        .begin(
++            SessionRef::Continue {
++                id: "ses-empty".to_owned(),
++            },
++            "续一轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: ARCHI_SOURCE.to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("续轮应成功");
++    assert_eq!(
++        runner.captured_injections()[0].preamble,
++        None,
++        "空正文 → 注入位 None（`injectable` 把空串归零 ⇒ 零 System 消息）"
++    );
++
++    // 此后 AGENT.md 出现也不改本会话
++    write_agent_md(&env.root(), "后来出现的约定");
++    store
++        .begin_agent_turn("ses-empty", 1727000004000)
++        .expect("再开一轮行");
++    composed
++        .begin(
++            SessionRef::Continue {
++                id: "ses-empty".to_owned(),
++            },
++            "续二轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: ARCHI_SOURCE.to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("续二轮应成功");
++    assert_eq!(
++        runner.captured_injections()[1].preamble,
++        None,
++        "文件后来出现也不改本会话（仍 None）"
++    );
++}
++
++#[test]
++fn begin跨引擎守卫与未知会话文案不因快照分支改变() {
++    let env = DualEnv::new("preamble-guards");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    let cli_session = SessionRecord {
++        id: "ses-cli-made".to_owned(),
++        engine_session_id: Some("s-cli-1".to_owned()),
++        config_snapshot: SessionConfigSnapshot {
++            engine: AgentEngineKind::Cli,
++            agent_instance_id: None,
++            model: None,
++            permission_mode: AgentPermissionMode::BypassPermissions,
++        },
++        source: "debug".to_owned(),
++        source_ref: None,
++        created_at: 1727000000000,
++        updated_at: 1727000000000,
++    };
++    store
++        .create_session(&cli_session)
++        .expect("落 cli 会话 fixture");
++
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
++
++    let cross_engine = composed
++        .begin(
++            SessionRef::Continue {
++                id: "ses-cli-made".to_owned(),
++            },
++            "跨引擎续一轮".to_owned(),
++            ctx(&env.root()),
++            debug_provenance(),
++        )
++        .map(|_| ());
++    let error = err_of(cross_engine);
++    assert!(
++        error.contains("非当前引擎产出"),
++        "跨引擎守卫文案不变，实际: {error}"
++    );
++    assert!(
++        store
++            .find_session_preamble("ses-cli-made")
++            .unwrap()
++            .is_none(),
++        "守卫拒绝路径零快照写入"
++    );
++
++    let missing = composed
++        .begin(
++            SessionRef::Continue {
++                id: "ses-404".to_owned(),
++            },
++            "未知会话".to_owned(),
++            ctx(&env.root()),
++            debug_provenance(),
++        )
++        .map(|_| ());
++    let error = err_of(missing);
++    assert!(
++        error.contains("会话不存在") && error.contains("ses-404"),
++        "未知会话文案为既有契约（不被 is_unstarted 的内部 Err 顶替），实际: {error}"
++    );
++    assert!(
++        runner.captured_injections().is_empty(),
++        "两次失败均零注入捕获"
++    );
++}
++
++#[test]
++fn begin畸形库形态两形态均走续轮分支且补拍一次() {
++    for (label, seed_turn, seed_transcript_rows) in
++        [("有轮行", true, false), ("有转录", false, true)]
++    {
++        let env = DualEnv::new(&format!("preamble-malformed-{label}"));
++        let stores = env.stores();
++        let store = stores.for_root(&env.root()).expect("for_root 应成功");
++        seed_sdk_session(&store, "ses-mal", Some("sdk-mal"));
++        if seed_turn {
++            store
++                .begin_agent_turn("ses-mal", 1727000000000)
++                .expect("开轮行 fixture");
++        }
++        if seed_transcript_rows {
++            seed_transcript(&store, "ses-mal");
++        }
++
++        let runner = RecordingRunner::new();
++        let sink = RecordingSink::new();
++        let composed = fake_composed(Arc::clone(&store), &runner, &sink);
++        composed
++            .begin(
++                SessionRef::Continue {
++                    id: "ses-mal".to_owned(),
++                },
++                "续一轮".to_owned(),
++                ctx(&env.root()),
++                debug_provenance(),
++            )
++            .unwrap_or_else(|e| panic!("形态「{label}」续轮应成功: {e}"));
++
++        assert_eq!(
++            runner.captured(),
++            vec![Some("sdk-mal".to_owned())],
++            "形态「{label}」：is_unstarted 为假 ⇒ 走续轮分支（prior_handle 取自既有行）"
++        );
++        assert!(
++            store.find_session_preamble("ses-mal").unwrap().is_some(),
++            "形态「{label}」：行缺席即补拍一次"
++        );
++    }
++}
++
++#[test]
++fn begin读取根取session_ctx的workspace_root而非组合根实例() {
++    let env = DualEnv::new("preamble-read-root");
++    let other_root = tempfile::Builder::new()
++        .prefix("compose-test-preamble-other-root-")
++        .tempdir()
++        .expect("创建另一根目录失败");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    write_agent_md(&env.root(), "实例根的约定");
++    write_agent_md(
++        other_root.path().to_str().expect("临时路径 UTF-8"),
++        "会话执行根的约定",
++    );
++
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
++    let running = composed
++        .begin(
++            SessionRef::New,
++            "读取根一测".to_owned(),
++            ctx(other_root.path().to_str().expect("临时路径 UTF-8")),
++            debug_provenance(),
++        )
++        .expect("New 应成功");
++
++    let body = expected_body(None, other_root.path().to_str().expect("临时路径 UTF-8"));
++    assert_eq!(
++        runner.captured_injections()[0].preamble.as_deref(),
++        Some(body.as_str()),
++        "读取根 = SessionCtx.workspace_root（worktree 即分支版）"
++    );
++    assert!(
++        body.contains("会话执行根的约定"),
++        "快照取会话执行根的 AGENT.md 内容"
++    );
++    assert!(
++        !body.contains("实例根的约定"),
++        "组合根 / 仓库根的 AGENT.md 不参与（读取根与实例解耦）"
++    );
++    assert_eq!(
++        store
++            .find_session_preamble(&running.session_id)
++            .unwrap()
++            .expect("落库在场")
++            .content,
++        body,
++        "库行与注入位同源"
++    );
++}
++
++#[test]
++fn begin快照体量超32kb原样落库_只有agent_md段被截断() {
++    let env = DualEnv::new("preamble-truncate");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    let huge = "中".repeat(14000); // 42KB 中文
++    write_agent_md(&env.root(), &huge);
++
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
++    let running = composed
++        .begin(
++            SessionRef::New,
++            "截断一轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: ARCHI_SOURCE.to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("超长 AGENT.md 不报错");
++
++    let body = store
++        .find_session_preamble(&running.session_id)
++        .unwrap()
++        .expect("落库在场")
++        .content;
++    assert!(
++        body.len() > 32 * 1024,
++        "总量可超 32KB（32KB 只作用于 AGENT.md 段），实际 {} 字节",
++        body.len()
++    );
++    let agent_md_segment = body
++        .split("\n\n")
++        .find(|segment| segment.starts_with("<agent_md path="))
++        .expect("AGENT.md 段在场");
++    let inner = agent_md_segment
++        .strip_prefix("<agent_md path=\"")
++        .and_then(|rest| rest.split_once("\">\n"))
++        .and_then(|(_, rest)| rest.strip_suffix("\n</agent_md>"))
++        .expect("包装形态可解析");
++    let expected_prefix_len = {
++        let mut end = 32 * 1024;
++        while !huge.is_char_boundary(end) {
++            end -= 1;
++        }
++        end
++    };
++    assert_eq!(
++        inner.len(),
++        expected_prefix_len,
++        "AGENT.md 段恰截到 32KB 内的最长 char 边界（中文 3 字节不劈半）"
++    );
++    assert!(
++        huge.starts_with(inner),
++        "截断产物恒为原文前缀（不包装改写）"
++    );
++    let knowledge = crate::archi_knowledge::knowledge().expect("archi 知识恒 Some");
++    assert!(body.starts_with(&knowledge), "知识段完整在首位");
++    assert!(
++        body.ends_with(crate::sdk::preamble::GUIDANCE),
++        "指引常量完整在末位"
++    );
++}
+diff --git a/crates/infra/agent/src/sdk/db_tool_test.rs b/crates/infra/agent/src/sdk/db_tool_test.rs
+index e88be270547d..e3f88cb84321 100644
+--- a/crates/infra/agent/src/sdk/db_tool_test.rs
++++ b/crates/infra/agent/src/sdk/db_tool_test.rs
+@@ -177,7 +177,7 @@ fn rows(body: &Value) -> &Vec<Value> {
+ // ---------------------------------------------------------------------------
+ 
+ #[tokio::test]
+-async fn db_tables无参返回十五行清单且不展开字段() {
++async fn db_tables无参返回十六行清单且不展开字段() {
+     let env = Env::new("tables-list");
+     env.seed_providers();
+     env.seed_session("ses-db");
+@@ -188,7 +188,7 @@ async fn db_tables无参返回十五行清单且不展开字段() {
+     let list = body
+         .as_array()
+         .unwrap_or_else(|| panic!("无参形态为 JSON 数组: {body}"));
+-    assert_eq!(list.len(), 15, "两库全列恰 15 行");
++    assert_eq!(list.len(), 16, "两库全列恰 16 行");
+     for row in list {
+         assert!(row.get("dimension").is_some(), "每行含 dimension: {row}");
+         assert!(row.get("table").is_some(), "每行含 table: {row}");
+@@ -271,7 +271,7 @@ async fn db_tables_scope三态收窄且下钻按维度派库() {
+ 
+     let workspace = tables_of(&context, json!({"scope": "workspace"})).await;
+     let workspace_rows = workspace.as_array().expect("数组");
+-    assert_eq!(workspace_rows.len(), 11, "scope workspace → 11 行");
++    assert_eq!(workspace_rows.len(), 12, "scope workspace → 12 行");
+     assert!(
+         workspace_rows
+             .iter()
+@@ -282,7 +282,7 @@ async fn db_tables_scope三态收窄且下钻按维度派库() {
+     let both = tables_of(&context, json!({"scope": Value::Null})).await;
+     assert_eq!(
+         both.as_array().expect("数组").len(),
+-        15,
++        16,
+         "无 scope → 两库全列"
+     );
+ 
+@@ -819,8 +819,8 @@ async fn 同一上下文两工具连续调用互不污染() {
+     assert_eq!(first_query, second_query, "查询无跨调用状态");
+     assert_eq!(
+         first_tables.as_array().expect("数组").len(),
+-        15,
+-        "两库句柄皆在场（15 行）"
++        16,
++        "两库句柄皆在场（16 行）"
+     );
+     assert_eq!(first_query["matched"], json!(1), "workspace 句柄可读");
+     assert!(
+@@ -828,3 +828,125 @@ async fn 同一上下文两工具连续调用互不污染() {
+         "库文件仍在临时目录内（无二次 open 的旁路文件）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// session-preamble-snapshot：`db_tables` 随注册表 +1（workspace 11 → 12 /
++// 合计 15 → 16）与下钻三字段面
++// ---------------------------------------------------------------------------
++
++#[tokio::test]
++async fn db_tables清单含session_preamble行且计数与播种量一致() {
++    let env = Env::new("tables-preamble");
++    env.seed_session("ses-p");
++    env.workspace
++        .stamp_session_preamble("ses-p", "快照正文")
++        .expect("拍存应成功");
++    env.workspace
++        .stamp_session_preamble("ses-p-2", "第二份快照")
++        .expect("拍存应成功");
++    let context = env.context();
++
++    let body = tables_of(&context, json!({})).await;
++    let list = body.as_array().expect("无参形态为数组");
++    let row = list
++        .iter()
++        .find(|row| row["table"] == json!("session_preamble"))
++        .unwrap_or_else(|| panic!("清单应含 session_preamble: {body}"));
++    assert_eq!(row["dimension"], json!("workspace"), "维度为 workspace");
++    assert_eq!(row["count"], json!(2), "计数与播种快照行数一致");
++    assert!(
++        row["summary"]
++            .as_str()
++            .is_some_and(|text| !text.trim().is_empty()),
++        "summary 非空: {row}"
++    );
++    assert!(row.get("fields").is_none(), "清单不展开 fields: {row}");
++    assert!(
++        list.iter().all(|row| row["table"] != json!("store_meta")),
++        "store_meta 仍不出现在任一维度清单"
++    );
++}
++
++#[tokio::test]
++async fn db_tables下钻session_preamble三字段线名与类型与说明() {
++    let env = Env::new("tables-preamble-drill");
++    let context = env.context();
++
++    let body = tables_of(&context, json!({"table": "session_preamble"})).await;
++    assert_eq!(body["table"], json!("session_preamble"));
++    assert_eq!(body["dimension"], json!("workspace"));
++    let fields = body["fields"].as_array().expect("fields 为数组");
++    assert_eq!(
++        fields
++            .iter()
++            .map(|field| field["name"].as_str().expect("name 字符串"))
++            .collect::<Vec<_>>(),
++        vec!["sessionId", "content", "savedAt"],
++        "三字段按结构体序且为 camelCase 线名"
++    );
++    assert_eq!(fields[0]["type"], json!("string"));
++    assert_eq!(fields[1]["type"], json!("string"));
++    assert_eq!(fields[2]["type"], json!("number"));
++    for field in fields {
++        assert!(
++            field["doc"]
++                .as_str()
++                .is_some_and(|doc| !doc.trim().is_empty()),
++            "字段 doc 非空: {field}"
++        );
++    }
++    assert!(
++        !fields
++            .iter()
++            .any(|field| field["name"] == json!("session_id")),
++        "蛇形名缺席"
++    );
++
++    // 空表（零快照行）下钻仍返回三字段：字段面与行数无关
++    let fresh_env = Env::new("tables-preamble-empty");
++    let fresh = tables_of(&fresh_env.context(), json!({"table": "session_preamble"})).await;
++    assert_eq!(
++        fresh["fields"].as_array().expect("fields").len(),
++        3,
++        "空表下钻仍给三字段"
++    );
++    assert_eq!(fresh, body, "字段面与行数无关（两次结果逐字相等）");
++}
++
++#[tokio::test]
++async fn db_tables_session_preamble拼写错误与维度不符均err() {
++    let env = Env::new("tables-preamble-err");
++    let context = env.context();
++
++    let misspelled = context
++        .execute(DB_TABLES, &json!({"table": "session_preambles"}))
++        .await
++        .expect_err("拼写错误的表名应 Err");
++    assert!(
++        misspelled.contains("session_preamble"),
++        "候选清单含正确名（自纠通道）: {misspelled}"
++    );
++
++    let wrong_dimension = context
++        .execute(
++            DB_TABLES,
++            &json!({"table": "session_preamble", "scope": "user"}),
++        )
++        .await
++        .expect_err("维度与 scope 不符应 Err");
++    assert!(
++        wrong_dimension.contains("workspace") && wrong_dimension.contains("scope"),
++        "维度自纠文案: {wrong_dimension}"
++    );
++
++    // scope 收窄面：workspace 侧末行为 session_preamble（登记序锚）
++    let workspace = tables_of(&context, json!({"scope": "workspace"})).await;
++    let workspace_rows = workspace.as_array().expect("数组");
++    assert_eq!(
++        workspace_rows.last().map(|row| row["table"].clone()),
++        Some(json!("session_preamble")),
++        "workspace 清单末项为快照表（登记序）"
++    );
++    let user = tables_of(&context, json!({"scope": "user"})).await;
++    assert_eq!(user.as_array().expect("数组").len(), 4, "user 侧仍 4 行");
++}
+diff --git a/crates/infra/agent/src/sdk/loop.rs b/crates/infra/agent/src/sdk/loop.rs
+index 59dc7c5159d4..ddd12ff48347 100644
+--- a/crates/infra/agent/src/sdk/loop.rs
++++ b/crates/infra/agent/src/sdk/loop.rs
+@@ -25,7 +25,7 @@ use crate::sdk::explore_note::ExploreNoteContext;
+ use crate::sdk::log::append_engine_log;
+ use crate::sdk::mount::{self, ToolExec};
+ use crate::sdk::protect::ProtectRules;
+-use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools, web_search};
++use crate::sdk::{compact, context, normalize, policy, sandbox, tools, web_search};
+ 
+ /// 正常收敛 / 失败收敛的 `TurnDone.subtype`（core 协议收敛事件口径）。
+ const SUBTYPE_SUCCESS: &str = "success";
+@@ -170,20 +170,6 @@ pub(crate) struct LoopTurn {
+     pub before_done: Option<Arc<dyn BeforeDoneHook>>,
+ }
+ 
+-/// 系统消息合成单点：会话 preamble（产品知识，前）与本轮 `AGENT.md`（逐字，后）
+-/// 合为**恰一条** System 消息内容——两段之间以单空行分隔；仅一者在场时该条为其
+-/// 原文（`AGENT.md` 逐字语义零改动）；两者皆无 → `None`（不注入 System）。
+-///
+-/// `AGENT.md` 的 32KB 截断口径只作用于该文件自身（见 `preamble::load`），会话
+-/// preamble 不在该截断逻辑内，其体量由生产者侧测试锚定上限。
+-pub(crate) fn system_prompt(knowledge: Option<&str>, agent_md: Option<String>) -> Option<String> {
+-    match (knowledge, agent_md) {
+-        (Some(knowledge), Some(agent_md)) => Some(format!("{knowledge}\n\n{agent_md}")),
+-        (Some(knowledge), None) => Some(knowledge.to_owned()),
+-        (None, agent_md) => agent_md,
+-    }
+-}
+-
+ /// 请求边界 drain：把在途补充说明逐条落成「独立 user 密封事件 + 独立史消息 +
+ /// 独立 ack」。返回 `false` = 事件通道已关闭（调用方直接 `return history`），
+ /// 此时不补 ack——剩余项随接收入端 drop 收 `Err`（drop-Err 是送达语义的诚实面）。
+@@ -319,13 +305,10 @@ pub(crate) async fn run(
+         let tool_calls: Vec<ToolCall> = 'continuation: loop {
+             // 上下文防线（每次发请求前，第二调用点）
+             history = defend(model, history, &turn.defense, &turn.liveness, &sender).await;
+-            // 系统提示词每轮重读；合并次序 = 会话 preamble 在前、`AGENT.md` 逐字在后，单空行分隔，恰一条 System 消息
++            // 系统提示词 = 会话快照正文，逐字进恰一条 System；本模块零文件读取
+             let mut chat_history = Vec::with_capacity(history.len() + 1);
+-            if let Some(system) = system_prompt(
+-                turn.injections.preamble.as_deref(),
+-                preamble::load(&turn.cwd).await,
+-            ) {
+-                chat_history.push(Message::system(system));
++            if let Some(preamble) = turn.injections.preamble.as_deref() {
++                chat_history.push(Message::system(preamble));
+             }
+             chat_history.extend(history.iter().cloned());
+             // 同轮重发装置（每次续跑前归零：续跑不继承重试预算）
+diff --git a/crates/infra/agent/src/sdk/loop_test.rs b/crates/infra/agent/src/sdk/loop_test.rs
+index 69e35333e48b..3135910bfc37 100644
+--- a/crates/infra/agent/src/sdk/loop_test.rs
++++ b/crates/infra/agent/src/sdk/loop_test.rs
+@@ -133,8 +133,8 @@ impl FakeModel {
+         model
+     }
+ 
+-    /// 首次流请求时改写文件（模拟 agent 会话中自改 AGENT.md，下一轮
+-    /// preamble 重读即生效）。
++    /// 首次流请求时改写文件（模拟 agent 会话中自改 AGENT.md；快照冻结后
++    /// 下一轮 System 逐字不变）。
+     fn rewrite_file_on_first_stream(&self, path: PathBuf, content: &str) {
+         *self
+             .state
+@@ -285,7 +285,7 @@ impl Transport<MockScript> for FakeTransport {
+                 {
+                     hook();
+                 }
+-                // 轮间改写钩子：首轮流请求捕获后执行（次轮 preamble 重读见改后内容）
++                // 轮间改写钩子：首轮流请求捕获后执行（次轮 System 仍取快照正文）
+                 if let Some((path, content)) = self
+                     .state
+                     .rewrite_on_first_stream
+@@ -1769,24 +1769,101 @@ fn loop_turn字段面完整构造锚定() {
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// preamble 每轮重读接入请求（AC-2：loop 请求构造编排半边）
++// 一元 System 消费（AC-2 / AC-3 / AC-7：loop 只搬注入位给的字符串，零文件读取）
+ // ---------------------------------------------------------------------------
+ 
+ /// `AGENT.md` 注入的期望形态：正文逐字 + 外层 `<agent_md path="…">` 包装
+-/// （与 `preamble::load` 同形，路径取 `AGENT.md` 绝对路径）。
++/// （与 `preamble::load` 同形）——本模块的**负向**判据由此形态构造：loop
++/// MUST NOT 产出它。
+ fn agent_md_preamble(root: &Path, body: &str) -> String {
+     let path = root.join("AGENT.md");
+     let path = path.to_str().expect("临时路径为 UTF-8");
+     format!("<agent_md path=\"{path}\">\n{body}\n</agent_md>")
+ }
+ 
++/// 携指定注入位快照的轮参数（一元 System 消费用例底座）。
++fn loop_turn_with_preamble(
++    cwd: &Path,
++    mode: AgentPermissionMode,
++    preamble: Option<&str>,
++) -> LoopTurn {
++    LoopTurn {
++        injections: agent::SessionInjections {
++            preamble: preamble.map(str::to_owned),
++            ..agent::SessionInjections::default()
++        },
++        ..loop_turn(cwd, mode)
++    }
++}
++
++#[tokio::test]
++async fn system取注入位快照正文逐字_不读磁盘文件也不追写() {
++    let dir = tempdir("preamble-snapshot-verbatim");
++    write_file(&dir.path().join("AGENT.md"), "磁盘上的另一份内容 🎉");
++    let snapshot = "知识\n\n<agent_md path=\"/ws/AGENT.md\">\n约定\n</agent_md>\n\n指引";
++    let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
++    let turn = loop_turn_with_preamble(
++        dir.path(),
++        AgentPermissionMode::BypassPermissions,
++        Some(snapshot),
++    );
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    let requests = model.captured_requests();
++    assert_eq!(requests.len(), 1, "单轮一次请求");
++    assert_eq!(
++        requests[0].system_instructions(),
++        Some(snapshot),
++        "System 逐字等于注入位快照正文（不被文件内容覆盖或追写）"
++    );
++    let on_disk = agent_md_preamble(dir.path(), "磁盘上的另一份内容 🎉");
++    assert_ne!(
++        requests[0].system_instructions(),
++        Some(on_disk.as_str()),
++        "loop 零文件读取（磁盘内容不进入 System）"
++    );
++    turn_done_of(&events);
++}
++
+ #[tokio::test]
+-async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
+-    let dir = tempdir("preamble-reload");
++async fn 两轮请求system逐字相等_快照成立的结构证明() {
++    let dir = tempdir("preamble-two-turns");
++    write_file(&dir.path().join("README.md"), "占位内容");
++    let snapshot = "知识\n\n<agent_md path=\"/ws/AGENT.md\">\n首版约定\n</agent_md>\n\n指引";
++    let model = FakeModel::with_turns(vec![
++        vec![
++            raw_tool_call("tu_p1", "read", serde_json::json!({ "path": "README.md" })),
++            raw_final(usage(3, 3)),
++        ],
++        vec![raw_text("完成"), raw_final(usage(4, 4))],
++    ]);
++    let turn = loop_turn_with_preamble(
++        dir.path(),
++        AgentPermissionMode::BypassPermissions,
++        Some(snapshot),
++    );
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    let requests = model.captured_requests();
++    assert_eq!(requests.len(), 2, "两轮请求（工具调用续轮）");
++    assert_eq!(
++        requests[0].system_instructions(),
++        requests[1].system_instructions(),
++        "两轮 System 逐字相等（AC-2：续轮读库覆盖注入位）"
++    );
++    assert_eq!(requests[1].system_instructions(), Some(snapshot));
++    turn_done_of(&events);
++}
++
++#[tokio::test]
++async fn 中途改写agent_md不改次轮system前缀() {
++    let dir = tempdir("preamble-freeze-midway");
+     let agent_md = dir.path().join("AGENT.md");
+     write_file(&agent_md, "第一版系统提示词");
+-    // 两轮假流：首轮以工具调用续轮（text-only 轮即收敛），首轮流请求捕获后
+-    // 改写 AGENT.md（模拟 agent 会话中自改）
++    write_file(&dir.path().join("README.md"), "占位内容");
++    let snapshot = "冻结体 v1";
+     let fake = FakeModel::with_turns(vec![
+         vec![
+             raw_tool_call("tu_pre", "read", serde_json::json!({ "path": "README.md" })),
+@@ -1794,44 +1871,27 @@ async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
+         ],
+         vec![raw_text("完成"), raw_final(usage(4, 4))],
+     ]);
++    // 首轮流请求捕获后改写 AGENT.md（模拟会话中自改文件）
+     fake.rewrite_file_on_first_stream(agent_md, "第二版系统提示词 🚀");
+-    write_file(&dir.path().join("README.md"), "占位内容");
+-    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+-    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
+-    let handle = RunHandle::default();
+-    let dyn_model = fake.erased();
+-    let task = tokio::spawn(async move {
+-        r#loop::run(
+-            &dyn_model,
+-            &turn,
+-            Vec::new(),
+-            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+-            sender,
+-            handle,
+-        )
+-        .await
+-    });
+-    let mut events = Vec::new();
+-    while let Some(event) = receiver.recv().await {
+-        events.push(event);
+-    }
+-    task.await.expect("loop 正常结束");
++    let turn = loop_turn_with_preamble(
++        dir.path(),
++        AgentPermissionMode::BypassPermissions,
++        Some(snapshot),
++    );
++
++    let events = drive_loop_turn(&fake, turn).await;
+ 
+-    // 首轮请求系统提示词含首版 AGENT.md（正文逐字 + `<agent_md path=…>` 包装）；
+-    // 轮间改写 → 次轮请求为改后内容（0.43 承载口径：chat_history 首条 System 消息）
+     let requests = fake.captured_requests();
+     assert_eq!(requests.len(), 2, "两轮请求（工具续轮）");
+-    let first = agent_md_preamble(dir.path(), "第一版系统提示词");
+     assert_eq!(
+         requests[0].system_instructions(),
+-        Some(first.as_str()),
+-        "首轮请求系统提示词含 AGENT.md 正文（包装形态同 preamble::load）"
++        Some(snapshot),
++        "首轮 System = 快照正文"
+     );
+-    let second = agent_md_preamble(dir.path(), "第二版系统提示词 🚀");
+     assert_eq!(
+         requests[1].system_instructions(),
+-        Some(second.as_str()),
+-        "轮间改写文件 → 次轮请求为改后内容（每轮重读无缓存）"
++        Some(snapshot),
++        "轮间改写文件 → 次轮 System 与首轮逐字相同（AC-3：冻结）"
+     );
+     let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+         panic!("应为 TurnDone");
+@@ -1842,65 +1902,206 @@ async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
+ #[tokio::test]
+ async fn preamble缺席时请求无system消息不注入空串() {
+     let dir = tempdir("preamble-absent");
++    write_file(&dir.path().join("README.md"), "占位内容");
++    let model = FakeModel::with_turns(vec![
++        vec![
++            raw_tool_call("tu_n", "read", serde_json::json!({ "path": "README.md" })),
++            raw_final(usage(1, 1)),
++        ],
++        vec![raw_text("好"), raw_final(usage(1, 1))],
++    ]);
++    let turn = loop_turn_with_preamble(dir.path(), AgentPermissionMode::BypassPermissions, None);
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    let requests = model.captured_requests();
++    assert_eq!(requests.len(), 2, "两轮请求");
++    for (index, request) in requests.iter().enumerate() {
++        assert!(
++            !request
++                .chat_history
++                .iter()
++                .any(|message| matches!(message, Message::System { .. })),
++            "第 {index} 轮：preamble = None → 零 System 消息（不注入空串）"
++        );
++    }
++    turn_done_of(&events);
++}
++
++#[tokio::test]
++async fn preamble为空串时按原样推一条system_loop零空串判定() {
++    let dir = tempdir("preamble-empty-string");
+     let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
+-    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+-    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
+-    let handle = RunHandle::default();
+-    let dyn_model = model.erased();
+-    let task = tokio::spawn(async move {
+-        r#loop::run(
+-            &dyn_model,
+-            &turn,
+-            Vec::new(),
+-            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+-            sender,
+-            handle,
+-        )
+-        .await
+-    });
+-    while receiver.recv().await.is_some() {}
+-    let _history = task.await.expect("loop 正常结束");
++    let turn =
++        loop_turn_with_preamble(dir.path(), AgentPermissionMode::BypassPermissions, Some(""));
++
++    let events = drive_loop_turn(&model, turn).await;
+ 
+     let requests = model.captured_requests();
+-    assert_eq!(requests.len(), 1);
+-    assert!(
+-        !requests[0]
+-            .chat_history
+-            .iter()
+-            .any(|message| matches!(message, Message::System { .. })),
+-        "root 无 AGENT.md → 请求不注入 System 消息（不注入空串）"
++    let systems = requests[0]
++        .chat_history
++        .iter()
++        .filter(|message| matches!(message, Message::System { .. }))
++        .count();
++    assert_eq!(
++        systems, 1,
++        "空串按 `if let Some` 原样推一条（空串归一化归装配层 injectable，loop 不立第二套）"
+     );
++    assert_eq!(requests[0].system_instructions(), Some(""));
++    turn_done_of(&events);
+ }
+ 
+ #[tokio::test]
+-async fn preamble在场时请求系统提示词逐字含文件内容() {
+-    let dir = tempdir("preamble-capture");
+-    write_file(&dir.path().join("AGENT.md"), "# 约定 🎉\n- 提交信息用中文");
+-    let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
+-    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+-    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
+-    let handle = RunHandle::default();
+-    let dyn_model = model.erased();
+-    let task = tokio::spawn(async move {
+-        r#loop::run(
+-            &dyn_model,
+-            &turn,
+-            Vec::new(),
+-            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+-            sender,
+-            handle,
+-        )
+-        .await
+-    });
+-    while receiver.recv().await.is_some() {}
+-    let _history = task.await.expect("loop 正常结束");
++async fn 超长与特殊字符preamble逐字保留零截断() {
++    let dir = tempdir("preamble-edge");
++    for (label, snapshot) in [
++        ("超长中文", "中".repeat(20000)),
++        (
++            "特殊字符",
++            "首行\n\n空行后\t制表\0空字节 🎉🚀\n\n\n末段".to_owned(),
++        ),
++    ] {
++        let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
++        let turn = loop_turn_with_preamble(
++            dir.path(),
++            AgentPermissionMode::BypassPermissions,
++            Some(&snapshot),
++        );
++
++        let events = drive_loop_turn(&model, turn).await;
++
++        let requests = model.captured_requests();
++        let actual = requests[0].system_instructions().expect("System 在场");
++        assert_eq!(actual, snapshot, "形态「{label}」System 逐字保留");
++        assert_eq!(
++            actual.chars().count(),
++            snapshot.chars().count(),
++            "形态「{label}」长度守恒（loop 零截断）"
++        );
++        turn_done_of(&events);
++    }
++}
++
++#[tokio::test]
++async fn system位次契约_首条为system其后历史逐条保序不追加() {
++    let dir = tempdir("preamble-position");
++    write_file(&dir.path().join("README.md"), "占位内容");
++    let snapshot = "快照正文";
++    let model = FakeModel::with_turns(vec![
++        vec![
++            raw_tool_call("tu_o", "read", serde_json::json!({ "path": "README.md" })),
++            raw_final(usage(2, 2)),
++        ],
++        vec![raw_text("完成"), raw_final(usage(3, 3))],
++    ]);
++    let turn = loop_turn_with_preamble(
++        dir.path(),
++        AgentPermissionMode::BypassPermissions,
++        Some(snapshot),
++    );
++
++    let events = drive_loop_turn(&model, turn).await;
+ 
+     let requests = model.captured_requests();
+-    let expected = agent_md_preamble(dir.path(), "# 约定 🎉\n- 提交信息用中文");
++    let second = &requests[1].chat_history;
++    assert!(
++        matches!(second.first(), Some(Message::System { .. })),
++        "chat_history[0] 为 System（位置契约）"
++    );
+     assert_eq!(
+-        requests[0].system_instructions(),
+-        Some(expected.as_str()),
+-        "请求系统提示词含 AGENT.md 正文（含中文 / emoji / 换行）与路径包装"
++        second
++            .iter()
++            .filter(|message| matches!(message, Message::System { .. }))
++            .count(),
++        1,
++        "不追加第二条 System"
++    );
++    assert!(second.len() > 1, "其后历史在场");
++    turn_done_of(&events);
++}
++
++#[tokio::test]
++async fn 单轮直答与工具续轮两形态及两权限档system数与内容不变() {
++    let dir = tempdir("preamble-matrix");
++    write_file(&dir.path().join("README.md"), "占位内容");
++    let snapshot = "矩阵形态快照正文";
++    for mode in [
++        AgentPermissionMode::BypassPermissions,
++        AgentPermissionMode::Default,
++    ] {
++        for (label, turns) in [
++            (
++                "单轮直答",
++                vec![vec![raw_text("好"), raw_final(usage(1, 1))]],
++            ),
++            (
++                "工具续轮",
++                vec![
++                    vec![
++                        raw_tool_call("tu_m", "read", serde_json::json!({ "path": "README.md" })),
++                        raw_final(usage(1, 1)),
++                    ],
++                    vec![raw_text("完成"), raw_final(usage(1, 1))],
++                ],
++            ),
++        ] {
++            let model = FakeModel::with_turns(turns);
++            let turn = loop_turn_with_preamble(dir.path(), mode, Some(snapshot));
++
++            let events = drive_loop_turn(&model, turn).await;
++
++            let requests = model.captured_requests();
++            for (index, request) in requests.iter().enumerate() {
++                assert_eq!(
++                    request.system_instructions(),
++                    Some(snapshot),
++                    "{label} / {mode:?} 第 {index} 轮 System 内容不变"
++                );
++                assert_eq!(
++                    request
++                        .chat_history
++                        .iter()
++                        .filter(|message| matches!(message, Message::System { .. }))
++                        .count(),
++                    1,
++                    "{label} / {mode:?} 第 {index} 轮恰一条 System"
++                );
++            }
++            turn_done_of(&events);
++        }
++    }
++}
++
++/// 源码自证（边界）：`loop.rs` 零文件读取字样、`system_prompt` 退役，且
++/// `turn.cwd` 的三处既有使用仍在场。
++#[test]
++fn loop源文件零文件读取字样且cwd三处在场() {
++    let own = std::fs::read_to_string(
++        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/sdk/loop.rs"),
++    )
++    .expect("读取 loop.rs");
++
++    for token in ["AGENT.md", "preamble::load", "system_prompt"] {
++        assert!(
++            !own.contains(token),
++            "loop.rs MUST NOT 含 {token:?}（引擎零文件读取 / 合成函数退役）"
++        );
++    }
++    assert!(
++        own.matches("turn.cwd").count() >= 3,
++        "cwd 三处既有使用仍在场（沙箱 / 写保护 / 工具执行），实际 {} 处",
++        own.matches("turn.cwd").count()
++    );
++    for site in [
++        "sandbox_rewrite(&turn.cwd",
++        "turn.protect.evaluate(&name, &sandboxed, &turn.cwd)",
++        "tools::execute(&turn.cwd",
++    ] {
++        assert!(own.contains(site), "cwd 使用点在场: {site}");
++    }
++    assert!(
++        own.contains("turn.injections.preamble"),
++        "系统消息构造点为注入位单点消费"
+     );
+ }
+ 
+@@ -5010,156 +5211,18 @@ async fn archi与explore专用上下文并列不串道() {
+     assert!(!*is_error);
+ }
+ 
+-// ---------------------------------------------------------------------------
+-// 系统消息合成单点（`system_prompt`）：会话 preamble（知识，前）+ 本轮
+-// `AGENT.md`（逐字，后）→ 恰一条 System 消息内容；两段之间单空行分隔。
+-//
+-// 纯函数直接调用（断言即契约），run 侧用例经既有假流装置 + 真实 tempdir 的
+-// `AGENT.md`（`preamble::load` 不 mock：真实读取与真实 32KB 截断口径）。
+-// ---------------------------------------------------------------------------
+-
+-/// 纯函数面：`(Some, Some)` → 知识在前、`AGENT.md` 逐字在后、恰一个空行分隔
+-/// （无标题 / 无前缀包装）。
+-#[test]
+-fn system_prompt双在场知识在前agent_md逐字在后() {
+-    assert_eq!(
+-        crate::sdk::r#loop::system_prompt(Some("K"), Some("A".to_owned())),
+-        Some("K\n\nA".to_owned())
+-    );
+-    assert_eq!(
+-        crate::sdk::r#loop::system_prompt(
+-            Some("# 知识\n第二行"),
+-            Some("# 约定\n- 中文".to_owned())
+-        ),
+-        Some("# 知识\n第二行\n\n# 约定\n- 中文".to_owned()),
+-        "只有两段之间的一个空行是插入物（段内换行逐字保留）"
+-    );
+-}
+-
+-/// 纯函数面：仅知识 → `Some(knowledge)`（不追加分隔符、不追加空行）。
+-#[test]
+-fn system_prompt仅知识不追加分隔符() {
+-    assert_eq!(
+-        crate::sdk::r#loop::system_prompt(Some("K"), None),
+-        Some("K".to_owned())
+-    );
+-    assert_eq!(
+-        crate::sdk::r#loop::system_prompt(Some("K\n"), None),
+-        Some("K\n".to_owned()),
+-        "末换行不归一（逐字返回）"
+-    );
+-}
+-
+-/// 纯函数面：仅 `AGENT.md` → 逐字返回（既有语义零改写：不加前后缀、不改写、
+-/// 不包装）。
+-#[test]
+-fn system_prompt仅agent_md逐字() {
+-    assert_eq!(
+-        crate::sdk::r#loop::system_prompt(None, Some("A".to_owned())),
+-        Some("A".to_owned())
+-    );
+-    assert_eq!(
+-        crate::sdk::r#loop::system_prompt(None, Some(String::new())),
+-        Some(String::new()),
+-        "空串原样返回（不降级、不补默认）"
+-    );
+-}
+-
+-/// 纯函数面：两者皆无 → `None`（不注入空串 System）。
+-#[test]
+-fn system_prompt两者皆无返回none() {
+-    assert_eq!(crate::sdk::r#loop::system_prompt(None, None), None);
+-}
+-
+-/// 边界：空串入参按公式拼接（不降级到单侧分支、不 panic、不吞首段）。
+-#[test]
+-fn system_prompt空串入参按公式拼接() {
+-    assert_eq!(
+-        crate::sdk::r#loop::system_prompt(Some(""), Some("A".to_owned())),
+-        Some("\n\nA".to_owned())
+-    );
+-    assert_eq!(
+-        crate::sdk::r#loop::system_prompt(Some("K"), Some(String::new())),
+-        Some("K\n\n".to_owned())
+-    );
+-    assert_eq!(
+-        crate::sdk::r#loop::system_prompt(Some(""), Some(String::new())),
+-        Some("\n\n".to_owned()),
+-        "双空串亦按公式（恰一个分隔空行）"
+-    );
+-}
+-
+-/// 边界：特殊字符逐字保留（零转义 / 零归一），分段位置可用 `split("\n\n")` 稳定
+-/// 还原为两段。
+-#[test]
+-fn system_prompt特殊字符逐字保留() {
+-    let cases = [
+-        ("换行", "第一段\n第二行", "文件段\n第二行"),
+-        ("NUL", "知识\u{0}段", "文件\u{0}段"),
+-        ("emoji", "知识🎉段", "文件🚀段"),
+-        ("CRLF", "知识\r\n第二行", "文件\r\n第二行"),
+-    ];
+-    for (label, knowledge, agent_md) in cases {
+-        let merged = crate::sdk::r#loop::system_prompt(Some(knowledge), Some(agent_md.to_owned()))
+-            .unwrap_or_else(|| panic!("{label}: 双在场应 Some"));
+-        let parts: Vec<&str> = merged.split("\n\n").collect();
+-        assert_eq!(parts.len(), 2, "{label}: 双换行切分 可还原两段: {merged:?}");
+-        assert_eq!(parts[0], knowledge, "{label}: 首段 = 知识原文");
+-        assert_eq!(parts[1], agent_md, "{label}: 次段 = AGENT.md 原文");
+-        assert_eq!(
+-            merged.len(),
+-            knowledge.len() + agent_md.len() + 2,
+-            "{label}: 长度 = 两段之和 + 2（零增删）"
+-        );
+-    }
+-}
+-
+-/// 边界：超长与不截断——`agent_md` 40KB + 知识 4KB → 返回长度 = 两段之和 + 2
+-/// （32KB 截断责任在 `preamble::load`，知识不截）。
+-#[test]
+-fn system_prompt超长不截断长度守恒() {
+-    let knowledge = "k".repeat(4096);
+-    let agent_md = "a".repeat(40 * 1024);
+-    let merged = crate::sdk::r#loop::system_prompt(Some(&knowledge), Some(agent_md.clone()))
+-        .expect("双在场应 Some");
+-    assert_eq!(
+-        merged.len(),
+-        knowledge.len() + agent_md.len() + 2,
+-        "system_prompt 不截断（两段长度守恒 + 分隔符）"
+-    );
+-    assert!(merged.starts_with(&knowledge), "知识段完整在前");
+-    assert!(merged.ends_with(&agent_md), "AGENT.md 段完整在后");
+-}
+-
+-/// 边界：纯函数性——同参两次调用逐字相等（入参即全部输入，不读盘不查环境）。
+-#[test]
+-fn system_prompt纯函数性() {
+-    let first = crate::sdk::r#loop::system_prompt(Some("K"), Some("A".to_owned()));
+-    let second = crate::sdk::r#loop::system_prompt(Some("K"), Some("A".to_owned()));
+-    assert_eq!(first, second, "同参两次调用逐字相等");
+-    let other = crate::sdk::r#loop::system_prompt(Some("K"), Some("B".to_owned()));
+-    assert_ne!(first, other, "入参变即结果变（无内部缓存）");
+-}
+-
+ /// 运行态：`preamble = Some(K)` + root 有 `AGENT.md` → 首轮请求恰一条 System，
+-/// 内容 = `K\n\n<AGENT.md 注入体>`（注入体 = 正文 + `<agent_md path=…>` 包装；
+-/// 不为两段各推一条）。
++/// 内容逐字等于 `K`（文件内容不进入 System：loop 零文件读取，合成本在装配层）。
+ #[tokio::test]
+-async fn run系统消息合成双在场恰一条system() {
+-    let dir = tempdir("system-merge-both");
++async fn run系统消息双在场仍恰一条system且取注入位原文() {
++    let dir = tempdir("system-single-source");
+     write_file(&dir.path().join("AGENT.md"), "文件约定 🎉");
+     let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
+-    let turn = LoopTurn {
+-        injections: agent::SessionInjections {
+-            preamble: Some("架构知识段".to_owned()),
+-            tools: None,
+-            finish: None,
+-            ask: None,
+-            protect: None,
+-            before_done: None,
+-        },
+-        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+-    };
++    let turn = loop_turn_with_preamble(
++        dir.path(),
++        AgentPermissionMode::BypassPermissions,
++        Some("架构知识段"),
++    );
+ 
+     let events = drive_loop_turn(&model, turn).await;
+ 
+@@ -5170,34 +5233,33 @@ async fn run系统消息合成双在场恰一条system() {
+         .iter()
+         .filter(|message| matches!(message, Message::System { .. }))
+         .count();
+-    assert_eq!(systems, 1, "恰一条 System 消息（不为两段各推一条）");
+-    let agent_md = agent_md_preamble(dir.path(), "文件约定 🎉");
+-    let expected = format!("架构知识段\n\n{agent_md}");
++    assert_eq!(systems, 1, "恰一条 System 消息");
+     assert_eq!(
+         requests[0].system_instructions(),
+-        Some(expected.as_str()),
+-        "合成内容 = 知识在前 + AGENT.md 注入体在后（单空行分隔）"
++        Some("架构知识段"),
++        "System = 注入位原文（磁盘 AGENT.md 不参与合成）"
++    );
++    let on_disk = agent_md_preamble(dir.path(), "文件约定 🎉");
++    assert!(
++        !requests[0]
++            .system_instructions()
++            .is_some_and(|text| text.contains(&on_disk)),
++        "磁盘注入体不出现在请求内"
+     );
+     turn_done_of(&events);
+ }
+ 
+ /// 运行态：`preamble = Some(K)` + root 无 `AGENT.md` → 恰一条 System = `K`
+-/// （既有「缺席不注入空串」语义扩展到单侧在场）。
++/// （单侧在场与双在场同值：文件不参与）。
+ #[tokio::test]
+-async fn run系统消息合成仅preamble恰一条system() {
+-    let dir = tempdir("system-merge-knowledge-only");
++async fn run系统消息仅注入位在场恰一条system() {
++    let dir = tempdir("system-single-source-only");
+     let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
+-    let turn = LoopTurn {
+-        injections: agent::SessionInjections {
+-            preamble: Some("架构知识段".to_owned()),
+-            tools: None,
+-            finish: None,
+-            ask: None,
+-            protect: None,
+-            before_done: None,
+-        },
+-        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+-    };
++    let turn = loop_turn_with_preamble(
++        dir.path(),
++        AgentPermissionMode::BypassPermissions,
++        Some("架构知识段"),
++    );
+ 
+     let events = drive_loop_turn(&model, turn).await;
+ 
+@@ -5211,17 +5273,16 @@ async fn run系统消息合成仅preamble恰一条system() {
+     assert_eq!(
+         requests[0].system_instructions(),
+         Some("架构知识段"),
+-        "无 AGENT.md 时即知识原文（不追加分隔 / 空行）"
++        "即注入位原文（不追加分隔 / 空行）"
+     );
+     turn_done_of(&events);
+ }
+ 
+-/// 正向：每轮重读——两轮假流 + 首轮流后改写 `AGENT.md` → 两次请求的 System 均
+-/// 为合并体，次轮的 `AGENT.md` 段为改后内容、知识段与首轮逐字相同（知识来自会话
+-/// 注入不重读盘）。
++/// 正向（AC-3）：两轮假流 + 首轮流后改写 `AGENT.md` → 两次请求的 System 逐字
++/// 相同（冻结），文件改动不渗入。
+ #[tokio::test]
+-async fn run系统消息合并每轮重读知识段不重读盘() {
+-    let dir = tempdir("system-merge-reload");
++async fn run系统消息两轮逐字相等_轮间改写文件不生效() {
++    let dir = tempdir("system-frozen-two-turns");
+     let agent_md = dir.path().join("AGENT.md");
+     write_file(&agent_md, "第一版约定");
+     write_file(&dir.path().join("README.md"), "占位内容");
+@@ -5233,39 +5294,25 @@ async fn run系统消息合并每轮重读知识段不重读盘() {
+         vec![raw_text("完成"), raw_final(usage(4, 4))],
+     ]);
+     fake.rewrite_file_on_first_stream(agent_md, "第二版约定 🚀");
+-    let turn = LoopTurn {
+-        injections: agent::SessionInjections {
+-            preamble: Some("架构知识段".to_owned()),
+-            tools: None,
+-            finish: None,
+-            ask: None,
+-            protect: None,
+-            before_done: None,
+-        },
+-        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+-    };
++    let turn = loop_turn_with_preamble(
++        dir.path(),
++        AgentPermissionMode::BypassPermissions,
++        Some("架构知识段"),
++    );
+ 
+     let events = drive_loop_turn(&fake, turn).await;
+ 
+     let requests = fake.captured_requests();
+     assert_eq!(requests.len(), 2, "两轮请求（工具续轮）");
+-    let first = format!(
+-        "架构知识段\n\n{}",
+-        agent_md_preamble(dir.path(), "第一版约定")
+-    );
+     assert_eq!(
+         requests[0].system_instructions(),
+-        Some(first.as_str()),
+-        "首轮：知识 + 首版 AGENT.md 注入体"
+-    );
+-    let second = format!(
+-        "架构知识段\n\n{}",
+-        agent_md_preamble(dir.path(), "第二版约定 🚀")
++        Some("架构知识段"),
++        "首轮：注入位原文"
+     );
+     assert_eq!(
+         requests[1].system_instructions(),
+-        Some(second.as_str()),
+-        "次轮：知识段逐字相同、AGENT.md 段取自重读后的磁盘内容"
++        requests[0].system_instructions(),
++        "次轮：System 与首轮逐字相同（快照冻结，MUST NOT 重读盘）"
+     );
+     assert_eq!(sealed_messages(&events).len(), 2, "续轮不中断");
+     turn_done_of(&events);
+@@ -7938,8 +7985,8 @@ async fn db分派两工具到执行体且结果非错误() {
+         Case {
+             tool: DB_TABLES_TOOL,
+             input: serde_json::json!({}),
+-            check: |payload| payload.as_array().is_some_and(|rows| rows.len() == 15),
+-            tag: "表清单为 15 行数组",
++            check: |payload| payload.as_array().is_some_and(|rows| rows.len() == 16),
++            tag: "表清单为 16 行数组（user 4 + workspace 12）",
+         },
+         Case {
+             tool: DB_QUERY_TOOL,
+diff --git a/crates/infra/agent/src/sdk/preamble.rs b/crates/infra/agent/src/sdk/preamble.rs
+index 2743e5c24179..54a694276181 100644
+--- a/crates/infra/agent/src/sdk/preamble.rs
++++ b/crates/infra/agent/src/sdk/preamble.rs
+@@ -3,12 +3,24 @@ use std::path::Path;
+ /// preamble 体量上限：超限截前 32KB（char 边界），尽力增强语义不炸 run。
+ const MAX_PREAMBLE_BYTES: usize = 32 * 1024;
+ 
++/// 冻结指引常量（快照正文末段）：告知模型「系统提示词已冻结、规则真身在
++/// `AGENT.md`、规则更新时用 `read` 重读」三点。
++///
++/// 三条硬约束：体量 ≤ 512 B（char 计，实际 107 char / 273 B）；MUST NOT 含路径
++/// 字面量（只用文件名 `AGENT.md`——worktree 场景路径逐会话不同，写死即错）；
++/// MUST NOT 含 `<>` 一类占位符（装配层静态常量，无注入位）。MUST NOT 单独成条
++/// （只随非空正文出现）。
++pub(crate) const GUIDANCE: &str = "（本会话的系统提示词已在会话开始时冻结，此后每轮逐字复用，不因文件变更而改写。项目规则的真实出处是 AGENT.md；若用户提示规则已更新，请用 read 工具重新读取 AGENT.md，并按其中的最新规则执行。）";
++
+ /// 读 `<root>/AGENT.md`：存在逐字返回（超 32KB 截 char 边界前缀），缺席或
+ /// 任何读取失败（非 UTF-8、非 NotFound 的 IO 错误同列）返回 `None`——读取
+ /// 侧永不报错，`None` 即「本轮无系统提示词」的合法形态。
+-pub(crate) async fn load(root: &Path) -> Option<String> {
++///
++/// 调用方是组合根的会话首轮与存量补拍（每会话至多一次读取）；引擎执行体不读
++/// 文件。
++pub(crate) fn load(root: &Path) -> Option<String> {
+     let agent_file_path_buf = root.join("AGENT.md");
+-    let text = tokio::fs::read_to_string(&agent_file_path_buf).await.ok()?;
++    let text = std::fs::read_to_string(&agent_file_path_buf).ok()?;
+     let agent_file_path = agent_file_path_buf.to_str().unwrap_or("AGENT.md");
+     let truncate_text = truncate(&text);
+     Some(format!(
+@@ -16,6 +28,23 @@ pub(crate) async fn load(root: &Path) -> Option<String> {
+     ))
+ }
+ 
++/// 快照正文合成单点：非空段按「知识 → `AGENT.md` 段 → [`GUIDANCE`]」以单空行
++/// 连接（空串视同缺席，不 trim——`AGENT.md` 段逐字语义不许改动空白）；知识与
++/// `AGENT.md` 段皆空 → 空串（无正文可冻结，指引常量 MUST NOT 单独成文）。
++///
++/// 32KB 截断已在 [`load`] 内完成，本函数 MUST NOT 再截一次（两处截断必然在
++/// 32KB 边界上漂移）。
++pub(crate) fn freeze(knowledge: Option<&str>, agent_md: Option<&str>) -> String {
++    let mut segments: Vec<&str> = Vec::with_capacity(3);
++    segments.extend(knowledge.filter(|text| !text.is_empty()));
++    segments.extend(agent_md.filter(|text| !text.is_empty()));
++    if segments.is_empty() {
++        return String::new();
++    }
++    segments.push(GUIDANCE);
++    segments.join("\n\n")
++}
++
+ /// 32KB 截断：超限时回退至不越界的 char 边界（逐字语义 = 前缀原文，不包装
+ /// 不改写）。
+ fn truncate(text: &str) -> String {
+diff --git a/crates/infra/agent/src/sdk/preamble_test.rs b/crates/infra/agent/src/sdk/preamble_test.rs
+index cbb1a39fc54f..e300eb880690 100644
+--- a/crates/infra/agent/src/sdk/preamble_test.rs
++++ b/crates/infra/agent/src/sdk/preamble_test.rs
+@@ -1,7 +1,8 @@
+ //! `preamble` 的单元测试（AC-2）：AGENT.md 读取语义——在场时正文逐字 + 外层
+ //! `<agent_md path="…">` 包装、缺席或读取失败一律 `None`、32KB 截断（char 边界
+-//! 对齐，只作用于正文）、每轮重读无缓存。文件为进程边界依赖白名单：tempfile
+-//! tempdir 真实文件系统承载 fixture（写 / 改 / 删均为真实盘上操作，不 mock 文件）。
++//! 对齐，只作用于正文）、读取侧无缓存（何时读取归组合根的首轮 / 补拍）。文件为
++//! 进程边界依赖白名单：tempfile tempdir 真实文件系统承载 fixture（写 / 改 / 删均
++//! 为真实盘上操作，不 mock 文件）。
+ 
+ use std::path::Path;
+ 
+@@ -31,13 +32,13 @@ fn wrapped(root: &Path, body: &str) -> String {
+ // 正向：在场时正文逐字（外层带 `<agent_md>` 包装）
+ // ---------------------------------------------------------------------------
+ 
+-#[tokio::test]
+-async fn agent_md在场正文逐字且外层带agent_md包装() {
++#[test]
++fn agent_md在场正文逐字且外层带agent_md包装() {
+     let dir = tempdir("verbatim");
+     let content = "# 工作区约定 🎉\n\n- 提交信息用中文\n- 表格对齐\n第二段落\n";
+     write_agent_md(dir.path(), content);
+ 
+-    let preamble = load(dir.path()).await.expect("在场必返回 Some");
++    let preamble = load(dir.path()).expect("在场必返回 Some");
+ 
+     assert_eq!(
+         preamble,
+@@ -50,55 +51,49 @@ async fn agent_md在场正文逐字且外层带agent_md包装() {
+ // 异常：缺席 / 读取失败一律 None（严格无兜底）
+ // ---------------------------------------------------------------------------
+ 
+-#[tokio::test]
+-async fn agent_md缺席返回none且同目录claudemd不作兜底() {
++#[test]
++fn agent_md缺席返回none且同目录claudemd不作兜底() {
+     let dir = tempdir("absent");
+ 
+     // root 无 AGENT.md：缺席即 None
+-    assert!(
+-        load(dir.path()).await.is_none(),
+-        "缺席 AGENT.md 必须返回 None"
+-    );
++    assert!(load(dir.path()).is_none(), "缺席 AGENT.md 必须返回 None");
+ 
+     // 严格无兜底：同目录放 CLAUDE.md 仍 None（读侧不回退其它文件名）
+     std::fs::write(dir.path().join("CLAUDE.md"), "# claude 侧提示词").expect("写 CLAUDE.md 失败");
+     assert!(
+-        load(dir.path()).await.is_none(),
++        load(dir.path()).is_none(),
+         "同目录 CLAUDE.md 不得兜底（严格单文件语义）"
+     );
+ }
+ 
+-#[tokio::test]
+-async fn agent_md读取失败一律none_路径为目录与root不存在同口径() {
++#[test]
++fn agent_md读取失败一律none_路径为目录与root不存在同口径() {
+     let dir = tempdir("read-fail");
+ 
+     // AGENT.md 实为目录：读取失败（非 NotFound IO 错误同列）→ None 不炸
+     std::fs::create_dir(dir.path().join("AGENT.md")).expect("以目录占位 AGENT.md 失败");
+     assert!(
+-        load(dir.path()).await.is_none(),
++        load(dir.path()).is_none(),
+         "AGENT.md 为目录（读取失败）必须返回 None（尽力增强不炸 run）"
+     );
+ 
+     // root 本身不存在：join 出的路径读取失败 → None
+     let missing_root = dir.path().join("no-such-root");
+-    assert!(
+-        load(&missing_root).await.is_none(),
+-        "root 不存在必须返回 None"
+-    );
++    assert!(load(&missing_root).is_none(), "root 不存在必须返回 None");
+ }
+ 
+ // ---------------------------------------------------------------------------
+ // 边界：32KB 截断（恰阈值 / 超 1 起 char 边界）
+ // ---------------------------------------------------------------------------
+ 
+-#[tokio::test]
+-async fn agent_md恰32kb不截断全文返回无留痕() {
++#[test]
++fn agent_md恰32kb不截断全文返回无留痕() {
+     let dir = tempdir("exact-32k");
+     // 恰 32 * 1024 字节（ASCII 单字节，len == 字符数）
+     let content = "a".repeat(32 * 1024);
+     write_agent_md(dir.path(), &content);
+ 
+-    let preamble = load(dir.path()).await.expect("在场必返回 Some");
++    let preamble = load(dir.path()).expect("在场必返回 Some");
+ 
+     assert_eq!(
+         preamble,
+@@ -111,15 +106,15 @@ async fn agent_md恰32kb不截断全文返回无留痕() {
+     );
+ }
+ 
+-#[tokio::test]
+-async fn agent_md超32kb截前缀且多字节字符不劈半() {
++#[test]
++fn agent_md超32kb截前缀且多字节字符不劈半() {
+     let dir = tempdir("over-32k");
+ 
+     // 中文重载：'a' * 32767 + '中'(3 字节) → 总 32770 字节，32KB 边界（32768）
+     // 落在 '中' 的中段 → 截断回退至 char 边界 32767
+     let cjk_content = format!("{}中中中", "a".repeat(32 * 1024 - 1));
+     write_agent_md(dir.path(), &cjk_content);
+-    let cjk_preamble = load(dir.path()).await.expect("在场必返回 Some");
++    let cjk_preamble = load(dir.path()).expect("在场必返回 Some");
+     assert_eq!(
+         cjk_preamble,
+         wrapped(dir.path(), &"a".repeat(32 * 1024 - 1)),
+@@ -129,7 +124,7 @@ async fn agent_md超32kb截前缀且多字节字符不劈半() {
+     // emoji 重载：'a' * 32766 + 🎉(4 字节) × 3 → 32768 落在首个 🎉 中段
+     let emoji_content = format!("{}🎉🎉🎉", "a".repeat(32 * 1024 - 2));
+     write_agent_md(dir.path(), &emoji_content);
+-    let emoji_preamble = load(dir.path()).await.expect("在场必返回 Some");
++    let emoji_preamble = load(dir.path()).expect("在场必返回 Some");
+     assert_eq!(
+         emoji_preamble,
+         wrapped(dir.path(), &"a".repeat(32 * 1024 - 2)),
+@@ -146,25 +141,335 @@ async fn agent_md超32kb截前缀且多字节字符不劈半() {
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// 边界：每轮重读（无缓存语义）
++// 边界：读取侧无缓存（两次调用之间改写即反映）
+ // ---------------------------------------------------------------------------
+ 
+-#[tokio::test]
+-async fn agent_md每轮重读_两次调用之间改写即生效无缓存() {
++#[test]
++fn agent_md两次load之间改写即反映_读取侧无缓存() {
+     let dir = tempdir("reread");
+     write_agent_md(dir.path(), "第一轮版本");
+ 
+-    let first = load(dir.path()).await.expect("首读 Some");
++    let first = load(dir.path()).expect("首读 Some");
+     assert_eq!(first, wrapped(dir.path(), "第一轮版本"));
+ 
+-    // 两次连续 load 之间真实改写文件（bash 入工具面后 agent 可自改系统提示词）
++    // 两次连续 load 之间真实改写文件：读取侧自身不缓存（会话内冻结归组合根）
+     write_agent_md(dir.path(), "第二轮改后版本 🚀");
+ 
+-    let second = load(dir.path()).await.expect("次读 Some");
++    let second = load(dir.path()).expect("次读 Some");
+     assert_eq!(
+         second,
+         wrapped(dir.path(), "第二轮改后版本 🚀"),
+-        "无缓存语义：改动下一轮即生效"
++        "读取侧无缓存：改动后下一次 load 即反映"
+     );
+     assert_ne!(first, second, "两次读返回值随文件而变");
+ }
++
++// ---------------------------------------------------------------------------
++// 严格单文件与读取失败（session-preamble-snapshot 补充面）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn agent_md三文件并存时只读agent_md_另两名不进入返回值() {
++    let dir = tempdir("single-file");
++    write_agent_md(dir.path(), "AGENT 侧规则");
++    std::fs::write(dir.path().join("CLAUDE.md"), "CLAUDE 侧规则").expect("写 CLAUDE.md");
++    std::fs::write(dir.path().join("AGENTS.md"), "AGENTS 侧规则").expect("写 AGENTS.md");
++
++    let preamble = load(dir.path()).expect("AGENT.md 在场必 Some");
++    assert_eq!(preamble, wrapped(dir.path(), "AGENT 侧规则"));
++    assert!(!preamble.contains("CLAUDE 侧规则"), "CLAUDE.md 不进入快照");
++    assert!(
++        !preamble.contains("AGENTS 侧规则"),
++        "AGENTS.md 不进入快照（复数形态不支持）"
++    );
++}
++
++#[test]
++fn agent_md仅agents_md在场仍none_零兜底回退() {
++    let dir = tempdir("agents-only");
++    std::fs::write(dir.path().join("AGENTS.md"), "复数形态规则").expect("写 AGENTS.md");
++    assert!(
++        load(dir.path()).is_none(),
++        "仅 AGENTS.md 在场 → None（严格单文件，零兜底回退）"
++    );
++}
++
++#[test]
++fn agent_md非utf8字节返回none不报错() {
++    let dir = tempdir("non-utf8");
++    std::fs::write(dir.path().join("AGENT.md"), [0xff_u8, 0xfe, 0x00, 0x41])
++        .expect("写非 UTF-8 字节");
++    assert!(
++        load(dir.path()).is_none(),
++        "非 UTF-8 内容读取失败 → None（读取侧永不报错）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// freeze：快照正文合成单点（段序 / 空段语义 / 零二次截断）
++// ---------------------------------------------------------------------------
++
++use crate::sdk::preamble::{freeze, GUIDANCE};
++
++const KNOWN_AGENT_MD: &str = "<agent_md path=\"/ws/AGENT.md\">\n约定\n</agent_md>";
++
++#[test]
++fn freeze双段在场时按知识_agent_md_常量序以单空行连接() {
++    let body = freeze(Some("知识正文"), Some(KNOWN_AGENT_MD));
++    assert_eq!(
++        body,
++        format!("知识正文\n\n{KNOWN_AGENT_MD}\n\n{GUIDANCE}"),
++        "段序 = 知识 → AGENT.md 段 → 指引常量，段间恰一个空行"
++    );
++    assert_eq!(body.matches("\n\n").count(), 2, "段间分隔恰两处");
++    assert!(
++        body.find("知识正文").unwrap() < body.find(KNOWN_AGENT_MD).unwrap(),
++        "知识段在首位"
++    );
++    assert!(
++        body.find(KNOWN_AGENT_MD).unwrap() < body.find(GUIDANCE).unwrap(),
++        "AGENT.md 段在常量之前"
++    );
++}
++
++#[test]
++fn freeze单侧在场两形态_末段恒为常量() {
++    let only_agent_md = freeze(None, Some(KNOWN_AGENT_MD));
++    assert_eq!(
++        only_agent_md,
++        format!("{KNOWN_AGENT_MD}\n\n{GUIDANCE}"),
++        "仅 AGENT.md 段：无空前导"
++    );
++    assert!(!only_agent_md.starts_with('\n'), "首位无空行");
++
++    let only_knowledge = freeze(Some("知识正文"), None);
++    assert_eq!(
++        only_knowledge,
++        format!("知识正文\n\n{GUIDANCE}"),
++        "仅知识段：末段恒为常量"
++    );
++}
++
++#[test]
++fn freeze全空四形态均返回空串_常量不单独成文() {
++    for (label, knowledge, agent_md) in [
++        ("双 None", None, None),
++        ("知识空串", Some(""), None),
++        ("AGENT.md 空串", None, Some("")),
++        ("双空串", Some(""), Some("")),
++    ] {
++        let body = freeze(knowledge, agent_md);
++        assert_eq!(body, String::new(), "形态「{label}」→ 空串");
++        assert!(
++            !body.contains(GUIDANCE),
++            "形态「{label}」：指引常量 MUST NOT 单独成文"
++        );
++    }
++}
++
++#[test]
++fn freeze不trim_段内首尾空白逐字保留() {
++    // 期望串按 freeze 的合成口径逐字构造：两入参**原样**代入（含各自首尾 `\n`），
++    // 段间只多出连接用的 `\n\n` ⇒ 段界处连续 4 个换行（上段尾 1 + 连接 2 + 下段首 1）
++    let knowledge = "\n  A  \n";
++    let agent_md = "\n<agent_md/>\n";
++    let body = freeze(Some(knowledge), Some(agent_md));
++
++    assert_eq!(
++        body,
++        format!("{knowledge}\n\n{agent_md}\n\n{GUIDANCE}"),
++        "段内空白逐字保留，仅在段间插入单空行（AGENT.md 段逐字语义）"
++    );
++    assert!(
++        body.contains("\n  A  \n"),
++        "知识段首尾空白未被剥离（不 trim）"
++    );
++    assert_eq!(
++        body.matches("\n\n\n\n").count(),
++        1,
++        "段界连续 4 个换行（上段尾 1 + 连接 2 + 下段首 1），空白未被压缩"
++    );
++}
++
++#[test]
++fn freeze不二次截断_超长agent_md段长度逐字节守恒() {
++    let long = "长".repeat(20000);
++    let knowledge = "知识";
++    let body = freeze(Some(knowledge), Some(&long));
++    let expected = knowledge.len() + 2 + long.len() + 2 + GUIDANCE.len();
++    assert_eq!(body.len(), expected, "拼接长度逐字节守恒（无二次截断）");
++    assert!(
++        body.contains(&long),
++        "40KB 级入参原样在产物内（32KB 只在 load 内发生）"
++    );
++}
++
++#[test]
++fn freeze知识段不截断_超32kb知识原样在首位() {
++    let knowledge = "知".repeat(20000);
++    let body = freeze(Some(&knowledge), None);
++    assert!(
++        body.starts_with(&knowledge),
++        "知识段 > 32KB 原样在首位（截断只作用于 AGENT.md 段）"
++    );
++    assert_eq!(body.len(), knowledge.len() + 2 + GUIDANCE.len(), "长度守恒");
++}
++
++#[test]
++fn freeze纯函数性_同入参两次相等且任一入参变化即结果变化() {
++    let first = freeze(Some("知识"), Some(KNOWN_AGENT_MD));
++    let second = freeze(Some("知识"), Some(KNOWN_AGENT_MD));
++    assert_eq!(first, second, "同入参两次调用逐字相等（无内部缓存）");
++
++    assert_ne!(
++        freeze(Some("知识二"), Some(KNOWN_AGENT_MD)),
++        first,
++        "知识变即结果变"
++    );
++    assert_ne!(
++        freeze(Some("知识"), Some("<agent_md/>")),
++        first,
++        "AGENT.md 段变即结果变"
++    );
++    assert_ne!(freeze(Some("知识"), None), first, "段缺席即结果变");
++}
++
++// ---------------------------------------------------------------------------
++// GUIDANCE：冻结指引常量的硬判据
++// ---------------------------------------------------------------------------
++
++#[test]
++fn guidance体量不超512字节且非空不以空白结尾() {
++    assert!(!GUIDANCE.is_empty(), "常量非空");
++    assert!(
++        GUIDANCE.chars().count() <= 512,
++        "char 计不超 512，实际 {}",
++        GUIDANCE.chars().count()
++    );
++    assert!(
++        GUIDANCE.len() <= 512,
++        "字节计不超 512，实际 {}",
++        GUIDANCE.len()
++    );
++    assert!(
++        !GUIDANCE.ends_with(char::is_whitespace),
++        "不以空白结尾（拼进正文不留悬空行）"
++    );
++}
++
++#[test]
++fn guidance零路径字面量与零占位符() {
++    for token in ["/", "\\", "C:", "~"] {
++        assert!(
++            !GUIDANCE.contains(token),
++            "MUST NOT 含路径字面量 {token:?}（worktree 路径逐会话不同）: {GUIDANCE}"
++        );
++    }
++    for token in ["<", ">", "{", "}"] {
++        assert!(
++            !GUIDANCE.contains(token),
++            "MUST NOT 含占位符 {token:?}（装配层静态常量无注入位）: {GUIDANCE}"
++        );
++    }
++}
++
++#[test]
++fn guidance三点语义在场且产物中恰出现一次() {
++    assert!(GUIDANCE.contains("冻结"), "语义一：冻结: {GUIDANCE}");
++    assert!(
++        GUIDANCE.contains("AGENT.md"),
++        "语义二：真身 AGENT.md: {GUIDANCE}"
++    );
++    assert!(GUIDANCE.contains("read"), "语义三：read 重读: {GUIDANCE}");
++    assert!(
++        GUIDANCE.contains("重新读取") || GUIDANCE.contains("重读"),
++        "规则更新时重读的表述在场: {GUIDANCE}"
++    );
++
++    let body = freeze(Some("知识"), Some(KNOWN_AGENT_MD));
++    assert_eq!(
++        body.matches(GUIDANCE).count(),
++        1,
++        "常量在 freeze 产物中恰出现一次"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 源码自证：async 退役与 32KB 截断单点
++// ---------------------------------------------------------------------------
++
++#[test]
++fn preamble源文件自证_async退役与截断单点恰一处() {
++    let own = std::fs::read_to_string(
++        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/sdk/preamble.rs"),
++    )
++    .expect("读取 preamble.rs");
++
++    // 判据一：async 退役（同步读取，调用方是同步的组合根）
++    assert!(
++        !own.contains("async fn load"),
++        "load 的 async 已退役（同步读取，调用方是同步的组合根）"
++    );
++    assert!(
++        !own.contains("tokio::fs"),
++        "零 async 文件读取（std::fs 单点）"
++    );
++
++    // 判据二：32KB 常量单一定义（不散落副本）
++    assert_eq!(
++        own.matches("const MAX_PREAMBLE_BYTES").count(),
++        1,
++        "截断常量单一定义"
++    );
++
++    // 函数体切片口径：自 `fn <name>(` 起至首个行首收口 `\n}\n`（不含 `///` doc 段）
++    fn body_slice<'a>(source: &'a str, name: &str) -> &'a str {
++        let marker = format!("fn {name}(");
++        let start = source
++            .find(&marker)
++            .unwrap_or_else(|| panic!("preamble.rs 内缺 {marker}"));
++        let rest = &source[start..];
++        let end = rest.find("\n}\n").expect("函数体行首收口");
++        &rest[..end]
++    }
++
++    // 判据三：常量的消费命中全部落在 `fn truncate` 函数体切片内（定义行以外零散落）
++    let truncate_start = own.find("fn truncate(").expect("truncate 定义在位");
++    let truncate_body = body_slice(&own, "truncate");
++    let truncate_end = truncate_start + truncate_body.len();
++    let definition_at =
++        own.find("const MAX_PREAMBLE_BYTES").expect("常量定义在位") + "const ".len();
++    assert!(
++        truncate_body.matches("MAX_PREAMBLE_BYTES").count() >= 1,
++        "truncate 是常量的唯一消费函数"
++    );
++    for (offset, _) in own.match_indices("MAX_PREAMBLE_BYTES") {
++        assert!(
++            offset == definition_at || (truncate_start..truncate_end).contains(&offset),
++            "常量命中只允许「定义行」与「fn truncate 切片内」两处，实见偏移 {offset}"
++        );
++    }
++
++    // 判据四：freeze 零二次截断；load 内截断调用唯一；truncate 定义唯一
++    let freeze_body = body_slice(&own, "freeze");
++    assert_eq!(
++        freeze_body.matches("MAX_PREAMBLE_BYTES").count(),
++        0,
++        "freeze 不碰截断常量（32KB 只在 load 内发生）"
++    );
++    assert_eq!(
++        freeze_body.matches("truncate(").count(),
++        0,
++        "freeze 零二次截断（不复制截断逻辑）"
++    );
++    assert_eq!(
++        body_slice(&own, "load").matches("truncate(").count(),
++        1,
++        "load 内截断调用恰一处"
++    );
++    assert_eq!(
++        own.matches("fn truncate(").count(),
++        1,
++        "truncate 单点定义（freeze 不复制截断逻辑）"
++    );
++}
+diff --git a/crates/infra/store/src/describe_test.rs b/crates/infra/store/src/describe_test.rs
+index 4d2f60731b37..725e92a45527 100644
+--- a/crates/infra/store/src/describe_test.rs
++++ b/crates/infra/store/src/describe_test.rs
+@@ -118,7 +118,7 @@ fn raw_event(seq: u64) -> AgentEvent {
+     }
+ }
+ 
+-/// 15 张表各一条真实记录（ratchet 的真 serde 键集来源）。表名与记录一一对应，
++/// 16 张表各一条真实记录（ratchet 的真 serde 键集来源）。表名与记录一一对应，
+ /// 顺序即注册表登记序。
+ fn sample_records() -> Vec<(&'static str, serde_json::Value)> {
+     let node_entry = RunNodeEntry {
+@@ -258,8 +258,21 @@ fn sample_records() -> Vec<(&'static str, serde_json::Value)> {
+                 3,
+             )),
+         ),
++        (
++            "session_preamble",
++            value_of(crate::model::SessionPreambleRecord {
++                session_id: "ses-ratchet".to_owned(),
++                content: "知识
++
++<agent_md path=\"/ws/ratchet/AGENT.md\">
++约定
++</agent_md>"
++                    .to_owned(),
++                saved_at: 1000,
++            }),
++        ),
+     ];
+-    assert_eq!(records.len(), entries().len(), "15 张表逐表一条样本");
++    assert_eq!(records.len(), entries().len(), "16 张表逐表一条样本");
+     records
+ }
+ 
+@@ -286,7 +299,7 @@ fn field_names(table_doc: &crate::TableDoc) -> Vec<&str> {
+         .collect()
+ }
+ 
+-const WORKSPACE_TABLES: [&str; 11] = [
++const WORKSPACE_TABLES: [&str; 12] = [
+     "agent_run",
+     "session",
+     "session_event",
+@@ -298,6 +311,7 @@ const WORKSPACE_TABLES: [&str; 11] = [
+     "run",
+     "run_node",
+     "run_edge",
++    "session_preamble",
+ ];
+ 
+ const USER_TABLES: [&str; 4] = [
+@@ -449,7 +463,7 @@ fn 空库两维度仍全列且计数全零() {
+             .iter()
+             .map(|name| (*name, 0u64))
+             .collect::<Vec<_>>(),
+-        "空库仍列 11 行且计数全 0（与 list_models 的「计数 0 也列出」同口径）"
++        "空库仍列 12 行且计数全 0（与 list_models 的「计数 0 也列出」同口径）"
+     );
+     assert_eq!(
+         tables(&global_db(), DbDimension::User)
+@@ -840,7 +854,7 @@ fn session_event字段索引三字段与手写schema同源() {
+ // ---------------------------------------------------------------------------
+ 
+ #[test]
+-fn ratchet十五表每字段说明非空且线名集与serde键集双向一致() {
++fn ratchet十六表每字段说明非空且线名集与serde键集双向一致() {
+     for (table_name, value) in sample_records() {
+         let dimension = crate::dimension_of(table_name).expect("样本表名在注册表内");
+         let doc = table(dimension, table_name).expect("下钻应成功");
+@@ -946,10 +960,10 @@ fn 候选与维度名为自纠文案单点() {
+     assert_eq!(
+         all_candidates().matches(" / ").count(),
+         entries().len() - 1,
+-        "全量候选 15 名（14 个分隔符）"
++        "全量候选 16 名（15 个分隔符）"
+     );
+     assert!(all_candidates().starts_with("workspace"));
+-    assert!(all_candidates().ends_with("run_edge"));
++    assert!(all_candidates().ends_with("session_preamble"));
+ }
+ 
+ #[test]
+@@ -980,3 +994,150 @@ fn schema_of与schema_session_event均给可解析根引用() {
+         "手写 schema 根同为命名引用"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// session-preamble-snapshot：`SessionPreambleRecord` 的说明派生面
++// ---------------------------------------------------------------------------
++
++#[test]
++fn session_preamble表清单在场且摘要按首句截断() {
++    let docs = tables(&workspace_db(), DbDimension::Workspace).expect("表清单应成功");
++    let doc = docs
++        .iter()
++        .find(|doc| doc.table == "session_preamble")
++        .expect("workspace 维度表清单应含 session_preamble");
++    assert_eq!(doc.count, 0, "空库计数 0 也列出");
++    let summary = doc.summary.trim();
++    assert!(!summary.is_empty(), "表介绍非空（struct doc 派生）");
++    assert!(
++        summary.chars().count() <= 120,
++        "首句截断后不超 120 字，实际 {} 字: {summary}",
++        summary.chars().count()
++    );
++    assert!(
++        summary.ends_with('。'),
++        "按首个句读收口（不截出半句、无省略号），实际: {summary}"
++    );
++    assert!(
++        !summary.contains('\n'),
++        "换行不入 summary（句读截断单点）: {summary}"
++    );
++    assert!(
++        summary.contains("会话系统提示词快照"),
++        "摘要取自结构体 doc 首句，实际: {summary}"
++    );
++
++    // user 维度 4 张不受影响
++    let user_tables: Vec<String> = tables(&global_db(), DbDimension::User)
++        .expect("user 维度表清单")
++        .into_iter()
++        .map(|doc| doc.table)
++        .collect();
++    assert_eq!(user_tables, USER_TABLES.to_vec(), "user 维度零变化");
++}
++
++#[test]
++fn session_preamble字段下钻三字段序与渲染类型与说明非空() {
++    let doc = table(DbDimension::Workspace, "session_preamble").expect("下钻应成功");
++    assert_eq!(
++        field_names(&doc),
++        vec!["sessionId", "content", "savedAt"],
++        "顺序为结构体字段序（主键在前）"
++    );
++    for (name, render) in [
++        ("sessionId", "string"),
++        ("content", "string"),
++        ("savedAt", "number"),
++    ] {
++        let field = doc
++            .fields
++            .iter()
++            .find(|field| field.name == name)
++            .unwrap_or_else(|| panic!("应有字段 {name}"));
++        assert_eq!(field.ty, render, "{name} 的渲染类型");
++        assert!(!field.doc.trim().is_empty(), "{name} 的 doc 非空");
++    }
++}
++
++#[test]
++fn session_preamble拼写错误err且候选含正确名_跨维度err() {
++    match table(DbDimension::Workspace, "session_preambles") {
++        Err(error) => {
++            let message = error.to_string();
++            assert!(message.contains("未知表"), "文案: {message}");
++            assert!(
++                message.contains("session_preamble"),
++                "候选清单含正确名（自纠通道），文案: {message}"
++            );
++        }
++        Ok(_) => panic!("拼写错误的表名应 Err"),
++    }
++
++    match table(DbDimension::User, "session_preamble") {
++        Err(error) => {
++            let message = error.to_string();
++            assert!(
++                message.contains("维度"),
++                "合法名撞维度给出维度不符文案，实际: {message}"
++            );
++            assert!(
++                !message.contains("未知表"),
++                "跨维度同名不是「未知表」（表名跨维度唯一），实际: {message}"
++            );
++        }
++        Ok(_) => panic!("跨维度查询应 Err"),
++    }
++}
++
++#[test]
++fn session_preamble线名集与serde键集双向一致且蛇形名缺席() {
++    let doc = table(DbDimension::Workspace, "session_preamble").expect("下钻应成功");
++    let mut wire: Vec<String> = doc.fields.iter().map(|field| field.name.clone()).collect();
++    wire.sort();
++    let keys = json_keys(
++        &sample_records()
++            .into_iter()
++            .find(|(name, _)| *name == "session_preamble")
++            .expect("样本在场")
++            .1,
++    );
++
++    let missing_in_json: Vec<&String> = wire.iter().filter(|name| !keys.contains(name)).collect();
++    assert!(
++        missing_in_json.is_empty(),
++        "方向一：线名 {missing_in_json:?} ⊆ serde 键集 {keys:?}"
++    );
++    let missing_in_wire: Vec<&String> = keys.iter().filter(|key| !wire.contains(key)).collect();
++    assert!(
++        missing_in_wire.is_empty(),
++        "方向二：serde 键 {missing_in_wire:?} ⊆ 线名集 {wire:?}"
++    );
++    assert_eq!(wire.len(), keys.len(), "字段数 == 键数（恰三字段）");
++    for snake in ["session_id", "saved_at"] {
++        assert!(
++            !wire.iter().any(|name| name == snake),
++            "蛇形名 {snake} 全线缺席: {wire:?}"
++        );
++    }
++}
++
++#[test]
++fn session_preamble_schema_of给可解析根引用且三次连调逐字相等() {
++    let mut types = Types::default();
++    let root = schema_of::<crate::model::SessionPreambleRecord>(&mut types);
++    assert!(
++        matches!(root, DataType::Reference(_)),
++        "derive 型 schema 根为命名引用（字段说明派生入口）"
++    );
++
++    assert_eq!(
++        table(DbDimension::Workspace, "session_preamble").expect("下钻一"),
++        table(DbDimension::Workspace, "session_preamble").expect("下钻二"),
++        "类型图每次重建，连调结果逐字相等"
++    );
++    assert_eq!(
++        table(DbDimension::Workspace, "session_preamble").expect("下钻三"),
++        table(DbDimension::Workspace, "session_preamble").expect("下钻四"),
++        "跨调用零状态残留"
++    );
++}
+diff --git a/crates/infra/store/src/envelope.rs b/crates/infra/store/src/envelope.rs
+index 363c03516524..1e0f898ac30a 100644
+--- a/crates/infra/store/src/envelope.rs
++++ b/crates/infra/store/src/envelope.rs
+@@ -17,7 +17,7 @@ use crate::describe;
+ use crate::model::{
+     AgentInstanceRecord, AgentProviderRecord, AgentRunRecord, ChangeRecord, ChecklistItemRecord,
+     ExploreRecord, NotificationRecord, PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord,
+-    SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
++    SessionEventRecord, SessionPreambleRecord, SessionRecord, StepRecord, WorkspaceRecord,
+ };
+ use crate::query::{db_err as query_db_err, QueryError};
+ use crate::store::{db_err, DbDimension, StoreError};
+@@ -231,6 +231,15 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
+         schema: describe::schema_of::<RunEdgeRecord>,
+         walk: walk_run_edges,
+     },
++    ModelEntry {
++        name: "session_preamble",
++        dimension: DbDimension::Workspace,
++        count: count_model::<SessionPreambleRecord>,
++        scan: scan_session_preambles,
++        key_of: session_preamble_key,
++        schema: describe::schema_of::<SessionPreambleRecord>,
++        walk: walk_session_preambles,
++    },
+ ];
+ 
+ /// 注册表只读出口（`describe` / `query` 按维度过滤用；「表 ↔ 类型」与
+@@ -490,6 +499,15 @@ fn scan_run_edges(
+     scan_model::<RunEdgeRecord>(db, offset, limit, key_of)
+ }
+ 
++fn scan_session_preambles(
++    db: &Database<'static>,
++    offset: u32,
++    limit: u32,
++    key_of: KeyOfFn,
++) -> Result<RecordsPage, StoreError> {
++    scan_model::<SessionPreambleRecord>(db, offset, limit, key_of)
++}
++
+ /// workspace 主键 = canonical root。
+ fn workspace_key(value: &Value) -> Value {
+     value["root"].clone()
+@@ -569,6 +587,11 @@ fn run_edge_key(value: &Value) -> Value {
+     serde_json::json!({ "runId": value["runId"], "edgeKey": value["edgeKey"] })
+ }
+ 
++/// session preamble 主键 = core 铸会话 id。
++fn session_preamble_key(value: &Value) -> Value {
++    value["sessionId"].clone()
++}
++
+ // --- per-model 遍历包装：注册表 `walk` 行 = 通用实现 + 本模型类型 ---
+ 
+ fn walk_workspaces(
+@@ -690,3 +713,11 @@ fn walk_run_edges(
+ ) -> Result<u64, QueryError> {
+     walk_model::<RunEdgeRecord>(db, key_of, visit)
+ }
++
++fn walk_session_preambles(
++    db: &Database<'static>,
++    key_of: KeyOfFn,
++    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
++) -> Result<u64, QueryError> {
++    walk_model::<SessionPreambleRecord>(db, key_of, visit)
++}
+diff --git a/crates/infra/store/src/envelope_test.rs b/crates/infra/store/src/envelope_test.rs
+index a7ae2fb34fdc..d92dba544034 100644
+--- a/crates/infra/store/src/envelope_test.rs
++++ b/crates/infra/store/src/envelope_test.rs
+@@ -127,9 +127,9 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致()
+     );
+     drop(global);
+ 
+-    // workspace 库：十一行按登记序，计数与各模型写入量一致（轮统计行 / explore
+-    // 与 change 流程状态四模型 / run 执行图三模型计数 0 也列出；agent_event 退役
+-    // 出注册）
++    // workspace 库：十二行按登记序，计数与各模型写入量一致（轮统计行 / explore
++    // 与 change 流程状态四模型 / run 执行图三模型 / 会话系统提示词快照计数 0 也
++    // 列出；agent_event 退役出注册）
+     let ws = open_ws_ok(&env.db_path("ws"));
+     let session_id = seed_session(&ws, "ses-registry");
+     append_raw(&ws, &session_id, 0);
+@@ -151,14 +151,15 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致()
+             "step",
+             "run",
+             "run_node",
+-            "run_edge"
++            "run_edge",
++            "session_preamble"
+         ],
+-        "workspace 库静态注册表 8→11 恰十一行，顺序即登记序"
++        "workspace 库静态注册表 8→12 恰十二行，顺序即登记序"
+     );
+     let counts: Vec<u64> = models.iter().map(|model| model.count).collect();
+     assert_eq!(
+         counts,
+-        vec![0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
++        vec![0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+         "计数与各模型写入量一致"
+     );
+ }
+@@ -398,7 +399,7 @@ fn scan_change信封key投影为记录id_value内name仍为属性在场() {
+ // ---------------------------------------------------------------------------
+ 
+ #[test]
+-fn 注册表新增三run模型_workspace维度恰十一行_format模型不可见且scan_err() {
++fn 注册表新增三run模型_workspace维度恰十二行_format模型不可见且scan_err() {
+     let env = Env::new("envelope-registry-zero-new");
+     let ws = open_ws_ok(&env.db_path("ws"));
+     // 库级格式版本标记已随打开就位（15_1_key 单键 format 行），但零呈现
+@@ -419,9 +420,10 @@ fn 注册表新增三run模型_workspace维度恰十一行_format模型不可见
+             "step",
+             "run",
+             "run_node",
+-            "run_edge"
++            "run_edge",
++            "session_preamble"
+         ],
+-        "workspace 维度 list_models 行集合与计数（11 行：登记面 additive）"
++        "workspace 维度 list_models 行集合与计数（12 行：登记面 additive）"
+     );
+     assert!(
+         models.iter().all(|model| model.count == 0),
+@@ -848,7 +850,7 @@ fn records_page_total为u64大值序列化为合法json_number不溢出不乱码
+ }
+ 
+ #[test]
+-fn 全部注册模型空库扫描均回空分页信封_十五个per_model包装零新分支() {
++fn 全部注册模型空库扫描均回空分页信封_十六个per_model包装零新分支() {
+     let env = Env::new("all-models-scan");
+ 
+     // 全局库四模型：ScanFn 返回类型随动后空库均恰空分页信封（登记一行接入
+@@ -874,7 +876,7 @@ fn 全部注册模型空库扫描均回空分页信封_十五个per_model包装
+     }
+     drop(global);
+ 
+-    // workspace 库十一模型同口径（MODEL_ENTRIES 登记面 additive）
++    // workspace 库十二模型同口径（MODEL_ENTRIES 登记面 additive）
+     let ws = open_ws_ok(&env.db_path("ws"));
+     for model in [
+         "agent_run",
+@@ -888,6 +890,7 @@ fn 全部注册模型空库扫描均回空分页信封_十五个per_model包装
+         "run",
+         "run_node",
+         "run_edge",
++        "session_preamble",
+     ] {
+         let page = ws
+             .scan(model, 0, 10)
+@@ -965,15 +968,15 @@ fn seed_run(store: &Store, run_id: &str) -> (String, u64, u64) {
+     (run_id.to_owned(), nodes.len() as u64, edges.len() as u64)
+ }
+ 
+-/// 正向（AC-2）：`entries()` 长度恰 15、名字唯一、序 = 登记序（user 四行在前 /
+-/// workspace 十一行在后），维度分组与名字集一致。
++/// 正向（AC-2）：`entries()` 长度恰 16、名字唯一、序 = 登记序（user 四行在前 /
++/// workspace 十二行在后），维度分组与名字集一致。
+ #[test]
+ fn entries长度与登记序与维度分组() {
+     let entries = crate::envelope::entries();
+     assert_eq!(
+         entries.len(),
+-        15,
+-        "注册表恰十五行（本变更补 notification 一行）"
++        16,
++        "注册表恰十六行（本变更补 session_preamble 一行）"
+     );
+     let names: Vec<&str> = entries.iter().map(|entry| entry.name).collect();
+     assert_eq!(
+@@ -994,13 +997,14 @@ fn entries长度与登记序与维度分组() {
+             "run",
+             "run_node",
+             "run_edge",
++            "session_preamble",
+         ],
+-        "名字逐值有序（user 四行在前 / workspace 十一行在后）"
++        "名字逐值有序（user 四行在前 / workspace 十二行在后）"
+     );
+     let mut unique = names.clone();
+     unique.sort();
+     unique.dedup();
+-    assert_eq!(unique.len(), 15, "名字唯一");
++    assert_eq!(unique.len(), 16, "名字唯一");
+ 
+     let user: Vec<&str> = entries
+         .iter()
+@@ -1022,7 +1026,7 @@ fn entries长度与登记序与维度分组() {
+         .filter(|entry| entry.dimension == DbDimension::Workspace)
+         .map(|entry| entry.name)
+         .collect();
+-    assert_eq!(workspace.len(), 11, "workspace 维度十一行");
++    assert_eq!(workspace.len(), 12, "workspace 维度十二行");
+     assert_eq!(
+         workspace.first(),
+         Some(&"agent_run"),
+@@ -1030,13 +1034,13 @@ fn entries长度与登记序与维度分组() {
+     );
+     assert_eq!(
+         workspace.last(),
+-        Some(&"run_edge"),
++        Some(&"session_preamble"),
+         "workspace 段末项（登记序锚）"
+     );
+ }
+ 
+ /// 边界（AC-2）：`entries()` 与 `list_models` 两个维度清单并集逐名相等（同一
+-/// 真源），首项 `workspace`、末项 `run_edge`。
++/// 真源），首项 `workspace`、末项 `session_preamble`。
+ #[test]
+ fn entries与list_models同源且首尾锚定() {
+     let env = Env::new("envelope-entries");
+@@ -1061,7 +1065,7 @@ fn entries与list_models同源且首尾锚定() {
+         .collect();
+     assert_eq!(union, entries, "两读面并集逐名相等（同一注册表真源）");
+     assert_eq!(entries.first().map(String::as_str), Some("workspace"));
+-    assert_eq!(entries.last().map(String::as_str), Some("run_edge"));
++    assert_eq!(entries.last().map(String::as_str), Some("session_preamble"));
+ }
+ 
+ /// 正向（AC-3）：`dimension_of` 六表逐表派库；异常面 `store_meta` / 拼写 /
+@@ -1456,3 +1460,134 @@ fn 通知表说明面九字段且doc与非空渲染齐备() {
+         "id 的 doc 标注主键"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// session-preamble-snapshot：`session_preamble` 信封登记行（scan / walk / key）
++// ---------------------------------------------------------------------------
++
++/// 播种 n 份快照行（走真写面 `stamp_session_preamble`，不直插 native_db）。
++fn seed_preambles(store: &Store, n: usize) {
++    for index in 0..n {
++        assert!(
++            store
++                .stamp_session_preamble(
++                    &format!("ses-preamble-{index}"),
++                    &format!("快照正文 {index}"),
++                )
++                .expect("拍存应成功"),
++            "首次拍板必写入"
++        );
++    }
++}
++
++#[test]
++fn session_preamble登记行scan分页总数与键值形态() {
++    let env = Env::new("envelope-preamble");
++    let store = open_ws_ok(&env.db_path("ws"));
++    seed_preambles(&store, 2);
++
++    let page = store.scan("session_preamble", 0, 10).expect("scan 应成功");
++    assert_eq!(page.total, 2, "计数与播种量一致");
++    assert_eq!(page.records.len(), 2);
++    for record in &page.records {
++        let session_id = record
++            .key
++            .as_str()
++            .unwrap_or_else(|| panic!("key 信封为 sessionId 字符串: {}", record.key));
++        assert!(
++            session_id.starts_with("ses-preamble-"),
++            "键面取自 value[\"sessionId\"]: {session_id}"
++        );
++        let mut keys: Vec<&String> = record
++            .value
++            .as_object()
++            .expect("value 为对象")
++            .keys()
++            .collect();
++        keys.sort();
++        assert_eq!(
++            keys,
++            vec!["content", "savedAt", "sessionId"],
++            "value 三键 camelCase"
++        );
++        assert_eq!(record.value["sessionId"], serde_json::json!(session_id));
++    }
++}
++
++#[test]
++fn session_preamble登记行scan越界offset与超上限limit截断() {
++    let env = Env::new("envelope-preamble-page");
++    let store = open_ws_ok(&env.db_path("ws"));
++    seed_preambles(&store, 3);
++
++    let beyond = store
++        .scan("session_preamble", 9, 10)
++        .expect("越界 scan 应成功");
++    assert!(beyond.records.is_empty(), "越界 offset → 空 records");
++    assert_eq!(beyond.total, 3, "total 恒全量（分页信封语义）");
++
++    let clamped = store
++        .scan("session_preamble", 0, 501)
++        .expect("超上限 limit 应成功");
++    assert_eq!(clamped.total, 3, "limit 超上限不改 total");
++    assert!(
++        clamped.records.len() <= 500,
++        "limit 超上限截断到 500 以内，实际 {}",
++        clamped.records.len()
++    );
++    assert_eq!(clamped.records.len(), 3, "三行全在本页");
++}
++
++#[test]
++fn session_preamble登记行scan零limit与整页与walk通路() {
++    let env = Env::new("envelope-preamble-walk");
++    let store = open_ws_ok(&env.db_path("ws"));
++    seed_preambles(&store, 3);
++
++    let zero = store
++        .scan("session_preamble", 0, 0)
++        .expect("零 limit 应成功");
++    assert!(zero.records.is_empty(), "limit = 0 → 空 records");
++    assert_eq!(zero.total, 3, "total 恒全量");
++
++    let exact = store
++        .scan("session_preamble", 0, 3)
++        .expect("整页 scan 应成功");
++    assert_eq!(exact.records.len(), 3, "limit 恰等于总行数 → 全量一页");
++    assert_eq!(exact.total, 3);
++
++    // 分页跨越 walk 通路：`where` 条件迫使走注册表 `walk`（非 scan 快路径），
++    // 一次读事务内逐条解码且计数一致
++    let spec: crate::QuerySpec = serde_json::from_value(serde_json::json!({
++        "table": "session_preamble",
++        "where": [{ "field": "content", "op": "LIKE", "value": "快照正文%" }],
++        "limit": 40
++    }))
++    .expect("spec 可解析");
++    let page = store.query(&spec).expect("walk 通路查询应成功");
++    assert_eq!(page.total, 3, "walk 通路的 total 精确计数");
++    assert_eq!(page.matched, 3, "条件全命中");
++    assert_eq!(page.records.len(), 3, "保留窗与计数一致");
++}
++
++#[test]
++fn session_preamble登记行拼写错误与跨维度均err() {
++    let env = Env::new("envelope-preamble-err");
++    let ws = open_ws_ok(&env.db_path("ws"));
++    let misspelled = scan_err(&ws, "session_preambles");
++    assert!(
++        misspelled.contains("未知模型"),
++        "拼写错误名 → 未知模型 Err，实际: {misspelled}"
++    );
++
++    let global = open_global_ok(&env.db_path("global"));
++    let wrong_dimension = scan_err(&global, "session_preamble");
++    assert!(
++        wrong_dimension.contains("未知模型"),
++        "user 维度库上 session_preamble 跨维度不可达，实际: {wrong_dimension}"
++    );
++    assert!(
++        ws.scan("session_preamble", 0, 10).is_ok(),
++        "对照：workspace 维度库可达"
++    );
++}
+diff --git a/crates/infra/store/src/lib.rs b/crates/infra/store/src/lib.rs
+index 331512cfe640..71ebec5fbf4c 100644
+--- a/crates/infra/store/src/lib.rs
++++ b/crates/infra/store/src/lib.rs
+@@ -13,8 +13,8 @@ pub use model::{
+     AgentEffortTiers, AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+     AgentProviderRecord, AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord,
+     ExploreRecord, NotificationRecord, PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord,
+-    SessionConfigSnapshot, SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
+-    CLI_TENANT_RETIRED,
++    SessionConfigSnapshot, SessionEventRecord, SessionPreambleRecord, SessionRecord, StepRecord,
++    WorkspaceRecord, CLI_TENANT_RETIRED,
+ };
+ pub use notification::StoreNotificationSink;
+ pub use query::{
+diff --git a/crates/infra/store/src/model.rs b/crates/infra/store/src/model.rs
+index 545e040f14ba..d0d221d2c694 100644
+--- a/crates/infra/store/src/model.rs
++++ b/crates/infra/store/src/model.rs
+@@ -1653,6 +1653,33 @@ pub struct NotificationRecord {
+     pub read_at: Option<i64>,
+ }
+ 
++/// 会话系统提示词快照记录（agent 会话域，workspace 维度落 workspace 库）：会话首轮拍存一次、此后逐字复用。
++///
++/// 写一次不可变——无行 = 未快照（存量会话）；空串 [`Self::content`] = 快照成立但
++/// 无正文（该会话零 System 消息）——两个状态 MUST NOT 混用。
++///
++/// `session_id` 与 `SessionRecord` 为**一对一的逻辑关联而非外键**：跨表引用不引
++/// 申存在性检查或级联删除（会话与其快照同落一个 workspace 库文件，随库整体作废）。
++///
++/// 表与字段说明由 `///` doc 经 `describe` 自动派生（db 查看器零模型特定代码）。
++///
++/// `native_model` id 取现役最大值 + 1（= 19）而非补历史空洞 3 / 14：空洞无法证
++/// 明从未被占用，上界之外必不冲突。本模型为**新增**模型而非既有模型字段演进 ⇒
++/// 无版本链、零 `from` 链、零迁移代码路径。
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
++#[serde(rename_all = "camelCase")]
++#[native_model(id = 19, version = 1)]
++#[native_db]
++pub struct SessionPreambleRecord {
++    /// core 铸会话 id（主键，与 `SessionRecord.id` 一对一的逻辑关联，非外键）
++    #[primary_key]
++    pub session_id: String,
++    /// 快照正文（知识 + `AGENT.md` 段 + 冻结指引常量的合成体，空串 = 快照成立但无正文）
++    pub content: String,
++    /// 拍存时刻（UTC unix 毫秒，由落库侧时钟取）
++    pub saved_at: i64,
++}
++
+ /// 复合键打包：高 64 位 `hash64(session_id)`、低 64 位 seq。store 内唯一
+ /// 组装点。
+ pub(crate) fn pack_session_event_key(session_id: &str, seq: u64) -> u128 {
+diff --git a/crates/infra/store/src/model_test.rs b/crates/infra/store/src/model_test.rs
+index 2f1c2b0ed370..e2dcb19083b5 100644
+--- a/crates/infra/store/src/model_test.rs
++++ b/crates/infra/store/src/model_test.rs
+@@ -1112,7 +1112,7 @@ fn checklist_item_record_item_key十六进制串serde出线与反向解码往返
+ }
+ 
+ #[test]
+-fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models覆盖持衡() {
++fn 十三模型注册workspace组全覆盖_新id与既有id无冲突_list_models覆盖持衡() {
+     let db_dir = tempfile::Builder::new()
+         .prefix("store-test-model-registry-")
+         .tempdir()
+@@ -1122,9 +1122,9 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
+     // （1/2/4/5/6/7/8）无一冲突即打开点注册成功（Models::define 对同
+     // id+版本 panic，打开成功即注册面无撞号）；id=3 历史退役空缺不复用（D3）
+     let store = Store::open_workspace(&db_dir.path().join("ws.redb"))
+-        .unwrap_or_else(|e| panic!("open_workspace 应成功（十一模型注册无 id 冲突）: {e}"));
++        .unwrap_or_else(|e| panic!("open_workspace 应成功（十三模型注册无 id 冲突）: {e}"));
+ 
+-    // 注册面 = 十一模型（workspace 组）：逐类型 id / 版本与本组既有模型、全局组
++    // 注册面 = 十三模型（workspace 组）：逐类型 id / 版本与本组既有模型、全局组
+     // 模型（1 / 5 / 6）全表无重复
+     let workspace_group = [
+         (
+@@ -1171,6 +1171,10 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
+             <crate::model::RunEdgeRecord as native_model::Model>::native_model_id(),
+             <crate::model::RunEdgeRecord as native_model::Model>::native_model_version(),
+         ),
++        (
++            <crate::model::SessionPreambleRecord as native_model::Model>::native_model_id(),
++            <crate::model::SessionPreambleRecord as native_model::Model>::native_model_version(),
++        ),
+         (
+             <crate::model::StoreMetaRecord as native_model::Model>::native_model_id(),
+             <crate::model::StoreMetaRecord as native_model::Model>::native_model_version(),
+@@ -1178,13 +1182,21 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
+     ];
+     assert_eq!(
+         workspace_group.map(|(id, _)| id),
+-        [2, 7, 8, 4, 9, 10, 11, 12, 13, 16, 17, 15],
+-        "workspace 组注册：run 执行图节点 / 边两模型入册（id 14 RunStepRecord 退役，\n         id 16/17 增补）"
++        [2, 7, 8, 4, 9, 10, 11, 12, 13, 16, 17, 19, 15],
++        "workspace 组注册：run 执行图节点 / 边两模型入册（id 14 RunStepRecord 退役，\n         id 16/17 增补；本变更 19 = 会话系统提示词快照，注册在 store_meta 之前）"
+     );
+     assert!(
+         !workspace_group.iter().any(|(id, _)| *id == 14),
+         "RunStepRecord 注册摘除（id 14 退役）"
+     );
++    assert!(
++        !workspace_group.iter().any(|(id, _)| *id == 3),
++        "historical id 3 空洞不复用（新模型取现役最大值 + 1）"
++    );
++    assert!(
++        workspace_group.iter().any(|(id, _)| *id == 19),
++        "会话系统提示词快照模型入册"
++    );
+     let mut ids: Vec<u32> = workspace_group
+         .iter()
+         .map(|(id, _)| *id)
+@@ -1200,7 +1212,7 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
+     deduped.dedup();
+     assert_eq!(
+         ids, deduped,
+-        "全册 id 无冲突（既有 1/2/4/5/6/7/8 + 9..17 + 本变更 18）"
++        "全册 id 无冲突（既有 1/2/4/5/6/7/8 + 9..17 + 18 通知 + 本变更 19 快照）"
+     );
+ 
+     // list_models 覆盖持衡：信封注册面每模型一行即可浏览（run 执行图三模型
+@@ -1222,9 +1234,10 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
+             "step",
+             "run",
+             "run_node",
+-            "run_edge"
++            "run_edge",
++            "session_preamble"
+         ],
+-        "workspace 组信封注册面恰十一行（登记面 additive）"
++        "workspace 组信封注册面恰十二行（登记面 additive：快照表为末项）"
+     );
+     assert!(
+         models.iter().all(|model| model.count == 0),
+@@ -5789,3 +5802,249 @@ fn 通知记录结构锚_id属性与字段doc齐备() {
+     }
+     assert_eq!(documented, 9, "九字段逐字段说明齐备");
+ }
++
++// ---------------------------------------------------------------------------
++// session-preamble-snapshot：`SessionPreambleRecord`（id 19 新增模型）
++// ---------------------------------------------------------------------------
++
++/// 快照记录底座（三字段显式固定值）。
++fn preamble_record() -> crate::model::SessionPreambleRecord {
++    crate::model::SessionPreambleRecord {
++        session_id: "ses-preamble-1".to_owned(),
++        content: "知识\n\n<agent_md path=\"/ws/AGENT.md\">\n约定\n</agent_md>\n\n指引".to_owned(),
++        saved_at: 1727000000000,
++    }
++}
++
++#[test]
++fn session_preamble_record_native_model_id为十九且版本一() {
++    assert_eq!(
++        <crate::model::SessionPreambleRecord as native_model::Model>::native_model_id(),
++        19,
++        "取现役最大值 + 1（不补历史空洞 3 / 14）"
++    );
++    assert_eq!(
++        <crate::model::SessionPreambleRecord as native_model::Model>::native_model_version(),
++        1,
++        "新增模型首版"
++    );
++}
++
++/// 源码自证（边界）：新增模型而非字段演进 ⇒ 零版本链 struct、`native_model(id = 19`
++/// 恰一处、其属性块内零 `from =`。
++#[test]
++fn session_preamble_record零版本链_单一定义且属性块无from链() {
++    let own = std::fs::read_to_string(
++        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/model.rs"),
++    )
++    .expect("读取 model.rs");
++
++    assert!(
++        !own.contains("SessionPreambleRecordV"),
++        "零版本链形态（无 V1/V2 旧形态 struct）"
++    );
++    assert_eq!(
++        own.matches("native_model(id = 19").count(),
++        1,
++        "id 19 属性恰一处（单一定义）"
++    );
++
++    // 属性块内零 `from =`：新增模型无迁移路径
++    let marker = own.find("native_model(id = 19").expect("属性在场");
++    let block_start = own[..marker]
++        .rfind("pub struct SessionPreambleRecord")
++        .map_or(marker, |index| index);
++    let block_end = own[marker..]
++        .find("pub struct SessionPreambleRecord {")
++        .map(|offset| marker + offset)
++        .expect("结构体定义在场");
++    let attribute_block = &own[block_start..block_end];
++    assert!(
++        !attribute_block.contains("from ="),
++        "属性块零 from 链，实际: {attribute_block}"
++    );
++    assert!(
++        !own.contains("impl From<SessionPreambleRecord"),
++        "零升级实现（无迁移代码路径）"
++    );
++}
++
++#[test]
++fn session_preamble_record编解码往返逐字段且返回版本一() {
++    let record = preamble_record();
++
++    let bytes = native_model::encode(&record).expect("native_model encode 应成功");
++    let (decoded, version) = native_model::decode::<crate::model::SessionPreambleRecord>(bytes)
++        .expect("native_model decode 应成功");
++
++    assert_eq!(version, 1, "native_model 19:v1 版本封装");
++    assert_eq!(decoded, record, "三字段往返逐字段相等");
++    assert_eq!(decoded.session_id, "ses-preamble-1", "主键往返保真");
++    assert_eq!(decoded.saved_at, 1727000000000);
++}
++
++#[test]
++fn session_preamble_record载荷以session_record解码err_不跨界吞错() {
++    let bytes = native_model::encode(&preamble_record()).expect("encode 应成功");
++    let result = native_model::decode::<crate::model::SessionRecord>(bytes);
++    assert!(
++        result.is_err(),
++        "会话记录形态远比快照宽（七字段 vs 三字段）⇒ 必拒解，实际: {result:?}"
++    );
++}
++
++#[test]
++fn session_preamble_record边界组合编解码往返逐字() {
++    let contents = [
++        String::new(),
++        "含换行\n与空字节\0与 emoji 🎉".to_owned(),
++        "中".repeat(12000),
++    ];
++    let saved_ats = [0, -1, i64::MAX, 1_727_000_000_000];
++    let session_ids = [
++        String::new(),
++        "长".repeat(1100),
++        "含换行\n与空字节\0的主键".to_owned(),
++    ];
++
++    let mut combinations = 0;
++    for content in &contents {
++        for saved_at in saved_ats {
++            let record = crate::model::SessionPreambleRecord {
++                session_id: "ses-boundary".to_owned(),
++                content: content.clone(),
++                saved_at,
++            };
++            let (decoded, version) = native_model::decode::<crate::model::SessionPreambleRecord>(
++                native_model::encode(&record).expect("encode 应成功"),
++            )
++            .expect("decode 应成功");
++            assert_eq!(version, 1);
++            assert_eq!(decoded, record, "content×saved_at 组合往返逐字");
++            combinations += 1;
++        }
++    }
++    assert_eq!(combinations, 12, "3 内容形态 × 4 时刻形态全覆盖");
++
++    for session_id in &session_ids {
++        let record = crate::model::SessionPreambleRecord {
++            saved_at: 1,
++            session_id: session_id.clone(),
++            ..preamble_record()
++        };
++        let (decoded, _) = native_model::decode::<crate::model::SessionPreambleRecord>(
++            native_model::encode(&record).expect("encode 应成功"),
++        )
++        .expect("decode 应成功");
++        assert_eq!(decoded.session_id, *session_id, "主键形态不校验、往返保真");
++    }
++}
++
++#[test]
++fn session_preamble_record线名三键驼峰且往返等值() {
++    let record = preamble_record();
++
++    let value = serde_json::to_value(&record).expect("serde 序列化应成功");
++    let mut keys: Vec<&String> = value.as_object().expect("对象形态").keys().collect();
++    keys.sort();
++    assert_eq!(
++        keys,
++        vec!["content", "savedAt", "sessionId"],
++        "键集恰三键，主键线名为 sessionId"
++    );
++    assert_eq!(value["savedAt"], serde_json::json!(1727000000000_i64));
++    assert_eq!(value["sessionId"], serde_json::json!("ses-preamble-1"));
++
++    let back: crate::model::SessionPreambleRecord =
++        serde_json::from_value(value).expect("反序列化成功");
++    assert_eq!(back, record, "线面往返等值");
++}
++
++/// 结构独立性（边界）：与 `SessionRecord` 各自独立——三字段字面构造即可编译，
++/// 快照加列不牵动会话模型版本、会话加列不牵动本模型。
++#[test]
++fn session_preamble_record与session_record结构独立_三字段字面构造() {
++    let record = crate::model::SessionPreambleRecord {
++        session_id: "ses-independent".to_owned(),
++        content: String::new(),
++        saved_at: 0,
++    };
++    assert_eq!(record.session_id, "ses-independent");
++    assert_eq!(record.content, "", "空串正文 = 快照成立但无正文");
++    assert_eq!(record.saved_at, 0);
++
++    assert_eq!(
++        <SessionRecord as native_model::Model>::native_model_version(),
++        2,
++        "会话模型版本不因新增快照模型而变"
++    );
++    assert_ne!(
++        <SessionRecord as native_model::Model>::native_model_id(),
++        <crate::model::SessionPreambleRecord as native_model::Model>::native_model_id(),
++        "两模型 id 互异（独立模型、各自版本链）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// session-preamble-snapshot：`SessionPreambleRecord` 的 crate 根出口面
++//（`pub use model::{…, SessionPreambleRecord, …}`；compose 读 `content` / `saved_at`
++//  经根路径）
++// ---------------------------------------------------------------------------
++
++/// 正向：根路径可构造三字段字面值，且 `native_model_id` 走根路径取真值。
++#[test]
++fn crate根路径session_preamble_record可构造且id为十九() {
++    let record = crate::SessionPreambleRecord {
++        session_id: "ses-root".to_owned(),
++        content: "根路径正文".to_owned(),
++        saved_at: 1727000000000,
++    };
++    assert_eq!(record.session_id, "ses-root", "主键字段可读");
++    assert_eq!(record.content, "根路径正文", "正文字段可读");
++    assert_eq!(
++        <crate::SessionPreambleRecord as native_model::Model>::native_model_id(),
++        19,
++        "根路径取到真值（非仿造类型）"
++    );
++}
++
++/// 异常（否证）：根路径值可传给形参为 `crate::model::SessionPreambleRecord` 的
++/// 函数——根导出是 re-export 而非另立的仿造 struct。
++#[test]
++fn crate根路径session_preamble_record与模块路径同一类型() {
++    fn takes_module_type(record: crate::model::SessionPreambleRecord) -> String {
++        record.content
++    }
++    let via_root = crate::SessionPreambleRecord {
++        session_id: "ses-same".to_owned(),
++        content: "同一实现".to_owned(),
++        saved_at: 1,
++    };
++    assert_eq!(
++        takes_module_type(via_root),
++        "同一实现",
++        "根路径与 model 模块路径是同一类型（无包装层）"
++    );
++    assert_eq!(
++        <crate::SessionPreambleRecord as native_model::Model>::native_model_version(),
++        1,
++        "版本面同样同一实现"
++    );
++}
++
++/// 边界：根路径实例参与编解码往返逐字段相等（根导出不改编解码面）。
++#[test]
++fn crate根路径session_preamble_record编解码往返逐字段() {
++    let record = crate::SessionPreambleRecord {
++        session_id: "ses-round".to_owned(),
++        content: "".to_owned(),
++        saved_at: -1,
++    };
++    let (decoded, version) = native_model::decode::<crate::SessionPreambleRecord>(
++        native_model::encode(&record).expect("encode 应成功"),
++    )
++    .expect("decode 应成功");
++    assert_eq!(version, 1);
++    assert_eq!(decoded, record, "根路径实例往返逐字段相等");
++    assert_eq!(decoded.content, "", "空串正文保真（快照成立但无正文）");
++}
+diff --git a/crates/infra/store/src/store.rs b/crates/infra/store/src/store.rs
+index d5308395da7c..7c0b02119f91 100644
+--- a/crates/infra/store/src/store.rs
++++ b/crates/infra/store/src/store.rs
+@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, OnceLock};
+ use ::notification::{Notification, NotificationKind, NotificationPage};
+ use agent::{
+     sum_usage_tokens, AgentEvent, AgentEventKind, AgentPermissionMode, SessionPage,
+-    SessionProvenance, SessionRow, SessionStats, SessionSummary, TurnSummary,
++    SessionPreambleInfo, SessionProvenance, SessionRow, SessionStats, SessionSummary, TurnSummary,
+ };
+ use native_db::{Builder, Database, Models};
+ use serde::{Deserialize, Serialize};
+@@ -19,9 +19,9 @@ use crate::model::{
+     now_millis, pack_session_event_key, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord,
+     AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord,
+     NotificationRecord, PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord,
+-    SessionConfigSnapshot, SessionEventRecord, SessionEventRecordKey, SessionRecord, StepRecord,
+-    StoreMetaRecord, WorkspaceRecord, CLI_TENANT_RETIRED, WORKSPACE_STORE_FORMAT_KEY,
+-    WORKSPACE_STORE_FORMAT_VERSION,
++    SessionConfigSnapshot, SessionEventRecord, SessionEventRecordKey, SessionPreambleRecord,
++    SessionRecord, StepRecord, StoreMetaRecord, WorkspaceRecord, CLI_TENANT_RETIRED,
++    WORKSPACE_STORE_FORMAT_KEY, WORKSPACE_STORE_FORMAT_VERSION,
+ };
+ use crate::query::{self, QueryError, QueryPage, QuerySpec};
+ use workflow::model::{ChecklistItem, Verdict};
+@@ -170,11 +170,13 @@ fn aggregate_stats(
+ }
+ 
+ /// 聚合组装（清单面与单查共用）：轮行发起顺序排序 + 统计现算 + DTO 映射。
+-/// 两面共用本函数，`find_session_detail` 与 `list_sessions` 对应条目逐字段全等。
++/// 两面共用本函数，`find_session_detail` 与 `list_sessions` 对应条目逐字段全等
++/// ——例外是快照面：由调用方决定（单查填、清单恒 `None`）。
+ fn assemble_summary(
+     session: &SessionRecord,
+     mut turns: Vec<TurnSummary>,
+     events: Vec<AgentEvent>,
++    preamble: Option<SessionPreambleInfo>,
+ ) -> Result<SessionSummary, String> {
+     // 发起顺序：`started_at` 升序，并列按轮 id 升序（确定可复现）
+     turns.sort_by(|a, b| {
+@@ -187,6 +189,7 @@ fn assemble_summary(
+         row: session_row(session)?,
+         stats,
+         turns,
++        preamble,
+     })
+ }
+ 
+@@ -317,7 +320,7 @@ pub enum DbDimension {
+     /// 已落地代表，desktop-data-dimensions 留痕）
+     User,
+     /// workspace 维度（per-workspace 库，轮统计行 / 会话 / 转录 / explore /
+-    /// change 流程状态 + run 运行史十模型）
++    /// 会话系统提示词快照 / change 流程状态 + run 运行史十二模型）
+     Workspace,
+ }
+ 
+@@ -342,9 +345,10 @@ pub(crate) fn global_models() -> &'static Models {
+     })
+ }
+ 
+-/// workspace 库模型组（十二模型：轮统计行 / 会话 / 转录 / explore 四既有模型，
+-/// change 流程状态四模型，run 执行图三模型（run 主行 + 节点 + 边），库级格式版本
+-/// 标记一模型——注册面 additive；run 执行图模型重设计经格式版本 bump 整体重建）
++/// workspace 库模型组（十三模型：轮统计行 / 会话 / 转录 / explore / 会话系统
++/// 提示词快照五既有模型，change 流程状态四模型，run 执行图三模型（run 主行 +
++/// 节点 + 边），库级格式版本标记一模型——注册面 additive；run 执行图模型重设计
++/// 经格式版本 bump 整体重建）
+ pub(crate) fn workspace_models() -> &'static Models {
+     static MODELS: OnceLock<Models> = OnceLock::new();
+     MODELS.get_or_init(|| {
+@@ -378,6 +382,9 @@ pub(crate) fn workspace_models() -> &'static Models {
+         models
+             .define::<RunEdgeRecord>()
+             .expect("定义 RunEdgeRecord 失败");
++        models
++            .define::<SessionPreambleRecord>()
++            .expect("定义 SessionPreambleRecord 失败");
+         models
+             .define::<StoreMetaRecord>()
+             .expect("定义 StoreMetaRecord 失败");
+@@ -414,7 +421,7 @@ pub(crate) fn workspace_db_path(workspaces_dir: &Path, canonical_root: &str) ->
+ /// 锁定），私有持有 [`Database`] 与实例维度，可安全挂 Tauri State，同步调用
+ /// 无需 async。全局库经 [`Store::open_global`]（workspace 注册表 + agent
+ /// 管理两模型）、workspace 库经 [`Store::open_workspace`]（轮统计行 / 会话 /
+-/// 转录 / explore / change 流程状态 / run 运行史十模型）。
++/// 转录 / explore / 会话系统提示词快照 / change 流程状态 / run 运行史十二模型）。
+ ///
+ /// 单进程约束：双开（如 dev 与正式版指向同一 db 文件）不保证安全，见 crate 文档。
+ pub struct Store {
+@@ -609,15 +616,23 @@ impl Store {
+             .collect())
+     }
+ 
+-    /// 会话单查装配：主键直查行 + 本会话轮行 + 本会话事件 → 聚合组装。
+-    /// 查无此 id 返回 `Ok(None)`，由 port 层映射为显式 Err（单查语义分层）。
++    /// 会话单查装配：主键直查行 + 本会话轮行 + 本会话事件 + 快照行 → 聚合组装。
++    /// 查无此 id 返回 `Ok(None)`，由 port 层映射为显式 Err（单查语义分层）；无快照
++    /// 行 → `preamble = None`（不现算、不伪造）。
+     pub fn find_session_summary(&self, session_id: &str) -> Result<Option<SessionSummary>, String> {
+         let Some(session) = self.find_session(session_id).map_err(|e| e.to_string())? else {
+             return Ok(None);
+         };
+         let turns = self.list_agent_turns(session_id)?;
+         let events = self.list_session_events(session_id)?;
+-        assemble_summary(&session, turns, events).map(Some)
++        let preamble = self
++            .find_session_preamble(session_id)
++            .map_err(|e| e.to_string())?
++            .map(|record| SessionPreambleInfo {
++                saved_at: record.saved_at,
++                content: record.content,
++            });
++        assemble_summary(&session, turns, events, preamble).map(Some)
+     }
+ 
+     /// 轮统计行 begin：写事务内 `max(id)+1` 分配（与插入原子，首行 id=1），
+@@ -802,7 +817,8 @@ impl Store {
+                 .map(turn_summary)
+                 .collect();
+             let events = self.list_session_events(&session.id)?;
+-            summaries.push(assemble_summary(session, turns, events)?);
++            // 清单路径不读快照表：`preamble` 恒 `None`（不是「读了不给」）
++            summaries.push(assemble_summary(session, turns, events, None)?);
+         }
+         Ok((summaries, total))
+     }
+@@ -1244,6 +1260,48 @@ impl Store {
+         Ok(())
+     }
+ 
++    /// 会话系统提示词快照拍存（**写一次**语义）：单写事务内先查主键——行已存在
++    /// 即返回 `Ok(false)` 且不改写（快照不可变），未命中才写入并返回 `Ok(true)`。
++    /// `saved_at` 由本侧时钟取（时间戳归落库侧口径）。MUST NOT 提供更新 / 覆盖 /
++    /// 重置 / 删除语义的快照写函数。
++    pub fn stamp_session_preamble(
++        &self,
++        session_id: &str,
++        content: &str,
++    ) -> Result<bool, StoreError> {
++        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
++        let stored: Option<SessionPreambleRecord> = rw
++            .get()
++            .primary(session_id)
++            .map_err(db_err("读取会话系统提示词快照"))?;
++        if stored.is_some() {
++            return Ok(false); // 未提交的写事务随 drop 回滚：写一次即不可变
++        }
++        rw.insert(SessionPreambleRecord {
++            session_id: session_id.to_owned(),
++            content: content.to_owned(),
++            saved_at: now_millis(),
++        })
++        .map_err(db_err("写入会话系统提示词快照"))?;
++        rw.commit()
++            .map_err(db_err("提交 stamp_session_preamble 事务"))?;
++        Ok(true)
++    }
++
++    /// 主键直查会话系统提示词快照（续轮读回与单查装配消费）；miss → `Ok(None)`
++    /// （不伪造空行）。会话清单读面 MUST NOT 调用本方法。
++    pub fn find_session_preamble(
++        &self,
++        session_id: &str,
++    ) -> Result<Option<SessionPreambleRecord>, StoreError> {
++        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
++        let hit: Option<SessionPreambleRecord> = r
++            .get()
++            .primary(session_id)
++            .map_err(db_err("读取会话系统提示词快照"))?;
++        Ok(hit)
++    }
++
+     /// provider 清单：主键 id 升序自然序（稳定可复现）。
+     pub fn list_agent_providers(&self) -> Result<Vec<AgentProviderRecord>, StoreError> {
+         self.read_all::<AgentProviderRecord>("遍历 provider 清单")
+diff --git a/crates/infra/store/src/store_test.rs b/crates/infra/store/src/store_test.rs
+index e85639802bba..95a7f57c7428 100644
+--- a/crates/infra/store/src/store_test.rs
++++ b/crates/infra/store/src/store_test.rs
+@@ -138,7 +138,7 @@ fn add_ok(store: &Store, dir: &Path) -> WorkspaceRecord {
+ // ---------------------------------------------------------------------------
+ 
+ #[test]
+-fn open_global列user维度四模型_open_workspace仅列workspace维度十一行() {
++fn open_global列user维度四模型_open_workspace仅列workspace维度十二行() {
+     let env = Env::new("registry-split");
+ 
+     let global = open_global_ok(&env.db_path("global"));
+@@ -168,9 +168,9 @@ fn open_global列user维度四模型_open_workspace仅列workspace维度十一
+             .collect::<Vec<_>>(),
+         vec![
+             "agent_run", "session", "session_event", "explore", "change", "phase",
+-            "checklist_item", "step", "run", "run_node", "run_edge"
++            "checklist_item", "step", "run", "run_node", "run_edge", "session_preamble"
+         ],
+-        "workspace 组静态注册 8→11：轮统计行 / 会话 / 转录 / explore 四既有模型 + change 流程状态四模型 + run 执行图三模型（agent_event 退役出注册），两组无交叉"
++        "workspace 组静态注册 8→12：轮统计行 / 会话 / 转录 / explore 四既有模型 + change 流程状态四模型 + run 执行图三模型 + 会话系统提示词快照（agent_event 退役出注册），两组无交叉"
+     );
+     assert!(ws_models.iter().all(|model| model.count == 0));
+ }
+@@ -613,9 +613,10 @@ fn 组合链open注册后for_root落库会话与explore且全局库无混入() {
+             ("step", 0),
+             ("run", 0),
+             ("run_node", 0),
+-            ("run_edge", 0)
++            ("run_edge", 0),
++            ("session_preamble", 0)
+         ],
+-        "workspace 库十一模型组：按会话域布局写入 session / explore（建档预建空会话 +1），change 流程状态四模型与 run 执行图三模型计数 0 也列出，无注册表混入"
++        "workspace 库十二模型组：按会话域布局写入 session / explore（建档预建空会话 +1），change 流程状态四模型 / run 执行图三模型 / 会话系统提示词快照计数 0 也列出，无注册表混入"
+     );
+     assert_eq!(
+         stores.global().list_workspaces().unwrap(),
+@@ -6457,9 +6458,10 @@ fn 信封零改动覆盖四新模型_list_models计数与scan信封可读() {
+             ("step", 1),
+             ("run", 0),
+             ("run_node", 0),
+-            ("run_edge", 0)
++            ("run_edge", 0),
++            ("session_preamble", 0)
+         ],
+-        "change 流程状态四模型经既有 list_models 覆盖（run 三模型计数 0 也列出）"
++        "change 流程状态四模型经既有 list_models 覆盖（run 三模型与会话系统提示词快照计数 0 也列出）"
+     );
+ 
+     // scan 零改动可读四新模型记录信封（change 信封 key = 记录 id 主键投影）
+@@ -9028,8 +9030,8 @@ fn store_describe两库行集与list_models逐名一致() {
+     }
+     assert_eq!(
+         ws.describe().expect("workspace describe").len(),
+-        11,
+-        "workspace 十一行"
++        12,
++        "workspace 十二行"
+     );
+     assert_eq!(
+         global.describe().expect("global describe").len(),
+@@ -10431,3 +10433,398 @@ fn 通知列表与未读计数同源一致() {
+         "标记已读不改列表行集"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// session-preamble-snapshot：会话系统提示词快照的写一次 / 主键直查 / 装配面
++// ---------------------------------------------------------------------------
++
++/// 现刻毫秒（落库侧时钟的包夹判据用）。
++fn now_ms() -> i64 {
++    std::time::SystemTime::now()
++        .duration_since(std::time::UNIX_EPOCH)
++        .expect("系统时钟早于 UNIX 纪元")
++        .as_millis() as i64
++}
++
++#[test]
++fn stamp_session_preamble首次写入返回true且回读逐字与时刻包夹() {
++    let env = Env::new("preamble-stamp");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    let body = "知识\n\n<agent_md path=\"/ws/AGENT.md\">\n约定\n</agent_md>\n\n指引";
++    let before = now_ms();
++    assert!(
++        store
++            .stamp_session_preamble("ses-p", body)
++            .expect("首次拍存应成功"),
++        "首次写入返回 Ok(true)"
++    );
++    let after = now_ms();
++
++    let record = store
++        .find_session_preamble("ses-p")
++        .expect("回读应成功")
++        .expect("行在场");
++    assert_eq!(record.session_id, "ses-p", "主键逐字段");
++    assert_eq!(record.content, body, "正文逐字");
++    assert!(
++        record.saved_at >= before && record.saved_at <= after,
++        "saved_at 由落库侧时钟取（store 侧包夹），实际 {} 不在 [{before}, {after}]",
++        record.saved_at
++    );
++}
++
++#[test]
++fn stamp_session_preamble二次写入返回false且内容与时刻均不变() {
++    let env = Env::new("preamble-idempotent");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    let first_body = "首次正文";
++    assert!(store.stamp_session_preamble("ses-p", first_body).unwrap());
++    let first = store.find_session_preamble("ses-p").unwrap().unwrap();
++
++    for (label, body) in [("同内容", first_body), ("异内容", "改写后的正文")] {
++        assert!(
++            !store.stamp_session_preamble("ses-p", body).unwrap(),
++            "二次拍存（{label}）返回 Ok(false)"
++        );
++        let after = store.find_session_preamble("ses-p").unwrap().unwrap();
++        assert_eq!(after, first, "写一次冻结（{label}）：整行零变化");
++    }
++
++    // 无更新 / 重置语义：内容与时刻均锚在首次
++    assert_eq!(first.content, first_body);
++    assert!(first.saved_at > 0);
++}
++
++#[test]
++fn stamp_session_preamble维度错配user维度store返回err且不产行() {
++    let env = Env::new("preamble-dimension");
++    let global = open_global_ok(&env.db_path("global"));
++    let result = global.stamp_session_preamble("ses-dim", "正文");
++    assert!(
++        result.is_err(),
++        "user 维度库无该 workspace 模型 ⇒ 显式 Err（不静默成功），实际: {result:?}"
++    );
++    match result {
++        Err(StoreError::Db(message)) => {
++            assert!(!message.is_empty(), "错误串携库层语境: {message}")
++        }
++        other => panic!("应为 StoreError::Db 变体，实际: {other:?}"),
++    }
++
++    // 同一库上读面同样 Err（跨维度不可达，双向一致）
++    assert!(
++        global.find_session_preamble("ses-dim").is_err(),
++        "user 维度库读面亦 Err"
++    );
++}
++
++#[test]
++fn stamp_session_preamble空串与超长正文两形态落库均不被截断() {
++    let env = Env::new("preamble-boundary");
++    let store = open_workspace_ok(&env.db_path("ws"));
++
++    assert!(store.stamp_session_preamble("ses-empty", "").unwrap());
++    let empty = store.find_session_preamble("ses-empty").unwrap().unwrap();
++    assert_eq!(empty.content, "", "快照成立但无正文（空串）");
++
++    let long = "中".repeat(20000);
++    assert!(store.stamp_session_preamble("ses-long", &long).unwrap());
++    let stored = store.find_session_preamble("ses-long").unwrap().unwrap();
++    assert_eq!(stored.content.chars().count(), 20000, "长度守恒");
++    assert_eq!(stored.content, long, "无 32KB 二次截断（截断只在读取侧）");
++}
++
++#[test]
++fn stamp_session_preamble三次连调仅首次生效且跨库重开行仍在() {
++    let env = Env::new("preamble-reopen");
++    let path = env.db_path("ws");
++    {
++        let store = open_workspace_ok(&path);
++        assert!(store
++            .stamp_session_preamble("ses-reopen", "冻结体")
++            .unwrap());
++        assert!(!store
++            .stamp_session_preamble("ses-reopen", "冻结体")
++            .unwrap());
++        assert!(!store
++            .stamp_session_preamble("ses-reopen", "另一体")
++            .unwrap());
++        let record = store.find_session_preamble("ses-reopen").unwrap().unwrap();
++        assert_eq!(record.content, "冻结体", "首写即定稿");
++    }
++    // 跨库重开（与会话同落一个 workspace 库文件）：行仍在且逐字
++    let reopened = open_workspace_ok(&path);
++    let record = reopened
++        .find_session_preamble("ses-reopen")
++        .expect("重开回读应成功")
++        .expect("行仍在");
++    assert_eq!(record.content, "冻结体", "跨库重开逐字保真");
++    assert!(record.saved_at > 0);
++}
++
++#[test]
++fn find_session_preamble命中三字段与未命中三形态() {
++    let env = Env::new("preamble-find");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    seed_session(&store, "ses-hit");
++    store
++        .stamp_session_preamble("ses-hit", "命中正文")
++        .expect("拍存应成功");
++
++    let record = store
++        .find_session_preamble("ses-hit")
++        .expect("命中应成功")
++        .expect("Some(record)");
++    assert_eq!(record.session_id, "ses-hit");
++    assert_eq!(record.content, "命中正文");
++    assert!(record.saved_at > 0, "saved_at 为正毫秒值");
++
++    // 未 stamp 的 id（会话在场）：行缺席即未快照
++    assert_eq!(
++        store.find_session_preamble("ses-other").unwrap(),
++        None,
++        "未 stamp 的 id → Ok(None)"
++    );
++    // 空串 id：不 panic
++    assert_eq!(
++        store.find_session_preamble("").unwrap(),
++        None,
++        "空串 id → Ok(None)"
++    );
++    // 空库
++    let empty_store = open_workspace_ok(&env.db_path("ws-empty"));
++    assert_eq!(
++        empty_store.find_session_preamble("ses-any").unwrap(),
++        None,
++        "空库 → Ok(None)"
++    );
++    // 超长 session_id（1100 char）：主键不校验形态
++    let long_id = "长".repeat(1100);
++    assert_eq!(
++        store.find_session_preamble(&long_id).unwrap(),
++        None,
++        "超长主键 → Ok(None)（形态零校验）"
++    );
++    assert!(store.stamp_session_preamble(&long_id, "长键正文").unwrap());
++    assert_eq!(
++        store
++            .find_session_preamble(&long_id)
++            .unwrap()
++            .unwrap()
++            .content,
++        "长键正文",
++        "超长主键亦可落库回读"
++    );
++}
++
++#[test]
++fn find_session_summary有快照时携preamble且其余聚合面全等() {
++    let env = Env::new("summary-preamble");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    seed_session(&store, "ses-p");
++    store
++        .append_session_events("ses-p", &[stamped(0, turn_done_kind(false))])
++        .expect("append 应成功");
++    let turn = store
++        .begin_agent_turn("ses-p", 1727000000000)
++        .expect("begin 应成功");
++    store
++        .finish_agent_turn(
++            turn.id,
++            &finish_shell(
++                turn.id,
++                AgentRunStatus::Completed,
++                Some(1727000004000),
++                Some(1),
++                Some(4000),
++                None,
++            ),
++        )
++        .expect("finish 应成功");
++    store
++        .stamp_session_preamble("ses-p", "装配快照正文")
++        .expect("拍存应成功");
++
++    let found = store
++        .find_session_summary("ses-p")
++        .expect("单查应成功")
++        .expect("在场");
++    let preamble = found.preamble.clone().expect("单查路径应填快照面");
++    assert_eq!(preamble.content, "装配快照正文", "正文逐字");
++    assert_eq!(
++        preamble.saved_at,
++        store
++            .find_session_preamble("ses-p")
++            .unwrap()
++            .unwrap()
++            .saved_at,
++        "时刻与库行同源"
++    );
++    assert_eq!(found.stats.turn_count, 1, "快照步骤不改其余面");
++    assert_eq!(found.stats.input_tokens, Some(10));
++    assert_eq!(found.turns.len(), 1);
++    assert_eq!(found.row.id, "ses-p");
++}
++
++#[test]
++fn find_session_summary无快照行时preamble为none不伪造空正文() {
++    let env = Env::new("summary-no-preamble");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    seed_session(&store, "ses-bare");
++
++    let found = store
++        .find_session_summary("ses-bare")
++        .expect("单查应成功")
++        .expect("在场");
++    assert_eq!(
++        found.preamble, None,
++        "存量会话形态（行缺席）→ None，MUST NOT 以空正文伪造"
++    );
++    assert_eq!(
++        store.find_session_summary("").unwrap(),
++        None,
++        "空 id → Ok(None)（快照读不改变分层语义）"
++    );
++}
++
++#[test]
++fn find_session_summary有快照但会话已移除时返回none不虚构会话() {
++    let env = Env::new("summary-orphan");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    store
++        .stamp_session_preamble("ses-orphan", "孤儿快照")
++        .expect("拍存应成功");
++    assert_eq!(
++        store.find_session_summary("ses-orphan").unwrap(),
++        None,
++        "仅快照行在而会话缺席 → Ok(None)"
++    );
++}
++
++#[test]
++fn 清单路径preamble恒none且快照体量不膨胀清单() {
++    let env = Env::new("list-preamble");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    seed_session(&store, "ses-list-a");
++    seed_session(&store, "ses-list-b");
++    store
++        .stamp_session_preamble("ses-list-a", "清单不应携带的正文")
++        .expect("拍存应成功");
++
++    let listed = store.list_sessions(None, None).expect("清单应成功");
++    assert_eq!(listed.len(), 2);
++    assert!(
++        listed.iter().all(|summary| summary.preamble.is_none()),
++        "四项清单同源（list_sessions）恒 None"
++    );
++    let paged = store
++        .list_sessions_page(None, None, 0, 20)
++        .expect("分页清单应成功");
++    assert!(
++        paged
++            .sessions
++            .iter()
++            .all(|summary| summary.preamble.is_none()),
++        "分页清单同源恒 None"
++    );
++
++    // 体量放大面：37KB 级正文落库后清单项仍 None
++    store
++        .stamp_session_preamble("ses-list-b", &"中".repeat(12300))
++        .expect("拍存应成功");
++    let listed = store.list_sessions(None, None).expect("清单应成功");
++    assert!(
++        listed.iter().all(|summary| summary.preamble.is_none()),
++        "快照体量不进入清单载荷"
++    );
++    let serialized = serde_json::to_string(&listed).expect("清单可序列化");
++    assert_eq!(
++        serialized.matches("\"preamble\":null").count(),
++        listed.len(),
++        "清单 JSON 每项 preamble 均为 null，体积不随快照膨胀（{} 字节）",
++        serialized.len()
++    );
++}
++
++/// 源码自证（边界）：「不读」而非「读了不给」——`fn query_sessions` 函数体内零
++/// 快照读调用，且 `assemble_summary` 第四实参为 `None`；对照
++/// `fn find_session_summary` 函数体内 `find_session_preamble` 恰一处。
++#[test]
++fn 清单路径源码自证_query_sessions零快照读而单查恰一处() {
++    let own = std::fs::read_to_string(
++        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/store.rs"),
++    )
++    .expect("读取 store.rs");
++
++    let body_of = |signature: &str| {
++        let start = own
++            .find(signature)
++            .unwrap_or_else(|| panic!("{signature} 定义在场"));
++        let rest = &own[start..];
++        let end = rest.find("\n    }\n").expect("函数体收口");
++        &rest[..end]
++    };
++
++    let query_body = body_of("fn query_sessions(");
++    assert!(
++        !query_body.contains("find_session_preamble"),
++        "清单路径 MUST NOT 调用快照读"
++    );
++    assert!(
++        !query_body.contains("SessionPreambleRecord"),
++        "清单路径 MUST NOT 触碰快照模型"
++    );
++    assert!(
++        query_body.contains("assemble_summary(session, turns, events, None)"),
++        "装配第四实参为 None（结构判据）"
++    );
++
++    let find_body = body_of("pub fn find_session_summary(");
++    assert_eq!(
++        find_body.matches("find_session_preamble").count(),
++        1,
++        "单查路径快照读恰一处"
++    );
++}
++
++#[test]
++fn find_session_summary与清单面等值两形态_none全等与some仅快照位不同() {
++    let env = Env::new("summary-equality");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    seed_session(&store, "ses-eq");
++
++    // 形态一：无快照行 → 两面逐字段全等（preamble 双 None）
++    let found = store.find_session_summary("ses-eq").unwrap().unwrap();
++    let listed = store
++        .list_sessions(None, None)
++        .unwrap()
++        .into_iter()
++        .find(|summary| summary.row.id == "ses-eq")
++        .expect("清单面在场");
++    assert_eq!(found, listed, "无快照行时两面逐字段全等");
++
++    // 形态二：有快照行 → 除 preamble 外全等，单查 Some / 清单 None
++    store
++        .stamp_session_preamble("ses-eq", "等值判据正文")
++        .expect("拍存应成功");
++    let found = store.find_session_summary("ses-eq").unwrap().unwrap();
++    let listed = store
++        .list_sessions(None, None)
++        .unwrap()
++        .into_iter()
++        .find(|summary| summary.row.id == "ses-eq")
++        .expect("清单面在场");
++    assert!(found.preamble.is_some(), "单查填快照面");
++    assert!(listed.preamble.is_none(), "清单恒 None");
++    assert_eq!(found.row, listed.row, "会话记录逐字段全等");
++    assert_eq!(found.stats, listed.stats, "统计逐字段全等");
++    assert_eq!(found.turns, listed.turns, "轮行逐字段全等");
++    // 置 None 只作用于副本：同一装配代码下两面除 preamble 外逐字段等价
++    let mut trimmed = found.clone();
++    trimmed.preamble = None;
++    assert_eq!(trimmed, listed, "除 preamble 外两面等价（同一装配代码）");
++    assert!(
++        found.preamble.is_some(),
++        "副本置空不回写 found（单查仍携快照面）"
++    );
++}
+diff --git a/src/bindings/mod_test.rs b/src/bindings/mod_test.rs
+index 8fff1bac6c84..26652aadd14e 100644
+--- a/src/bindings/mod_test.rs
++++ b/src/bindings/mod_test.rs
+@@ -272,6 +272,7 @@ const DTO_TYPES: &[&str] = &[
+     "AgentRunMessage",
+     "AgentRunStatus",
+     "SessionPage",
++    "SessionPreambleInfo",
+     "SessionRow",
+     "SessionStats",
+     "SessionSummary",
+@@ -1330,8 +1331,8 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保
+ fn dto类型清单零补录_条目数与首尾锚持衡() {
+     assert_eq!(
+         DTO_TYPES.len(),
+-        110,
+-        "清单 105 → 110：本变更补录五类型（通知域五出线 DTO）"
++        111,
++        "清单 110 → 111：本变更补录一类型（SessionPreambleInfo）"
+     );
+     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
+     assert_eq!(
+@@ -4505,3 +4506,254 @@ fn 通知五命令的zod三表项齐备() {
+         "反馈入参 schema 随批生成"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// session-preamble-snapshot：生成产物出线面（`SessionPreambleInfo` 类型 +
++// `SessionSummary.preamble` 可空 + zod 镜像随动；零新增命令、零手改）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn bindings快照类型段两字段与session_summary的preamble可空段逐字() {
++    let _lock = lock();
++    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++
++    let preamble = type_section(&content, "SessionPreambleInfo");
++    assert!(
++        preamble.contains("savedAt: number,"),
++        "拍存时刻出线为 number，实际: {preamble}"
++    );
++    assert!(
++        preamble.contains("content: string,"),
++        "正文出线为 string，实际: {preamble}"
++    );
++    let field_lines: Vec<&str> = preamble
++        .lines()
++        .map(str::trim)
++        .filter(|line| {
++            !line.is_empty() && !line.starts_with("/**") && !line.starts_with('*') && *line != "*/"
++        })
++        .collect();
++    assert_eq!(
++        field_lines,
++        vec![
++            "export type SessionPreambleInfo = {",
++            "savedAt: number,",
++            "content: string,",
++            "};"
++        ],
++        "类型段恰两字段、无多余键"
++    );
++
++    let summary = type_section(&content, "SessionSummary");
++    assert!(
++        summary.contains("preamble: SessionPreambleInfo | null,"),
++        "快照位可空出线，实际: {summary}"
++    );
++    assert!(
++        summary.contains("row: SessionRow,"),
++        "三件套零改动: {summary}"
++    );
++    assert!(
++        summary.contains("stats: SessionStats,"),
++        "三件套零改动: {summary}"
++    );
++    assert!(
++        summary.contains("turns: TurnSummary[],"),
++        "三件套零改动: {summary}"
++    );
++}
++
++#[test]
++fn bindings命令面零新增且session_detail包装与既有三段逐字不变() {
++    let _lock = lock();
++    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++
++    for absent in [
++        "session_preamble\"",
++        "session_preamble_reload",
++        "session_preamble_status",
++        "sessionPreamble",
++    ] {
++        assert!(
++            !content.contains(absent),
++            "命令面零新增：产物不应含 {absent}"
++        );
++    }
++    assert!(
++        content.contains(
++            "sessionDetail: (root: string, sessionId: string) => __TAURI_INVOKE<SessionSummary | null>(\"session_detail\", { root, sessionId })"
++        ),
++        "session_detail 包装逐字不变（只扩载荷、不改命令面）"
++    );
++    for name in COMMAND_NAMES {
++        assert!(
++            content.contains(&format!("\"{name}\"")),
++            "既有命令名保持：{name}"
++        );
++    }
++    assert!(
++        !content.contains("Result<"),
++        "产物无 Result 包装（Throw 模式回归）"
++    );
++
++    // 其余三件套类型段逐字不变（新字段只在 SessionSummary 上追加）
++    for (name, expected) in [
++        ("SessionRow", "remoteSessionId: string | null,"),
++        ("SessionStats", "totalDurationMs: number | null,"),
++        ("TurnSummary", "costUsd: number | null,"),
++    ] {
++        assert!(
++            type_section(&content, name).contains(expected),
++            "{name} 类型段逐字不变（期望含 {expected}）"
++        );
++    }
++}
++
++#[test]
++fn bindings产物确定性_连续两次导出逐字节相等() {
++    let _lock = lock();
++    let first = authoritative_snapshot();
++    let second = authoritative_snapshot();
++    assert_eq!(first, second, "连续两次导出逐字节相等（零 diff 门）");
++
++    let first_zod = authoritative_zod_snapshot();
++    let second_zod = authoritative_zod_snapshot();
++    assert_eq!(first_zod, second_zod, "zod 产物同样确定性");
++}
++
++#[test]
++fn bindings产物篡改两形态被断言抓且文案指认() {
++    let _lock = lock();
++    let _restore = RestoreOnDrop;
++    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++
++    // 形态一：删 preamble 行
++    let summary = type_section(&content, "SessionSummary");
++    let without_preamble = without_line(&summary, "preamble: SessionPreambleInfo | null,");
++    let text = panic_text(|| assert_session_summary_preamble(&without_preamble));
++    assert!(
++        text.contains("preamble: SessionPreambleInfo | null,"),
++        "删 preamble 行的副本应被断言抓且指认缺项，实际文案 {text:?}"
++    );
++
++    // 形态二：类型改名为 SessionPreamble
++    let renamed = type_section(&content, "SessionPreambleInfo").replace(
++        "export type SessionPreambleInfo =",
++        "export type SessionPreamble =",
++    );
++    let text = panic_text(|| assert_session_preamble_type(&renamed));
++    assert!(
++        text.contains("SessionPreambleInfo"),
++        "改名副本应被断言抓且指认缺项，实际文案 {text:?}"
++    );
++}
++
++/// `SessionSummary` 类型段的快照位判据（篡改用例的断言体）。
++fn assert_session_summary_preamble(section: &str) {
++    assert!(
++        section.contains("preamble: SessionPreambleInfo | null,"),
++        "SessionSummary 段缺 `preamble: SessionPreambleInfo | null,`，实际: {section}"
++    );
++}
++
++/// `SessionPreambleInfo` 类型段的字段判据（篡改用例的断言体）。
++fn assert_session_preamble_type(section: &str) {
++    assert!(
++        section.contains("export type SessionPreambleInfo ="),
++        "产物缺 `export type SessionPreambleInfo =`，实际: {section}"
++    );
++    assert!(
++        section.contains("savedAt: number,") && section.contains("content: string,"),
++        "SessionPreambleInfo 段缺字段，实际: {section}"
++    );
++}
++
++#[test]
++fn zod镜像快照schema与summary的preamble可空getter() {
++    let _lock = lock();
++    let content = authoritative_zod_snapshot();
++
++    let schema = zod_section(&content, "SessionPreambleInfoSchema");
++    assert!(
++        schema.contains("z.strictObject("),
++        "快照 schema 为 strictObject（缺键 / 多键即拒），实际: {schema}"
++    );
++    assert!(
++        schema.contains("get savedAt() { return z.number(); }"),
++        "savedAt getter 形态，实际: {schema}"
++    );
++    assert!(
++        schema.contains("get content() { return z.string(); }"),
++        "content getter 形态，实际: {schema}"
++    );
++
++    let summary = zod_section(&content, "SessionSummarySchema");
++    assert!(
++        summary.contains("get preamble() { return SessionPreambleInfoSchema.nullable(); }"),
++        "summary 的快照位为 nullable 镜像，实际: {summary}"
++    );
++    assert!(
++        content.contains(
++            "get \"sessionDetail\"() { return z.lazy(() => SessionSummarySchema).nullable(); }"
++        ),
++        "命令映射表指向同一 schema（零运行期耦合）"
++    );
++    assert!(
++        !content.contains("from \"./bindings\""),
++        "zod 产物不 import bindings.ts（零运行期耦合）"
++    );
++}
++
++#[test]
++fn zod镜像快照schema篡改三形态被断言抓且指认() {
++    let _lock = lock();
++    let _restore = RestoreOnDrop;
++    let content = authoritative_zod_snapshot();
++    let summary = zod_section(&content, "SessionSummarySchema");
++
++    // 形态一：删 preamble getter
++    let without_getter = without_line(&summary, "get preamble()");
++    let text = panic_text(|| assert_summary_preamble_getter(&without_getter));
++    assert!(
++        text.contains("get preamble()"),
++        "删 getter 的副本应被抓且指认，实际文案 {text:?}"
++    );
++
++    // 形态二：去掉 .nullable()
++    let non_nullable = summary.replace(
++        "get preamble() { return SessionPreambleInfoSchema.nullable(); }",
++        "get preamble() { return SessionPreambleInfoSchema; }",
++    );
++    let text = panic_text(|| assert_summary_preamble_getter(&non_nullable));
++    assert!(
++        text.contains("nullable()"),
++        "去掉 .nullable() 的副本应被抓且指认，实际文案 {text:?}"
++    );
++
++    // 形态三：content 改成 z.number()
++    let schema = zod_section(&content, "SessionPreambleInfoSchema").replace(
++        "get content() { return z.string(); }",
++        "get content() { return z.number(); }",
++    );
++    let text = panic_text(|| assert_preamble_schema_fields(&schema));
++    assert!(
++        text.contains("z.string()"),
++        "content 改成 number 的副本应被抓且指认，实际文案 {text:?}"
++    );
++}
++
++/// zod 快照 schema 的字段判据（篡改用例的断言体）。
++fn assert_preamble_schema_fields(section: &str) {
++    assert!(
++        section.contains("get content() { return z.string(); }"),
++        "SessionPreambleInfoSchema 缺 `get content() {{ return z.string(); }}`，实际: {section}"
++    );
++}
++
++/// zod summary 的快照位判据（篡改用例的断言体）。
++fn assert_summary_preamble_getter(section: &str) {
++    assert!(
++        section.contains("get preamble() { return SessionPreambleInfoSchema.nullable(); }"),
++        "SessionSummarySchema 缺 `get preamble() {{ return SessionPreambleInfoSchema.nullable(); }}`，实际: {section}"
++    );
++}
+diff --git a/src/commands/db/mod_test.rs b/src/commands/db/mod_test.rs
+index d6b2440f66c0..df51e051bb18 100644
+--- a/src/commands/db/mod_test.rs
++++ b/src/commands/db/mod_test.rs
+@@ -175,7 +175,7 @@ fn db_records_scope_global扫描全局库记录信封_key为root串() {
+ // ---------------------------------------------------------------------------
+ 
+ #[test]
+-fn db_models_scope_workspace返回十一行且与直连serde一致() {
++fn db_models_scope_workspace返回十二行且与直连serde一致() {
+     let env = Env::new("models-workspace");
+     let app = app_with_stores(&env);
+     let state = app.state::<WorkspaceStores>();
+@@ -213,8 +213,9 @@ fn db_models_scope_workspace返回十一行且与直连serde一致() {
+             ("run".to_owned(), 0),
+             ("run_node".to_owned(), 0),
+             ("run_edge".to_owned(), 0),
++            ("session_preamble".to_owned(), 0),
+         ],
+-        "Workspace scope 返回该 root 的 workspace 库十一行（change 流程状态四模型与 run 三表计数 0 也列出，计数与实有记录数一致）"
++        "Workspace scope 返回该 root 的 workspace 库十二行（change 流程状态四模型、run 三表与会话系统提示词快照计数 0 也列出，计数与实有记录数一致）"
+     );
+ }
+ 
+@@ -327,9 +328,10 @@ fn 两库清单互不混列_跨维度模型名扫描err() {
+             "step",
+             "run",
+             "run_node",
+-            "run_edge"
++            "run_edge",
++            "session_preamble"
+         ],
+-        "Workspace scope 仅 workspace 维度十一行（change 流程状态四模型与 run 三表在列）"
++        "Workspace scope 仅 workspace 维度十二行（change 流程状态四模型、run 三表与会话系统提示词快照在列）"
+     );
+ 
+     // 跨维度模型名扫描 Err（维度由实例锁定；workspace 库实例扫 user 维度

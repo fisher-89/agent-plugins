@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use ::notification::{Notification, NotificationKind, NotificationPage};
 use agent::{
     sum_usage_tokens, AgentEvent, AgentEventKind, AgentPermissionMode, SessionPage,
-    SessionProvenance, SessionRow, SessionStats, SessionSummary, TurnSummary,
+    SessionPreambleInfo, SessionProvenance, SessionRow, SessionStats, SessionSummary, TurnSummary,
 };
 use native_db::{Builder, Database, Models};
 use serde::{Deserialize, Serialize};
@@ -19,9 +19,9 @@ use crate::model::{
     now_millis, pack_session_event_key, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord,
     AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord,
     NotificationRecord, PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord,
-    SessionConfigSnapshot, SessionEventRecord, SessionEventRecordKey, SessionRecord, StepRecord,
-    StoreMetaRecord, WorkspaceRecord, CLI_TENANT_RETIRED, WORKSPACE_STORE_FORMAT_KEY,
-    WORKSPACE_STORE_FORMAT_VERSION,
+    SessionConfigSnapshot, SessionEventRecord, SessionEventRecordKey, SessionPreambleRecord,
+    SessionRecord, StepRecord, StoreMetaRecord, WorkspaceRecord, CLI_TENANT_RETIRED,
+    WORKSPACE_STORE_FORMAT_KEY, WORKSPACE_STORE_FORMAT_VERSION,
 };
 use crate::query::{self, QueryError, QueryPage, QuerySpec};
 use workflow::model::{ChecklistItem, Verdict};
@@ -170,11 +170,13 @@ fn aggregate_stats(
 }
 
 /// 聚合组装（清单面与单查共用）：轮行发起顺序排序 + 统计现算 + DTO 映射。
-/// 两面共用本函数，`find_session_detail` 与 `list_sessions` 对应条目逐字段全等。
+/// 两面共用本函数，`find_session_detail` 与 `list_sessions` 对应条目逐字段全等
+/// ——例外是快照面：由调用方决定（单查填、清单恒 `None`）。
 fn assemble_summary(
     session: &SessionRecord,
     mut turns: Vec<TurnSummary>,
     events: Vec<AgentEvent>,
+    preamble: Option<SessionPreambleInfo>,
 ) -> Result<SessionSummary, String> {
     // 发起顺序：`started_at` 升序，并列按轮 id 升序（确定可复现）
     turns.sort_by(|a, b| {
@@ -187,6 +189,7 @@ fn assemble_summary(
         row: session_row(session)?,
         stats,
         turns,
+        preamble,
     })
 }
 
@@ -317,7 +320,7 @@ pub enum DbDimension {
     /// 已落地代表，desktop-data-dimensions 留痕）
     User,
     /// workspace 维度（per-workspace 库，轮统计行 / 会话 / 转录 / explore /
-    /// change 流程状态 + run 运行史十模型）
+    /// 会话系统提示词快照 / change 流程状态 + run 运行史十二模型）
     Workspace,
 }
 
@@ -342,9 +345,10 @@ pub(crate) fn global_models() -> &'static Models {
     })
 }
 
-/// workspace 库模型组（十二模型：轮统计行 / 会话 / 转录 / explore 四既有模型，
-/// change 流程状态四模型，run 执行图三模型（run 主行 + 节点 + 边），库级格式版本
-/// 标记一模型——注册面 additive；run 执行图模型重设计经格式版本 bump 整体重建）
+/// workspace 库模型组（十三模型：轮统计行 / 会话 / 转录 / explore / 会话系统
+/// 提示词快照五既有模型，change 流程状态四模型，run 执行图三模型（run 主行 +
+/// 节点 + 边），库级格式版本标记一模型——注册面 additive；run 执行图模型重设计
+/// 经格式版本 bump 整体重建）
 pub(crate) fn workspace_models() -> &'static Models {
     static MODELS: OnceLock<Models> = OnceLock::new();
     MODELS.get_or_init(|| {
@@ -378,6 +382,9 @@ pub(crate) fn workspace_models() -> &'static Models {
         models
             .define::<RunEdgeRecord>()
             .expect("定义 RunEdgeRecord 失败");
+        models
+            .define::<SessionPreambleRecord>()
+            .expect("定义 SessionPreambleRecord 失败");
         models
             .define::<StoreMetaRecord>()
             .expect("定义 StoreMetaRecord 失败");
@@ -414,7 +421,7 @@ pub(crate) fn workspace_db_path(workspaces_dir: &Path, canonical_root: &str) -> 
 /// 锁定），私有持有 [`Database`] 与实例维度，可安全挂 Tauri State，同步调用
 /// 无需 async。全局库经 [`Store::open_global`]（workspace 注册表 + agent
 /// 管理两模型）、workspace 库经 [`Store::open_workspace`]（轮统计行 / 会话 /
-/// 转录 / explore / change 流程状态 / run 运行史十模型）。
+/// 转录 / explore / 会话系统提示词快照 / change 流程状态 / run 运行史十二模型）。
 ///
 /// 单进程约束：双开（如 dev 与正式版指向同一 db 文件）不保证安全，见 crate 文档。
 pub struct Store {
@@ -609,15 +616,23 @@ impl Store {
             .collect())
     }
 
-    /// 会话单查装配：主键直查行 + 本会话轮行 + 本会话事件 → 聚合组装。
-    /// 查无此 id 返回 `Ok(None)`，由 port 层映射为显式 Err（单查语义分层）。
+    /// 会话单查装配：主键直查行 + 本会话轮行 + 本会话事件 + 快照行 → 聚合组装。
+    /// 查无此 id 返回 `Ok(None)`，由 port 层映射为显式 Err（单查语义分层）；无快照
+    /// 行 → `preamble = None`（不现算、不伪造）。
     pub fn find_session_summary(&self, session_id: &str) -> Result<Option<SessionSummary>, String> {
         let Some(session) = self.find_session(session_id).map_err(|e| e.to_string())? else {
             return Ok(None);
         };
         let turns = self.list_agent_turns(session_id)?;
         let events = self.list_session_events(session_id)?;
-        assemble_summary(&session, turns, events).map(Some)
+        let preamble = self
+            .find_session_preamble(session_id)
+            .map_err(|e| e.to_string())?
+            .map(|record| SessionPreambleInfo {
+                saved_at: record.saved_at,
+                content: record.content,
+            });
+        assemble_summary(&session, turns, events, preamble).map(Some)
     }
 
     /// 轮统计行 begin：写事务内 `max(id)+1` 分配（与插入原子，首行 id=1），
@@ -802,7 +817,8 @@ impl Store {
                 .map(turn_summary)
                 .collect();
             let events = self.list_session_events(&session.id)?;
-            summaries.push(assemble_summary(session, turns, events)?);
+            // 清单路径不读快照表：`preamble` 恒 `None`（不是「读了不给」）
+            summaries.push(assemble_summary(session, turns, events, None)?);
         }
         Ok((summaries, total))
     }
@@ -1242,6 +1258,48 @@ impl Store {
         rw.commit()
             .map_err(db_err("提交 restamp_session_config 事务"))?;
         Ok(())
+    }
+
+    /// 会话系统提示词快照拍存（**写一次**语义）：单写事务内先查主键——行已存在
+    /// 即返回 `Ok(false)` 且不改写（快照不可变），未命中才写入并返回 `Ok(true)`。
+    /// `saved_at` 由本侧时钟取（时间戳归落库侧口径）。MUST NOT 提供更新 / 覆盖 /
+    /// 重置 / 删除语义的快照写函数。
+    pub fn stamp_session_preamble(
+        &self,
+        session_id: &str,
+        content: &str,
+    ) -> Result<bool, StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let stored: Option<SessionPreambleRecord> = rw
+            .get()
+            .primary(session_id)
+            .map_err(db_err("读取会话系统提示词快照"))?;
+        if stored.is_some() {
+            return Ok(false); // 未提交的写事务随 drop 回滚：写一次即不可变
+        }
+        rw.insert(SessionPreambleRecord {
+            session_id: session_id.to_owned(),
+            content: content.to_owned(),
+            saved_at: now_millis(),
+        })
+        .map_err(db_err("写入会话系统提示词快照"))?;
+        rw.commit()
+            .map_err(db_err("提交 stamp_session_preamble 事务"))?;
+        Ok(true)
+    }
+
+    /// 主键直查会话系统提示词快照（续轮读回与单查装配消费）；miss → `Ok(None)`
+    /// （不伪造空行）。会话清单读面 MUST NOT 调用本方法。
+    pub fn find_session_preamble(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionPreambleRecord>, StoreError> {
+        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let hit: Option<SessionPreambleRecord> = r
+            .get()
+            .primary(session_id)
+            .map_err(db_err("读取会话系统提示词快照"))?;
+        Ok(hit)
     }
 
     /// provider 清单：主键 id 升序自然序（稳定可复现）。

@@ -1112,7 +1112,7 @@ fn checklist_item_record_item_key十六进制串serde出线与反向解码往返
 }
 
 #[test]
-fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models覆盖持衡() {
+fn 十三模型注册workspace组全覆盖_新id与既有id无冲突_list_models覆盖持衡() {
     let db_dir = tempfile::Builder::new()
         .prefix("store-test-model-registry-")
         .tempdir()
@@ -1122,9 +1122,9 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
     // （1/2/4/5/6/7/8）无一冲突即打开点注册成功（Models::define 对同
     // id+版本 panic，打开成功即注册面无撞号）；id=3 历史退役空缺不复用（D3）
     let store = Store::open_workspace(&db_dir.path().join("ws.redb"))
-        .unwrap_or_else(|e| panic!("open_workspace 应成功（十一模型注册无 id 冲突）: {e}"));
+        .unwrap_or_else(|e| panic!("open_workspace 应成功（十三模型注册无 id 冲突）: {e}"));
 
-    // 注册面 = 十一模型（workspace 组）：逐类型 id / 版本与本组既有模型、全局组
+    // 注册面 = 十三模型（workspace 组）：逐类型 id / 版本与本组既有模型、全局组
     // 模型（1 / 5 / 6）全表无重复
     let workspace_group = [
         (
@@ -1172,18 +1172,30 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
             <crate::model::RunEdgeRecord as native_model::Model>::native_model_version(),
         ),
         (
+            <crate::model::SessionPreambleRecord as native_model::Model>::native_model_id(),
+            <crate::model::SessionPreambleRecord as native_model::Model>::native_model_version(),
+        ),
+        (
             <crate::model::StoreMetaRecord as native_model::Model>::native_model_id(),
             <crate::model::StoreMetaRecord as native_model::Model>::native_model_version(),
         ),
     ];
     assert_eq!(
         workspace_group.map(|(id, _)| id),
-        [2, 7, 8, 4, 9, 10, 11, 12, 13, 16, 17, 15],
-        "workspace 组注册：run 执行图节点 / 边两模型入册（id 14 RunStepRecord 退役，\n         id 16/17 增补）"
+        [2, 7, 8, 4, 9, 10, 11, 12, 13, 16, 17, 19, 15],
+        "workspace 组注册：run 执行图节点 / 边两模型入册（id 14 RunStepRecord 退役，\n         id 16/17 增补；本变更 19 = 会话系统提示词快照，注册在 store_meta 之前）"
     );
     assert!(
         !workspace_group.iter().any(|(id, _)| *id == 14),
         "RunStepRecord 注册摘除（id 14 退役）"
+    );
+    assert!(
+        !workspace_group.iter().any(|(id, _)| *id == 3),
+        "historical id 3 空洞不复用（新模型取现役最大值 + 1）"
+    );
+    assert!(
+        workspace_group.iter().any(|(id, _)| *id == 19),
+        "会话系统提示词快照模型入册"
     );
     let mut ids: Vec<u32> = workspace_group
         .iter()
@@ -1200,7 +1212,7 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
     deduped.dedup();
     assert_eq!(
         ids, deduped,
-        "全册 id 无冲突（既有 1/2/4/5/6/7/8 + 9..17 + 本变更 18）"
+        "全册 id 无冲突（既有 1/2/4/5/6/7/8 + 9..17 + 18 通知 + 本变更 19 快照）"
     );
 
     // list_models 覆盖持衡：信封注册面每模型一行即可浏览（run 执行图三模型
@@ -1222,9 +1234,10 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
             "step",
             "run",
             "run_node",
-            "run_edge"
+            "run_edge",
+            "session_preamble"
         ],
-        "workspace 组信封注册面恰十一行（登记面 additive）"
+        "workspace 组信封注册面恰十二行（登记面 additive：快照表为末项）"
     );
     assert!(
         models.iter().all(|model| model.count == 0),
@@ -5788,4 +5801,250 @@ fn 通知记录结构锚_id属性与字段doc齐备() {
         documented += 1;
     }
     assert_eq!(documented, 9, "九字段逐字段说明齐备");
+}
+
+// ---------------------------------------------------------------------------
+// session-preamble-snapshot：`SessionPreambleRecord`（id 19 新增模型）
+// ---------------------------------------------------------------------------
+
+/// 快照记录底座（三字段显式固定值）。
+fn preamble_record() -> crate::model::SessionPreambleRecord {
+    crate::model::SessionPreambleRecord {
+        session_id: "ses-preamble-1".to_owned(),
+        content: "知识\n\n<agent_md path=\"/ws/AGENT.md\">\n约定\n</agent_md>\n\n指引".to_owned(),
+        saved_at: 1727000000000,
+    }
+}
+
+#[test]
+fn session_preamble_record_native_model_id为十九且版本一() {
+    assert_eq!(
+        <crate::model::SessionPreambleRecord as native_model::Model>::native_model_id(),
+        19,
+        "取现役最大值 + 1（不补历史空洞 3 / 14）"
+    );
+    assert_eq!(
+        <crate::model::SessionPreambleRecord as native_model::Model>::native_model_version(),
+        1,
+        "新增模型首版"
+    );
+}
+
+/// 源码自证（边界）：新增模型而非字段演进 ⇒ 零版本链 struct、`native_model(id = 19`
+/// 恰一处、其属性块内零 `from =`。
+#[test]
+fn session_preamble_record零版本链_单一定义且属性块无from链() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/model.rs"),
+    )
+    .expect("读取 model.rs");
+
+    assert!(
+        !own.contains("SessionPreambleRecordV"),
+        "零版本链形态（无 V1/V2 旧形态 struct）"
+    );
+    assert_eq!(
+        own.matches("native_model(id = 19").count(),
+        1,
+        "id 19 属性恰一处（单一定义）"
+    );
+
+    // 属性块内零 `from =`：新增模型无迁移路径
+    let marker = own.find("native_model(id = 19").expect("属性在场");
+    let block_start = own[..marker]
+        .rfind("pub struct SessionPreambleRecord")
+        .map_or(marker, |index| index);
+    let block_end = own[marker..]
+        .find("pub struct SessionPreambleRecord {")
+        .map(|offset| marker + offset)
+        .expect("结构体定义在场");
+    let attribute_block = &own[block_start..block_end];
+    assert!(
+        !attribute_block.contains("from ="),
+        "属性块零 from 链，实际: {attribute_block}"
+    );
+    assert!(
+        !own.contains("impl From<SessionPreambleRecord"),
+        "零升级实现（无迁移代码路径）"
+    );
+}
+
+#[test]
+fn session_preamble_record编解码往返逐字段且返回版本一() {
+    let record = preamble_record();
+
+    let bytes = native_model::encode(&record).expect("native_model encode 应成功");
+    let (decoded, version) = native_model::decode::<crate::model::SessionPreambleRecord>(bytes)
+        .expect("native_model decode 应成功");
+
+    assert_eq!(version, 1, "native_model 19:v1 版本封装");
+    assert_eq!(decoded, record, "三字段往返逐字段相等");
+    assert_eq!(decoded.session_id, "ses-preamble-1", "主键往返保真");
+    assert_eq!(decoded.saved_at, 1727000000000);
+}
+
+#[test]
+fn session_preamble_record载荷以session_record解码err_不跨界吞错() {
+    let bytes = native_model::encode(&preamble_record()).expect("encode 应成功");
+    let result = native_model::decode::<crate::model::SessionRecord>(bytes);
+    assert!(
+        result.is_err(),
+        "会话记录形态远比快照宽（七字段 vs 三字段）⇒ 必拒解，实际: {result:?}"
+    );
+}
+
+#[test]
+fn session_preamble_record边界组合编解码往返逐字() {
+    let contents = [
+        String::new(),
+        "含换行\n与空字节\0与 emoji 🎉".to_owned(),
+        "中".repeat(12000),
+    ];
+    let saved_ats = [0, -1, i64::MAX, 1_727_000_000_000];
+    let session_ids = [
+        String::new(),
+        "长".repeat(1100),
+        "含换行\n与空字节\0的主键".to_owned(),
+    ];
+
+    let mut combinations = 0;
+    for content in &contents {
+        for saved_at in saved_ats {
+            let record = crate::model::SessionPreambleRecord {
+                session_id: "ses-boundary".to_owned(),
+                content: content.clone(),
+                saved_at,
+            };
+            let (decoded, version) = native_model::decode::<crate::model::SessionPreambleRecord>(
+                native_model::encode(&record).expect("encode 应成功"),
+            )
+            .expect("decode 应成功");
+            assert_eq!(version, 1);
+            assert_eq!(decoded, record, "content×saved_at 组合往返逐字");
+            combinations += 1;
+        }
+    }
+    assert_eq!(combinations, 12, "3 内容形态 × 4 时刻形态全覆盖");
+
+    for session_id in &session_ids {
+        let record = crate::model::SessionPreambleRecord {
+            saved_at: 1,
+            session_id: session_id.clone(),
+            ..preamble_record()
+        };
+        let (decoded, _) = native_model::decode::<crate::model::SessionPreambleRecord>(
+            native_model::encode(&record).expect("encode 应成功"),
+        )
+        .expect("decode 应成功");
+        assert_eq!(decoded.session_id, *session_id, "主键形态不校验、往返保真");
+    }
+}
+
+#[test]
+fn session_preamble_record线名三键驼峰且往返等值() {
+    let record = preamble_record();
+
+    let value = serde_json::to_value(&record).expect("serde 序列化应成功");
+    let mut keys: Vec<&String> = value.as_object().expect("对象形态").keys().collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec!["content", "savedAt", "sessionId"],
+        "键集恰三键，主键线名为 sessionId"
+    );
+    assert_eq!(value["savedAt"], serde_json::json!(1727000000000_i64));
+    assert_eq!(value["sessionId"], serde_json::json!("ses-preamble-1"));
+
+    let back: crate::model::SessionPreambleRecord =
+        serde_json::from_value(value).expect("反序列化成功");
+    assert_eq!(back, record, "线面往返等值");
+}
+
+/// 结构独立性（边界）：与 `SessionRecord` 各自独立——三字段字面构造即可编译，
+/// 快照加列不牵动会话模型版本、会话加列不牵动本模型。
+#[test]
+fn session_preamble_record与session_record结构独立_三字段字面构造() {
+    let record = crate::model::SessionPreambleRecord {
+        session_id: "ses-independent".to_owned(),
+        content: String::new(),
+        saved_at: 0,
+    };
+    assert_eq!(record.session_id, "ses-independent");
+    assert_eq!(record.content, "", "空串正文 = 快照成立但无正文");
+    assert_eq!(record.saved_at, 0);
+
+    assert_eq!(
+        <SessionRecord as native_model::Model>::native_model_version(),
+        2,
+        "会话模型版本不因新增快照模型而变"
+    );
+    assert_ne!(
+        <SessionRecord as native_model::Model>::native_model_id(),
+        <crate::model::SessionPreambleRecord as native_model::Model>::native_model_id(),
+        "两模型 id 互异（独立模型、各自版本链）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// session-preamble-snapshot：`SessionPreambleRecord` 的 crate 根出口面
+//（`pub use model::{…, SessionPreambleRecord, …}`；compose 读 `content` / `saved_at`
+//  经根路径）
+// ---------------------------------------------------------------------------
+
+/// 正向：根路径可构造三字段字面值，且 `native_model_id` 走根路径取真值。
+#[test]
+fn crate根路径session_preamble_record可构造且id为十九() {
+    let record = crate::SessionPreambleRecord {
+        session_id: "ses-root".to_owned(),
+        content: "根路径正文".to_owned(),
+        saved_at: 1727000000000,
+    };
+    assert_eq!(record.session_id, "ses-root", "主键字段可读");
+    assert_eq!(record.content, "根路径正文", "正文字段可读");
+    assert_eq!(
+        <crate::SessionPreambleRecord as native_model::Model>::native_model_id(),
+        19,
+        "根路径取到真值（非仿造类型）"
+    );
+}
+
+/// 异常（否证）：根路径值可传给形参为 `crate::model::SessionPreambleRecord` 的
+/// 函数——根导出是 re-export 而非另立的仿造 struct。
+#[test]
+fn crate根路径session_preamble_record与模块路径同一类型() {
+    fn takes_module_type(record: crate::model::SessionPreambleRecord) -> String {
+        record.content
+    }
+    let via_root = crate::SessionPreambleRecord {
+        session_id: "ses-same".to_owned(),
+        content: "同一实现".to_owned(),
+        saved_at: 1,
+    };
+    assert_eq!(
+        takes_module_type(via_root),
+        "同一实现",
+        "根路径与 model 模块路径是同一类型（无包装层）"
+    );
+    assert_eq!(
+        <crate::SessionPreambleRecord as native_model::Model>::native_model_version(),
+        1,
+        "版本面同样同一实现"
+    );
+}
+
+/// 边界：根路径实例参与编解码往返逐字段相等（根导出不改编解码面）。
+#[test]
+fn crate根路径session_preamble_record编解码往返逐字段() {
+    let record = crate::SessionPreambleRecord {
+        session_id: "ses-round".to_owned(),
+        content: "".to_owned(),
+        saved_at: -1,
+    };
+    let (decoded, version) = native_model::decode::<crate::SessionPreambleRecord>(
+        native_model::encode(&record).expect("encode 应成功"),
+    )
+    .expect("decode 应成功");
+    assert_eq!(version, 1);
+    assert_eq!(decoded, record, "根路径实例往返逐字段相等");
+    assert_eq!(decoded.content, "", "空串正文保真（快照成立但无正文）");
 }

@@ -1,0 +1,33 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\core\agent)
+    Checking workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\core\workflow)
+error[E0063]: missing field `preamble` in initializer of `session::SessionSummary`
+  --> crates\core\agent\src\lib_test.rs:82:19
+   |
+82 |     let summary = SessionSummary {
+   |                   ^^^^^^^^^^^^^^ missing `preamble`
+
+error[E0063]: missing field `preamble` in initializer of `session::SessionSummary`
+   --> crates\core\agent\src\port_test.rs:201:5
+    |
+201 |     SessionSummary {
+    |     ^^^^^^^^^^^^^^ missing `preamble`
+
+error[E0063]: missing field `preamble` in initializer of `session::SessionSummary`
+   --> crates\core\agent\src\session_test.rs:414:17
+    |
+414 |     let empty = SessionSummary {
+    |                 ^^^^^^^^^^^^^^ missing `preamble`
+
+error[E0063]: missing field `preamble` in initializer of `session::SessionSummary`
+   --> crates\core\agent\src\session_test.rs:430:17
+    |
+430 |     let multi = SessionSummary {
+    |                 ^^^^^^^^^^^^^^ missing `preamble`
+
+For more information about this error, try `rustc --explain E0063`.
+error: could not compile `agent` (lib test) due to 4 previous errors
+warning: build failed, waiting for other jobs to finish...
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

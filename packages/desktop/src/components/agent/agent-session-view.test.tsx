@@ -66,6 +66,7 @@ function summary(
   turns: TurnSummary[],
   tokens: { input: number | null; output: number | null } = { input: null, output: null },
   id: string = SESSION_ID,
+  preamble: SessionSummary['preamble'] = null,
 ): SessionSummary {
   return {
     row: {
@@ -88,6 +89,7 @@ function summary(
       outputTokens: tokens.output,
     },
     turns,
+    preamble,
   };
 }
 
@@ -1006,5 +1008,177 @@ describe('AgentSessionView：steer / steering 组装（AC-11）', () => {
     expect(screen.getByTestId('agent-session-empty')).toBeTruthy();
     expect(composer).not.toHaveBeenCalled();
     expect(screen.queryByTestId('steer-slot')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// session-preamble-snapshot：系统提示词快照的只读可见面（AC-10）
+// ---------------------------------------------------------------------------
+
+const PREAMBLE = {
+  savedAt: TS,
+  content: '知识段\n\n<agent_md path="/ws/AGENT.md">\n约定\n</agent_md>\n\n指引',
+};
+
+describe('AgentSessionView：系统提示词快照入口', () => {
+  it('快照非空 → 元信息行追加「系统提示词」入口，其余元信息位逐字不变', async () => {
+    resetIpc({ detail: summary([turn(11, 'completed')], undefined, SESSION_ID, PREAMBLE) });
+    await mountedView({ root: ROOT, sessionId: SESSION_ID });
+
+    await waitFor(() => expect(screen.getByTestId('session-meta')).toBeTruthy());
+    const entry = screen.getByTestId('session-meta-preamble');
+    expect(entry.textContent).toBe('系统提示词');
+    expect(entry.getAttribute('aria-label')).toBe('系统提示词');
+
+    const meta = screen.getByTestId('session-meta');
+    expect(within(meta).getByTestId('session-meta-id').textContent).toBe(SESSION_ID);
+    expect(within(meta).getByTestId('session-meta-status').textContent).toBe('已收口');
+    expect(within(meta).getByTestId('session-meta-turns').textContent).toBe('对话 1 轮');
+    expect(within(meta).getByTestId('session-meta-tokens').textContent).toBe('消耗token 0');
+  });
+
+  it('点击入口 → 抽屉打开，标题「系统提示词快照」与单「关闭」按钮（无提交 / 取消）', async () => {
+    resetIpc({ detail: summary([], undefined, SESSION_ID, PREAMBLE) });
+    await mountedView({ root: ROOT, sessionId: SESSION_ID });
+
+    await waitFor(() => expect(screen.getByTestId('session-meta-preamble')).toBeTruthy());
+    expect(screen.queryByRole('heading', { name: '系统提示词快照' })).toBeNull();
+
+    fireEvent.click(screen.getByTestId('session-meta-preamble'));
+
+    const heading = await screen.findByRole('heading', { name: '系统提示词快照' });
+    expect(heading).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '关闭' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '提交' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '取消' })).toBeNull();
+  });
+
+  it('快照为 null（存量会话 / 首轮未重放）→ 无入口、无占位，其余呈现与既有一致', async () => {
+    await mountedView({ root: ROOT, sessionId: SESSION_ID });
+
+    await waitFor(() => expect(screen.getByTestId('session-meta')).toBeTruthy());
+    expect(screen.queryByTestId('session-meta-preamble')).toBeNull();
+    expect(screen.getByTestId('session-meta-turns').textContent).toBe('对话 1 轮');
+    expect(bubbleTexts()).toEqual(['首轮提问', '首轮结论']);
+  });
+
+  it('先 null 后重放带回快照 → 入口由缺席转为在场（无脏态残留）', async () => {
+    resetIpc({ detail: summary([turn(11, 'completed')]) });
+    const rendered = await mountedView({ root: ROOT, sessionId: SESSION_ID, refreshKey: 0 });
+    await waitFor(() => expect(screen.getByTestId('session-meta')).toBeTruthy());
+    expect(screen.queryByTestId('session-meta-preamble')).toBeNull();
+
+    // 收口后服务端带回快照：重放装载（refreshKey 变即重取 session_detail）落地后入口出现
+    ipc.detail = summary([turn(11, 'completed')], undefined, SESSION_ID, PREAMBLE);
+    rendered.rerender(<AgentSessionView root={ROOT} sessionId={SESSION_ID} refreshKey={1} />);
+    await act(async () => {});
+
+    await waitFor(() => expect(screen.getByTestId('session-meta-preamble')).toBeTruthy());
+    expect(screen.getByTestId('session-meta-preamble').textContent).toBe('系统提示词');
+  });
+});
+
+describe('AgentSessionView：快照抽屉内容', () => {
+  async function openDrawer(
+    preamble: NonNullable<SessionSummary['preamble']>,
+    turns: TurnSummary[] = [],
+  ): Promise<void> {
+    resetIpc({ detail: summary(turns, undefined, SESSION_ID, preamble) });
+    await mountedView({ root: ROOT, sessionId: SESSION_ID });
+    await waitFor(() => expect(screen.getByTestId('session-meta-preamble')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('session-meta-preamble'));
+    await screen.findByRole('heading', { name: '系统提示词快照' });
+  }
+
+  it('拍存时刻与体量：体量按 UTF-8 字节数就地算（中文 6 字节）', async () => {
+    await openDrawer({ savedAt: TS, content: '中文' });
+
+    const meta = screen.getByTestId('session-preamble-meta').textContent ?? '';
+    expect(meta).toContain(`拍存于 ${new Date(TS).toLocaleString()}`);
+    expect(meta).toContain('6 字节');
+    expect(meta).not.toContain('2 字节');
+  });
+
+  it('静态指引三点在位且与正文互不混排', async () => {
+    await openDrawer(PREAMBLE);
+
+    const guide = screen.getByTestId('session-preamble-guide').textContent ?? '';
+    expect(guide).toContain('冻结');
+    expect(guide).toContain('AGENT.md');
+    expect(guide).toContain('重新读取');
+
+    const content = screen.getByTestId('session-preamble-content').textContent ?? '';
+    expect(content).not.toContain(guide);
+    expect(guide).not.toContain('知识段');
+  });
+
+  it('正文全文逐字（保留换行与空行，零改写）', async () => {
+    await openDrawer(PREAMBLE);
+
+    expect(screen.getByTestId('session-preamble-content').textContent).toBe(PREAMBLE.content);
+    expect(screen.getByTestId('session-preamble-content').tagName).toBe('PRE');
+  });
+
+  it('零写面与零新增 IPC：无输入框 / 无重载按钮，开合前后 invoke 计数不变', async () => {
+    resetIpc({ detail: summary([], undefined, SESSION_ID, PREAMBLE) });
+    await mountedView({ root: ROOT, sessionId: SESSION_ID });
+    await waitFor(() => expect(screen.getByTestId('session-meta-preamble')).toBeTruthy());
+    const before = invokeMock.mock.calls.length;
+
+    fireEvent.click(screen.getByTestId('session-meta-preamble'));
+    await screen.findByRole('heading', { name: '系统提示词快照' });
+
+    expect(screen.queryAllByRole('textbox')).toHaveLength(0);
+    for (const label of ['重载', '刷新', '保存']) {
+      expect(screen.queryByRole('button', { name: label })).toBeNull();
+    }
+    expect(invokeMock.mock.calls.length).toBe(before);
+  });
+
+  it('不进对话流：开合抽屉前后气泡数与内容零变化', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'completed')], undefined, SESSION_ID, PREAMBLE),
+    });
+    await mountedView({ root: ROOT, sessionId: SESSION_ID });
+    await waitFor(() => expect(screen.getByTestId('session-meta-preamble')).toBeTruthy());
+    const before = bubbleTexts();
+
+    fireEvent.click(screen.getByTestId('session-meta-preamble'));
+    await screen.findByRole('heading', { name: '系统提示词快照' });
+
+    expect(bubbleTexts()).toEqual(before);
+    expect(screen.getByTestId('agent-messages').textContent).not.toContain('知识段');
+  });
+
+  it('空正文 → 抽屉仍可打开、体量 0 字节、正文区空（不塌陷为 null 态）', async () => {
+    await openDrawer({ savedAt: TS, content: '' });
+
+    expect(screen.getByTestId('session-preamble-meta').textContent).toContain('0 字节');
+    expect(screen.getByTestId('session-preamble-content').textContent).toBe('');
+    expect(screen.queryByRole('heading', { name: '系统提示词快照' })).toBeTruthy();
+  });
+
+  it('超长正文（>32KB 含换行与 emoji）→ 全文逐字、长度守恒', async () => {
+    const longContent = `${'中'.repeat(12000)}\n\n🎉 尾段`;
+    await openDrawer({ savedAt: TS, content: longContent });
+
+    const rendered = screen.getByTestId('session-preamble-content').textContent ?? '';
+    expect(rendered).toBe(longContent);
+    expect(rendered.length).toBe(longContent.length);
+    const meta = screen.getByTestId('session-preamble-meta').textContent ?? '';
+    expect(meta).toContain(`${new TextEncoder().encode(longContent).length} 字节`);
+  });
+
+  it('关闭一次即收起，再开一次仍呈现同一份内容（自持开合态无状态丢失）', async () => {
+    await openDrawer(PREAMBLE);
+
+    fireEvent.click(await screen.findByRole('button', { name: '关闭' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('heading', { name: '系统提示词快照' })).toBeNull(),
+    );
+
+    fireEvent.click(screen.getByTestId('session-meta-preamble'));
+    await screen.findByRole('heading', { name: '系统提示词快照' });
+    expect(screen.getByTestId('session-preamble-content').textContent).toBe(PREAMBLE.content);
   });
 });

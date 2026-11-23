@@ -75,6 +75,7 @@ function session(
     },
     stats: { turnCount: turns.length, totalDurationMs: 800, inputTokens: null, outputTokens: null },
     turns,
+    preamble: null,
   };
 }
 

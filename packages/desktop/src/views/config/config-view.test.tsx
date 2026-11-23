@@ -143,6 +143,7 @@ function sessionSummary(): SessionSummary {
     },
     stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
     turns: [turn(1, 'completed', 'ses-config')],
+    preamble: null,
   };
 }
 

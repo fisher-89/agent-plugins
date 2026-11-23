@@ -1397,6 +1397,11 @@ export const SessionPageSchema = z.strictObject({
 	get total() { return z.number(); },
 });
 
+export const SessionPreambleInfoSchema = z.strictObject({
+	get savedAt() { return z.number(); },
+	get content() { return z.string(); },
+});
+
 export const SessionProvenanceSchema = z.strictObject({
 	get source() { return z.string(); },
 	get sourceRef() { return z.string().nullable(); },
@@ -1422,6 +1427,7 @@ export const SessionSummarySchema = z.strictObject({
 	get row() { return SessionRowSchema; },
 	get stats() { return SessionStatsSchema; },
 	get turns() { return z.array(TurnSummarySchema); },
+	get preamble() { return SessionPreambleInfoSchema.nullable(); },
 });
 
 export const TestFrameworkSchema = z.union([z.literal("jest"), z.literal("vitest"), z.literal("vite-plus"), z.literal("bun"), z.literal("rust"), z.literal("node-test"), z.literal("go"), z.literal("pytest")]);

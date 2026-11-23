@@ -63,6 +63,7 @@ function summary(
   turns: TurnSummary[],
   inputTokens: number | null = null,
   id: string = SESSION_ID,
+  preamble: SessionSummary['preamble'] = null,
 ): SessionSummary {
   return {
     row: {
@@ -85,6 +86,7 @@ function summary(
       outputTokens: null,
     },
     turns,
+    preamble,
   };
 }
 
@@ -2199,5 +2201,95 @@ describe('useAgentSession：interrupted 轮行的库态派生', () => {
 
     expect(result.current.messages.length).toBeGreaterThan(0);
     expect(result.current.running).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// session-preamble-snapshot：本地轮行镜像与重放装载的快照位（AC-9 / AC-10 前端半边）
+// ---------------------------------------------------------------------------
+
+const PREAMBLE = {
+  savedAt: TS,
+  content: '知识段\n\n<agent_md path="/ws/AGENT.md">\n约定\n</agent_md>\n\n指引',
+};
+
+describe('useAgentSession：快照位的镜像与重放', () => {
+  it('early-resolve 本地轮行镜像 → preamble 恒 null（轮行无快照面），其余投影不变', async () => {
+    resetIpc({ detail: null, transcript: [], start: turn(13, 'running', 'ses-new-p') });
+    const { result } = await mounted({ sessionId: null });
+
+    act(() => {
+      result.current.sendMessage({ prompt: '开新会话', permissionMode: 'default' });
+    });
+    await act(async () => {});
+
+    expect(result.current.session?.preamble).toBeNull();
+    expect(result.current.session?.row.id).toBe('ses-new-p');
+    expect(result.current.session?.stats.turnCount).toBe(1);
+    expect(result.current.chain).toEqual([turn(13, 'running', 'ses-new-p')]);
+  });
+
+  it('session_detail 返回 null → 会话镜像为 null，无快照读取路径、无异常抛出', async () => {
+    resetIpc({ detail: null });
+    const { result } = await mounted();
+
+    expect(result.current.session).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(false);
+    expect(callsOf('agent_session_transcript')).toHaveLength(0);
+  });
+
+  it('重放装载原样落 preamble（不裁剪、不改写）且 zod 零漂移', async () => {
+    resetDrift();
+    resetIpc({ detail: summary([turn(11, 'completed')], null, SESSION_ID, PREAMBLE) });
+    const { result } = await mounted();
+
+    expect(result.current.session?.preamble).toEqual(PREAMBLE);
+    expect(result.current.session?.preamble?.content).toBe(PREAMBLE.content);
+    expect(driftCount(), '严格对象 fixture 齐备 ⇒ 零漂移').toBe(0);
+  });
+
+  it('返回体 preamble 为 null → 镜像 null（不伪造空对象 / 不填零值）', async () => {
+    resetIpc({ detail: summary([turn(11, 'completed')], null, SESSION_ID, null) });
+    const { result } = await mounted();
+
+    expect(result.current.session?.preamble).toBeNull();
+    expect(result.current.session?.preamble).not.toEqual({ savedAt: 0, content: '' });
+  });
+
+  it('超长正文逐字保留（长度守恒），空串正文保留空串 ≠ null', async () => {
+    const longContent = `${'中'.repeat(12000)}\n\n🎉 尾段`;
+    resetIpc({
+      detail: summary([turn(11, 'completed')], null, SESSION_ID, {
+        savedAt: TS,
+        content: longContent,
+      }),
+    });
+    const long = await mounted();
+    expect(long.result.current.session?.preamble?.content).toBe(longContent);
+    expect(long.result.current.session?.preamble?.content.length).toBe(longContent.length);
+
+    resetIpc({
+      detail: summary([turn(11, 'completed')], null, SESSION_ID, { savedAt: TS, content: '' }),
+    });
+    const empty = await mounted();
+    expect(empty.result.current.session?.preamble?.content).toBe('');
+    expect(empty.result.current.session?.preamble?.content).not.toBeNull();
+    expect(empty.result.current.session?.preamble).not.toBeNull();
+  });
+
+  it('重放后追加轮行（withTurns）→ preamble 不被 stats / turns 现算清空或改写', async () => {
+    resetIpc({ detail: summary([turn(11, 'completed')], null, SESSION_ID, PREAMBLE) });
+    const { result } = await mounted();
+    expect(result.current.session?.preamble).toEqual(PREAMBLE);
+
+    act(() => {
+      result.current.sendMessage({ prompt: '续接本轮', permissionMode: 'default' });
+    });
+    await act(async () => {});
+
+    expect(result.current.session?.stats.turnCount).toBe(2);
+    expect(result.current.session?.preamble).toEqual(PREAMBLE);
+    expect(result.current.session?.preamble?.savedAt).toBe(PREAMBLE.savedAt);
   });
 });

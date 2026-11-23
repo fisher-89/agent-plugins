@@ -92,6 +92,7 @@ function summary(id: string, turnCount = 1): SessionSummary {
       outputTokens: null,
     },
     turns: Array.from({ length: turnCount }, (_, index) => turn(index + 1)),
+    preamble: null,
   };
 }
 

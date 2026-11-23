@@ -22,8 +22,8 @@ pub use runner::{
     SessionProtectRule, SessionRef, TurnQuestion,
 };
 pub use session::{
-    new_session_id, NewSessionRow, SessionPage, SessionProvenance, SessionRow, SessionStats,
-    SessionSummary, TurnSummary,
+    new_session_id, NewSessionRow, SessionPage, SessionPreambleInfo, SessionProvenance, SessionRow,
+    SessionStats, SessionSummary, TurnSummary,
 };
 pub use state::{AgentRunState, RunStateMachine};
 pub use steer::{SteerMessage, SteerRegistry};

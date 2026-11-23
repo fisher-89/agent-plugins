@@ -138,7 +138,7 @@ fn add_ok(store: &Store, dir: &Path) -> WorkspaceRecord {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn open_global列user维度四模型_open_workspace仅列workspace维度十一行() {
+fn open_global列user维度四模型_open_workspace仅列workspace维度十二行() {
     let env = Env::new("registry-split");
 
     let global = open_global_ok(&env.db_path("global"));
@@ -168,9 +168,9 @@ fn open_global列user维度四模型_open_workspace仅列workspace维度十一�
             .collect::<Vec<_>>(),
         vec![
             "agent_run", "session", "session_event", "explore", "change", "phase",
-            "checklist_item", "step", "run", "run_node", "run_edge"
+            "checklist_item", "step", "run", "run_node", "run_edge", "session_preamble"
         ],
-        "workspace 组静态注册 8→11：轮统计行 / 会话 / 转录 / explore 四既有模型 + change 流程状态四模型 + run 执行图三模型（agent_event 退役出注册），两组无交叉"
+        "workspace 组静态注册 8→12：轮统计行 / 会话 / 转录 / explore 四既有模型 + change 流程状态四模型 + run 执行图三模型 + 会话系统提示词快照（agent_event 退役出注册），两组无交叉"
     );
     assert!(ws_models.iter().all(|model| model.count == 0));
 }
@@ -613,9 +613,10 @@ fn 组合链open注册后for_root落库会话与explore且全局库无混入() {
             ("step", 0),
             ("run", 0),
             ("run_node", 0),
-            ("run_edge", 0)
+            ("run_edge", 0),
+            ("session_preamble", 0)
         ],
-        "workspace 库十一模型组：按会话域布局写入 session / explore（建档预建空会话 +1），change 流程状态四模型与 run 执行图三模型计数 0 也列出，无注册表混入"
+        "workspace 库十二模型组：按会话域布局写入 session / explore（建档预建空会话 +1），change 流程状态四模型 / run 执行图三模型 / 会话系统提示词快照计数 0 也列出，无注册表混入"
     );
     assert_eq!(
         stores.global().list_workspaces().unwrap(),
@@ -6457,9 +6458,10 @@ fn 信封零改动覆盖四新模型_list_models计数与scan信封可读() {
             ("step", 1),
             ("run", 0),
             ("run_node", 0),
-            ("run_edge", 0)
+            ("run_edge", 0),
+            ("session_preamble", 0)
         ],
-        "change 流程状态四模型经既有 list_models 覆盖（run 三模型计数 0 也列出）"
+        "change 流程状态四模型经既有 list_models 覆盖（run 三模型与会话系统提示词快照计数 0 也列出）"
     );
 
     // scan 零改动可读四新模型记录信封（change 信封 key = 记录 id 主键投影）
@@ -9028,8 +9030,8 @@ fn store_describe两库行集与list_models逐名一致() {
     }
     assert_eq!(
         ws.describe().expect("workspace describe").len(),
-        11,
-        "workspace 十一行"
+        12,
+        "workspace 十二行"
     );
     assert_eq!(
         global.describe().expect("global describe").len(),
@@ -10429,5 +10431,400 @@ fn 通知列表与未读计数同源一致() {
         store.list_notifications(0, 10).expect("列表应成功").total,
         3,
         "标记已读不改列表行集"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// session-preamble-snapshot：会话系统提示词快照的写一次 / 主键直查 / 装配面
+// ---------------------------------------------------------------------------
+
+/// 现刻毫秒（落库侧时钟的包夹判据用）。
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("系统时钟早于 UNIX 纪元")
+        .as_millis() as i64
+}
+
+#[test]
+fn stamp_session_preamble首次写入返回true且回读逐字与时刻包夹() {
+    let env = Env::new("preamble-stamp");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let body = "知识\n\n<agent_md path=\"/ws/AGENT.md\">\n约定\n</agent_md>\n\n指引";
+    let before = now_ms();
+    assert!(
+        store
+            .stamp_session_preamble("ses-p", body)
+            .expect("首次拍存应成功"),
+        "首次写入返回 Ok(true)"
+    );
+    let after = now_ms();
+
+    let record = store
+        .find_session_preamble("ses-p")
+        .expect("回读应成功")
+        .expect("行在场");
+    assert_eq!(record.session_id, "ses-p", "主键逐字段");
+    assert_eq!(record.content, body, "正文逐字");
+    assert!(
+        record.saved_at >= before && record.saved_at <= after,
+        "saved_at 由落库侧时钟取（store 侧包夹），实际 {} 不在 [{before}, {after}]",
+        record.saved_at
+    );
+}
+
+#[test]
+fn stamp_session_preamble二次写入返回false且内容与时刻均不变() {
+    let env = Env::new("preamble-idempotent");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let first_body = "首次正文";
+    assert!(store.stamp_session_preamble("ses-p", first_body).unwrap());
+    let first = store.find_session_preamble("ses-p").unwrap().unwrap();
+
+    for (label, body) in [("同内容", first_body), ("异内容", "改写后的正文")] {
+        assert!(
+            !store.stamp_session_preamble("ses-p", body).unwrap(),
+            "二次拍存（{label}）返回 Ok(false)"
+        );
+        let after = store.find_session_preamble("ses-p").unwrap().unwrap();
+        assert_eq!(after, first, "写一次冻结（{label}）：整行零变化");
+    }
+
+    // 无更新 / 重置语义：内容与时刻均锚在首次
+    assert_eq!(first.content, first_body);
+    assert!(first.saved_at > 0);
+}
+
+#[test]
+fn stamp_session_preamble维度错配user维度store返回err且不产行() {
+    let env = Env::new("preamble-dimension");
+    let global = open_global_ok(&env.db_path("global"));
+    let result = global.stamp_session_preamble("ses-dim", "正文");
+    assert!(
+        result.is_err(),
+        "user 维度库无该 workspace 模型 ⇒ 显式 Err（不静默成功），实际: {result:?}"
+    );
+    match result {
+        Err(StoreError::Db(message)) => {
+            assert!(!message.is_empty(), "错误串携库层语境: {message}")
+        }
+        other => panic!("应为 StoreError::Db 变体，实际: {other:?}"),
+    }
+
+    // 同一库上读面同样 Err（跨维度不可达，双向一致）
+    assert!(
+        global.find_session_preamble("ses-dim").is_err(),
+        "user 维度库读面亦 Err"
+    );
+}
+
+#[test]
+fn stamp_session_preamble空串与超长正文两形态落库均不被截断() {
+    let env = Env::new("preamble-boundary");
+    let store = open_workspace_ok(&env.db_path("ws"));
+
+    assert!(store.stamp_session_preamble("ses-empty", "").unwrap());
+    let empty = store.find_session_preamble("ses-empty").unwrap().unwrap();
+    assert_eq!(empty.content, "", "快照成立但无正文（空串）");
+
+    let long = "中".repeat(20000);
+    assert!(store.stamp_session_preamble("ses-long", &long).unwrap());
+    let stored = store.find_session_preamble("ses-long").unwrap().unwrap();
+    assert_eq!(stored.content.chars().count(), 20000, "长度守恒");
+    assert_eq!(stored.content, long, "无 32KB 二次截断（截断只在读取侧）");
+}
+
+#[test]
+fn stamp_session_preamble三次连调仅首次生效且跨库重开行仍在() {
+    let env = Env::new("preamble-reopen");
+    let path = env.db_path("ws");
+    {
+        let store = open_workspace_ok(&path);
+        assert!(store
+            .stamp_session_preamble("ses-reopen", "冻结体")
+            .unwrap());
+        assert!(!store
+            .stamp_session_preamble("ses-reopen", "冻结体")
+            .unwrap());
+        assert!(!store
+            .stamp_session_preamble("ses-reopen", "另一体")
+            .unwrap());
+        let record = store.find_session_preamble("ses-reopen").unwrap().unwrap();
+        assert_eq!(record.content, "冻结体", "首写即定稿");
+    }
+    // 跨库重开（与会话同落一个 workspace 库文件）：行仍在且逐字
+    let reopened = open_workspace_ok(&path);
+    let record = reopened
+        .find_session_preamble("ses-reopen")
+        .expect("重开回读应成功")
+        .expect("行仍在");
+    assert_eq!(record.content, "冻结体", "跨库重开逐字保真");
+    assert!(record.saved_at > 0);
+}
+
+#[test]
+fn find_session_preamble命中三字段与未命中三形态() {
+    let env = Env::new("preamble-find");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-hit");
+    store
+        .stamp_session_preamble("ses-hit", "命中正文")
+        .expect("拍存应成功");
+
+    let record = store
+        .find_session_preamble("ses-hit")
+        .expect("命中应成功")
+        .expect("Some(record)");
+    assert_eq!(record.session_id, "ses-hit");
+    assert_eq!(record.content, "命中正文");
+    assert!(record.saved_at > 0, "saved_at 为正毫秒值");
+
+    // 未 stamp 的 id（会话在场）：行缺席即未快照
+    assert_eq!(
+        store.find_session_preamble("ses-other").unwrap(),
+        None,
+        "未 stamp 的 id → Ok(None)"
+    );
+    // 空串 id：不 panic
+    assert_eq!(
+        store.find_session_preamble("").unwrap(),
+        None,
+        "空串 id → Ok(None)"
+    );
+    // 空库
+    let empty_store = open_workspace_ok(&env.db_path("ws-empty"));
+    assert_eq!(
+        empty_store.find_session_preamble("ses-any").unwrap(),
+        None,
+        "空库 → Ok(None)"
+    );
+    // 超长 session_id（1100 char）：主键不校验形态
+    let long_id = "长".repeat(1100);
+    assert_eq!(
+        store.find_session_preamble(&long_id).unwrap(),
+        None,
+        "超长主键 → Ok(None)（形态零校验）"
+    );
+    assert!(store.stamp_session_preamble(&long_id, "长键正文").unwrap());
+    assert_eq!(
+        store
+            .find_session_preamble(&long_id)
+            .unwrap()
+            .unwrap()
+            .content,
+        "长键正文",
+        "超长主键亦可落库回读"
+    );
+}
+
+#[test]
+fn find_session_summary有快照时携preamble且其余聚合面全等() {
+    let env = Env::new("summary-preamble");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-p");
+    store
+        .append_session_events("ses-p", &[stamped(0, turn_done_kind(false))])
+        .expect("append 应成功");
+    let turn = store
+        .begin_agent_turn("ses-p", 1727000000000)
+        .expect("begin 应成功");
+    store
+        .finish_agent_turn(
+            turn.id,
+            &finish_shell(
+                turn.id,
+                AgentRunStatus::Completed,
+                Some(1727000004000),
+                Some(1),
+                Some(4000),
+                None,
+            ),
+        )
+        .expect("finish 应成功");
+    store
+        .stamp_session_preamble("ses-p", "装配快照正文")
+        .expect("拍存应成功");
+
+    let found = store
+        .find_session_summary("ses-p")
+        .expect("单查应成功")
+        .expect("在场");
+    let preamble = found.preamble.clone().expect("单查路径应填快照面");
+    assert_eq!(preamble.content, "装配快照正文", "正文逐字");
+    assert_eq!(
+        preamble.saved_at,
+        store
+            .find_session_preamble("ses-p")
+            .unwrap()
+            .unwrap()
+            .saved_at,
+        "时刻与库行同源"
+    );
+    assert_eq!(found.stats.turn_count, 1, "快照步骤不改其余面");
+    assert_eq!(found.stats.input_tokens, Some(10));
+    assert_eq!(found.turns.len(), 1);
+    assert_eq!(found.row.id, "ses-p");
+}
+
+#[test]
+fn find_session_summary无快照行时preamble为none不伪造空正文() {
+    let env = Env::new("summary-no-preamble");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-bare");
+
+    let found = store
+        .find_session_summary("ses-bare")
+        .expect("单查应成功")
+        .expect("在场");
+    assert_eq!(
+        found.preamble, None,
+        "存量会话形态（行缺席）→ None，MUST NOT 以空正文伪造"
+    );
+    assert_eq!(
+        store.find_session_summary("").unwrap(),
+        None,
+        "空 id → Ok(None)（快照读不改变分层语义）"
+    );
+}
+
+#[test]
+fn find_session_summary有快照但会话已移除时返回none不虚构会话() {
+    let env = Env::new("summary-orphan");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    store
+        .stamp_session_preamble("ses-orphan", "孤儿快照")
+        .expect("拍存应成功");
+    assert_eq!(
+        store.find_session_summary("ses-orphan").unwrap(),
+        None,
+        "仅快照行在而会话缺席 → Ok(None)"
+    );
+}
+
+#[test]
+fn 清单路径preamble恒none且快照体量不膨胀清单() {
+    let env = Env::new("list-preamble");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-list-a");
+    seed_session(&store, "ses-list-b");
+    store
+        .stamp_session_preamble("ses-list-a", "清单不应携带的正文")
+        .expect("拍存应成功");
+
+    let listed = store.list_sessions(None, None).expect("清单应成功");
+    assert_eq!(listed.len(), 2);
+    assert!(
+        listed.iter().all(|summary| summary.preamble.is_none()),
+        "四项清单同源（list_sessions）恒 None"
+    );
+    let paged = store
+        .list_sessions_page(None, None, 0, 20)
+        .expect("分页清单应成功");
+    assert!(
+        paged
+            .sessions
+            .iter()
+            .all(|summary| summary.preamble.is_none()),
+        "分页清单同源恒 None"
+    );
+
+    // 体量放大面：37KB 级正文落库后清单项仍 None
+    store
+        .stamp_session_preamble("ses-list-b", &"中".repeat(12300))
+        .expect("拍存应成功");
+    let listed = store.list_sessions(None, None).expect("清单应成功");
+    assert!(
+        listed.iter().all(|summary| summary.preamble.is_none()),
+        "快照体量不进入清单载荷"
+    );
+    let serialized = serde_json::to_string(&listed).expect("清单可序列化");
+    assert_eq!(
+        serialized.matches("\"preamble\":null").count(),
+        listed.len(),
+        "清单 JSON 每项 preamble 均为 null，体积不随快照膨胀（{} 字节）",
+        serialized.len()
+    );
+}
+
+/// 源码自证（边界）：「不读」而非「读了不给」——`fn query_sessions` 函数体内零
+/// 快照读调用，且 `assemble_summary` 第四实参为 `None`；对照
+/// `fn find_session_summary` 函数体内 `find_session_preamble` 恰一处。
+#[test]
+fn 清单路径源码自证_query_sessions零快照读而单查恰一处() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/store.rs"),
+    )
+    .expect("读取 store.rs");
+
+    let body_of = |signature: &str| {
+        let start = own
+            .find(signature)
+            .unwrap_or_else(|| panic!("{signature} 定义在场"));
+        let rest = &own[start..];
+        let end = rest.find("\n    }\n").expect("函数体收口");
+        &rest[..end]
+    };
+
+    let query_body = body_of("fn query_sessions(");
+    assert!(
+        !query_body.contains("find_session_preamble"),
+        "清单路径 MUST NOT 调用快照读"
+    );
+    assert!(
+        !query_body.contains("SessionPreambleRecord"),
+        "清单路径 MUST NOT 触碰快照模型"
+    );
+    assert!(
+        query_body.contains("assemble_summary(session, turns, events, None)"),
+        "装配第四实参为 None（结构判据）"
+    );
+
+    let find_body = body_of("pub fn find_session_summary(");
+    assert_eq!(
+        find_body.matches("find_session_preamble").count(),
+        1,
+        "单查路径快照读恰一处"
+    );
+}
+
+#[test]
+fn find_session_summary与清单面等值两形态_none全等与some仅快照位不同() {
+    let env = Env::new("summary-equality");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-eq");
+
+    // 形态一：无快照行 → 两面逐字段全等（preamble 双 None）
+    let found = store.find_session_summary("ses-eq").unwrap().unwrap();
+    let listed = store
+        .list_sessions(None, None)
+        .unwrap()
+        .into_iter()
+        .find(|summary| summary.row.id == "ses-eq")
+        .expect("清单面在场");
+    assert_eq!(found, listed, "无快照行时两面逐字段全等");
+
+    // 形态二：有快照行 → 除 preamble 外全等，单查 Some / 清单 None
+    store
+        .stamp_session_preamble("ses-eq", "等值判据正文")
+        .expect("拍存应成功");
+    let found = store.find_session_summary("ses-eq").unwrap().unwrap();
+    let listed = store
+        .list_sessions(None, None)
+        .unwrap()
+        .into_iter()
+        .find(|summary| summary.row.id == "ses-eq")
+        .expect("清单面在场");
+    assert!(found.preamble.is_some(), "单查填快照面");
+    assert!(listed.preamble.is_none(), "清单恒 None");
+    assert_eq!(found.row, listed.row, "会话记录逐字段全等");
+    assert_eq!(found.stats, listed.stats, "统计逐字段全等");
+    assert_eq!(found.turns, listed.turns, "轮行逐字段全等");
+    // 置 None 只作用于副本：同一装配代码下两面除 preamble 外逐字段等价
+    let mut trimmed = found.clone();
+    trimmed.preamble = None;
+    assert_eq!(trimmed, listed, "除 preamble 外两面等价（同一装配代码）");
+    assert!(
+        found.preamble.is_some(),
+        "副本置空不回写 found（单查仍携快照面）"
     );
 }

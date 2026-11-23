@@ -118,7 +118,7 @@ fn raw_event(seq: u64) -> AgentEvent {
     }
 }
 
-/// 15 张表各一条真实记录（ratchet 的真 serde 键集来源）。表名与记录一一对应，
+/// 16 张表各一条真实记录（ratchet 的真 serde 键集来源）。表名与记录一一对应，
 /// 顺序即注册表登记序。
 fn sample_records() -> Vec<(&'static str, serde_json::Value)> {
     let node_entry = RunNodeEntry {
@@ -258,8 +258,21 @@ fn sample_records() -> Vec<(&'static str, serde_json::Value)> {
                 3,
             )),
         ),
+        (
+            "session_preamble",
+            value_of(crate::model::SessionPreambleRecord {
+                session_id: "ses-ratchet".to_owned(),
+                content: "知识
+
+<agent_md path=\"/ws/ratchet/AGENT.md\">
+约定
+</agent_md>"
+                    .to_owned(),
+                saved_at: 1000,
+            }),
+        ),
     ];
-    assert_eq!(records.len(), entries().len(), "15 张表逐表一条样本");
+    assert_eq!(records.len(), entries().len(), "16 张表逐表一条样本");
     records
 }
 
@@ -286,7 +299,7 @@ fn field_names(table_doc: &crate::TableDoc) -> Vec<&str> {
         .collect()
 }
 
-const WORKSPACE_TABLES: [&str; 11] = [
+const WORKSPACE_TABLES: [&str; 12] = [
     "agent_run",
     "session",
     "session_event",
@@ -298,6 +311,7 @@ const WORKSPACE_TABLES: [&str; 11] = [
     "run",
     "run_node",
     "run_edge",
+    "session_preamble",
 ];
 
 const USER_TABLES: [&str; 4] = [
@@ -449,7 +463,7 @@ fn 空库两维度仍全列且计数全零() {
             .iter()
             .map(|name| (*name, 0u64))
             .collect::<Vec<_>>(),
-        "空库仍列 11 行且计数全 0（与 list_models 的「计数 0 也列出」同口径）"
+        "空库仍列 12 行且计数全 0（与 list_models 的「计数 0 也列出」同口径）"
     );
     assert_eq!(
         tables(&global_db(), DbDimension::User)
@@ -840,7 +854,7 @@ fn session_event字段索引三字段与手写schema同源() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn ratchet十五表每字段说明非空且线名集与serde键集双向一致() {
+fn ratchet十六表每字段说明非空且线名集与serde键集双向一致() {
     for (table_name, value) in sample_records() {
         let dimension = crate::dimension_of(table_name).expect("样本表名在注册表内");
         let doc = table(dimension, table_name).expect("下钻应成功");
@@ -946,10 +960,10 @@ fn 候选与维度名为自纠文案单点() {
     assert_eq!(
         all_candidates().matches(" / ").count(),
         entries().len() - 1,
-        "全量候选 15 名（14 个分隔符）"
+        "全量候选 16 名（15 个分隔符）"
     );
     assert!(all_candidates().starts_with("workspace"));
-    assert!(all_candidates().ends_with("run_edge"));
+    assert!(all_candidates().ends_with("session_preamble"));
 }
 
 #[test]
@@ -978,5 +992,152 @@ fn schema_of与schema_session_event均给可解析根引用() {
     assert!(
         matches!(root, DataType::Reference(Reference::Named(_))),
         "手写 schema 根同为命名引用"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// session-preamble-snapshot：`SessionPreambleRecord` 的说明派生面
+// ---------------------------------------------------------------------------
+
+#[test]
+fn session_preamble表清单在场且摘要按首句截断() {
+    let docs = tables(&workspace_db(), DbDimension::Workspace).expect("表清单应成功");
+    let doc = docs
+        .iter()
+        .find(|doc| doc.table == "session_preamble")
+        .expect("workspace 维度表清单应含 session_preamble");
+    assert_eq!(doc.count, 0, "空库计数 0 也列出");
+    let summary = doc.summary.trim();
+    assert!(!summary.is_empty(), "表介绍非空（struct doc 派生）");
+    assert!(
+        summary.chars().count() <= 120,
+        "首句截断后不超 120 字，实际 {} 字: {summary}",
+        summary.chars().count()
+    );
+    assert!(
+        summary.ends_with('。'),
+        "按首个句读收口（不截出半句、无省略号），实际: {summary}"
+    );
+    assert!(
+        !summary.contains('\n'),
+        "换行不入 summary（句读截断单点）: {summary}"
+    );
+    assert!(
+        summary.contains("会话系统提示词快照"),
+        "摘要取自结构体 doc 首句，实际: {summary}"
+    );
+
+    // user 维度 4 张不受影响
+    let user_tables: Vec<String> = tables(&global_db(), DbDimension::User)
+        .expect("user 维度表清单")
+        .into_iter()
+        .map(|doc| doc.table)
+        .collect();
+    assert_eq!(user_tables, USER_TABLES.to_vec(), "user 维度零变化");
+}
+
+#[test]
+fn session_preamble字段下钻三字段序与渲染类型与说明非空() {
+    let doc = table(DbDimension::Workspace, "session_preamble").expect("下钻应成功");
+    assert_eq!(
+        field_names(&doc),
+        vec!["sessionId", "content", "savedAt"],
+        "顺序为结构体字段序（主键在前）"
+    );
+    for (name, render) in [
+        ("sessionId", "string"),
+        ("content", "string"),
+        ("savedAt", "number"),
+    ] {
+        let field = doc
+            .fields
+            .iter()
+            .find(|field| field.name == name)
+            .unwrap_or_else(|| panic!("应有字段 {name}"));
+        assert_eq!(field.ty, render, "{name} 的渲染类型");
+        assert!(!field.doc.trim().is_empty(), "{name} 的 doc 非空");
+    }
+}
+
+#[test]
+fn session_preamble拼写错误err且候选含正确名_跨维度err() {
+    match table(DbDimension::Workspace, "session_preambles") {
+        Err(error) => {
+            let message = error.to_string();
+            assert!(message.contains("未知表"), "文案: {message}");
+            assert!(
+                message.contains("session_preamble"),
+                "候选清单含正确名（自纠通道），文案: {message}"
+            );
+        }
+        Ok(_) => panic!("拼写错误的表名应 Err"),
+    }
+
+    match table(DbDimension::User, "session_preamble") {
+        Err(error) => {
+            let message = error.to_string();
+            assert!(
+                message.contains("维度"),
+                "合法名撞维度给出维度不符文案，实际: {message}"
+            );
+            assert!(
+                !message.contains("未知表"),
+                "跨维度同名不是「未知表」（表名跨维度唯一），实际: {message}"
+            );
+        }
+        Ok(_) => panic!("跨维度查询应 Err"),
+    }
+}
+
+#[test]
+fn session_preamble线名集与serde键集双向一致且蛇形名缺席() {
+    let doc = table(DbDimension::Workspace, "session_preamble").expect("下钻应成功");
+    let mut wire: Vec<String> = doc.fields.iter().map(|field| field.name.clone()).collect();
+    wire.sort();
+    let keys = json_keys(
+        &sample_records()
+            .into_iter()
+            .find(|(name, _)| *name == "session_preamble")
+            .expect("样本在场")
+            .1,
+    );
+
+    let missing_in_json: Vec<&String> = wire.iter().filter(|name| !keys.contains(name)).collect();
+    assert!(
+        missing_in_json.is_empty(),
+        "方向一：线名 {missing_in_json:?} ⊆ serde 键集 {keys:?}"
+    );
+    let missing_in_wire: Vec<&String> = keys.iter().filter(|key| !wire.contains(key)).collect();
+    assert!(
+        missing_in_wire.is_empty(),
+        "方向二：serde 键 {missing_in_wire:?} ⊆ 线名集 {wire:?}"
+    );
+    assert_eq!(wire.len(), keys.len(), "字段数 == 键数（恰三字段）");
+    for snake in ["session_id", "saved_at"] {
+        assert!(
+            !wire.iter().any(|name| name == snake),
+            "蛇形名 {snake} 全线缺席: {wire:?}"
+        );
+    }
+}
+
+#[test]
+fn session_preamble_schema_of给可解析根引用且三次连调逐字相等() {
+    let mut types = Types::default();
+    let root = schema_of::<crate::model::SessionPreambleRecord>(&mut types);
+    assert!(
+        matches!(root, DataType::Reference(_)),
+        "derive 型 schema 根为命名引用（字段说明派生入口）"
+    );
+
+    assert_eq!(
+        table(DbDimension::Workspace, "session_preamble").expect("下钻一"),
+        table(DbDimension::Workspace, "session_preamble").expect("下钻二"),
+        "类型图每次重建，连调结果逐字相等"
+    );
+    assert_eq!(
+        table(DbDimension::Workspace, "session_preamble").expect("下钻三"),
+        table(DbDimension::Workspace, "session_preamble").expect("下钻四"),
+        "跨调用零状态残留"
     );
 }

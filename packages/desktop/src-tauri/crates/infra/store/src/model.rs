@@ -1653,6 +1653,33 @@ pub struct NotificationRecord {
     pub read_at: Option<i64>,
 }
 
+/// 会话系统提示词快照记录（agent 会话域，workspace 维度落 workspace 库）：会话首轮拍存一次、此后逐字复用。
+///
+/// 写一次不可变——无行 = 未快照（存量会话）；空串 [`Self::content`] = 快照成立但
+/// 无正文（该会话零 System 消息）——两个状态 MUST NOT 混用。
+///
+/// `session_id` 与 `SessionRecord` 为**一对一的逻辑关联而非外键**：跨表引用不引
+/// 申存在性检查或级联删除（会话与其快照同落一个 workspace 库文件，随库整体作废）。
+///
+/// 表与字段说明由 `///` doc 经 `describe` 自动派生（db 查看器零模型特定代码）。
+///
+/// `native_model` id 取现役最大值 + 1（= 19）而非补历史空洞 3 / 14：空洞无法证
+/// 明从未被占用，上界之外必不冲突。本模型为**新增**模型而非既有模型字段演进 ⇒
+/// 无版本链、零 `from` 链、零迁移代码路径。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 19, version = 1)]
+#[native_db]
+pub struct SessionPreambleRecord {
+    /// core 铸会话 id（主键，与 `SessionRecord.id` 一对一的逻辑关联，非外键）
+    #[primary_key]
+    pub session_id: String,
+    /// 快照正文（知识 + `AGENT.md` 段 + 冻结指引常量的合成体，空串 = 快照成立但无正文）
+    pub content: String,
+    /// 拍存时刻（UTC unix 毫秒，由落库侧时钟取）
+    pub saved_at: i64,
+}
+
 /// 复合键打包：高 64 位 `hash64(session_id)`、低 64 位 seq。store 内唯一
 /// 组装点。
 pub(crate) fn pack_session_event_key(session_id: &str, seq: u64) -> u128 {

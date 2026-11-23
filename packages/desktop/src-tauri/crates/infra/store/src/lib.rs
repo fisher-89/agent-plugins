@@ -13,8 +13,8 @@ pub use model::{
     AgentEffortTiers, AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
     AgentProviderRecord, AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord,
     ExploreRecord, NotificationRecord, PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord,
-    SessionConfigSnapshot, SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
-    CLI_TENANT_RETIRED,
+    SessionConfigSnapshot, SessionEventRecord, SessionPreambleRecord, SessionRecord, StepRecord,
+    WorkspaceRecord, CLI_TENANT_RETIRED,
 };
 pub use notification::StoreNotificationSink;
 pub use query::{

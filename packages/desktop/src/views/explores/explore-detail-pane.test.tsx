@@ -873,6 +873,7 @@ function seedChatSession(turnStatus: TurnSummary['status'] = 'completed'): void 
             error: null,
           },
         ],
+        preamble: null,
       });
     }
     if (command === 'agent_session_transcript') {
@@ -962,6 +963,7 @@ describe('ExploreDetailPane：ChatPane 注入形态与 composer 插槽', () => {
           },
           stats: { turnCount: 0, totalDurationMs: null, inputTokens: null, outputTokens: null },
           turns: [],
+          preamble: null,
         });
       }
       return Promise.resolve(null);
@@ -1003,6 +1005,7 @@ function runningSession(sessionId: string): SessionSummary {
         error: null,
       },
     ],
+    preamble: null,
   };
 }
 
@@ -1144,6 +1147,7 @@ function completedSession(sessionId: string): SessionSummary {
         error: null,
       },
     ],
+    preamble: null,
   };
 }
 

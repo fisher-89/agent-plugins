@@ -85,7 +85,7 @@ pub struct SessionProtectRule {
     pub reason: String,
 }
 
-/// 会话级注入六位：`preamble`（会话级系统前导）/ `tools`（本轮下发的工具**名字
+/// 会话级注入六位：`preamble`（会话系统提示词快照正文）/ `tools`（本轮下发的工具**名字
 /// 清单**，`None` = infra 内建七件）/ `finish`（收口档位，`None` = 本步无收口
 /// 工具）/ `ask`（ask 装配档位，`None` = 显式禁用）/ `protect`（会话级写入禁区
 /// 规则，`None` = 不追加）/ `before_done`（收口前钩子档位，`None` = 不装配）。
@@ -100,7 +100,8 @@ pub struct SessionProtectRule {
 /// core 不解释路径语义。本类型无 `specta::Type` ⇒ 不进 TS bindings。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionInjections {
-    /// 会话级系统前导（None 即不注入；维持不消费）
+    /// 会话系统提示词快照正文（None = 本会话不注入 System 消息）；合成、拍存与
+    /// 读回归 infra 装配层（内核组合根），core 只作不透明承载
     pub preamble: Option<String>,
     /// 本轮下发的工具名字清单（None = infra 内建七件；Some = 按挂载清单序过滤）
     pub tools: Option<Vec<String>>,

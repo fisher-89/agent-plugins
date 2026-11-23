@@ -79,6 +79,7 @@ function summary(
       outputTokens: null,
     },
     turns,
+    preamble: null,
   };
 }
 

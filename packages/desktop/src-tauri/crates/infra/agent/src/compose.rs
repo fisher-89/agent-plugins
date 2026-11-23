@@ -57,6 +57,10 @@ const CONFIG_SOURCE: &str = "config";
 /// 四臂的每个名字 SHALL 经 [`mount::lookup`] 成员校验（未知名 `Err`）。`ask` 位
 /// 逐臂显式置位：explore / archi / config / 其余来源 → `Generic`，change（**不分
 /// role / 不分矩阵命中**）→ `Flow`。
+///
+/// `preamble` 位在此按 provenance 产**知识段**；最终系统提示词由
+/// [`ComposedTurn::begin`] 冻结合成后覆盖同一位（快照语义见
+/// `desktop-agent-execution`「会话系统提示词快照的拍存与续轮复用」）。
 fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionInjections, String> {
     if provenance.source == EXPLORE_SOURCE {
         const EXPLORE_TOOLS: [&str; 9] = [
@@ -398,7 +402,15 @@ pub fn compose_turn(
 }
 
 impl ComposedTurn {
-    /// 发起一轮（Continue 校验 + prior_handle 提取 + 快照组装 + 内核 begin）
+    /// 发起一轮（Continue 校验 + prior_handle 提取 + 会话系统提示词快照的拍存 /
+    /// 读回 / 补拍 + 内核 begin）
+    ///
+    /// 快照三分支：①**首轮**（`New`，或 `Continue` 且未开轮）现算正文、本轮直接
+    /// 用内存体、`begin_turn` 返回后落库；②**续轮已开轮**读库正文覆盖注入位（不
+    /// 读文件、不算知识）；③**存量补拍**（已开轮但快照行缺席）按首轮口径现算一
+    /// 次并落库——补拍取**补拍当轮**的知识（无历史见证，唯一可实现的口径），此
+    /// 后冻结。落库 MUST 在 `begin_turn` 之后（`New` 路径只有此刻才知会话 id），
+    /// 本轮 MUST NOT 读回自己刚写的快照；落库失败仅日志留痕、MUST NOT 中断本轮。
     pub fn begin(
         &self,
         session: SessionRef,
@@ -420,8 +432,14 @@ impl ComposedTurn {
             model,
             permission_mode: ctx.permission_mode,
         };
-        let prior_handle = match &session {
-            SessionRef::New => None,
+        // 知识段先由装配面产出；最终系统提示词由下方三分支冻结合成后覆盖同一位
+        let mut injections = assemble_injections(&provenance)?;
+        let (prior_handle, stamp) = match &session {
+            SessionRef::New => {
+                let body = freeze_preamble(&injections, &ctx);
+                injections.preamble = injectable(body.clone());
+                (None, Some(body))
+            }
             SessionRef::Continue { id } => {
                 let record = self
                     .query
@@ -430,7 +448,8 @@ impl ComposedTurn {
                     .map_err(|e| e.to_string())?
                     .ok_or_else(|| format!("会话不存在: {id}"))?;
                 // 未开轮（无句柄 + 无轮行 + 无转录）：预建空会话首轮，按全新
-                // 会话开跑 + 快照定型；其余续会话治理三连
+                // 会话开跑 + 快照定型；其余续会话治理三连。首轮判据只取一次
+                // ——`begin_turn` 落轮行后同判据必然转假
                 if self
                     .query
                     .store()
@@ -441,32 +460,80 @@ impl ComposedTurn {
                         .store()
                         .restamp_session_config(id, &snapshot)
                         .map_err(|e| e.to_string())?;
-                    None
+                    let body = freeze_preamble(&injections, &ctx);
+                    injections.preamble = injectable(body.clone());
+                    (None, Some(body))
                 } else {
                     if record.config_snapshot.engine != self.store_kind {
                         return Err(format!("会话非当前引擎产出（跨引擎续会话不支持）: {id}"));
                     }
-                    record.engine_session_id.clone()
+                    let prior_handle = record.engine_session_id.clone();
+                    // 读点：快照正文覆盖注入位（空正文 → None）；不读文件、不算知识
+                    match self
+                        .query
+                        .store()
+                        .find_session_preamble(id)
+                        .map_err(|e| e.to_string())?
+                    {
+                        Some(preamble) => {
+                            injections.preamble = injectable(preamble.content);
+                            (prior_handle, None)
+                        }
+                        None => {
+                            // 存量补拍：本变更前创建的会话首次续轮现算一次并冻结
+                            let body = freeze_preamble(&injections, &ctx);
+                            injections.preamble = injectable(body.clone());
+                            (prior_handle, Some(body))
+                        }
+                    }
                 }
             }
         };
         let config_snapshot =
             serde_json::to_value(snapshot).map_err(|e| format!("配置快照组装失败: {e}"))?;
-        self.kernel
+        let running = self
+            .kernel
             .begin_turn(
                 Arc::clone(&self.runner),
                 TurnRequest {
                     session,
                     question,
-                    injections: assemble_injections(&provenance)?,
+                    injections,
                     ctx,
                     provenance,
                     config_snapshot,
                     prior_handle,
                 },
             )
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        if let Some(body) = stamp {
+            if let Err(error) = self
+                .query
+                .store()
+                .stamp_session_preamble(&running.session_id, &body)
+            {
+                crate::sdk::log::append_engine_log(&format!(
+                    "会话系统提示词快照落库失败 session={} cause={error}",
+                    running.session_id
+                ));
+            }
+        }
+        Ok(running)
     }
+}
+
+/// 会话系统提示词快照现算（首轮与存量补拍共用）：读取根 = 会话执行根
+/// `SessionCtx.workspace_root`（worktree 即分支版），每次会话读取一次；知识段
+/// 取自注入面已产出的 `preamble` 位（provenance 判定单源在
+/// [`assemble_injections`]）。
+fn freeze_preamble(injections: &agent::SessionInjections, ctx: &agent::SessionCtx) -> String {
+    let agent_md = crate::sdk::preamble::load(&ctx.workspace_root);
+    crate::sdk::preamble::freeze(injections.preamble.as_deref(), agent_md.as_deref())
+}
+
+/// 空快照正文 → `None`：无正文可注入即零 System 消息（指引常量不单独成条）。
+fn injectable(body: String) -> Option<String> {
+    (!body.is_empty()).then_some(body)
 }
 
 /// store 协议枚举 → 门面协议枚举（两臂 match；沿 `AgentEngineKind` →

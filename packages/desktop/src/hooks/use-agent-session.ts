@@ -160,6 +160,8 @@ function sessionFromTurn(record: TurnSummary, source: string): SessionSummary {
     },
     stats: { turnCount: 0, totalDurationMs: null, inputTokens: null, outputTokens: null },
     turns: [],
+    // 本地轮行镜像没有快照面；收口重放落 `session_detail` 的 `preamble` 后自然出现
+    preamble: null,
   };
 }
 

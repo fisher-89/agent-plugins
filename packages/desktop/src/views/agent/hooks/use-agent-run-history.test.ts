@@ -52,6 +52,7 @@ function summary(id: string, updatedAt: number): SessionSummary {
     },
     stats: { turnCount: 2, totalDurationMs: 500, inputTokens: null, outputTokens: null },
     turns: [],
+    preamble: null,
   };
 }
 
@@ -683,6 +684,7 @@ function summaryWithInstanceId(
     },
     stats: { turnCount: 0, totalDurationMs: 0, inputTokens: null, outputTokens: null },
     turns: [],
+    preamble: null,
   };
 }
 
@@ -720,6 +722,7 @@ describe('useAgentRunHistory：configSnapshot fixture 携 agentInstanceId 键（
       },
       stats: { turnCount: 1, totalDurationMs: 100, inputTokens: null, outputTokens: null },
       turns: [],
+      preamble: null,
     };
     invokeMock.mockResolvedValue(pageOf([legacy]));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));

@@ -65,6 +65,7 @@ function summary(turns: TurnSummary[], id: string): SessionSummary {
       outputTokens: null,
     },
     turns,
+    preamble: null,
   };
 }
 

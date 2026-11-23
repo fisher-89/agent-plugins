@@ -118,6 +118,7 @@ function summary(turns: TurnSummary[], tokens: number | null = null): SessionSum
       outputTokens: null,
     },
     turns,
+    preamble: null,
   };
 }
 

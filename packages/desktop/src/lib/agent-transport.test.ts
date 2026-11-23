@@ -960,6 +960,7 @@ function sessionDetail(status: TurnSummary['status']) {
     },
     stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
     turns: [recordRow(1, status)],
+    preamble: null,
   };
 }
 
@@ -2082,6 +2083,7 @@ describe('TauriAgentTransport：经 ipc 的参数面 / 结果面', () => {
             },
             stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
             turns: [recordRow(1, 'running')],
+            preamble: null,
           })
         : Promise.resolve(null),
     );
@@ -2254,6 +2256,7 @@ function detailWithRunning(turnIds: number[]) {
       outputTokens: null,
     },
     turns: turnIds.map((turnId) => recordRow(turnId, 'running')),
+    preamble: null,
   };
 }
 

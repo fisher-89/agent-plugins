@@ -217,6 +217,7 @@ fn preset_summary(id: &str) -> SessionSummary {
             output_tokens: Some(20),
         },
         turns: Vec::new(),
+        preamble: None,
     }
 }
 

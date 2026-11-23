@@ -1,0 +1,937 @@
+{
+  "version": 3,
+  "timestamp": "2026-11-23T14:54:28.4552976Z",
+  "mode": "incremental",
+  "root": "D:/Projects\\.worktrees\\wps-claude-plugin\\session-preamble-snapshot",
+  "change": "session-preamble-snapshot",
+  "base": "HEAD",
+  "modelHash": "sha256:05b61bde4a0329b565a6d869e57c007b82aedc9201d24424b83490064b3446d4",
+  "model": {
+    "elements": 55,
+    "relations": 129,
+    "byGate": {
+      "strict": 0,
+      "warn": 0,
+      "off": 55
+    },
+    "structuralErrors": [],
+    "warnings": [
+      {
+        "kind": "noPath",
+        "from": "Backend.Core",
+        "to": null,
+        "gate": "off",
+        "message": "元素 Backend.Core 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      },
+      {
+        "kind": "noPath",
+        "from": "Backend.Infra",
+        "to": null,
+        "gate": "off",
+        "message": "元素 Backend.Infra 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      },
+      {
+        "kind": "noPath",
+        "from": "Backend.Tools",
+        "to": null,
+        "gate": "off",
+        "message": "元素 Backend.Tools 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      },
+      {
+        "kind": "noPath",
+        "from": "Desktop.Components",
+        "to": null,
+        "gate": "off",
+        "message": "元素 Desktop.Components 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      },
+      {
+        "kind": "noPath",
+        "from": "Desktop.Components.Standard",
+        "to": null,
+        "gate": "off",
+        "message": "元素 Desktop.Components.Standard 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      },
+      {
+        "kind": "noPath",
+        "from": "Desktop.Views",
+        "to": null,
+        "gate": "off",
+        "message": "元素 Desktop.Views 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      }
+    ]
+  },
+  "scan": {
+    "mode": "incremental",
+    "changedFiles": 37,
+    "scannedFiles": 14,
+    "excluded": [
+      {
+        "file": "packages/desktop/src-tauri/crates/core/agent/src/lib_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/agent/src/port_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/agent/src/session_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/loop_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/preamble_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src/components/agent/agent-session-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/agent/session-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/hooks/use-agent-session.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/agent/agent-debug-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/agent/components/agent-run-history.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/agent/hooks/use-agent-run-history.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/agent/archi-chat-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/agent/hooks/use-archi-chat.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/agent/change-chat-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/agent/hooks/use-change-chat.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/change-detail-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/detail-drawer.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/session-transcript-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/config/components/config-chat-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/config/config-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/config/hooks/use-config-chat.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/explores/explore-detail-pane.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/explores/hooks/use-explore-session.test.ts",
+        "rule": "**/*.test.ts"
+      }
+    ],
+    "unmatchedFiles": [
+      "packages/desktop/src-tauri/crates/core/agent/src/lib.rs",
+      "packages/desktop/src-tauri/crates/core/agent/src/runner.rs",
+      "packages/desktop/src-tauri/crates/core/agent/src/session.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/compose.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/loop.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/preamble.rs",
+      "packages/desktop/src-tauri/crates/infra/store/src/envelope.rs",
+      "packages/desktop/src-tauri/crates/infra/store/src/lib.rs",
+      "packages/desktop/src-tauri/crates/infra/store/src/model.rs",
+      "packages/desktop/src-tauri/crates/infra/store/src/store.rs",
+      "packages/desktop/src/components/agent/agent-session-view.tsx",
+      "packages/desktop/src/hooks/use-agent-session.ts",
+      "packages/desktop/src/types/generated/bindings.ts",
+      "packages/desktop/src/types/generated/bindings.zod.ts"
+    ],
+    "matched": [],
+    "unresolved": []
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Archi",
+      "to": "Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Core.Archi → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Checks",
+      "to": "Backend.Core.Config",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Core.Checks → Backend.Core.Config 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Checks",
+      "to": "Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Core.Checks → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Config",
+      "to": "Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Core.Config → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Orchestration",
+      "to": "Backend.Core.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Core.Orchestration → Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Orchestration",
+      "to": "Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Core.Orchestration → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Orchestration",
+      "to": "Backend.Core.Notification",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Core.Orchestration → Backend.Core.Notification 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Orchestration",
+      "to": "Backend.Core.Workflow",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Core.Orchestration → Backend.Core.Workflow 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Workflow",
+      "to": "Backend.Core.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Core.Workflow → Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Workflow",
+      "to": "Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Core.Workflow → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Core.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.AgentRuntime → Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Core.Archi",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.AgentRuntime → Backend.Core.Archi 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Core.Checks",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.AgentRuntime → Backend.Core.Checks 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Core.Config",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.AgentRuntime → Backend.Core.Config 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.AgentRuntime → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Core.Orchestration",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.AgentRuntime → Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Infra.Exec",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.AgentRuntime → Backend.Infra.Exec 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Infra.Store",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.AgentRuntime → Backend.Infra.Store 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ArchiRuntime",
+      "to": "Backend.Core.Archi",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.ArchiRuntime → Backend.Core.Archi 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ArchiRuntime",
+      "to": "Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.ArchiRuntime → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ArchiRuntime",
+      "to": "Backend.Core.Orchestration",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.ArchiRuntime → Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ChecksRuntime",
+      "to": "Backend.Core.Checks",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.ChecksRuntime → Backend.Core.Checks 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ChecksRuntime",
+      "to": "Backend.Core.Config",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.ChecksRuntime → Backend.Core.Config 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ChecksRuntime",
+      "to": "Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.ChecksRuntime → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ChecksRuntime",
+      "to": "Backend.Core.Orchestration",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.ChecksRuntime → Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ChecksRuntime",
+      "to": "Backend.Infra.Exec",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.ChecksRuntime → Backend.Infra.Exec 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.Exec",
+      "to": "Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.Exec → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.Store",
+      "to": "Backend.Core.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.Store → Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.Store",
+      "to": "Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.Store → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.Store",
+      "to": "Backend.Core.Notification",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.Store → Backend.Core.Notification 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.Store",
+      "to": "Backend.Core.Workflow",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.Store → Backend.Core.Workflow 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.VcsRuntime",
+      "to": "Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.VcsRuntime → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.VcsRuntime",
+      "to": "Backend.Core.Orchestration",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.VcsRuntime → Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.VcsRuntime",
+      "to": "Backend.Core.Workflow",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.VcsRuntime → Backend.Core.Workflow 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.VcsRuntime",
+      "to": "Backend.Infra.Exec",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Infra.VcsRuntime → Backend.Infra.Exec 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Core.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Shell → Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Core.Archi",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Shell → Backend.Core.Archi 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Core.Config",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Shell → Backend.Core.Config 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Shell → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Core.Notification",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Shell → Backend.Core.Notification 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Core.Orchestration",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Shell → Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Core.Workflow",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Shell → Backend.Core.Workflow 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Infra.AgentRuntime",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Shell → Backend.Infra.AgentRuntime 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Infra.ArchiRuntime",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Shell → Backend.Infra.ArchiRuntime 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Infra.ChecksRuntime",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Shell → Backend.Infra.ChecksRuntime 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Infra.Exec",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Shell → Backend.Infra.Exec 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Infra.Store",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Shell → Backend.Infra.Store 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Infra.VcsRuntime",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Shell → Backend.Infra.VcsRuntime 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Infra.Watch",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Shell → Backend.Infra.Watch 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Tools.ArchiApiGen",
+      "to": "Backend.Core.Archi",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Tools.ArchiApiGen → Backend.Core.Archi 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Tools.ArchiApiGen",
+      "to": "Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Tools.ArchiApiGen → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Tools.ExportBindings",
+      "to": "Backend.Shell",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Backend.Tools.ExportBindings → Backend.Shell 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Agent",
+      "to": "Desktop.Components.Agent.AgentInput",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Agent → Desktop.Components.Agent.AgentInput 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Agent",
+      "to": "Desktop.Components.Agent.AgentSessionView",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Agent → Desktop.Components.Agent.AgentSessionView 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Agent",
+      "to": "Desktop.Components.Agent.SessionPanel",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Agent → Desktop.Components.Agent.SessionPanel 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Agent.AgentBlocks",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Agent.AgentBlocks → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Agent.AgentMessages",
+      "to": "Desktop.Components.Agent.AgentBlocks",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Agent.AgentMessages → Desktop.Components.Agent.AgentBlocks 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Agent.AgentMessages",
+      "to": "Desktop.Components.Agent.ToolCards",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Agent.AgentMessages → Desktop.Components.Agent.ToolCards 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Agent.AgentMessages",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Agent.AgentMessages → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Agent.SessionPanel",
+      "to": "Desktop.Components.Agent.AgentSessionView",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Agent.SessionPanel → Desktop.Components.Agent.AgentSessionView 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Agent.SessionPanel",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Agent.SessionPanel → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Agent.SessionPanel",
+      "to": "Desktop.GeneratedBindings",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Agent.SessionPanel → Desktop.GeneratedBindings 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Agent.ToolCards",
+      "to": "Desktop.Components.Agent.AgentBlocks",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Agent.ToolCards → Desktop.Components.Agent.AgentBlocks 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Standard.Combobox",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Standard.Combobox → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Standard.Dailog",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Standard.Dailog → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Standard.Drawer",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Standard.Drawer → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Standard.Pagination",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Standard.Pagination → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Standard.Select",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Standard.Select → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Components.Standard.Tooltip",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Components.Standard.Tooltip → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Shell",
+      "to": "Desktop.Components.Standard.Drawer",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Shell → Desktop.Components.Standard.Drawer 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Shell",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Shell → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Shell",
+      "to": "Desktop.Views.AgentDebug",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Shell → Desktop.Views.AgentDebug 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Shell",
+      "to": "Desktop.Views.Agents",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Shell → Desktop.Views.Agents 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Shell",
+      "to": "Desktop.Views.Architecture",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Shell → Desktop.Views.Architecture 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Shell",
+      "to": "Desktop.Views.Changes",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Shell → Desktop.Views.Changes 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Shell",
+      "to": "Desktop.Views.Config",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Shell → Desktop.Views.Config 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Shell",
+      "to": "Desktop.Views.DbInspector",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Shell → Desktop.Views.DbInspector 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Shell",
+      "to": "Desktop.Views.Explores",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Shell → Desktop.Views.Explores 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Shell",
+      "to": "Desktop.Views.Info",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Shell → Desktop.Views.Info 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Shell",
+      "to": "Desktop.Views.Welcome",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Shell → Desktop.Views.Welcome 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.AgentDebug",
+      "to": "Desktop.Components.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.AgentDebug → Desktop.Components.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.AgentDebug",
+      "to": "Desktop.Components.Standard.Drawer",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.AgentDebug → Desktop.Components.Standard.Drawer 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.AgentDebug",
+      "to": "Desktop.Components.Standard.Pagination",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.AgentDebug → Desktop.Components.Standard.Pagination 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.AgentDebug",
+      "to": "Desktop.Components.Standard.Select",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.AgentDebug → Desktop.Components.Standard.Select 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.AgentDebug",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.AgentDebug → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.AgentDebug",
+      "to": "Desktop.GeneratedBindings",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.AgentDebug → Desktop.GeneratedBindings 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Agents",
+      "to": "Desktop.Components.Standard.Combobox",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Agents → Desktop.Components.Standard.Combobox 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Agents",
+      "to": "Desktop.Components.Standard.Select",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Agents → Desktop.Components.Standard.Select 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Agents",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Agents → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Agents",
+      "to": "Desktop.GeneratedBindings",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Agents → Desktop.GeneratedBindings 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Architecture",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Architecture → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Architecture",
+      "to": "Desktop.GeneratedBindings",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Architecture → Desktop.GeneratedBindings 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes",
+      "to": "Desktop.Components.Standard.Dailog",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes → Desktop.Components.Standard.Dailog 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes",
+      "to": "Desktop.Components.Standard.Tooltip",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes → Desktop.Components.Standard.Tooltip 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes",
+      "to": "Desktop.GeneratedBindings",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes → Desktop.GeneratedBindings 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes",
+      "to": "Desktop.Views.Architecture",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes → Desktop.Views.Architecture 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes",
+      "to": "Desktop.Views.Changes.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes → Desktop.Views.Changes.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes",
+      "to": "Desktop.Views.Changes.Flow",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes → Desktop.Views.Changes.Flow 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes.Agent",
+      "to": "Desktop.Components.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes.Agent → Desktop.Components.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes.Agent",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes.Agent → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes.Agent",
+      "to": "Desktop.GeneratedBindings",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes.Agent → Desktop.GeneratedBindings 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes.Flow",
+      "to": "Desktop.Components.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes.Flow → Desktop.Components.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes.Flow",
+      "to": "Desktop.Components.Standard.Drawer",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes.Flow → Desktop.Components.Standard.Drawer 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes.Flow",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes.Flow → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes.Flow",
+      "to": "Desktop.GeneratedBindings",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes.Flow → Desktop.GeneratedBindings 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes.Flow",
+      "to": "Desktop.Views.Architecture",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes.Flow → Desktop.Views.Architecture 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes.Flow",
+      "to": "Desktop.Views.Changes.Renderers",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes.Flow → Desktop.Views.Changes.Renderers 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes.Renderers",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Changes.Renderers → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Config",
+      "to": "Desktop.Components.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Config → Desktop.Components.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Config",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Config → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Config",
+      "to": "Desktop.GeneratedBindings",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Config → Desktop.GeneratedBindings 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.DbInspector",
+      "to": "Desktop.Components.Standard.Drawer",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.DbInspector → Desktop.Components.Standard.Drawer 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.DbInspector",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.DbInspector → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.DbInspector",
+      "to": "Desktop.GeneratedBindings",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.DbInspector → Desktop.GeneratedBindings 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Explores",
+      "to": "Desktop.Components.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Explores → Desktop.Components.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Explores",
+      "to": "Desktop.Components.Standard.Tooltip",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Explores → Desktop.Components.Standard.Tooltip 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Explores",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Explores → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Explores",
+      "to": "Desktop.GeneratedBindings",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Explores → Desktop.GeneratedBindings 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Explores",
+      "to": "Desktop.Views.Changes.Renderers",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Explores → Desktop.Views.Changes.Renderers 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Info",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Info → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Info",
+      "to": "Desktop.GeneratedBindings",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Info → Desktop.GeneratedBindings 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Welcome",
+      "to": "Desktop.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 Desktop.Views.Welcome → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    }
+  ],
+  "apiFindings": [],
+  "status": "clean"
+}

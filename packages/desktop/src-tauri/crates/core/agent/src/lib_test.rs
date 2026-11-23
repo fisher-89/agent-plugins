@@ -13,8 +13,8 @@ use crate::runner::{
     TurnQuestion,
 };
 use crate::session::{
-    new_session_id, NewSessionRow, SessionPage, SessionProvenance, SessionRow, SessionStats,
-    SessionSummary, TurnSummary,
+    new_session_id, NewSessionRow, SessionPage, SessionPreambleInfo, SessionProvenance, SessionRow,
+    SessionStats, SessionSummary, TurnSummary,
 };
 use crate::state::{AgentRunState, RunStateMachine};
 use crate::steer::SteerRegistry;
@@ -98,6 +98,7 @@ fn crate根导出面锚定_session_port_kernel新模块类型可达() {
             duration_ms: None,
             error: None,
         }],
+        preamble: None,
     };
     assert_eq!(summary.row.id, row.id);
 
@@ -347,6 +348,7 @@ fn 既有再导出面快照逐名可达_增补不挤掉既有词汇() {
     let _session_word_shapes: Option<(
         NewSessionRow,
         SessionPage,
+        SessionPreambleInfo,
         SessionProvenance,
         SessionRow,
         SessionStats,
@@ -608,4 +610,84 @@ fn crate根路径未登记id订阅为none() {
     let registry = crate::SessionStreamRegistry::new();
     assert!(registry.subscribe("ses-404", 0).is_none());
     assert!(registry.subscribe("", 0).is_none());
+}
+
+// ---------------------------------------------------------------------------
+// session-preamble-snapshot：`SessionPreambleInfo` 的 crate 根出口面锚定
+//（`pub use session::{…, SessionPreambleInfo, …}`；store / 壳 / specta 皆经
+//  根路径取该类型）
+// ---------------------------------------------------------------------------
+
+/// 根路径可构造且字段可读（非「仅被 use」的假锚，正向）。
+#[test]
+fn crate根路径session_preamble_info可构造且字段可读() {
+    let info = crate::SessionPreambleInfo {
+        saved_at: 1,
+        content: "x".to_owned(),
+    };
+    assert_eq!(info.saved_at, 1, "拍存时刻字段可读");
+    assert_eq!(info.content, "x", "快照正文字段可读");
+}
+
+/// 类型同一性（异常）：根路径值可传给形参为 `crate::session::SessionPreambleInfo`
+/// 的函数——根导出是 re-export 而非另立的包装类型。
+#[test]
+fn crate根路径session_preamble_info与模块路径同一类型() {
+    fn takes_module_type(info: crate::session::SessionPreambleInfo) -> i64 {
+        info.saved_at
+    }
+    let via_root = crate::SessionPreambleInfo {
+        saved_at: 42,
+        content: "同一实现".to_owned(),
+    };
+    assert_eq!(
+        takes_module_type(via_root),
+        42,
+        "根路径与 session 模块路径是同一类型（无包装层）"
+    );
+
+    // native_model 无关面的身份不受导出影响：serde 线名同源
+    let value = serde_json::to_value(crate::SessionPreambleInfo {
+        saved_at: 7,
+        content: "线名".to_owned(),
+    })
+    .expect("序列化成功");
+    assert_eq!(
+        value,
+        serde_json::json!({ "savedAt": 7, "content": "线名" }),
+        "根路径取值与模块路径同形态（派生链一致）"
+    );
+}
+
+/// 边界：`SessionSummary` 经根路径组装时可携带根路径取来的快照值（字段面
+/// 同一性在容器侧同样成立）。
+#[test]
+fn crate根路径session_summary携带快照字段可组装() {
+    let summary = crate::SessionSummary {
+        row: crate::SessionRow {
+            id: "ses-root-preamble".to_owned(),
+            remote_session_id: None,
+            config_snapshot: serde_json::json!({}),
+            provenance: crate::SessionProvenance {
+                source: "debug".to_owned(),
+                source_ref: None,
+            },
+            created_at: 1,
+            updated_at: 1,
+        },
+        stats: crate::SessionStats {
+            turn_count: 0,
+            total_duration_ms: None,
+            input_tokens: None,
+            output_tokens: None,
+        },
+        turns: Vec::new(),
+        preamble: Some(crate::SessionPreambleInfo {
+            saved_at: 9,
+            content: String::new(),
+        }),
+    };
+    let value = serde_json::to_value(&summary).expect("序列化成功");
+    assert_eq!(value["preamble"]["savedAt"], serde_json::json!(9));
+    assert_eq!(value["preamble"]["content"], serde_json::json!(""));
 }

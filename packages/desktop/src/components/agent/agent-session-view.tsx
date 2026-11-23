@@ -1,14 +1,15 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
+import { StandardDrawer } from '@/components/standard/drawer';
 import { TextTooltip } from '@/components/standard/tooltip';
-import { Badge } from '@/components/ui';
+import { Badge, Button } from '@/components/ui';
 import {
   useAgentSession,
   type AgentSessionSendInput,
   type UseAgentSessionState,
 } from '@/hooks/use-agent-session';
 import { formatTokens } from '@/lib/token';
-import type { SessionSummary } from '@/types/generated/bindings';
+import type { SessionPreambleInfo, SessionSummary } from '@/types/generated/bindings';
 
 import { latestAgentFailure, type AgentFailure } from './agent-error';
 import { type AskAnswerActions, AgentMessages } from './agent-messages';
@@ -46,7 +47,59 @@ export interface AgentSessionViewProps {
   'data-testid'?: string;
 }
 
-/** 会话元信息区（会话 id / 运行中徽章 / 轮数 / tokens；自组件状态读取） */
+/**
+ * 快照抽屉的静态指引（组件内常量）：与快照正文末段的冻结常量、与
+ * `SessionPanelState.note` 槽位无关，只解释「冻结了、真身在哪、怎么生效」。
+ */
+const PREAMBLE_GUIDE =
+  '本会话的系统提示词在会话开始时冻结，此后每轮逐字复用，不随文件变更改写；规则的真身是 AGENT.md。需要按最新规则执行时，直接要求 agent 重新读取 AGENT.md 即可。';
+
+/** 会话系统提示词快照抽屉：只读呈现（零取数、零写面、不进对话流） */
+function PreambleDrawer({ preamble }: { preamble: SessionPreambleInfo }): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const bytes = new TextEncoder().encode(preamble.content).length;
+  return (
+    <>
+      <Button
+        variant="link"
+        size="xs"
+        data-testid="session-meta-preamble"
+        aria-label="系统提示词"
+        onClick={() => setOpen(true)}
+      >
+        系统提示词
+      </Button>
+      <StandardDrawer
+        title="系统提示词快照"
+        data-testid="session-preamble-drawer"
+        containerClassName="w-[720px] max-w-[85vw]"
+        content={
+          <div className="flex flex-col gap-3 text-[13px]">
+            <div className="text-muted-foreground" data-testid="session-preamble-meta">
+              拍存于 {new Date(preamble.savedAt).toLocaleString()} · {bytes} 字节
+            </div>
+            <div
+              className="rounded-md bg-muted px-3 py-2 text-[12px] text-muted-foreground"
+              data-testid="session-preamble-guide"
+            >
+              {PREAMBLE_GUIDE}
+            </div>
+            <pre
+              className="m-0 font-mono text-[12px] whitespace-pre-wrap break-words select-text"
+              data-testid="session-preamble-content"
+            >
+              {preamble.content}
+            </pre>
+          </div>
+        }
+        open={open}
+        onOpenChange={setOpen}
+      />
+    </>
+  );
+}
+
+/** 会话元信息区（会话 id / 运行中徽章 / 轮数 / tokens / 快照入口；自组件状态读取） */
 function SessionMeta({
   summary,
   running,
@@ -78,6 +131,7 @@ function SessionMeta({
           {formatTokens((summary.stats.inputTokens ?? 0) + (summary.stats.outputTokens ?? 0))}
         </span>
       </TextTooltip>
+      {summary.preamble !== null && <PreambleDrawer preamble={summary.preamble} />}
     </div>
   );
 }

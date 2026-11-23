@@ -177,7 +177,7 @@ fn rows(body: &Value) -> &Vec<Value> {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn db_tables无参返回十五行清单且不展开字段() {
+async fn db_tables无参返回十六行清单且不展开字段() {
     let env = Env::new("tables-list");
     env.seed_providers();
     env.seed_session("ses-db");
@@ -188,7 +188,7 @@ async fn db_tables无参返回十五行清单且不展开字段() {
     let list = body
         .as_array()
         .unwrap_or_else(|| panic!("无参形态为 JSON 数组: {body}"));
-    assert_eq!(list.len(), 15, "两库全列恰 15 行");
+    assert_eq!(list.len(), 16, "两库全列恰 16 行");
     for row in list {
         assert!(row.get("dimension").is_some(), "每行含 dimension: {row}");
         assert!(row.get("table").is_some(), "每行含 table: {row}");
@@ -271,7 +271,7 @@ async fn db_tables_scope三态收窄且下钻按维度派库() {
 
     let workspace = tables_of(&context, json!({"scope": "workspace"})).await;
     let workspace_rows = workspace.as_array().expect("数组");
-    assert_eq!(workspace_rows.len(), 11, "scope workspace → 11 行");
+    assert_eq!(workspace_rows.len(), 12, "scope workspace → 12 行");
     assert!(
         workspace_rows
             .iter()
@@ -282,7 +282,7 @@ async fn db_tables_scope三态收窄且下钻按维度派库() {
     let both = tables_of(&context, json!({"scope": Value::Null})).await;
     assert_eq!(
         both.as_array().expect("数组").len(),
-        15,
+        16,
         "无 scope → 两库全列"
     );
 
@@ -819,12 +819,134 @@ async fn 同一上下文两工具连续调用互不污染() {
     assert_eq!(first_query, second_query, "查询无跨调用状态");
     assert_eq!(
         first_tables.as_array().expect("数组").len(),
-        15,
-        "两库句柄皆在场（15 行）"
+        16,
+        "两库句柄皆在场（16 行）"
     );
     assert_eq!(first_query["matched"], json!(1), "workspace 句柄可读");
     assert!(
         env.dir.path().exists(),
         "库文件仍在临时目录内（无二次 open 的旁路文件）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// session-preamble-snapshot：`db_tables` 随注册表 +1（workspace 11 → 12 /
+// 合计 15 → 16）与下钻三字段面
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn db_tables清单含session_preamble行且计数与播种量一致() {
+    let env = Env::new("tables-preamble");
+    env.seed_session("ses-p");
+    env.workspace
+        .stamp_session_preamble("ses-p", "快照正文")
+        .expect("拍存应成功");
+    env.workspace
+        .stamp_session_preamble("ses-p-2", "第二份快照")
+        .expect("拍存应成功");
+    let context = env.context();
+
+    let body = tables_of(&context, json!({})).await;
+    let list = body.as_array().expect("无参形态为数组");
+    let row = list
+        .iter()
+        .find(|row| row["table"] == json!("session_preamble"))
+        .unwrap_or_else(|| panic!("清单应含 session_preamble: {body}"));
+    assert_eq!(row["dimension"], json!("workspace"), "维度为 workspace");
+    assert_eq!(row["count"], json!(2), "计数与播种快照行数一致");
+    assert!(
+        row["summary"]
+            .as_str()
+            .is_some_and(|text| !text.trim().is_empty()),
+        "summary 非空: {row}"
+    );
+    assert!(row.get("fields").is_none(), "清单不展开 fields: {row}");
+    assert!(
+        list.iter().all(|row| row["table"] != json!("store_meta")),
+        "store_meta 仍不出现在任一维度清单"
+    );
+}
+
+#[tokio::test]
+async fn db_tables下钻session_preamble三字段线名与类型与说明() {
+    let env = Env::new("tables-preamble-drill");
+    let context = env.context();
+
+    let body = tables_of(&context, json!({"table": "session_preamble"})).await;
+    assert_eq!(body["table"], json!("session_preamble"));
+    assert_eq!(body["dimension"], json!("workspace"));
+    let fields = body["fields"].as_array().expect("fields 为数组");
+    assert_eq!(
+        fields
+            .iter()
+            .map(|field| field["name"].as_str().expect("name 字符串"))
+            .collect::<Vec<_>>(),
+        vec!["sessionId", "content", "savedAt"],
+        "三字段按结构体序且为 camelCase 线名"
+    );
+    assert_eq!(fields[0]["type"], json!("string"));
+    assert_eq!(fields[1]["type"], json!("string"));
+    assert_eq!(fields[2]["type"], json!("number"));
+    for field in fields {
+        assert!(
+            field["doc"]
+                .as_str()
+                .is_some_and(|doc| !doc.trim().is_empty()),
+            "字段 doc 非空: {field}"
+        );
+    }
+    assert!(
+        !fields
+            .iter()
+            .any(|field| field["name"] == json!("session_id")),
+        "蛇形名缺席"
+    );
+
+    // 空表（零快照行）下钻仍返回三字段：字段面与行数无关
+    let fresh_env = Env::new("tables-preamble-empty");
+    let fresh = tables_of(&fresh_env.context(), json!({"table": "session_preamble"})).await;
+    assert_eq!(
+        fresh["fields"].as_array().expect("fields").len(),
+        3,
+        "空表下钻仍给三字段"
+    );
+    assert_eq!(fresh, body, "字段面与行数无关（两次结果逐字相等）");
+}
+
+#[tokio::test]
+async fn db_tables_session_preamble拼写错误与维度不符均err() {
+    let env = Env::new("tables-preamble-err");
+    let context = env.context();
+
+    let misspelled = context
+        .execute(DB_TABLES, &json!({"table": "session_preambles"}))
+        .await
+        .expect_err("拼写错误的表名应 Err");
+    assert!(
+        misspelled.contains("session_preamble"),
+        "候选清单含正确名（自纠通道）: {misspelled}"
+    );
+
+    let wrong_dimension = context
+        .execute(
+            DB_TABLES,
+            &json!({"table": "session_preamble", "scope": "user"}),
+        )
+        .await
+        .expect_err("维度与 scope 不符应 Err");
+    assert!(
+        wrong_dimension.contains("workspace") && wrong_dimension.contains("scope"),
+        "维度自纠文案: {wrong_dimension}"
+    );
+
+    // scope 收窄面：workspace 侧末行为 session_preamble（登记序锚）
+    let workspace = tables_of(&context, json!({"scope": "workspace"})).await;
+    let workspace_rows = workspace.as_array().expect("数组");
+    assert_eq!(
+        workspace_rows.last().map(|row| row["table"].clone()),
+        Some(json!("session_preamble")),
+        "workspace 清单末项为快照表（登记序）"
+    );
+    let user = tables_of(&context, json!({"scope": "user"})).await;
+    assert_eq!(user.as_array().expect("数组").len(), 4, "user 侧仍 4 行");
 }

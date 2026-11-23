@@ -503,6 +503,7 @@ describe('AgentDebugView：调试页 agent 选择（缺省 / 显式）', () => {
       },
       stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
       turns: [run(1, 'completed')],
+      preamble: null,
     };
     sessionTranscriptFixture = [toolUseEvent(0), toolResultEvent(1), turnDone(2)];
     deliverRecord(run(1, 'completed'));
@@ -617,6 +618,7 @@ describe('AgentDebugView：来源筛选接线（AC-3）', () => {
         },
         stats: { turnCount: 1, totalDurationMs: 100, inputTokens: null, outputTokens: null },
         turns: [],
+        preamble: null,
       },
       {
         row: {
@@ -634,6 +636,7 @@ describe('AgentDebugView：来源筛选接线（AC-3）', () => {
         },
         stats: { turnCount: 2, totalDurationMs: 200, inputTokens: null, outputTokens: null },
         turns: [],
+        preamble: null,
       },
     ];
     render(<AgentDebugView root={ROOT} />);
@@ -735,6 +738,7 @@ describe('AgentDebugView：流式呈现（AC-1 UI 半边）', () => {
       },
       stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
       turns: [run(1, 'completed')],
+      preamble: null,
     };
     sessionTranscriptFixture = [sealedTextEvent(2, '你好工作区'), turnDone(2)];
     deliverRecord(run(1, 'completed'));
@@ -782,6 +786,7 @@ describe('AgentDebugView：configSnapshot fixture 携 agentInstanceId 键（AC-7
         },
         stats: { turnCount: 1, totalDurationMs: 100, inputTokens: null, outputTokens: null },
         turns: [],
+        preamble: null,
       },
       {
         row: {
@@ -794,6 +799,7 @@ describe('AgentDebugView：configSnapshot fixture 携 agentInstanceId 键（AC-7
         },
         stats: { turnCount: 2, totalDurationMs: 200, inputTokens: null, outputTokens: null },
         turns: [],
+        preamble: null,
       },
     ];
     render(<AgentDebugView root={ROOT} />);

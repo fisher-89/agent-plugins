@@ -133,8 +133,8 @@ impl FakeModel {
         model
     }
 
-    /// 首次流请求时改写文件（模拟 agent 会话中自改 AGENT.md，下一轮
-    /// preamble 重读即生效）。
+    /// 首次流请求时改写文件（模拟 agent 会话中自改 AGENT.md；快照冻结后
+    /// 下一轮 System 逐字不变）。
     fn rewrite_file_on_first_stream(&self, path: PathBuf, content: &str) {
         *self
             .state
@@ -285,7 +285,7 @@ impl Transport<MockScript> for FakeTransport {
                 {
                     hook();
                 }
-                // 轮间改写钩子：首轮流请求捕获后执行（次轮 preamble 重读见改后内容）
+                // 轮间改写钩子：首轮流请求捕获后执行（次轮 System 仍取快照正文）
                 if let Some((path, content)) = self
                     .state
                     .rewrite_on_first_stream
@@ -1769,24 +1769,101 @@ fn loop_turn字段面完整构造锚定() {
 }
 
 // ---------------------------------------------------------------------------
-// preamble 每轮重读接入请求（AC-2：loop 请求构造编排半边）
+// 一元 System 消费（AC-2 / AC-3 / AC-7：loop 只搬注入位给的字符串，零文件读取）
 // ---------------------------------------------------------------------------
 
 /// `AGENT.md` 注入的期望形态：正文逐字 + 外层 `<agent_md path="…">` 包装
-/// （与 `preamble::load` 同形，路径取 `AGENT.md` 绝对路径）。
+/// （与 `preamble::load` 同形）——本模块的**负向**判据由此形态构造：loop
+/// MUST NOT 产出它。
 fn agent_md_preamble(root: &Path, body: &str) -> String {
     let path = root.join("AGENT.md");
     let path = path.to_str().expect("临时路径为 UTF-8");
     format!("<agent_md path=\"{path}\">\n{body}\n</agent_md>")
 }
 
+/// 携指定注入位快照的轮参数（一元 System 消费用例底座）。
+fn loop_turn_with_preamble(
+    cwd: &Path,
+    mode: AgentPermissionMode,
+    preamble: Option<&str>,
+) -> LoopTurn {
+    LoopTurn {
+        injections: agent::SessionInjections {
+            preamble: preamble.map(str::to_owned),
+            ..agent::SessionInjections::default()
+        },
+        ..loop_turn(cwd, mode)
+    }
+}
+
 #[tokio::test]
-async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
-    let dir = tempdir("preamble-reload");
+async fn system取注入位快照正文逐字_不读磁盘文件也不追写() {
+    let dir = tempdir("preamble-snapshot-verbatim");
+    write_file(&dir.path().join("AGENT.md"), "磁盘上的另一份内容 🎉");
+    let snapshot = "知识\n\n<agent_md path=\"/ws/AGENT.md\">\n约定\n</agent_md>\n\n指引";
+    let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
+    let turn = loop_turn_with_preamble(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        Some(snapshot),
+    );
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let requests = model.captured_requests();
+    assert_eq!(requests.len(), 1, "单轮一次请求");
+    assert_eq!(
+        requests[0].system_instructions(),
+        Some(snapshot),
+        "System 逐字等于注入位快照正文（不被文件内容覆盖或追写）"
+    );
+    let on_disk = agent_md_preamble(dir.path(), "磁盘上的另一份内容 🎉");
+    assert_ne!(
+        requests[0].system_instructions(),
+        Some(on_disk.as_str()),
+        "loop 零文件读取（磁盘内容不进入 System）"
+    );
+    turn_done_of(&events);
+}
+
+#[tokio::test]
+async fn 两轮请求system逐字相等_快照成立的结构证明() {
+    let dir = tempdir("preamble-two-turns");
+    write_file(&dir.path().join("README.md"), "占位内容");
+    let snapshot = "知识\n\n<agent_md path=\"/ws/AGENT.md\">\n首版约定\n</agent_md>\n\n指引";
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call("tu_p1", "read", serde_json::json!({ "path": "README.md" })),
+            raw_final(usage(3, 3)),
+        ],
+        vec![raw_text("完成"), raw_final(usage(4, 4))],
+    ]);
+    let turn = loop_turn_with_preamble(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        Some(snapshot),
+    );
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let requests = model.captured_requests();
+    assert_eq!(requests.len(), 2, "两轮请求（工具调用续轮）");
+    assert_eq!(
+        requests[0].system_instructions(),
+        requests[1].system_instructions(),
+        "两轮 System 逐字相等（AC-2：续轮读库覆盖注入位）"
+    );
+    assert_eq!(requests[1].system_instructions(), Some(snapshot));
+    turn_done_of(&events);
+}
+
+#[tokio::test]
+async fn 中途改写agent_md不改次轮system前缀() {
+    let dir = tempdir("preamble-freeze-midway");
     let agent_md = dir.path().join("AGENT.md");
     write_file(&agent_md, "第一版系统提示词");
-    // 两轮假流：首轮以工具调用续轮（text-only 轮即收敛），首轮流请求捕获后
-    // 改写 AGENT.md（模拟 agent 会话中自改）
+    write_file(&dir.path().join("README.md"), "占位内容");
+    let snapshot = "冻结体 v1";
     let fake = FakeModel::with_turns(vec![
         vec![
             raw_tool_call("tu_pre", "read", serde_json::json!({ "path": "README.md" })),
@@ -1794,44 +1871,27 @@ async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
         ],
         vec![raw_text("完成"), raw_final(usage(4, 4))],
     ]);
+    // 首轮流请求捕获后改写 AGENT.md（模拟会话中自改文件）
     fake.rewrite_file_on_first_stream(agent_md, "第二版系统提示词 🚀");
-    write_file(&dir.path().join("README.md"), "占位内容");
-    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
-    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
-    let handle = RunHandle::default();
-    let dyn_model = fake.erased();
-    let task = tokio::spawn(async move {
-        r#loop::run(
-            &dyn_model,
-            &turn,
-            Vec::new(),
-            mpsc::unbounded_channel::<agent::SteerMessage>().1,
-            sender,
-            handle,
-        )
-        .await
-    });
-    let mut events = Vec::new();
-    while let Some(event) = receiver.recv().await {
-        events.push(event);
-    }
-    task.await.expect("loop 正常结束");
+    let turn = loop_turn_with_preamble(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        Some(snapshot),
+    );
 
-    // 首轮请求系统提示词含首版 AGENT.md（正文逐字 + `<agent_md path=…>` 包装）；
-    // 轮间改写 → 次轮请求为改后内容（0.43 承载口径：chat_history 首条 System 消息）
+    let events = drive_loop_turn(&fake, turn).await;
+
     let requests = fake.captured_requests();
     assert_eq!(requests.len(), 2, "两轮请求（工具续轮）");
-    let first = agent_md_preamble(dir.path(), "第一版系统提示词");
     assert_eq!(
         requests[0].system_instructions(),
-        Some(first.as_str()),
-        "首轮请求系统提示词含 AGENT.md 正文（包装形态同 preamble::load）"
+        Some(snapshot),
+        "首轮 System = 快照正文"
     );
-    let second = agent_md_preamble(dir.path(), "第二版系统提示词 🚀");
     assert_eq!(
         requests[1].system_instructions(),
-        Some(second.as_str()),
-        "轮间改写文件 → 次轮请求为改后内容（每轮重读无缓存）"
+        Some(snapshot),
+        "轮间改写文件 → 次轮 System 与首轮逐字相同（AC-3：冻结）"
     );
     let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
         panic!("应为 TurnDone");
@@ -1842,65 +1902,206 @@ async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
 #[tokio::test]
 async fn preamble缺席时请求无system消息不注入空串() {
     let dir = tempdir("preamble-absent");
-    let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
-    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
-    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
-    let handle = RunHandle::default();
-    let dyn_model = model.erased();
-    let task = tokio::spawn(async move {
-        r#loop::run(
-            &dyn_model,
-            &turn,
-            Vec::new(),
-            mpsc::unbounded_channel::<agent::SteerMessage>().1,
-            sender,
-            handle,
-        )
-        .await
-    });
-    while receiver.recv().await.is_some() {}
-    let _history = task.await.expect("loop 正常结束");
+    write_file(&dir.path().join("README.md"), "占位内容");
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call("tu_n", "read", serde_json::json!({ "path": "README.md" })),
+            raw_final(usage(1, 1)),
+        ],
+        vec![raw_text("好"), raw_final(usage(1, 1))],
+    ]);
+    let turn = loop_turn_with_preamble(dir.path(), AgentPermissionMode::BypassPermissions, None);
+
+    let events = drive_loop_turn(&model, turn).await;
 
     let requests = model.captured_requests();
-    assert_eq!(requests.len(), 1);
-    assert!(
-        !requests[0]
-            .chat_history
-            .iter()
-            .any(|message| matches!(message, Message::System { .. })),
-        "root 无 AGENT.md → 请求不注入 System 消息（不注入空串）"
-    );
+    assert_eq!(requests.len(), 2, "两轮请求");
+    for (index, request) in requests.iter().enumerate() {
+        assert!(
+            !request
+                .chat_history
+                .iter()
+                .any(|message| matches!(message, Message::System { .. })),
+            "第 {index} 轮：preamble = None → 零 System 消息（不注入空串）"
+        );
+    }
+    turn_done_of(&events);
 }
 
 #[tokio::test]
-async fn preamble在场时请求系统提示词逐字含文件内容() {
-    let dir = tempdir("preamble-capture");
-    write_file(&dir.path().join("AGENT.md"), "# 约定 🎉\n- 提交信息用中文");
+async fn preamble为空串时按原样推一条system_loop零空串判定() {
+    let dir = tempdir("preamble-empty-string");
     let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
-    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
-    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
-    let handle = RunHandle::default();
-    let dyn_model = model.erased();
-    let task = tokio::spawn(async move {
-        r#loop::run(
-            &dyn_model,
-            &turn,
-            Vec::new(),
-            mpsc::unbounded_channel::<agent::SteerMessage>().1,
-            sender,
-            handle,
-        )
-        .await
-    });
-    while receiver.recv().await.is_some() {}
-    let _history = task.await.expect("loop 正常结束");
+    let turn =
+        loop_turn_with_preamble(dir.path(), AgentPermissionMode::BypassPermissions, Some(""));
+
+    let events = drive_loop_turn(&model, turn).await;
 
     let requests = model.captured_requests();
-    let expected = agent_md_preamble(dir.path(), "# 约定 🎉\n- 提交信息用中文");
+    let systems = requests[0]
+        .chat_history
+        .iter()
+        .filter(|message| matches!(message, Message::System { .. }))
+        .count();
     assert_eq!(
-        requests[0].system_instructions(),
-        Some(expected.as_str()),
-        "请求系统提示词含 AGENT.md 正文（含中文 / emoji / 换行）与路径包装"
+        systems, 1,
+        "空串按 `if let Some` 原样推一条（空串归一化归装配层 injectable，loop 不立第二套）"
+    );
+    assert_eq!(requests[0].system_instructions(), Some(""));
+    turn_done_of(&events);
+}
+
+#[tokio::test]
+async fn 超长与特殊字符preamble逐字保留零截断() {
+    let dir = tempdir("preamble-edge");
+    for (label, snapshot) in [
+        ("超长中文", "中".repeat(20000)),
+        (
+            "特殊字符",
+            "首行\n\n空行后\t制表\0空字节 🎉🚀\n\n\n末段".to_owned(),
+        ),
+    ] {
+        let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
+        let turn = loop_turn_with_preamble(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            Some(&snapshot),
+        );
+
+        let events = drive_loop_turn(&model, turn).await;
+
+        let requests = model.captured_requests();
+        let actual = requests[0].system_instructions().expect("System 在场");
+        assert_eq!(actual, snapshot, "形态「{label}」System 逐字保留");
+        assert_eq!(
+            actual.chars().count(),
+            snapshot.chars().count(),
+            "形态「{label}」长度守恒（loop 零截断）"
+        );
+        turn_done_of(&events);
+    }
+}
+
+#[tokio::test]
+async fn system位次契约_首条为system其后历史逐条保序不追加() {
+    let dir = tempdir("preamble-position");
+    write_file(&dir.path().join("README.md"), "占位内容");
+    let snapshot = "快照正文";
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call("tu_o", "read", serde_json::json!({ "path": "README.md" })),
+            raw_final(usage(2, 2)),
+        ],
+        vec![raw_text("完成"), raw_final(usage(3, 3))],
+    ]);
+    let turn = loop_turn_with_preamble(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        Some(snapshot),
+    );
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let requests = model.captured_requests();
+    let second = &requests[1].chat_history;
+    assert!(
+        matches!(second.first(), Some(Message::System { .. })),
+        "chat_history[0] 为 System（位置契约）"
+    );
+    assert_eq!(
+        second
+            .iter()
+            .filter(|message| matches!(message, Message::System { .. }))
+            .count(),
+        1,
+        "不追加第二条 System"
+    );
+    assert!(second.len() > 1, "其后历史在场");
+    turn_done_of(&events);
+}
+
+#[tokio::test]
+async fn 单轮直答与工具续轮两形态及两权限档system数与内容不变() {
+    let dir = tempdir("preamble-matrix");
+    write_file(&dir.path().join("README.md"), "占位内容");
+    let snapshot = "矩阵形态快照正文";
+    for mode in [
+        AgentPermissionMode::BypassPermissions,
+        AgentPermissionMode::Default,
+    ] {
+        for (label, turns) in [
+            (
+                "单轮直答",
+                vec![vec![raw_text("好"), raw_final(usage(1, 1))]],
+            ),
+            (
+                "工具续轮",
+                vec![
+                    vec![
+                        raw_tool_call("tu_m", "read", serde_json::json!({ "path": "README.md" })),
+                        raw_final(usage(1, 1)),
+                    ],
+                    vec![raw_text("完成"), raw_final(usage(1, 1))],
+                ],
+            ),
+        ] {
+            let model = FakeModel::with_turns(turns);
+            let turn = loop_turn_with_preamble(dir.path(), mode, Some(snapshot));
+
+            let events = drive_loop_turn(&model, turn).await;
+
+            let requests = model.captured_requests();
+            for (index, request) in requests.iter().enumerate() {
+                assert_eq!(
+                    request.system_instructions(),
+                    Some(snapshot),
+                    "{label} / {mode:?} 第 {index} 轮 System 内容不变"
+                );
+                assert_eq!(
+                    request
+                        .chat_history
+                        .iter()
+                        .filter(|message| matches!(message, Message::System { .. }))
+                        .count(),
+                    1,
+                    "{label} / {mode:?} 第 {index} 轮恰一条 System"
+                );
+            }
+            turn_done_of(&events);
+        }
+    }
+}
+
+/// 源码自证（边界）：`loop.rs` 零文件读取字样、`system_prompt` 退役，且
+/// `turn.cwd` 的三处既有使用仍在场。
+#[test]
+fn loop源文件零文件读取字样且cwd三处在场() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/sdk/loop.rs"),
+    )
+    .expect("读取 loop.rs");
+
+    for token in ["AGENT.md", "preamble::load", "system_prompt"] {
+        assert!(
+            !own.contains(token),
+            "loop.rs MUST NOT 含 {token:?}（引擎零文件读取 / 合成函数退役）"
+        );
+    }
+    assert!(
+        own.matches("turn.cwd").count() >= 3,
+        "cwd 三处既有使用仍在场（沙箱 / 写保护 / 工具执行），实际 {} 处",
+        own.matches("turn.cwd").count()
+    );
+    for site in [
+        "sandbox_rewrite(&turn.cwd",
+        "turn.protect.evaluate(&name, &sandboxed, &turn.cwd)",
+        "tools::execute(&turn.cwd",
+    ] {
+        assert!(own.contains(site), "cwd 使用点在场: {site}");
+    }
+    assert!(
+        own.contains("turn.injections.preamble"),
+        "系统消息构造点为注入位单点消费"
     );
 }
 
@@ -5010,156 +5211,18 @@ async fn archi与explore专用上下文并列不串道() {
     assert!(!*is_error);
 }
 
-// ---------------------------------------------------------------------------
-// 系统消息合成单点（`system_prompt`）：会话 preamble（知识，前）+ 本轮
-// `AGENT.md`（逐字，后）→ 恰一条 System 消息内容；两段之间单空行分隔。
-//
-// 纯函数直接调用（断言即契约），run 侧用例经既有假流装置 + 真实 tempdir 的
-// `AGENT.md`（`preamble::load` 不 mock：真实读取与真实 32KB 截断口径）。
-// ---------------------------------------------------------------------------
-
-/// 纯函数面：`(Some, Some)` → 知识在前、`AGENT.md` 逐字在后、恰一个空行分隔
-/// （无标题 / 无前缀包装）。
-#[test]
-fn system_prompt双在场知识在前agent_md逐字在后() {
-    assert_eq!(
-        crate::sdk::r#loop::system_prompt(Some("K"), Some("A".to_owned())),
-        Some("K\n\nA".to_owned())
-    );
-    assert_eq!(
-        crate::sdk::r#loop::system_prompt(
-            Some("# 知识\n第二行"),
-            Some("# 约定\n- 中文".to_owned())
-        ),
-        Some("# 知识\n第二行\n\n# 约定\n- 中文".to_owned()),
-        "只有两段之间的一个空行是插入物（段内换行逐字保留）"
-    );
-}
-
-/// 纯函数面：仅知识 → `Some(knowledge)`（不追加分隔符、不追加空行）。
-#[test]
-fn system_prompt仅知识不追加分隔符() {
-    assert_eq!(
-        crate::sdk::r#loop::system_prompt(Some("K"), None),
-        Some("K".to_owned())
-    );
-    assert_eq!(
-        crate::sdk::r#loop::system_prompt(Some("K\n"), None),
-        Some("K\n".to_owned()),
-        "末换行不归一（逐字返回）"
-    );
-}
-
-/// 纯函数面：仅 `AGENT.md` → 逐字返回（既有语义零改写：不加前后缀、不改写、
-/// 不包装）。
-#[test]
-fn system_prompt仅agent_md逐字() {
-    assert_eq!(
-        crate::sdk::r#loop::system_prompt(None, Some("A".to_owned())),
-        Some("A".to_owned())
-    );
-    assert_eq!(
-        crate::sdk::r#loop::system_prompt(None, Some(String::new())),
-        Some(String::new()),
-        "空串原样返回（不降级、不补默认）"
-    );
-}
-
-/// 纯函数面：两者皆无 → `None`（不注入空串 System）。
-#[test]
-fn system_prompt两者皆无返回none() {
-    assert_eq!(crate::sdk::r#loop::system_prompt(None, None), None);
-}
-
-/// 边界：空串入参按公式拼接（不降级到单侧分支、不 panic、不吞首段）。
-#[test]
-fn system_prompt空串入参按公式拼接() {
-    assert_eq!(
-        crate::sdk::r#loop::system_prompt(Some(""), Some("A".to_owned())),
-        Some("\n\nA".to_owned())
-    );
-    assert_eq!(
-        crate::sdk::r#loop::system_prompt(Some("K"), Some(String::new())),
-        Some("K\n\n".to_owned())
-    );
-    assert_eq!(
-        crate::sdk::r#loop::system_prompt(Some(""), Some(String::new())),
-        Some("\n\n".to_owned()),
-        "双空串亦按公式（恰一个分隔空行）"
-    );
-}
-
-/// 边界：特殊字符逐字保留（零转义 / 零归一），分段位置可用 `split("\n\n")` 稳定
-/// 还原为两段。
-#[test]
-fn system_prompt特殊字符逐字保留() {
-    let cases = [
-        ("换行", "第一段\n第二行", "文件段\n第二行"),
-        ("NUL", "知识\u{0}段", "文件\u{0}段"),
-        ("emoji", "知识🎉段", "文件🚀段"),
-        ("CRLF", "知识\r\n第二行", "文件\r\n第二行"),
-    ];
-    for (label, knowledge, agent_md) in cases {
-        let merged = crate::sdk::r#loop::system_prompt(Some(knowledge), Some(agent_md.to_owned()))
-            .unwrap_or_else(|| panic!("{label}: 双在场应 Some"));
-        let parts: Vec<&str> = merged.split("\n\n").collect();
-        assert_eq!(parts.len(), 2, "{label}: 双换行切分 可还原两段: {merged:?}");
-        assert_eq!(parts[0], knowledge, "{label}: 首段 = 知识原文");
-        assert_eq!(parts[1], agent_md, "{label}: 次段 = AGENT.md 原文");
-        assert_eq!(
-            merged.len(),
-            knowledge.len() + agent_md.len() + 2,
-            "{label}: 长度 = 两段之和 + 2（零增删）"
-        );
-    }
-}
-
-/// 边界：超长与不截断——`agent_md` 40KB + 知识 4KB → 返回长度 = 两段之和 + 2
-/// （32KB 截断责任在 `preamble::load`，知识不截）。
-#[test]
-fn system_prompt超长不截断长度守恒() {
-    let knowledge = "k".repeat(4096);
-    let agent_md = "a".repeat(40 * 1024);
-    let merged = crate::sdk::r#loop::system_prompt(Some(&knowledge), Some(agent_md.clone()))
-        .expect("双在场应 Some");
-    assert_eq!(
-        merged.len(),
-        knowledge.len() + agent_md.len() + 2,
-        "system_prompt 不截断（两段长度守恒 + 分隔符）"
-    );
-    assert!(merged.starts_with(&knowledge), "知识段完整在前");
-    assert!(merged.ends_with(&agent_md), "AGENT.md 段完整在后");
-}
-
-/// 边界：纯函数性——同参两次调用逐字相等（入参即全部输入，不读盘不查环境）。
-#[test]
-fn system_prompt纯函数性() {
-    let first = crate::sdk::r#loop::system_prompt(Some("K"), Some("A".to_owned()));
-    let second = crate::sdk::r#loop::system_prompt(Some("K"), Some("A".to_owned()));
-    assert_eq!(first, second, "同参两次调用逐字相等");
-    let other = crate::sdk::r#loop::system_prompt(Some("K"), Some("B".to_owned()));
-    assert_ne!(first, other, "入参变即结果变（无内部缓存）");
-}
-
 /// 运行态：`preamble = Some(K)` + root 有 `AGENT.md` → 首轮请求恰一条 System，
-/// 内容 = `K\n\n<AGENT.md 注入体>`（注入体 = 正文 + `<agent_md path=…>` 包装；
-/// 不为两段各推一条）。
+/// 内容逐字等于 `K`（文件内容不进入 System：loop 零文件读取，合成本在装配层）。
 #[tokio::test]
-async fn run系统消息合成双在场恰一条system() {
-    let dir = tempdir("system-merge-both");
+async fn run系统消息双在场仍恰一条system且取注入位原文() {
+    let dir = tempdir("system-single-source");
     write_file(&dir.path().join("AGENT.md"), "文件约定 🎉");
     let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
-    let turn = LoopTurn {
-        injections: agent::SessionInjections {
-            preamble: Some("架构知识段".to_owned()),
-            tools: None,
-            finish: None,
-            ask: None,
-            protect: None,
-            before_done: None,
-        },
-        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
-    };
+    let turn = loop_turn_with_preamble(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        Some("架构知识段"),
+    );
 
     let events = drive_loop_turn(&model, turn).await;
 
@@ -5170,34 +5233,33 @@ async fn run系统消息合成双在场恰一条system() {
         .iter()
         .filter(|message| matches!(message, Message::System { .. }))
         .count();
-    assert_eq!(systems, 1, "恰一条 System 消息（不为两段各推一条）");
-    let agent_md = agent_md_preamble(dir.path(), "文件约定 🎉");
-    let expected = format!("架构知识段\n\n{agent_md}");
+    assert_eq!(systems, 1, "恰一条 System 消息");
     assert_eq!(
         requests[0].system_instructions(),
-        Some(expected.as_str()),
-        "合成内容 = 知识在前 + AGENT.md 注入体在后（单空行分隔）"
+        Some("架构知识段"),
+        "System = 注入位原文（磁盘 AGENT.md 不参与合成）"
+    );
+    let on_disk = agent_md_preamble(dir.path(), "文件约定 🎉");
+    assert!(
+        !requests[0]
+            .system_instructions()
+            .is_some_and(|text| text.contains(&on_disk)),
+        "磁盘注入体不出现在请求内"
     );
     turn_done_of(&events);
 }
 
 /// 运行态：`preamble = Some(K)` + root 无 `AGENT.md` → 恰一条 System = `K`
-/// （既有「缺席不注入空串」语义扩展到单侧在场）。
+/// （单侧在场与双在场同值：文件不参与）。
 #[tokio::test]
-async fn run系统消息合成仅preamble恰一条system() {
-    let dir = tempdir("system-merge-knowledge-only");
+async fn run系统消息仅注入位在场恰一条system() {
+    let dir = tempdir("system-single-source-only");
     let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
-    let turn = LoopTurn {
-        injections: agent::SessionInjections {
-            preamble: Some("架构知识段".to_owned()),
-            tools: None,
-            finish: None,
-            ask: None,
-            protect: None,
-            before_done: None,
-        },
-        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
-    };
+    let turn = loop_turn_with_preamble(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        Some("架构知识段"),
+    );
 
     let events = drive_loop_turn(&model, turn).await;
 
@@ -5211,17 +5273,16 @@ async fn run系统消息合成仅preamble恰一条system() {
     assert_eq!(
         requests[0].system_instructions(),
         Some("架构知识段"),
-        "无 AGENT.md 时即知识原文（不追加分隔 / 空行）"
+        "即注入位原文（不追加分隔 / 空行）"
     );
     turn_done_of(&events);
 }
 
-/// 正向：每轮重读——两轮假流 + 首轮流后改写 `AGENT.md` → 两次请求的 System 均
-/// 为合并体，次轮的 `AGENT.md` 段为改后内容、知识段与首轮逐字相同（知识来自会话
-/// 注入不重读盘）。
+/// 正向（AC-3）：两轮假流 + 首轮流后改写 `AGENT.md` → 两次请求的 System 逐字
+/// 相同（冻结），文件改动不渗入。
 #[tokio::test]
-async fn run系统消息合并每轮重读知识段不重读盘() {
-    let dir = tempdir("system-merge-reload");
+async fn run系统消息两轮逐字相等_轮间改写文件不生效() {
+    let dir = tempdir("system-frozen-two-turns");
     let agent_md = dir.path().join("AGENT.md");
     write_file(&agent_md, "第一版约定");
     write_file(&dir.path().join("README.md"), "占位内容");
@@ -5233,39 +5294,25 @@ async fn run系统消息合并每轮重读知识段不重读盘() {
         vec![raw_text("完成"), raw_final(usage(4, 4))],
     ]);
     fake.rewrite_file_on_first_stream(agent_md, "第二版约定 🚀");
-    let turn = LoopTurn {
-        injections: agent::SessionInjections {
-            preamble: Some("架构知识段".to_owned()),
-            tools: None,
-            finish: None,
-            ask: None,
-            protect: None,
-            before_done: None,
-        },
-        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
-    };
+    let turn = loop_turn_with_preamble(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        Some("架构知识段"),
+    );
 
     let events = drive_loop_turn(&fake, turn).await;
 
     let requests = fake.captured_requests();
     assert_eq!(requests.len(), 2, "两轮请求（工具续轮）");
-    let first = format!(
-        "架构知识段\n\n{}",
-        agent_md_preamble(dir.path(), "第一版约定")
-    );
     assert_eq!(
         requests[0].system_instructions(),
-        Some(first.as_str()),
-        "首轮：知识 + 首版 AGENT.md 注入体"
-    );
-    let second = format!(
-        "架构知识段\n\n{}",
-        agent_md_preamble(dir.path(), "第二版约定 🚀")
+        Some("架构知识段"),
+        "首轮：注入位原文"
     );
     assert_eq!(
         requests[1].system_instructions(),
-        Some(second.as_str()),
-        "次轮：知识段逐字相同、AGENT.md 段取自重读后的磁盘内容"
+        requests[0].system_instructions(),
+        "次轮：System 与首轮逐字相同（快照冻结，MUST NOT 重读盘）"
     );
     assert_eq!(sealed_messages(&events).len(), 2, "续轮不中断");
     turn_done_of(&events);
@@ -7938,8 +7985,8 @@ async fn db分派两工具到执行体且结果非错误() {
         Case {
             tool: DB_TABLES_TOOL,
             input: serde_json::json!({}),
-            check: |payload| payload.as_array().is_some_and(|rows| rows.len() == 15),
-            tag: "表清单为 15 行数组",
+            check: |payload| payload.as_array().is_some_and(|rows| rows.len() == 16),
+            tag: "表清单为 16 行数组（user 4 + workspace 12）",
         },
         Case {
             tool: DB_QUERY_TOOL,

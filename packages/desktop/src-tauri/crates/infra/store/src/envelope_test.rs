@@ -127,9 +127,9 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致() 
     );
     drop(global);
 
-    // workspace 库：十一行按登记序，计数与各模型写入量一致（轮统计行 / explore
-    // 与 change 流程状态四模型 / run 执行图三模型计数 0 也列出；agent_event 退役
-    // 出注册）
+    // workspace 库：十二行按登记序，计数与各模型写入量一致（轮统计行 / explore
+    // 与 change 流程状态四模型 / run 执行图三模型 / 会话系统提示词快照计数 0 也
+    // 列出；agent_event 退役出注册）
     let ws = open_ws_ok(&env.db_path("ws"));
     let session_id = seed_session(&ws, "ses-registry");
     append_raw(&ws, &session_id, 0);
@@ -151,14 +151,15 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致() 
             "step",
             "run",
             "run_node",
-            "run_edge"
+            "run_edge",
+            "session_preamble"
         ],
-        "workspace 库静态注册表 8→11 恰十一行，顺序即登记序"
+        "workspace 库静态注册表 8→12 恰十二行，顺序即登记序"
     );
     let counts: Vec<u64> = models.iter().map(|model| model.count).collect();
     assert_eq!(
         counts,
-        vec![0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        vec![0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         "计数与各模型写入量一致"
     );
 }
@@ -398,7 +399,7 @@ fn scan_change信封key投影为记录id_value内name仍为属性在场() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 注册表新增三run模型_workspace维度恰十一行_format模型不可见且scan_err() {
+fn 注册表新增三run模型_workspace维度恰十二行_format模型不可见且scan_err() {
     let env = Env::new("envelope-registry-zero-new");
     let ws = open_ws_ok(&env.db_path("ws"));
     // 库级格式版本标记已随打开就位（15_1_key 单键 format 行），但零呈现
@@ -419,9 +420,10 @@ fn 注册表新增三run模型_workspace维度恰十一行_format模型不可见
             "step",
             "run",
             "run_node",
-            "run_edge"
+            "run_edge",
+            "session_preamble"
         ],
-        "workspace 维度 list_models 行集合与计数（11 行：登记面 additive）"
+        "workspace 维度 list_models 行集合与计数（12 行：登记面 additive）"
     );
     assert!(
         models.iter().all(|model| model.count == 0),
@@ -848,7 +850,7 @@ fn records_page_total为u64大值序列化为合法json_number不溢出不乱码
 }
 
 #[test]
-fn 全部注册模型空库扫描均回空分页信封_十五个per_model包装零新分支() {
+fn 全部注册模型空库扫描均回空分页信封_十六个per_model包装零新分支() {
     let env = Env::new("all-models-scan");
 
     // 全局库四模型：ScanFn 返回类型随动后空库均恰空分页信封（登记一行接入
@@ -874,7 +876,7 @@ fn 全部注册模型空库扫描均回空分页信封_十五个per_model包装�
     }
     drop(global);
 
-    // workspace 库十一模型同口径（MODEL_ENTRIES 登记面 additive）
+    // workspace 库十二模型同口径（MODEL_ENTRIES 登记面 additive）
     let ws = open_ws_ok(&env.db_path("ws"));
     for model in [
         "agent_run",
@@ -888,6 +890,7 @@ fn 全部注册模型空库扫描均回空分页信封_十五个per_model包装�
         "run",
         "run_node",
         "run_edge",
+        "session_preamble",
     ] {
         let page = ws
             .scan(model, 0, 10)
@@ -965,15 +968,15 @@ fn seed_run(store: &Store, run_id: &str) -> (String, u64, u64) {
     (run_id.to_owned(), nodes.len() as u64, edges.len() as u64)
 }
 
-/// 正向（AC-2）：`entries()` 长度恰 15、名字唯一、序 = 登记序（user 四行在前 /
-/// workspace 十一行在后），维度分组与名字集一致。
+/// 正向（AC-2）：`entries()` 长度恰 16、名字唯一、序 = 登记序（user 四行在前 /
+/// workspace 十二行在后），维度分组与名字集一致。
 #[test]
 fn entries长度与登记序与维度分组() {
     let entries = crate::envelope::entries();
     assert_eq!(
         entries.len(),
-        15,
-        "注册表恰十五行（本变更补 notification 一行）"
+        16,
+        "注册表恰十六行（本变更补 session_preamble 一行）"
     );
     let names: Vec<&str> = entries.iter().map(|entry| entry.name).collect();
     assert_eq!(
@@ -994,13 +997,14 @@ fn entries长度与登记序与维度分组() {
             "run",
             "run_node",
             "run_edge",
+            "session_preamble",
         ],
-        "名字逐值有序（user 四行在前 / workspace 十一行在后）"
+        "名字逐值有序（user 四行在前 / workspace 十二行在后）"
     );
     let mut unique = names.clone();
     unique.sort();
     unique.dedup();
-    assert_eq!(unique.len(), 15, "名字唯一");
+    assert_eq!(unique.len(), 16, "名字唯一");
 
     let user: Vec<&str> = entries
         .iter()
@@ -1022,7 +1026,7 @@ fn entries长度与登记序与维度分组() {
         .filter(|entry| entry.dimension == DbDimension::Workspace)
         .map(|entry| entry.name)
         .collect();
-    assert_eq!(workspace.len(), 11, "workspace 维度十一行");
+    assert_eq!(workspace.len(), 12, "workspace 维度十二行");
     assert_eq!(
         workspace.first(),
         Some(&"agent_run"),
@@ -1030,13 +1034,13 @@ fn entries长度与登记序与维度分组() {
     );
     assert_eq!(
         workspace.last(),
-        Some(&"run_edge"),
+        Some(&"session_preamble"),
         "workspace 段末项（登记序锚）"
     );
 }
 
 /// 边界（AC-2）：`entries()` 与 `list_models` 两个维度清单并集逐名相等（同一
-/// 真源），首项 `workspace`、末项 `run_edge`。
+/// 真源），首项 `workspace`、末项 `session_preamble`。
 #[test]
 fn entries与list_models同源且首尾锚定() {
     let env = Env::new("envelope-entries");
@@ -1061,7 +1065,7 @@ fn entries与list_models同源且首尾锚定() {
         .collect();
     assert_eq!(union, entries, "两读面并集逐名相等（同一注册表真源）");
     assert_eq!(entries.first().map(String::as_str), Some("workspace"));
-    assert_eq!(entries.last().map(String::as_str), Some("run_edge"));
+    assert_eq!(entries.last().map(String::as_str), Some("session_preamble"));
 }
 
 /// 正向（AC-3）：`dimension_of` 六表逐表派库；异常面 `store_meta` / 拼写 /
@@ -1454,5 +1458,136 @@ fn 通知表说明面九字段且doc与非空渲染齐备() {
             .map(|field| field.doc.contains("主键"))
             .unwrap_or(false),
         "id 的 doc 标注主键"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// session-preamble-snapshot：`session_preamble` 信封登记行（scan / walk / key）
+// ---------------------------------------------------------------------------
+
+/// 播种 n 份快照行（走真写面 `stamp_session_preamble`，不直插 native_db）。
+fn seed_preambles(store: &Store, n: usize) {
+    for index in 0..n {
+        assert!(
+            store
+                .stamp_session_preamble(
+                    &format!("ses-preamble-{index}"),
+                    &format!("快照正文 {index}"),
+                )
+                .expect("拍存应成功"),
+            "首次拍板必写入"
+        );
+    }
+}
+
+#[test]
+fn session_preamble登记行scan分页总数与键值形态() {
+    let env = Env::new("envelope-preamble");
+    let store = open_ws_ok(&env.db_path("ws"));
+    seed_preambles(&store, 2);
+
+    let page = store.scan("session_preamble", 0, 10).expect("scan 应成功");
+    assert_eq!(page.total, 2, "计数与播种量一致");
+    assert_eq!(page.records.len(), 2);
+    for record in &page.records {
+        let session_id = record
+            .key
+            .as_str()
+            .unwrap_or_else(|| panic!("key 信封为 sessionId 字符串: {}", record.key));
+        assert!(
+            session_id.starts_with("ses-preamble-"),
+            "键面取自 value[\"sessionId\"]: {session_id}"
+        );
+        let mut keys: Vec<&String> = record
+            .value
+            .as_object()
+            .expect("value 为对象")
+            .keys()
+            .collect();
+        keys.sort();
+        assert_eq!(
+            keys,
+            vec!["content", "savedAt", "sessionId"],
+            "value 三键 camelCase"
+        );
+        assert_eq!(record.value["sessionId"], serde_json::json!(session_id));
+    }
+}
+
+#[test]
+fn session_preamble登记行scan越界offset与超上限limit截断() {
+    let env = Env::new("envelope-preamble-page");
+    let store = open_ws_ok(&env.db_path("ws"));
+    seed_preambles(&store, 3);
+
+    let beyond = store
+        .scan("session_preamble", 9, 10)
+        .expect("越界 scan 应成功");
+    assert!(beyond.records.is_empty(), "越界 offset → 空 records");
+    assert_eq!(beyond.total, 3, "total 恒全量（分页信封语义）");
+
+    let clamped = store
+        .scan("session_preamble", 0, 501)
+        .expect("超上限 limit 应成功");
+    assert_eq!(clamped.total, 3, "limit 超上限不改 total");
+    assert!(
+        clamped.records.len() <= 500,
+        "limit 超上限截断到 500 以内，实际 {}",
+        clamped.records.len()
+    );
+    assert_eq!(clamped.records.len(), 3, "三行全在本页");
+}
+
+#[test]
+fn session_preamble登记行scan零limit与整页与walk通路() {
+    let env = Env::new("envelope-preamble-walk");
+    let store = open_ws_ok(&env.db_path("ws"));
+    seed_preambles(&store, 3);
+
+    let zero = store
+        .scan("session_preamble", 0, 0)
+        .expect("零 limit 应成功");
+    assert!(zero.records.is_empty(), "limit = 0 → 空 records");
+    assert_eq!(zero.total, 3, "total 恒全量");
+
+    let exact = store
+        .scan("session_preamble", 0, 3)
+        .expect("整页 scan 应成功");
+    assert_eq!(exact.records.len(), 3, "limit 恰等于总行数 → 全量一页");
+    assert_eq!(exact.total, 3);
+
+    // 分页跨越 walk 通路：`where` 条件迫使走注册表 `walk`（非 scan 快路径），
+    // 一次读事务内逐条解码且计数一致
+    let spec: crate::QuerySpec = serde_json::from_value(serde_json::json!({
+        "table": "session_preamble",
+        "where": [{ "field": "content", "op": "LIKE", "value": "快照正文%" }],
+        "limit": 40
+    }))
+    .expect("spec 可解析");
+    let page = store.query(&spec).expect("walk 通路查询应成功");
+    assert_eq!(page.total, 3, "walk 通路的 total 精确计数");
+    assert_eq!(page.matched, 3, "条件全命中");
+    assert_eq!(page.records.len(), 3, "保留窗与计数一致");
+}
+
+#[test]
+fn session_preamble登记行拼写错误与跨维度均err() {
+    let env = Env::new("envelope-preamble-err");
+    let ws = open_ws_ok(&env.db_path("ws"));
+    let misspelled = scan_err(&ws, "session_preambles");
+    assert!(
+        misspelled.contains("未知模型"),
+        "拼写错误名 → 未知模型 Err，实际: {misspelled}"
+    );
+
+    let global = open_global_ok(&env.db_path("global"));
+    let wrong_dimension = scan_err(&global, "session_preamble");
+    assert!(
+        wrong_dimension.contains("未知模型"),
+        "user 维度库上 session_preamble 跨维度不可达，实际: {wrong_dimension}"
+    );
+    assert!(
+        ws.scan("session_preamble", 0, 10).is_ok(),
+        "对照：workspace 维度库可达"
     );
 }

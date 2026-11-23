@@ -272,6 +272,7 @@ const DTO_TYPES: &[&str] = &[
     "AgentRunMessage",
     "AgentRunStatus",
     "SessionPage",
+    "SessionPreambleInfo",
     "SessionRow",
     "SessionStats",
     "SessionSummary",
@@ -1330,8 +1331,8 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
 fn dto类型清单零补录_条目数与首尾锚持衡() {
     assert_eq!(
         DTO_TYPES.len(),
-        110,
-        "清单 105 → 110：本变更补录五类型（通知域五出线 DTO）"
+        111,
+        "清单 110 → 111：本变更补录一类型（SessionPreambleInfo）"
     );
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(
@@ -4503,5 +4504,256 @@ fn 通知五命令的zod三表项齐备() {
     assert!(
         content.contains("NotificationFeedbackInputSchema"),
         "反馈入参 schema 随批生成"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// session-preamble-snapshot：生成产物出线面（`SessionPreambleInfo` 类型 +
+// `SessionSummary.preamble` 可空 + zod 镜像随动；零新增命令、零手改）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn bindings快照类型段两字段与session_summary的preamble可空段逐字() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    let preamble = type_section(&content, "SessionPreambleInfo");
+    assert!(
+        preamble.contains("savedAt: number,"),
+        "拍存时刻出线为 number，实际: {preamble}"
+    );
+    assert!(
+        preamble.contains("content: string,"),
+        "正文出线为 string，实际: {preamble}"
+    );
+    let field_lines: Vec<&str> = preamble
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            !line.is_empty() && !line.starts_with("/**") && !line.starts_with('*') && *line != "*/"
+        })
+        .collect();
+    assert_eq!(
+        field_lines,
+        vec![
+            "export type SessionPreambleInfo = {",
+            "savedAt: number,",
+            "content: string,",
+            "};"
+        ],
+        "类型段恰两字段、无多余键"
+    );
+
+    let summary = type_section(&content, "SessionSummary");
+    assert!(
+        summary.contains("preamble: SessionPreambleInfo | null,"),
+        "快照位可空出线，实际: {summary}"
+    );
+    assert!(
+        summary.contains("row: SessionRow,"),
+        "三件套零改动: {summary}"
+    );
+    assert!(
+        summary.contains("stats: SessionStats,"),
+        "三件套零改动: {summary}"
+    );
+    assert!(
+        summary.contains("turns: TurnSummary[],"),
+        "三件套零改动: {summary}"
+    );
+}
+
+#[test]
+fn bindings命令面零新增且session_detail包装与既有三段逐字不变() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    for absent in [
+        "session_preamble\"",
+        "session_preamble_reload",
+        "session_preamble_status",
+        "sessionPreamble",
+    ] {
+        assert!(
+            !content.contains(absent),
+            "命令面零新增：产物不应含 {absent}"
+        );
+    }
+    assert!(
+        content.contains(
+            "sessionDetail: (root: string, sessionId: string) => __TAURI_INVOKE<SessionSummary | null>(\"session_detail\", { root, sessionId })"
+        ),
+        "session_detail 包装逐字不变（只扩载荷、不改命令面）"
+    );
+    for name in COMMAND_NAMES {
+        assert!(
+            content.contains(&format!("\"{name}\"")),
+            "既有命令名保持：{name}"
+        );
+    }
+    assert!(
+        !content.contains("Result<"),
+        "产物无 Result 包装（Throw 模式回归）"
+    );
+
+    // 其余三件套类型段逐字不变（新字段只在 SessionSummary 上追加）
+    for (name, expected) in [
+        ("SessionRow", "remoteSessionId: string | null,"),
+        ("SessionStats", "totalDurationMs: number | null,"),
+        ("TurnSummary", "costUsd: number | null,"),
+    ] {
+        assert!(
+            type_section(&content, name).contains(expected),
+            "{name} 类型段逐字不变（期望含 {expected}）"
+        );
+    }
+}
+
+#[test]
+fn bindings产物确定性_连续两次导出逐字节相等() {
+    let _lock = lock();
+    let first = authoritative_snapshot();
+    let second = authoritative_snapshot();
+    assert_eq!(first, second, "连续两次导出逐字节相等（零 diff 门）");
+
+    let first_zod = authoritative_zod_snapshot();
+    let second_zod = authoritative_zod_snapshot();
+    assert_eq!(first_zod, second_zod, "zod 产物同样确定性");
+}
+
+#[test]
+fn bindings产物篡改两形态被断言抓且文案指认() {
+    let _lock = lock();
+    let _restore = RestoreOnDrop;
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // 形态一：删 preamble 行
+    let summary = type_section(&content, "SessionSummary");
+    let without_preamble = without_line(&summary, "preamble: SessionPreambleInfo | null,");
+    let text = panic_text(|| assert_session_summary_preamble(&without_preamble));
+    assert!(
+        text.contains("preamble: SessionPreambleInfo | null,"),
+        "删 preamble 行的副本应被断言抓且指认缺项，实际文案 {text:?}"
+    );
+
+    // 形态二：类型改名为 SessionPreamble
+    let renamed = type_section(&content, "SessionPreambleInfo").replace(
+        "export type SessionPreambleInfo =",
+        "export type SessionPreamble =",
+    );
+    let text = panic_text(|| assert_session_preamble_type(&renamed));
+    assert!(
+        text.contains("SessionPreambleInfo"),
+        "改名副本应被断言抓且指认缺项，实际文案 {text:?}"
+    );
+}
+
+/// `SessionSummary` 类型段的快照位判据（篡改用例的断言体）。
+fn assert_session_summary_preamble(section: &str) {
+    assert!(
+        section.contains("preamble: SessionPreambleInfo | null,"),
+        "SessionSummary 段缺 `preamble: SessionPreambleInfo | null,`，实际: {section}"
+    );
+}
+
+/// `SessionPreambleInfo` 类型段的字段判据（篡改用例的断言体）。
+fn assert_session_preamble_type(section: &str) {
+    assert!(
+        section.contains("export type SessionPreambleInfo ="),
+        "产物缺 `export type SessionPreambleInfo =`，实际: {section}"
+    );
+    assert!(
+        section.contains("savedAt: number,") && section.contains("content: string,"),
+        "SessionPreambleInfo 段缺字段，实际: {section}"
+    );
+}
+
+#[test]
+fn zod镜像快照schema与summary的preamble可空getter() {
+    let _lock = lock();
+    let content = authoritative_zod_snapshot();
+
+    let schema = zod_section(&content, "SessionPreambleInfoSchema");
+    assert!(
+        schema.contains("z.strictObject("),
+        "快照 schema 为 strictObject（缺键 / 多键即拒），实际: {schema}"
+    );
+    assert!(
+        schema.contains("get savedAt() { return z.number(); }"),
+        "savedAt getter 形态，实际: {schema}"
+    );
+    assert!(
+        schema.contains("get content() { return z.string(); }"),
+        "content getter 形态，实际: {schema}"
+    );
+
+    let summary = zod_section(&content, "SessionSummarySchema");
+    assert!(
+        summary.contains("get preamble() { return SessionPreambleInfoSchema.nullable(); }"),
+        "summary 的快照位为 nullable 镜像，实际: {summary}"
+    );
+    assert!(
+        content.contains(
+            "get \"sessionDetail\"() { return z.lazy(() => SessionSummarySchema).nullable(); }"
+        ),
+        "命令映射表指向同一 schema（零运行期耦合）"
+    );
+    assert!(
+        !content.contains("from \"./bindings\""),
+        "zod 产物不 import bindings.ts（零运行期耦合）"
+    );
+}
+
+#[test]
+fn zod镜像快照schema篡改三形态被断言抓且指认() {
+    let _lock = lock();
+    let _restore = RestoreOnDrop;
+    let content = authoritative_zod_snapshot();
+    let summary = zod_section(&content, "SessionSummarySchema");
+
+    // 形态一：删 preamble getter
+    let without_getter = without_line(&summary, "get preamble()");
+    let text = panic_text(|| assert_summary_preamble_getter(&without_getter));
+    assert!(
+        text.contains("get preamble()"),
+        "删 getter 的副本应被抓且指认，实际文案 {text:?}"
+    );
+
+    // 形态二：去掉 .nullable()
+    let non_nullable = summary.replace(
+        "get preamble() { return SessionPreambleInfoSchema.nullable(); }",
+        "get preamble() { return SessionPreambleInfoSchema; }",
+    );
+    let text = panic_text(|| assert_summary_preamble_getter(&non_nullable));
+    assert!(
+        text.contains("nullable()"),
+        "去掉 .nullable() 的副本应被抓且指认，实际文案 {text:?}"
+    );
+
+    // 形态三：content 改成 z.number()
+    let schema = zod_section(&content, "SessionPreambleInfoSchema").replace(
+        "get content() { return z.string(); }",
+        "get content() { return z.number(); }",
+    );
+    let text = panic_text(|| assert_preamble_schema_fields(&schema));
+    assert!(
+        text.contains("z.string()"),
+        "content 改成 number 的副本应被抓且指认，实际文案 {text:?}"
+    );
+}
+
+/// zod 快照 schema 的字段判据（篡改用例的断言体）。
+fn assert_preamble_schema_fields(section: &str) {
+    assert!(
+        section.contains("get content() { return z.string(); }"),
+        "SessionPreambleInfoSchema 缺 `get content() {{ return z.string(); }}`，实际: {section}"
+    );
+}
+
+/// zod summary 的快照位判据（篡改用例的断言体）。
+fn assert_summary_preamble_getter(section: &str) {
+    assert!(
+        section.contains("get preamble() { return SessionPreambleInfoSchema.nullable(); }"),
+        "SessionSummarySchema 缺 `get preamble() {{ return SessionPreambleInfoSchema.nullable(); }}`，实际: {section}"
     );
 }

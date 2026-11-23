@@ -1,0 +1,373 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\core\agent\src\session_test.rs:2:
+ 
+ use crate::runner::AgentRunStatus;
+ use crate::session::{
+[31m-    new_session_id, NewSessionRow, SessionPreambleInfo, SessionProvenance, SessionRow, SessionStats,
+[0m[31m-    SessionSummary, TurnSummary,
+[0m[32m+    new_session_id, NewSessionRow, SessionPreambleInfo, SessionProvenance, SessionRow,
+[0m[32m+    SessionStats, SessionSummary, TurnSummary,
+[0m };
+ 
+ /// 固定 provenance 底座。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\core\agent\src\session_test.rs:521:
+     assert_eq!(value["preamble"], Value::Null, "清单路径/无快照恒 null 值");
+ 
+     // 有值 ↔ 无值两形态线面可区分
+[31m-    let with_preamble = serde_json::to_value(summary_with(Some(preamble_info()))).expect("序列化成功");
+[0m[32m+    let with_preamble =
+[0m[32m+        serde_json::to_value(summary_with(Some(preamble_info()))).expect("序列化成功");
+[0m     assert_ne!(
+[31m-        with_preamble["preamble"],
+[0m[31m-        value["preamble"],
+[0m[32m+        with_preamble["preamble"], value["preamble"],
+[0m         "Some 与 None 线面可区分"
+     );
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\core\agent\src\session_test.rs:636:
+             content: content.clone(),
+         };
+         let value = serde_json::to_value(&info).expect("序列化成功");
+[31m-        assert_eq!(
+[0m[31m-            value["content"],
+[0m[31m-            json!(content),
+[0m[31m-            "形态「{label}」线面逐字"
+[0m[31m-        );
+[0m[32m+        assert_eq!(value["content"], json!(content), "形态「{label}」线面逐字");
+[0m         let roundtrip: SessionPreambleInfo = serde_json::from_value(value).expect("反序列化成功");
+         assert_eq!(roundtrip.content, content, "形态「{label}」往返逐字");
+         assert_eq!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\core\agent\src\session_test.rs:670:
+             value["savedAt"]
+         );
+         assert_eq!(value["savedAt"], json!(saved_at));
+[31m-        let roundtrip: SessionPreambleInfo =
+[0m[31m-            serde_json::from_value(value).expect("反序列化成功");
+[0m[32m+        let roundtrip: SessionPreambleInfo = serde_json::from_value(value).expect("反序列化成功");
+[0m         assert_eq!(roundtrip.saved_at, saved_at, "{saved_at} 往返保真");
+     }
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:5982:
+         "会话 id 可用（本轮驱动不受影响）"
+     );
+     assert!(
+[31m-        user_store.find_session_preamble(&running.session_id).is_err(),
+[0m[32m+        user_store
+[0m[32m+            .find_session_preamble(&running.session_id)
+[0m[32m+            .is_err(),
+[0m         "对照：用户维度库上写面确实不可达"
+     );
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:6299:
+         .begin_agent_turn("ses-empty", 1727000000000)
+         .expect("开轮行 fixture");
+     assert!(
+[31m-        store.stamp_session_preamble("ses-empty", "").expect("空串拍存"),
+[0m[32m+        store
+[0m[32m+            .stamp_session_preamble("ses-empty", "")
+[0m[32m+            .expect("空串拍存"),
+[0m         "空串正文可拍存（快照成立但无正文）"
+     );
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:6320:
+         )
+         .expect("续轮应成功");
+     assert_eq!(
+[31m-        runner.captured_injections()[0].preamble, None,
+[0m[32m+        runner.captured_injections()[0].preamble,
+[0m[32m+        None,
+[0m         "空正文 → 注入位 None（`injectable` 把空串归零 ⇒ 零 System 消息）"
+     );
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:6343:
+         )
+         .expect("续二轮应成功");
+     assert_eq!(
+[31m-        runner.captured_injections()[1].preamble, None,
+[0m[32m+        runner.captured_injections()[1].preamble,
+[0m[32m+        None,
+[0m         "文件后来出现也不改本会话（仍 None）"
+     );
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:6367:
+         created_at: 1727000000000,
+         updated_at: 1727000000000,
+     };
+[31m-    store.create_session(&cli_session).expect("落 cli 会话 fixture");
+[0m[32m+    store
+[0m[32m+        .create_session(&cli_session)
+[0m[32m+        .expect("落 cli 会话 fixture");
+[0m 
+     let runner = RecordingRunner::new();
+     let sink = RecordingSink::new();
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:6389:
+         "跨引擎守卫文案不变，实际: {error}"
+     );
+     assert!(
+[31m-        store.find_session_preamble("ses-cli-made").unwrap().is_none(),
+[0m[32m+        store
+[0m[32m+            .find_session_preamble("ses-cli-made")
+[0m[32m+            .unwrap()
+[0m[32m+            .is_none(),
+[0m         "守卫拒绝路径零快照写入"
+     );
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:6408:
+         error.contains("会话不存在") && error.contains("ses-404"),
+         "未知会话文案为既有契约（不被 is_unstarted 的内部 Err 顶替），实际: {error}"
+     );
+[31m-    assert!(runner.captured_injections().is_empty(), "两次失败均零注入捕获");
+[0m[32m+    assert!(
+[0m[32m+        runner.captured_injections().is_empty(),
+[0m[32m+        "两次失败均零注入捕获"
+[0m[32m+    );
+[0m }
+ 
+ #[test]
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:6567:
+     );
+     let knowledge = crate::archi_knowledge::knowledge().expect("archi 知识恒 Some");
+     assert!(body.starts_with(&knowledge), "知识段完整在首位");
+[31m-    assert!(body.ends_with(crate::sdk::preamble::GUIDANCE), "指引常量完整在末位");
+[0m[32m+    assert!(
+[0m[32m+        body.ends_with(crate::sdk::preamble::GUIDANCE),
+[0m[32m+        "指引常量完整在末位"
+[0m[32m+    );
+[0m }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\agent\src\sdk\db_tool_test.rs:862:
+     );
+     assert!(row.get("fields").is_none(), "清单不展开 fields: {row}");
+     assert!(
+[31m-        list.iter()
+[0m[31m-            .all(|row| row["table"] != json!("store_meta")),
+[0m[32m+        list.iter().all(|row| row["table"] != json!("store_meta")),
+[0m         "store_meta 仍不出现在任一维度清单"
+     );
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\agent\src\sdk\preamble_test.rs:178:
+     let preamble = load(dir.path()).expect("AGENT.md 在场必 Some");
+     assert_eq!(preamble, wrapped(dir.path(), "AGENT 侧规则"));
+     assert!(!preamble.contains("CLAUDE 侧规则"), "CLAUDE.md 不进入快照");
+[31m-    assert!(!preamble.contains("AGENTS 侧规则"), "AGENTS.md 不进入快照（复数形态不支持）");
+[0m[32m+    assert!(
+[0m[32m+        !preamble.contains("AGENTS 侧规则"),
+[0m[32m+        "AGENTS.md 不进入快照（复数形态不支持）"
+[0m[32m+    );
+[0m }
+ 
+ #[test]
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\agent\src\sdk\preamble_test.rs:194:
+ #[test]
+ fn agent_md非utf8字节返回none不报错() {
+     let dir = tempdir("non-utf8");
+[31m-    std::fs::write(dir.path().join("AGENT.md"), [0xff_u8, 0xfe, 0x00, 0x41]).expect("写非 UTF-8 字节");
+[0m[32m+    std::fs::write(dir.path().join("AGENT.md"), [0xff_u8, 0xfe, 0x00, 0x41])
+[0m[32m+        .expect("写非 UTF-8 字节");
+[0m     assert!(
+         load(dir.path()).is_none(),
+         "非 UTF-8 内容读取失败 → None（读取侧永不报错）"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\agent\src\sdk\preamble_test.rs:295:
+         body.starts_with(&knowledge),
+         "知识段 > 32KB 原样在首位（截断只作用于 AGENT.md 段）"
+     );
+[31m-    assert_eq!(
+[0m[31m-        body.len(),
+[0m[31m-        knowledge.len() + 2 + GUIDANCE.len(),
+[0m[31m-        "长度守恒"
+[0m[31m-    );
+[0m[32m+    assert_eq!(body.len(), knowledge.len() + 2 + GUIDANCE.len(), "长度守恒");
+[0m }
+ 
+ #[test]
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\agent\src\sdk\preamble_test.rs:308:
+     let second = freeze(Some("知识"), Some(KNOWN_AGENT_MD));
+     assert_eq!(first, second, "同入参两次调用逐字相等（无内部缓存）");
+ 
+[31m-    assert_ne!(freeze(Some("知识二"), Some(KNOWN_AGENT_MD)), first, "知识变即结果变");
+[0m[31m-    assert_ne!(freeze(Some("知识"), Some("<agent_md/>")), first, "AGENT.md 段变即结果变");
+[0m[32m+    assert_ne!(
+[0m[32m+        freeze(Some("知识二"), Some(KNOWN_AGENT_MD)),
+[0m[32m+        first,
+[0m[32m+        "知识变即结果变"
+[0m[32m+    );
+[0m[32m+    assert_ne!(
+[0m[32m+        freeze(Some("知识"), Some("<agent_md/>")),
+[0m[32m+        first,
+[0m[32m+        "AGENT.md 段变即结果变"
+[0m[32m+    );
+[0m     assert_ne!(freeze(Some("知识"), None), first, "段缺席即结果变");
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\agent\src\sdk\preamble_test.rs:355:
+ #[test]
+ fn guidance三点语义在场且产物中恰出现一次() {
+     assert!(GUIDANCE.contains("冻结"), "语义一：冻结: {GUIDANCE}");
+[31m-    assert!(GUIDANCE.contains("AGENT.md"), "语义二：真身 AGENT.md: {GUIDANCE}");
+[0m[32m+    assert!(
+[0m[32m+        GUIDANCE.contains("AGENT.md"),
+[0m[32m+        "语义二：真身 AGENT.md: {GUIDANCE}"
+[0m[32m+    );
+[0m     assert!(GUIDANCE.contains("read"), "语义三：read 重读: {GUIDANCE}");
+     assert!(
+         GUIDANCE.contains("重新读取") || GUIDANCE.contains("重读"),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\store\src\envelope_test.rs:1065:
+         .collect();
+     assert_eq!(union, entries, "两读面并集逐名相等（同一注册表真源）");
+     assert_eq!(entries.first().map(String::as_str), Some("workspace"));
+[31m-    assert_eq!(
+[0m[31m-        entries.last().map(String::as_str),
+[0m[31m-        Some("session_preamble")
+[0m[31m-    );
+[0m[32m+    assert_eq!(entries.last().map(String::as_str), Some("session_preamble"));
+[0m }
+ 
+ /// 正向（AC-3）：`dimension_of` 六表逐表派库；异常面 `store_meta` / 拼写 /
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\store\src\envelope_test.rs:1523:
+     let store = open_ws_ok(&env.db_path("ws"));
+     seed_preambles(&store, 3);
+ 
+[31m-    let beyond = store.scan("session_preamble", 9, 10).expect("越界 scan 应成功");
+[0m[32m+    let beyond = store
+[0m[32m+        .scan("session_preamble", 9, 10)
+[0m[32m+        .expect("越界 scan 应成功");
+[0m     assert!(beyond.records.is_empty(), "越界 offset → 空 records");
+     assert_eq!(beyond.total, 3, "total 恒全量（分页信封语义）");
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\store\src\envelope_test.rs:1545:
+     let store = open_ws_ok(&env.db_path("ws"));
+     seed_preambles(&store, 3);
+ 
+[31m-    let zero = store.scan("session_preamble", 0, 0).expect("零 limit 应成功");
+[0m[32m+    let zero = store
+[0m[32m+        .scan("session_preamble", 0, 0)
+[0m[32m+        .expect("零 limit 应成功");
+[0m     assert!(zero.records.is_empty(), "limit = 0 → 空 records");
+     assert_eq!(zero.total, 3, "total 恒全量");
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\store\src\envelope_test.rs:1552:
+[31m-    let exact = store.scan("session_preamble", 0, 3).expect("整页 scan 应成功");
+[0m[32m+    let exact = store
+[0m[32m+        .scan("session_preamble", 0, 3)
+[0m[32m+        .expect("整页 scan 应成功");
+[0m     assert_eq!(exact.records.len(), 3, "limit 恰等于总行数 → 全量一页");
+     assert_eq!(exact.total, 3);
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\store\src\model_test.rs:5915:
+                 content: content.clone(),
+                 saved_at,
+             };
+[31m-            let (decoded, version) =
+[0m[31m-                native_model::decode::<crate::model::SessionPreambleRecord>(
+[0m[31m-                    native_model::encode(&record).expect("encode 应成功"),
+[0m[31m-                )
+[0m[31m-                .expect("decode 应成功");
+[0m[32m+            let (decoded, version) = native_model::decode::<crate::model::SessionPreambleRecord>(
+[0m[32m+                native_model::encode(&record).expect("encode 应成功"),
+[0m[32m+            )
+[0m[32m+            .expect("decode 应成功");
+[0m             assert_eq!(version, 1);
+             assert_eq!(decoded, record, "content×saved_at 组合往返逐字");
+             combinations += 1;
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\store\src\store_test.rs:10539:
+     let path = env.db_path("ws");
+     {
+         let store = open_workspace_ok(&path);
+[31m-        assert!(store.stamp_session_preamble("ses-reopen", "冻结体").unwrap());
+[0m[31m-        assert!(!store.stamp_session_preamble("ses-reopen", "冻结体").unwrap());
+[0m[31m-        assert!(!store.stamp_session_preamble("ses-reopen", "另一体").unwrap());
+[0m[32m+        assert!(store
+[0m[32m+            .stamp_session_preamble("ses-reopen", "冻结体")
+[0m[32m+            .unwrap());
+[0m[32m+        assert!(!store
+[0m[32m+            .stamp_session_preamble("ses-reopen", "冻结体")
+[0m[32m+            .unwrap());
+[0m[32m+        assert!(!store
+[0m[32m+            .stamp_session_preamble("ses-reopen", "另一体")
+[0m[32m+            .unwrap());
+[0m         let record = store.find_session_preamble("ses-reopen").unwrap().unwrap();
+         assert_eq!(record.content, "冻结体", "首写即定稿");
+     }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\store\src\store_test.rs:10579:
+         "未 stamp 的 id → Ok(None)"
+     );
+     // 空串 id：不 panic
+[31m-    assert_eq!(store.find_session_preamble("").unwrap(), None, "空串 id → Ok(None)");
+[0m[32m+    assert_eq!(
+[0m[32m+        store.find_session_preamble("").unwrap(),
+[0m[32m+        None,
+[0m[32m+        "空串 id → Ok(None)"
+[0m[32m+    );
+[0m     // 空库
+     let empty_store = open_workspace_ok(&env.db_path("ws-empty"));
+     assert_eq!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\store\src\store_test.rs:10596:
+     );
+     assert!(store.stamp_session_preamble(&long_id, "长键正文").unwrap());
+     assert_eq!(
+[31m-        store.find_session_preamble(&long_id).unwrap().unwrap().content,
+[0m[32m+        store
+[0m[32m+            .find_session_preamble(&long_id)
+[0m[32m+            .unwrap()
+[0m[32m+            .unwrap()
+[0m[32m+            .content,
+[0m         "长键正文",
+         "超长主键亦可落库回读"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\crates\infra\store\src\store_test.rs:10706:
+         .list_sessions_page(None, None, 0, 20)
+         .expect("分页清单应成功");
+     assert!(
+[31m-        paged.sessions.iter().all(|summary| summary.preamble.is_none()),
+[0m[32m+        paged
+[0m[32m+            .sessions
+[0m[32m+            .iter()
+[0m[32m+            .all(|summary| summary.preamble.is_none()),
+[0m         "分页清单同源恒 None"
+     );
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\src\bindings\mod_test.rs:4549:
+         summary.contains("preamble: SessionPreambleInfo | null,"),
+         "快照位可空出线，实际: {summary}"
+     );
+[31m-    assert!(summary.contains("row: SessionRow,"), "三件套零改动: {summary}");
+[0m[31m-    assert!(summary.contains("stats: SessionStats,"), "三件套零改动: {summary}");
+[0m     assert!(
+[32m+        summary.contains("row: SessionRow,"),
+[0m[32m+        "三件套零改动: {summary}"
+[0m[32m+    );
+[0m[32m+    assert!(
+[0m[32m+        summary.contains("stats: SessionStats,"),
+[0m[32m+        "三件套零改动: {summary}"
+[0m[32m+    );
+[0m[32m+    assert!(
+[0m         summary.contains("turns: TurnSummary[],"),
+         "三件套零改动: {summary}"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\src\bindings\mod_test.rs:4687:
+         "summary 的快照位为 nullable 镜像，实际: {summary}"
+     );
+     assert!(
+[31m-        content.contains("get \"sessionDetail\"() { return z.lazy(() => SessionSummarySchema).nullable(); }"),
+[0m[32m+        content.contains(
+[0m[32m+            "get \"sessionDetail\"() { return z.lazy(() => SessionSummarySchema).nullable(); }"
+[0m[32m+        ),
+[0m         "命令映射表指向同一 schema（零运行期耦合）"
+     );
+     assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\session-preamble-snapshot\packages\desktop\src-tauri\src\bindings\mod_test.rs:4723:
+     );
+ 
+     // 形态三：content 改成 z.number()
+[31m-    let schema = zod_section(&content, "SessionPreambleInfoSchema")
+[0m[31m-        .replace("get content() { return z.string(); }", "get content() { return z.number(); }");
+[0m[32m+    let schema = zod_section(&content, "SessionPreambleInfoSchema").replace(
+[0m[32m+        "get content() { return z.string(); }",
+[0m[32m+        "get content() { return z.number(); }",
+[0m[32m+    );
+[0m     let text = panic_text(|| assert_preamble_schema_fields(&schema));
+     assert!(
+         text.contains("z.string()"),
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

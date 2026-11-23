@@ -10,6 +10,11 @@ composer 插槽。以**同一渲染体**承载两种形态——自持形态（�
 在 `AgentError`，消息与工具卡的呈现归 `AgentMessages` / `AgentBlocks` / `ToolCards`；本组件只
 决定「谁的状态面在场」并在缺会话时给占位。
 
+元信息行在有快照时另给「系统提示词」只读入口（`data-testid="session-meta-preamble"`）：抽屉呈现
+拍存时刻 / 体量（按正文字节数就地算）/ 静态指引 / 正文全文，数据全取自
+`SessionSummary.preamble`（随 `session_detail` 已到手）——零取数、零新命令、零写面，正文 MUST NOT
+插入对话流。
+
 ## 公共面
 
 | 名字 | 形态 | 语义 |

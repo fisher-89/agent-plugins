@@ -17,7 +17,7 @@ use crate::describe;
 use crate::model::{
     AgentInstanceRecord, AgentProviderRecord, AgentRunRecord, ChangeRecord, ChecklistItemRecord,
     ExploreRecord, NotificationRecord, PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord,
-    SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
+    SessionEventRecord, SessionPreambleRecord, SessionRecord, StepRecord, WorkspaceRecord,
 };
 use crate::query::{db_err as query_db_err, QueryError};
 use crate::store::{db_err, DbDimension, StoreError};
@@ -230,6 +230,15 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         key_of: run_edge_key,
         schema: describe::schema_of::<RunEdgeRecord>,
         walk: walk_run_edges,
+    },
+    ModelEntry {
+        name: "session_preamble",
+        dimension: DbDimension::Workspace,
+        count: count_model::<SessionPreambleRecord>,
+        scan: scan_session_preambles,
+        key_of: session_preamble_key,
+        schema: describe::schema_of::<SessionPreambleRecord>,
+        walk: walk_session_preambles,
     },
 ];
 
@@ -490,6 +499,15 @@ fn scan_run_edges(
     scan_model::<RunEdgeRecord>(db, offset, limit, key_of)
 }
 
+fn scan_session_preambles(
+    db: &Database<'static>,
+    offset: u32,
+    limit: u32,
+    key_of: KeyOfFn,
+) -> Result<RecordsPage, StoreError> {
+    scan_model::<SessionPreambleRecord>(db, offset, limit, key_of)
+}
+
 /// workspace 主键 = canonical root。
 fn workspace_key(value: &Value) -> Value {
     value["root"].clone()
@@ -567,6 +585,11 @@ fn run_node_key(value: &Value) -> Value {
 /// run 边主键还原 `{runId, edgeKey}` 形态（同 `run_node_key` 的打包键投影）。
 fn run_edge_key(value: &Value) -> Value {
     serde_json::json!({ "runId": value["runId"], "edgeKey": value["edgeKey"] })
+}
+
+/// session preamble 主键 = core 铸会话 id。
+fn session_preamble_key(value: &Value) -> Value {
+    value["sessionId"].clone()
 }
 
 // --- per-model 遍历包装：注册表 `walk` 行 = 通用实现 + 本模型类型 ---
@@ -689,4 +712,12 @@ fn walk_run_edges(
     visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
 ) -> Result<u64, QueryError> {
     walk_model::<RunEdgeRecord>(db, key_of, visit)
+}
+
+fn walk_session_preambles(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<SessionPreambleRecord>(db, key_of, visit)
 }

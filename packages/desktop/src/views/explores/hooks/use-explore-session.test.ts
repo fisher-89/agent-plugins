@@ -98,6 +98,7 @@ function sessionSummary(turns: TurnSummary[], id: string = SESSION_ID): SessionS
       outputTokens: null,
     },
     turns,
+    preamble: null,
   };
 }
 

@@ -1855,7 +1855,7 @@ export type DbDimension =
 "user" | 
 /**
  *  workspace 维度（per-workspace 库，轮统计行 / 会话 / 转录 / explore /
- *  change 流程状态 + run 运行史十模型）
+ *  会话系统提示词快照 / change 流程状态 + run 运行史十二模型）
  */
 "workspace";
 
@@ -2408,6 +2408,17 @@ export type SessionPage = {
 };
 
 /**
+ *  会话系统提示词快照的**只读**出线面：仅有 `session_detail` 单查路径携带，
+ *  会话清单路径恒为 `None`；快照在会话首轮拍存后不可变，无写命令、无编辑面。
+ */
+export type SessionPreambleInfo = {
+	/**  拍存时刻（UTC unix 毫秒；由落库侧时钟取） */
+	savedAt: number,
+	/**  快照正文全文（可能为空串——快照成立但无正文，此时会话零 System 消息） */
+	content: string,
+};
+
+/**
  *  来源归属：来源受控字符串（debug | explore | …，缺省 debug）+ 来源内定位
  *  （explore 指向探索记录主键的十进制串）。会话级来源，消费方经此寻址。
  */
@@ -2465,6 +2476,11 @@ export type SessionSummary = {
 	stats: SessionStats,
 	/**  轮统计行（发起顺序） */
 	turns: TurnSummary[],
+	/**
+	 *  会话系统提示词快照（清单路径恒 `None` 且实现不读快照表；单查路径按库内
+	 *  `session_preamble` 行填充）
+	 */
+	preamble: SessionPreambleInfo | null,
 };
 
 /**  测试框架八值枚举（wire 串逐变体显式 rename 对位，声明序同 wire 序） */

@@ -295,6 +295,7 @@ function transcriptSession(sessionId: string, sourceRef: string): SessionSummary
         error: null,
       },
     ],
+    preamble: null,
   };
 }
 

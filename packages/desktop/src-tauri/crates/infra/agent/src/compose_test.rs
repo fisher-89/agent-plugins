@@ -3774,8 +3774,9 @@ fn archi_source字面量单点() {
 }
 
 /// 正向：调用点链路——`composed.begin` 以 `SessionProvenance { source: "archi",
-/// source_ref: None }` 发起，记录型假 runner 捕获的 `injections` 与
-/// `assemble_injections` 直调结果逐字段全等（臂结果唯一来源，组合根零二次改写）。
+/// source_ref: None }` 发起，记录型假 runner 捕获的 `injections` = 装配面
+/// （`assemble_injections` 直调结果）**加**首轮快照对 `preamble` 注入位的覆盖；
+/// 其余注入位逐字段不变（组合根零二次改写）。
 #[tokio::test]
 async fn archi臂调用点链路捕获与直调全等() {
     let env = DualEnv::new("archi-arm-chain");
@@ -3804,12 +3805,25 @@ async fn archi臂调用点链路捕获与直调全等() {
         )
         .expect("archi 来源发起应成功");
 
+    // 装配面（知识段来源）→ 首轮快照合成体（本用例环境无 AGENT.md ⇒ 知识 + 常量）
+    let assembled = injections_of("archi", None);
+    let knowledge = assembled.preamble.clone().expect("archi 臂知识段在位");
+    let snapshot = expected_body(Some(&knowledge), &env.root());
+    assert_eq!(
+        snapshot,
+        format!("{knowledge}\n\n{}", crate::sdk::preamble::GUIDANCE),
+        "无 AGENT.md 时快照正文 = 知识段 + 空行 + 指引常量"
+    );
+
     let captured = runner.captured_injections();
     assert_eq!(captured.len(), 1, "恰一次 open_session 捕获");
     assert_eq!(
         captured[0],
-        injections_of("archi", None),
-        "组合根零二次改写（捕获面与装配面逐字段全等）"
+        agent::SessionInjections {
+            preamble: Some(snapshot),
+            ..assembled
+        },
+        "捕获面 = 装配面 + 首轮快照覆盖注入位（其余位逐字段不变）"
     );
     assert_eq!(
         archi_bits(&captured[0]),
@@ -5813,5 +5827,776 @@ fn config臂preamble只取option不消费err() {
     assert!(
         injections.preamble.is_some(),
         "装配层只取 Option：真骨架 → Some（run 不因坏骨架中断）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// session-preamble-snapshot：会话系统提示词快照的拍存 / 续轮读库 / 存量补拍
+// ---------------------------------------------------------------------------
+
+const ARCHI_SOURCE: &str = "archi";
+const CONFIG_SOURCE_NAME: &str = "config";
+const CHANGE_SOURCE: &str = "change";
+
+/// 在 workspace 根下写 `AGENT.md`（真实盘上操作）。
+fn write_agent_md(root: &str, content: &str) {
+    std::fs::write(Path::new(root).join("AGENT.md"), content).expect("写 AGENT.md 失败");
+}
+
+/// 快照正文的期望值：合成单点（`freeze`）与读取单点（`load`）的直接组合——被测
+/// 面是「拍存体 == 现算体」，不是合成算法本身（算法归 `preamble_test`）。
+fn expected_body(knowledge: Option<&str>, root: &str) -> String {
+    let agent_md = crate::sdk::preamble::load(Path::new(root));
+    crate::sdk::preamble::freeze(knowledge, agent_md.as_deref())
+}
+
+/// 装配底座：真 tempdir 双库 + 假 runner / 假 sink 的组合根。
+fn fake_composed(
+    store: std::sync::Arc<store::Store>,
+    runner: &Arc<RecordingRunner>,
+    sink: &Arc<RecordingSink>,
+) -> ComposedTurn {
+    composed_with_fakes(
+        store,
+        Arc::clone(runner),
+        Arc::clone(sink),
+        Some(("m-high".to_owned(), "m-low".to_owned())),
+        7,
+    )
+}
+
+#[test]
+fn begin首轮拍存new_注入位与库行同源且时刻为正() {
+    let env = DualEnv::new("preamble-first-new");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    write_agent_md(&env.root(), "项目约定 🎉");
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
+
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "首轮提问".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: ARCHI_SOURCE.to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("New 首轮应成功");
+
+    let captured = runner.captured_injections();
+    assert_eq!(captured.len(), 1, "恰一次注入捕获");
+    let knowledge = crate::archi_knowledge::knowledge();
+    let body = expected_body(knowledge.as_deref(), &env.root());
+    assert_eq!(
+        captured[0].preamble.as_deref(),
+        Some(body.as_str()),
+        "本轮注入位 = 冻结正文（含知识段 + AGENT.md 段 + 指引）"
+    );
+
+    let record = store
+        .find_session_preamble(&running.session_id)
+        .expect("回读应成功")
+        .expect("首轮拍存应落库");
+    assert_eq!(record.content, body, "库行正文与注入位逐字同源");
+    assert!(record.saved_at > 0, "拍存时刻为正毫秒值");
+}
+
+#[test]
+fn begin首轮拍存四来源臂正文口径与有无知识段一致() {
+    let env = DualEnv::new("preamble-sources");
+    write_agent_md(&env.root(), "来源臂约定");
+    let cases = [
+        (ARCHI_SOURCE, crate::archi_knowledge::knowledge()),
+        (CONFIG_SOURCE_NAME, crate::config_knowledge::knowledge()),
+        (CHANGE_SOURCE, None),
+        ("debug", None),
+    ];
+    for (source, knowledge) in cases {
+        let stores = env.stores();
+        let store = stores.for_root(&env.root()).expect("for_root 应成功");
+        let runner = RecordingRunner::new();
+        let sink = RecordingSink::new();
+        let composed = fake_composed(Arc::clone(&store), &runner, &sink);
+
+        let running = composed
+            .begin(
+                SessionRef::New,
+                "来源臂提问".to_owned(),
+                ctx(&env.root()),
+                SessionProvenance {
+                    source: source.to_owned(),
+                    source_ref: None,
+                },
+            )
+            .unwrap_or_else(|e| panic!("来源 {source} 首轮应成功: {e}"));
+
+        let body = expected_body(knowledge.as_deref(), &env.root());
+        let captured = runner.captured_injections();
+        assert_eq!(
+            captured[0].preamble.as_deref(),
+            Some(body.as_str()),
+            "来源 {source} 的冻结正文口径"
+        );
+        if knowledge.is_none() {
+            assert!(
+                body.starts_with("<agent_md path="),
+                "来源 {source} 无知识段 → 正文首位即 AGENT.md 段（无空前导）: {body}"
+            );
+        } else {
+            assert!(
+                !body.starts_with('\n') && !body.starts_with("<agent_md"),
+                "来源 {source} 有知识段 → 知识在首位"
+            );
+        }
+        let record = store
+            .find_session_preamble(&running.session_id)
+            .unwrap()
+            .expect("落库在场");
+        assert_eq!(record.content, body, "来源 {source}：库行与注入位同源");
+    }
+}
+
+#[test]
+fn begin落库失败不中断_降级为日志且本轮注入位仍为内存体() {
+    let env = DualEnv::new("preamble-stamp-fail");
+    let stores = env.stores();
+    write_agent_md(&env.root(), "失败注入约定");
+    // user 维度库：`stamp_session_preamble` 必 Err（跨维度不可达）
+    let user_store = stores.global_shared();
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = fake_composed(Arc::clone(&user_store), &runner, &sink);
+
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "落库失败一轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: ARCHI_SOURCE.to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("落库失败 MUST NOT 上抛（尽力语义）");
+
+    let knowledge = crate::archi_knowledge::knowledge();
+    let body = expected_body(knowledge.as_deref(), &env.root());
+    let captured = runner.captured_injections();
+    assert_eq!(
+        captured[0].preamble.as_deref(),
+        Some(body.as_str()),
+        "注入位不因落库失败而降级（本轮用内存体）"
+    );
+    assert!(
+        !running.session_id.is_empty(),
+        "会话 id 可用（本轮驱动不受影响）"
+    );
+    assert!(
+        user_store
+            .find_session_preamble(&running.session_id)
+            .is_err(),
+        "对照：用户维度库上写面确实不可达"
+    );
+}
+
+#[test]
+fn begin落库位置源码自证_stamp晚于begin_turn且判据只查一次() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/compose.rs"),
+    )
+    .expect("读取 compose.rs");
+
+    let begin_body = {
+        let start = own.find("pub fn begin(").expect("fn begin 在场");
+        let rest = &own[start..];
+        let end = rest.find("\n    }\n").expect("函数体收口");
+        &rest[..end]
+    };
+
+    let stamp_at = begin_body
+        .find("stamp_session_preamble(")
+        .expect("落库调用点在 begin 内");
+    let begin_turn_at = begin_body
+        .find("begin_turn(")
+        .expect("begin_turn 调用点在 begin 内");
+    assert!(
+        stamp_at > begin_turn_at,
+        "落库 MUST 晚于 begin_turn（New 路径只有此刻才知会话 id）"
+    );
+    assert_eq!(
+        begin_body.matches("stamp_session_preamble(").count(),
+        1,
+        "落库调用点恰一处（重试口唯一）"
+    );
+    assert_eq!(
+        begin_body.matches("is_unstarted_session").count(),
+        1,
+        "首轮判据只查一次（begin_turn 之后查恒假）"
+    );
+    assert_eq!(
+        begin_body.matches("find_session_preamble").count(),
+        1,
+        "补拍入口唯一（一次读库判定行是否缺席）"
+    );
+    assert!(
+        begin_body.contains("append_engine_log"),
+        "落库失败仅日志留痕（不上抛）"
+    );
+}
+
+#[test]
+fn begin首轮拍存continue未开轮_正文与new同口径且配置快照仍定型() {
+    let env = DualEnv::new("preamble-first-continue");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    write_agent_md(&env.root(), "未开轮约定");
+    seed_sdk_session(&store, "ses-unstarted", None);
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
+
+    let running = composed
+        .begin(
+            SessionRef::Continue {
+                id: "ses-unstarted".to_owned(),
+            },
+            "首轮提问".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: ARCHI_SOURCE.to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("未开轮会话首轮应放行");
+
+    let knowledge = crate::archi_knowledge::knowledge();
+    let body = expected_body(knowledge.as_deref(), &env.root());
+    assert_eq!(
+        runner.captured_injections()[0].preamble.as_deref(),
+        Some(body.as_str()),
+        "未开轮首轮臂的快照正文与 New 同口径"
+    );
+    assert_eq!(
+        store
+            .find_session_preamble(&running.session_id)
+            .unwrap()
+            .expect("落库在场")
+            .content,
+        body,
+        "库行逐字同源"
+    );
+
+    // 既有 restamp_session_config 仍生效（快照定型为本轮引擎）
+    let session = store.find_session("ses-unstarted").unwrap().unwrap();
+    assert_eq!(
+        session.config_snapshot.engine,
+        store::AgentEngineKind::Sdk,
+        "未开轮臂的既有配置定型零改动"
+    );
+}
+
+#[test]
+fn begin续轮读库_注入位取快照且文件改写不生效() {
+    let env = DualEnv::new("preamble-continue-read");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    write_agent_md(&env.root(), "第一版约定");
+    seed_sdk_session(&store, "ses-cont", Some("sdk-1"));
+    // 已开轮：有轮行 ⇒ is_unstarted 为假 ⇒ 续轮分支
+    store
+        .begin_agent_turn("ses-cont", 1727000000000)
+        .expect("开轮行 fixture");
+    assert!(
+        store
+            .stamp_session_preamble("ses-cont", "冻结体 v1")
+            .expect("拍存 fixture"),
+        "首写生效"
+    );
+
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
+    let running = composed
+        .begin(
+            SessionRef::Continue {
+                id: "ses-cont".to_owned(),
+            },
+            "续一轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: ARCHI_SOURCE.to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("续轮应成功");
+
+    assert_eq!(
+        runner.captured_injections()[0].preamble.as_deref(),
+        Some("冻结体 v1"),
+        "续轮注入位 = 库内快照（覆盖 assemble_injections 产出的知识段）"
+    );
+
+    // 改写 AGENT.md 后再续一轮：注入位仍为快照正文，库行不变
+    write_agent_md(&env.root(), "第二版约定 🚀");
+    store
+        .begin_agent_turn("ses-cont", 1727000001000)
+        .expect("再开一轮行");
+    let before = store.find_session_preamble("ses-cont").unwrap().unwrap();
+    composed
+        .begin(
+            SessionRef::Continue {
+                id: "ses-cont".to_owned(),
+            },
+            "续二轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: ARCHI_SOURCE.to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("续二轮应成功");
+    let captured = runner.captured_injections();
+    assert_eq!(
+        captured[1].preamble.as_deref(),
+        Some("冻结体 v1"),
+        "文件改写后注入位仍为快照正文（AC-3）"
+    );
+    assert_eq!(
+        store.find_session_preamble("ses-cont").unwrap().unwrap(),
+        before,
+        "库行内容与时刻均不变"
+    );
+    assert_eq!(running.session_id, "ses-cont");
+}
+
+#[test]
+fn begin存量补拍一次性_首轮补拍后改写文件不改注入位() {
+    let env = DualEnv::new("preamble-backfill");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    write_agent_md(&env.root(), "补拍当轮约定");
+    seed_sdk_session(&store, "ses-old", Some("sdk-old"));
+    store
+        .begin_agent_turn("ses-old", 1727000000000)
+        .expect("开轮行 fixture");
+    assert!(
+        store.find_session_preamble("ses-old").unwrap().is_none(),
+        "存量形态：已开轮而快照行缺席"
+    );
+
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
+    composed
+        .begin(
+            SessionRef::Continue {
+                id: "ses-old".to_owned(),
+            },
+            "首次续轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: ARCHI_SOURCE.to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("存量会话首次续轮应成功");
+
+    let knowledge = crate::archi_knowledge::knowledge();
+    let backfilled = expected_body(knowledge.as_deref(), &env.root());
+    assert_eq!(
+        runner.captured_injections()[0].preamble.as_deref(),
+        Some(backfilled.as_str()),
+        "首次续轮注入位 = 现算体（补拍当轮的知识）"
+    );
+    let row = store
+        .find_session_preamble("ses-old")
+        .unwrap()
+        .expect("补拍行落库");
+    assert_eq!(row.content, backfilled, "库行与现算体逐字相等");
+
+    // 补拍一次性：改写文件后第二次续轮仍用首次补拍体，时刻不变
+    write_agent_md(&env.root(), "改后约定 🚀");
+    store
+        .begin_agent_turn("ses-old", 1727000002000)
+        .expect("再开一轮行");
+    composed
+        .begin(
+            SessionRef::Continue {
+                id: "ses-old".to_owned(),
+            },
+            "第二次续轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: ARCHI_SOURCE.to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("第二次续轮应成功");
+    assert_eq!(
+        runner.captured_injections()[1].preamble.as_deref(),
+        Some(backfilled.as_str()),
+        "补拍一次性：第二次续轮仍用首次补拍体"
+    );
+    let after = store.find_session_preamble("ses-old").unwrap().unwrap();
+    assert_eq!(after, row, "库行 content / saved_at 均不变（写一次）");
+}
+
+#[test]
+fn begin存量补拍取补拍当轮知识_文件缺席时仅知识与常量() {
+    let env = DualEnv::new("preamble-backfill-nofile");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    seed_sdk_session(&store, "ses-nofile", Some("sdk-nofile"));
+    store
+        .begin_agent_turn("ses-nofile", 1727000000000)
+        .expect("开轮行 fixture");
+
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
+    composed
+        .begin(
+            SessionRef::Continue {
+                id: "ses-nofile".to_owned(),
+            },
+            "首次续轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: ARCHI_SOURCE.to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("补拍应成功");
+
+    let knowledge = crate::archi_knowledge::knowledge().expect("archi 知识恒 Some");
+    let expected = format!("{knowledge}\n\n{}", crate::sdk::preamble::GUIDANCE);
+    assert_eq!(
+        runner.captured_injections()[0].preamble.as_deref(),
+        Some(expected.as_str()),
+        "AGENT.md 缺席 → 快照 = 知识 + 常量（无 AGENT.md 段、无空段占位）"
+    );
+
+    // 补拍后再写文件：本会话快照不随之改变
+    write_agent_md(&env.root(), "补拍后才出现 🎉");
+    store
+        .begin_agent_turn("ses-nofile", 1727000003000)
+        .expect("再开一轮行");
+    composed
+        .begin(
+            SessionRef::Continue {
+                id: "ses-nofile".to_owned(),
+            },
+            "第二次续轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: ARCHI_SOURCE.to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("第二次续轮应成功");
+    assert_eq!(
+        runner.captured_injections()[1].preamble.as_deref(),
+        Some(expected.as_str()),
+        "补拍后出现的文件不改本会话快照（AC-7）"
+    );
+}
+
+#[test]
+fn begin空正文快照时注入位归零为none() {
+    let env = DualEnv::new("preamble-empty-body");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    seed_sdk_session(&store, "ses-empty", Some("sdk-empty"));
+    store
+        .begin_agent_turn("ses-empty", 1727000000000)
+        .expect("开轮行 fixture");
+    assert!(
+        store
+            .stamp_session_preamble("ses-empty", "")
+            .expect("空串拍存"),
+        "空串正文可拍存（快照成立但无正文）"
+    );
+
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
+    composed
+        .begin(
+            SessionRef::Continue {
+                id: "ses-empty".to_owned(),
+            },
+            "续一轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: ARCHI_SOURCE.to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("续轮应成功");
+    assert_eq!(
+        runner.captured_injections()[0].preamble,
+        None,
+        "空正文 → 注入位 None（`injectable` 把空串归零 ⇒ 零 System 消息）"
+    );
+
+    // 此后 AGENT.md 出现也不改本会话
+    write_agent_md(&env.root(), "后来出现的约定");
+    store
+        .begin_agent_turn("ses-empty", 1727000004000)
+        .expect("再开一轮行");
+    composed
+        .begin(
+            SessionRef::Continue {
+                id: "ses-empty".to_owned(),
+            },
+            "续二轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: ARCHI_SOURCE.to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("续二轮应成功");
+    assert_eq!(
+        runner.captured_injections()[1].preamble,
+        None,
+        "文件后来出现也不改本会话（仍 None）"
+    );
+}
+
+#[test]
+fn begin跨引擎守卫与未知会话文案不因快照分支改变() {
+    let env = DualEnv::new("preamble-guards");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    let cli_session = SessionRecord {
+        id: "ses-cli-made".to_owned(),
+        engine_session_id: Some("s-cli-1".to_owned()),
+        config_snapshot: SessionConfigSnapshot {
+            engine: AgentEngineKind::Cli,
+            agent_instance_id: None,
+            model: None,
+            permission_mode: AgentPermissionMode::BypassPermissions,
+        },
+        source: "debug".to_owned(),
+        source_ref: None,
+        created_at: 1727000000000,
+        updated_at: 1727000000000,
+    };
+    store
+        .create_session(&cli_session)
+        .expect("落 cli 会话 fixture");
+
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
+
+    let cross_engine = composed
+        .begin(
+            SessionRef::Continue {
+                id: "ses-cli-made".to_owned(),
+            },
+            "跨引擎续一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .map(|_| ());
+    let error = err_of(cross_engine);
+    assert!(
+        error.contains("非当前引擎产出"),
+        "跨引擎守卫文案不变，实际: {error}"
+    );
+    assert!(
+        store
+            .find_session_preamble("ses-cli-made")
+            .unwrap()
+            .is_none(),
+        "守卫拒绝路径零快照写入"
+    );
+
+    let missing = composed
+        .begin(
+            SessionRef::Continue {
+                id: "ses-404".to_owned(),
+            },
+            "未知会话".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .map(|_| ());
+    let error = err_of(missing);
+    assert!(
+        error.contains("会话不存在") && error.contains("ses-404"),
+        "未知会话文案为既有契约（不被 is_unstarted 的内部 Err 顶替），实际: {error}"
+    );
+    assert!(
+        runner.captured_injections().is_empty(),
+        "两次失败均零注入捕获"
+    );
+}
+
+#[test]
+fn begin畸形库形态两形态均走续轮分支且补拍一次() {
+    for (label, seed_turn, seed_transcript_rows) in
+        [("有轮行", true, false), ("有转录", false, true)]
+    {
+        let env = DualEnv::new(&format!("preamble-malformed-{label}"));
+        let stores = env.stores();
+        let store = stores.for_root(&env.root()).expect("for_root 应成功");
+        seed_sdk_session(&store, "ses-mal", Some("sdk-mal"));
+        if seed_turn {
+            store
+                .begin_agent_turn("ses-mal", 1727000000000)
+                .expect("开轮行 fixture");
+        }
+        if seed_transcript_rows {
+            seed_transcript(&store, "ses-mal");
+        }
+
+        let runner = RecordingRunner::new();
+        let sink = RecordingSink::new();
+        let composed = fake_composed(Arc::clone(&store), &runner, &sink);
+        composed
+            .begin(
+                SessionRef::Continue {
+                    id: "ses-mal".to_owned(),
+                },
+                "续一轮".to_owned(),
+                ctx(&env.root()),
+                debug_provenance(),
+            )
+            .unwrap_or_else(|e| panic!("形态「{label}」续轮应成功: {e}"));
+
+        assert_eq!(
+            runner.captured(),
+            vec![Some("sdk-mal".to_owned())],
+            "形态「{label}」：is_unstarted 为假 ⇒ 走续轮分支（prior_handle 取自既有行）"
+        );
+        assert!(
+            store.find_session_preamble("ses-mal").unwrap().is_some(),
+            "形态「{label}」：行缺席即补拍一次"
+        );
+    }
+}
+
+#[test]
+fn begin读取根取session_ctx的workspace_root而非组合根实例() {
+    let env = DualEnv::new("preamble-read-root");
+    let other_root = tempfile::Builder::new()
+        .prefix("compose-test-preamble-other-root-")
+        .tempdir()
+        .expect("创建另一根目录失败");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    write_agent_md(&env.root(), "实例根的约定");
+    write_agent_md(
+        other_root.path().to_str().expect("临时路径 UTF-8"),
+        "会话执行根的约定",
+    );
+
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "读取根一测".to_owned(),
+            ctx(other_root.path().to_str().expect("临时路径 UTF-8")),
+            debug_provenance(),
+        )
+        .expect("New 应成功");
+
+    let body = expected_body(None, other_root.path().to_str().expect("临时路径 UTF-8"));
+    assert_eq!(
+        runner.captured_injections()[0].preamble.as_deref(),
+        Some(body.as_str()),
+        "读取根 = SessionCtx.workspace_root（worktree 即分支版）"
+    );
+    assert!(
+        body.contains("会话执行根的约定"),
+        "快照取会话执行根的 AGENT.md 内容"
+    );
+    assert!(
+        !body.contains("实例根的约定"),
+        "组合根 / 仓库根的 AGENT.md 不参与（读取根与实例解耦）"
+    );
+    assert_eq!(
+        store
+            .find_session_preamble(&running.session_id)
+            .unwrap()
+            .expect("落库在场")
+            .content,
+        body,
+        "库行与注入位同源"
+    );
+}
+
+#[test]
+fn begin快照体量超32kb原样落库_只有agent_md段被截断() {
+    let env = DualEnv::new("preamble-truncate");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    let huge = "中".repeat(14000); // 42KB 中文
+    write_agent_md(&env.root(), &huge);
+
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = fake_composed(Arc::clone(&store), &runner, &sink);
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "截断一轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: ARCHI_SOURCE.to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("超长 AGENT.md 不报错");
+
+    let body = store
+        .find_session_preamble(&running.session_id)
+        .unwrap()
+        .expect("落库在场")
+        .content;
+    assert!(
+        body.len() > 32 * 1024,
+        "总量可超 32KB（32KB 只作用于 AGENT.md 段），实际 {} 字节",
+        body.len()
+    );
+    let agent_md_segment = body
+        .split("\n\n")
+        .find(|segment| segment.starts_with("<agent_md path="))
+        .expect("AGENT.md 段在场");
+    let inner = agent_md_segment
+        .strip_prefix("<agent_md path=\"")
+        .and_then(|rest| rest.split_once("\">\n"))
+        .and_then(|(_, rest)| rest.strip_suffix("\n</agent_md>"))
+        .expect("包装形态可解析");
+    let expected_prefix_len = {
+        let mut end = 32 * 1024;
+        while !huge.is_char_boundary(end) {
+            end -= 1;
+        }
+        end
+    };
+    assert_eq!(
+        inner.len(),
+        expected_prefix_len,
+        "AGENT.md 段恰截到 32KB 内的最长 char 边界（中文 3 字节不劈半）"
+    );
+    assert!(
+        huge.starts_with(inner),
+        "截断产物恒为原文前缀（不包装改写）"
+    );
+    let knowledge = crate::archi_knowledge::knowledge().expect("archi 知识恒 Some");
+    assert!(body.starts_with(&knowledge), "知识段完整在首位");
+    assert!(
+        body.ends_with(crate::sdk::preamble::GUIDANCE),
+        "指引常量完整在末位"
     );
 }

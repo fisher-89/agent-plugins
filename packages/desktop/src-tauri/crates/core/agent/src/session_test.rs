@@ -2,8 +2,8 @@ use serde_json::{json, Value};
 
 use crate::runner::AgentRunStatus;
 use crate::session::{
-    new_session_id, NewSessionRow, SessionProvenance, SessionRow, SessionStats, SessionSummary,
-    TurnSummary,
+    new_session_id, NewSessionRow, SessionPreambleInfo, SessionProvenance, SessionRow,
+    SessionStats, SessionSummary, TurnSummary,
 };
 
 /// 固定 provenance 底座。
@@ -420,6 +420,7 @@ fn session_summary组装往返_turns空数组与多轮两形态() {
             output_tokens: None,
         },
         turns: Vec::new(),
+        preamble: None,
     };
     let value = serde_json::to_value(&empty).expect("序列化成功");
     assert_eq!(value["turns"], json!([]), "turns 空数组形态");
@@ -439,10 +440,339 @@ fn session_summary组装往返_turns空数组与多轮两形态() {
             running_summary(),
             finished_summary(AgentRunStatus::Completed, None),
         ],
+        preamble: Some(preamble_info()),
     };
     let value = serde_json::to_value(&multi).expect("序列化成功");
     assert_eq!(value["turns"].as_array().expect("数组").len(), 2);
     assert_eq!(value["stats"]["turnCount"], json!(2));
+    assert_eq!(
+        value["preamble"]["content"],
+        json!("快照正文\n段二"),
+        "多轮形态携快照面"
+    );
     let roundtrip: SessionSummary = serde_json::from_value(value).expect("反序列化成功");
     assert_eq!(roundtrip, multi, "row+stats+turns 组装往返");
+}
+
+// ---------------------------------------------------------------------------
+// SessionPreambleInfo：会话系统提示词快照的只读出线面
+// ---------------------------------------------------------------------------
+
+/// 快照底座（拍存时刻与正文显式固定值）。
+fn preamble_info() -> SessionPreambleInfo {
+    SessionPreambleInfo {
+        saved_at: 1727000000000,
+        content: "快照正文\n段二".to_owned(),
+    }
+}
+
+/// 无轮空库形态的会话清单项底座（快照面由调用方决定）。
+fn summary_with(preamble: Option<SessionPreambleInfo>) -> SessionSummary {
+    SessionSummary {
+        row: full_row(),
+        stats: SessionStats {
+            turn_count: 0,
+            total_duration_ms: None,
+            input_tokens: None,
+            output_tokens: None,
+        },
+        turns: Vec::new(),
+        preamble,
+    }
+}
+
+#[test]
+fn session_summary_preamble有值形态驼峰线名逐字段且往返相等() {
+    let summary = summary_with(Some(SessionPreambleInfo {
+        saved_at: 1727000000000,
+        content: "快照正文\n段二".to_owned(),
+    }));
+
+    let value = serde_json::to_value(&summary).expect("序列化成功");
+    assert_eq!(
+        value["preamble"]["savedAt"],
+        json!(1727000000000_i64),
+        "拍存时刻驼峰线名"
+    );
+    assert_eq!(
+        value["preamble"]["content"],
+        json!("快照正文\n段二"),
+        "正文逐字（含换行）"
+    );
+    assert_eq!(
+        value["preamble"].as_object().expect("对象形态").len(),
+        2,
+        "快照只出面两键（无多余包装层）"
+    );
+
+    let roundtrip: SessionSummary = serde_json::from_value(value).expect("反序列化成功");
+    assert_eq!(roundtrip, summary, "含快照面往返逐字段相等");
+}
+
+#[test]
+fn session_summary_preamble为none时线面恒出null键而不省略() {
+    let summary = summary_with(None);
+
+    let value = serde_json::to_value(&summary).expect("序列化成功");
+    assert!(
+        value.get("preamble").is_some(),
+        "键恒在场（不 skip 序列化），实际: {value}"
+    );
+    assert_eq!(value["preamble"], Value::Null, "清单路径/无快照恒 null 值");
+
+    // 有值 ↔ 无值两形态线面可区分
+    let with_preamble =
+        serde_json::to_value(summary_with(Some(preamble_info()))).expect("序列化成功");
+    assert_ne!(
+        with_preamble["preamble"], value["preamble"],
+        "Some 与 None 线面可区分"
+    );
+}
+
+#[test]
+fn session_summary缺preamble键反序列化为none而其余三字段缺失均err() {
+    let full = serde_json::to_value(summary_with(Some(preamble_info()))).expect("序列化成功");
+
+    // 缺 preamble：Option 隐式缺省（存量出线路由不产半成品）
+    let mut missing_preamble = full.clone();
+    missing_preamble
+        .as_object_mut()
+        .expect("对象形态")
+        .remove("preamble")
+        .expect("移除 preamble");
+    let decoded: SessionSummary =
+        serde_json::from_value(missing_preamble).expect("缺 preamble 应可反序列化");
+    assert_eq!(decoded.preamble, None, "缺键即 None（不产半成品）");
+
+    // 对照：三字段缺失逐个 Err
+    for missing in ["row", "stats", "turns"] {
+        let mut value = full.clone();
+        value
+            .as_object_mut()
+            .expect("对象形态")
+            .remove(missing)
+            .unwrap_or_else(|| panic!("移除 {missing}"));
+        let result: Result<SessionSummary, _> = serde_json::from_value(value);
+        assert!(result.is_err(), "缺 {missing} 必须 Err，实际: {result:?}");
+    }
+
+    // 对照组：四字段齐备即可反序列化
+    assert!(serde_json::from_value::<SessionSummary>(full).is_ok());
+}
+
+#[test]
+fn session_preamble_info越界形态三形态均err不静默折成none() {
+    let ok_value = json!({ "savedAt": 1727000000000_i64, "content": "正文" });
+    assert!(
+        serde_json::from_value::<SessionPreambleInfo>(ok_value.clone()).is_ok(),
+        "对照组：两键齐备可解码"
+    );
+
+    for (label, invalid) in [
+        (
+            "preamble 为字符串",
+            json!({ "row": full_row_value(), "stats": stats_value(), "turns": [], "preamble": "字符串形态" }),
+        ),
+        (
+            "对象缺 content",
+            json!({ "row": full_row_value(), "stats": stats_value(), "turns": [], "preamble": { "savedAt": 1 } }),
+        ),
+        (
+            "savedAt 为字符串",
+            json!({ "row": full_row_value(), "stats": stats_value(), "turns": [], "preamble": { "savedAt": "1", "content": "正文" } }),
+        ),
+    ] {
+        let result: Result<SessionSummary, _> = serde_json::from_value(invalid);
+        assert!(
+            result.is_err(),
+            "越界形态「{label}」必须 Err（不静默折成 None），实际: {result:?}"
+        );
+    }
+}
+
+/// 线面底座：全字段 `SessionRow` 的 JSON 形态。
+fn full_row_value() -> Value {
+    serde_json::to_value(full_row()).expect("序列化成功")
+}
+
+/// 线面底座：全 `None` 统计的 JSON 形态。
+fn stats_value() -> Value {
+    serde_json::to_value(SessionStats {
+        turn_count: 0,
+        total_duration_ms: None,
+        input_tokens: None,
+        output_tokens: None,
+    })
+    .expect("序列化成功")
+}
+
+#[test]
+fn session_preamble_info独立构造序列化恰两键且往返等值() {
+    let info = preamble_info();
+
+    let value = serde_json::to_value(&info).expect("序列化成功");
+    assert_eq!(
+        value,
+        json!({ "savedAt": 1727000000000_i64, "content": "快照正文\n段二" }),
+        "键集恰 savedAt / content，无多余键"
+    );
+    let roundtrip: SessionPreambleInfo = serde_json::from_value(value).expect("反序列化成功");
+    assert_eq!(roundtrip, info, "往返等值");
+}
+
+#[test]
+fn session_preamble_info_content三形态逐字往返零截断() {
+    let cases = [
+        ("空串", String::new()),
+        (
+            "特殊字符",
+            "首行\n\n空行后\t制表\0空字节 🎉🚀 尾行\n".to_owned(),
+        ),
+        ("超长中文", "中".repeat(20000)),
+    ];
+    for (label, content) in cases {
+        let info = SessionPreambleInfo {
+            saved_at: 1,
+            content: content.clone(),
+        };
+        let value = serde_json::to_value(&info).expect("序列化成功");
+        assert_eq!(value["content"], json!(content), "形态「{label}」线面逐字");
+        let roundtrip: SessionPreambleInfo = serde_json::from_value(value).expect("反序列化成功");
+        assert_eq!(roundtrip.content, content, "形态「{label}」往返逐字");
+        assert_eq!(
+            roundtrip.content.chars().count(),
+            content.chars().count(),
+            "形态「{label}」零截断"
+        );
+    }
+    assert_eq!(
+        "中".repeat(20000).len(),
+        60000,
+        "超长形态越过 32KB 线（截断只在读取侧）"
+    );
+}
+
+#[test]
+fn session_preamble_info_saved_at四值线面为数字且往返保真() {
+    for saved_at in [0, -1, i64::MAX, 1_727_000_000_000] {
+        let info = SessionPreambleInfo {
+            saved_at,
+            content: String::new(),
+        };
+        let value = serde_json::to_value(&info).expect("序列化成功");
+        assert!(
+            value["savedAt"].is_number(),
+            "线面为 JSON 数字（无范围校验），实际: {}",
+            value["savedAt"]
+        );
+        assert_eq!(value["savedAt"], json!(saved_at));
+        let roundtrip: SessionPreambleInfo = serde_json::from_value(value).expect("反序列化成功");
+        assert_eq!(roundtrip.saved_at, saved_at, "{saved_at} 往返保真");
+    }
+}
+
+#[test]
+fn session_preamble_info派生链clone保真且空正文区别于无快照() {
+    let info = preamble_info();
+    let cloned = info.clone();
+    assert_eq!(cloned, info, "Clone 保真");
+
+    // 空正文 ≠ 无快照：Some(空串) 与 None 可区分（PartialEq 判据）
+    let empty_body = SessionPreambleInfo {
+        content: String::new(),
+        ..preamble_info()
+    };
+    assert_ne!(
+        Some(empty_body.clone()),
+        None,
+        "空正文不是无快照（两状态 MUST NOT 混用）"
+    );
+    assert_eq!(
+        Some(empty_body.clone()),
+        Some(SessionPreambleInfo {
+            content: String::new(),
+            ..preamble_info()
+        }),
+        "同字段值相等"
+    );
+    assert_ne!(empty_body, info, "空正文与有正文不等");
+}
+
+#[test]
+fn session_summary三字段键集零改动_快照字段不渗入() {
+    let value = serde_json::to_value(summary_with(Some(preamble_info()))).expect("序列化成功");
+
+    assert_eq!(
+        value
+            .as_object()
+            .expect("对象形态")
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>(),
+        vec!["row", "stats", "turns", "preamble"],
+        "顶层键集 = 既有三字段 + 新增快照位"
+    );
+    let mut row_keys: Vec<&String> = value["row"].as_object().expect("对象").keys().collect();
+    row_keys.sort();
+    assert_eq!(
+        row_keys,
+        vec![
+            "configSnapshot",
+            "createdAt",
+            "id",
+            "provenance",
+            "remoteSessionId",
+            "updatedAt"
+        ],
+        "SessionRow 键集零改动"
+    );
+    let mut stats_keys: Vec<&String> = value["stats"].as_object().expect("对象").keys().collect();
+    stats_keys.sort();
+    assert_eq!(
+        stats_keys,
+        vec![
+            "inputTokens",
+            "outputTokens",
+            "totalDurationMs",
+            "turnCount"
+        ],
+        "SessionStats 键集零改动（快照体量不落库）"
+    );
+}
+
+/// `SessionSummary.preamble` 字段块零 `skip_serializing_if`（源码自证，边界）：
+/// 线面恒出键的机械判据——加了 skip 即 AB 面裂出「键有时在有时不在」。
+#[test]
+fn session_summary_preamble字段块零skip_serializing_if() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/session.rs"),
+    )
+    .expect("读取 session.rs");
+    let lines: Vec<&str> = own.lines().collect();
+    let field_index = lines
+        .iter()
+        .position(|line| line.trim_start().starts_with("pub preamble:"))
+        .expect("pub preamble 字段在场");
+
+    // 字段块 = 字段行 + 其上紧邻的 doc / 属性行
+    let mut block = vec![lines[field_index]];
+    for line in lines[..field_index].iter().rev() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("///") || trimmed.starts_with("#[") {
+            block.push(line);
+        } else {
+            break;
+        }
+    }
+    assert!(
+        block
+            .iter()
+            .all(|line| !line.contains("skip_serializing_if")),
+        "快照字段块 MUST NOT 带 skip_serializing_if，实际块: {block:?}"
+    );
+    assert!(
+        lines[field_index].contains("Option<SessionPreambleInfo>"),
+        "字段类型为可空快照 DTO，实际: {}",
+        lines[field_index]
+    );
 }

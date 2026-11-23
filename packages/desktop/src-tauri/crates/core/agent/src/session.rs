@@ -99,6 +99,17 @@ pub struct SessionStats {
     pub output_tokens: Option<u64>,
 }
 
+/// 会话系统提示词快照的**只读**出线面：仅有 `session_detail` 单查路径携带，
+/// 会话清单路径恒为 `None`；快照在会话首轮拍存后不可变，无写命令、无编辑面。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionPreambleInfo {
+    /// 拍存时刻（UTC unix 毫秒；由落库侧时钟取）
+    pub saved_at: i64,
+    /// 快照正文全文（可能为空串——快照成立但无正文，此时会话零 System 消息）
+    pub content: String,
+}
+
 /// 会话清单项：会话记录 + 现算聚合统计 + 轮行随行返回（重放部件与历史展示
 /// 共用；core 契约类型，不引用 store 模型）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -110,6 +121,9 @@ pub struct SessionSummary {
     pub stats: SessionStats,
     /// 轮统计行（发起顺序）
     pub turns: Vec<TurnSummary>,
+    /// 会话系统提示词快照（清单路径恒 `None` 且实现不读快照表；单查路径按库内
+    /// `session_preamble` 行填充）
+    pub preamble: Option<SessionPreambleInfo>,
 }
 
 /// 会话清单分页信封：本页会话 + 过滤集全量计数（页界由 `total` 导出，

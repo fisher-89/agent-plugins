@@ -175,7 +175,7 @@ fn db_records_scope_global扫描全局库记录信封_key为root串() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn db_models_scope_workspace返回十一行且与直连serde一致() {
+fn db_models_scope_workspace返回十二行且与直连serde一致() {
     let env = Env::new("models-workspace");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
@@ -213,8 +213,9 @@ fn db_models_scope_workspace返回十一行且与直连serde一致() {
             ("run".to_owned(), 0),
             ("run_node".to_owned(), 0),
             ("run_edge".to_owned(), 0),
+            ("session_preamble".to_owned(), 0),
         ],
-        "Workspace scope 返回该 root 的 workspace 库十一行（change 流程状态四模型与 run 三表计数 0 也列出，计数与实有记录数一致）"
+        "Workspace scope 返回该 root 的 workspace 库十二行（change 流程状态四模型、run 三表与会话系统提示词快照计数 0 也列出，计数与实有记录数一致）"
     );
 }
 
@@ -327,9 +328,10 @@ fn 两库清单互不混列_跨维度模型名扫描err() {
             "step",
             "run",
             "run_node",
-            "run_edge"
+            "run_edge",
+            "session_preamble"
         ],
-        "Workspace scope 仅 workspace 维度十一行（change 流程状态四模型与 run 三表在列）"
+        "Workspace scope 仅 workspace 维度十二行（change 流程状态四模型、run 三表与会话系统提示词快照在列）"
     );
 
     // 跨维度模型名扫描 Err（维度由实例锁定；workspace 库实例扫 user 维度
