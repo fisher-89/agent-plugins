@@ -10,7 +10,7 @@
 
 agent 工具面 SHALL 增只读发现工具 `db_tables`，使模型在取数前先知道「有哪些表、每张表是什么、每个字段叫什么、什么意思」：
 
-- **无参形态**：返回表清单，每行 SHALL 含 `dimension`（`user` / `workspace`）、`table`（`db_query` 的 `table` 入参取值）、`count`（记录计数）、`summary`（表介绍）。清单 SHALL 覆盖记录信封注册表的**全部**已注册模型——`user` 维度 3 张（`workspace` / `agent_provider` / `agent_instance`）与 `workspace` 维度 11 张（`agent_run` / `session` / `session_event` / `explore` / `change` / `phase` / `checklist_item` / `step` / `run` / `run_node` / `run_edge`），`store_meta`（库级格式标记，内部治理记录）MUST NOT 出现。无参形态 MUST NOT 展开字段说明（清单约 1.4 KB，字段全量约 11 KB——每轮白烧）。
+- **无参形态**：返回表清单，每行 SHALL 含 `dimension`（`user` / `workspace`）、`table`（`db_query` 的 `table` 入参取值）、`count`（记录计数）、`summary`（表介绍）。清单 SHALL 覆盖记录信封注册表的**全部**已注册模型——`user` 维度 4 张（`workspace` / `agent_provider` / `agent_instance` / `notification`）与 `workspace` 维度 12 张（`agent_run` / `session` / `session_event` / `explore` / `change` / `phase` / `checklist_item` / `step` / `run` / `run_node` / `run_edge` / `session_preamble`），`store_meta`（库级格式标记，内部治理记录）MUST NOT 出现。无参形态 MUST NOT 展开字段说明（清单约 1.4 KB，字段全量约 11 KB——每轮白烧）。
 - **下钻形态**：给定 `table` 时返回该表字段清单，每字段 SHALL 含 `name`（**落库线名**，可直接喂 `db_query` 的 `field`）、`type`（渲染文本：`string` / `number` / `boolean` / `string | null` / 命名枚举名如 `ChangeStatus` / 嵌入对象名）、`doc`（字段说明）。
 - **`scope` 入参**：可选 `"user" | "workspace"`，缺省两库全列（下钻形态缺省按表所属维度解析；`table` 名跨维度唯一由注册表保证）。
 - 两形态的输出 SHALL 只由注册表 + 代码 doc 派生（见「说明来源与文档防腐」），`MUST NOT` 出现 per-table 手写清单或第二份字段表。
@@ -19,7 +19,7 @@ agent 工具面 SHALL 增只读发现工具 `db_tables`，使模型在取数前�
 #### Scenario: 无参返回表清单
 
 - **WHEN** 在 explore 会话中调用 `db_tables`（无入参）
-- **THEN** 返回 user 维度 3 张 + workspace 维度 11 张共 14 行，每行含 `dimension` / `table` / `count` / `summary`；`store_meta` 不在其中；响应体不含任何字段级说明
+- **THEN** 返回 user 维度 4 张 + workspace 维度 12 张共 16 行，每行含 `dimension` / `table` / `count` / `summary`；`store_meta` 不在其中；响应体不含任何字段级说明
 
 #### Scenario: 下钻单表字段说明
 
@@ -29,7 +29,7 @@ agent 工具面 SHALL 增只读发现工具 `db_tables`，使模型在取数前�
 #### Scenario: scope 收窄
 
 - **WHEN** 分别以 `scope = "user"` 与 `scope = "workspace"` 调用无参形态
-- **THEN** 前者只列 user 维度 3 张、后者只列 workspace 维度 11 张，两清单互不混列（与 DB 查看页 scope 口径一致）
+- **THEN** 前者只列 user 维度 4 张、后者只列 workspace 维度 12 张，两清单互不混列（与 DB 查看页 scope 口径一致）
 
 #### Scenario: 未知表名显式失败
 
@@ -104,7 +104,7 @@ agent 工具面 SHALL 增只读取数工具 `db_query`，以声明式结构表�
 #### Scenario: 内嵌类型不入表清单
 
 - **WHEN** 审查 `db_tables` 无参输出
-- **THEN** 表清单恰为 14 张记录表，`AgentModelTiers` / `SessionConfigSnapshot` / `ChangeActivePhase` 等内嵌命名类型不出现
+- **THEN** 表清单恰为 16 张记录表，`AgentModelTiers` / `SessionConfigSnapshot` / `ChangeActivePhase` 等内嵌命名类型不出现
 
 #### Scenario: 表介绍按句读截断
 
@@ -259,3 +259,14 @@ agent 工具面 SHALL 增只读取数工具 `db_query`，以声明式结构表�
 | `crates/infra/agent/src/sdk/{policy,sandbox,protect}` | 零改动面 | `Read` 档三档放行天然覆盖；MUST NOT 引入第二份按名清单；`policy_test.rs` 的逐工具三档等价表随挂载名数 11 → 13 补齐（期望随动，不改判据） |
 | `src-tauri/src/bindings` / `packages/desktop/src/**` / commands 生产面 | 零改动面 | 无新 IPC 命令、无 `specta::Type` 溢出；DB 查看页在注册表补齐后自动多出 `run` / `run_node` / `run_edge` 三表（既有「新模型零改动可浏览」红利） |
 | `src-tauri/src/commands/db/mod_test.rs` | 注册表补齐的期望随动 | workspace 维度清单期望 8 → 11 行（含 `run` / `run_node` / `run_edge`）与计数向量、用例名同步；`db_models` / `db_records` 的生产签名与行为零改动（测试期望随动，非命令面改动） |
+
+### 模块增量：`session_preamble` 入表清单与计数纠正（session-preamble-snapshot）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约 |
+|------|------|----------|
+| `crates/infra/store/src/envelope.rs` | 表清单来源（唯一） | `MODEL_ENTRIES` 增 `session_preamble` 一行，`db_tables` 无参形态自动多一行（表清单与字段说明仍只由注册表 + 代码 doc 派生，零手写清单） |
+| `crates/infra/store/src/model.rs` | 字段说明来源 | `SessionPreambleRecord` 三个字段各带 `///` doc（线名 `sessionId` / `content` / `savedAt`），ratchet 测试自动纳入 |
+| `crates/infra/agent/src/sdk/db_tool.rs`（消费面） | 零改动 | 工具定义 / 入参 / 只读档位 / 双档收口语义逐条不变；清单与下钻输出随注册表自动变化 |
+| 本 spec 的计数面 | 文案 | 本变更只改计数与名单（`workspace` 11 → 12、合计 15 → 16）；基线文本的「`user` 3 张 / 合计 14」是 `notification` 登记后未同步的陈旧计数，随本变更一并纠正为 4 张 / 16 张。工具契约零变化 |

@@ -82,7 +82,7 @@ change 详情 SHALL 在**左栏**提供常驻的通用 Agent 面板，与右侧�
 
 面板发起的会话 SHALL 在 **change 环境**下运行，其执行根（cwd）SHALL 为 `detail.worktree ?? root`，且该值只作会话 cwd、MUST NOT 作 store 身份锚：
 
-- **cwd 派生**：change 带 worktree（`detail.worktree !== null`）时 SHALL 以该绝对路径为 cwd；legacy 记录（`worktree === null`）SHALL 回落 workspace root。cwd SHALL 只进会话 cwd 面（工具路径沙箱根 / bash `current_dir` / 每轮 `AGENT.md` 与前置注入的读取根），**store 寻址 SHALL 恒为 workspace root**（双 root 不变量，与 change 流程同构）。
+- **cwd 派生**：change 带 worktree（`detail.worktree !== null`）时 SHALL 以该绝对路径为 cwd；legacy 记录（`worktree === null`）SHALL 回落 workspace root。cwd SHALL 只进会话 cwd 面（工具路径沙箱根 / bash `current_dir` / `AGENT.md` 与前置注入的读取根——该文件在会话首轮快照拍存时读取一次，见 `desktop-agent-execution`「会话系统提示词快照的拍存与续轮复用」），**store 寻址 SHALL 恒为 workspace root**（双 root 不变量，与 change 流程同构）。
 - **存在性策略**：归档 change（worktree 已被 Cleanup 移除）SHALL 以只读态处理（见「禁发与只读状态矩阵」），MUST NOT 因 cwd 缺失向用户抛发起点 `Err`；非归档 change 的 cwd 缺失 SHALL 由命令层 `is_dir` 探测显式 `Err`（文案含路径），MUST NOT 让失败深埋进引擎工具调用。
 - **提示面**：执行根（worktree 路径）SHALL 由 change 详情头的 worktree 信息行（`detail-worktree`）可见；面板内 MUST NOT 再复制一条执行根文案行（避免与详情头重复）。沙箱根收缩（看不到主工作区未提交改动）属既定边界，MUST NOT 以文案承诺跨根可读。
 - **范围**：本变更只落 cwd 层——工具面 SHALL 按注入面单源装配（`desktop-agent-execution`「会话级工具面注入与 explore 笔记工具」：default 七工具 + 矩阵勾选的 archi 工具 + 恒在的 ask / 只读 DB 工具两件 `db_tables` / `db_query`），MUST NOT 为 change 来源新设只读工具集 / 新 `SessionToolset` 变体，提示词前导（stance 模板）显式不在本变更内。
@@ -243,3 +243,11 @@ change 详情左栏面板的**骨架**（头区动作（含历史下拉）/ 状�
 | `packages/desktop/src/components/agent/session-panel.tsx` | Component | **零改动**（骨架自持折叠、判据来源、note 渲染面均不变）；新增第三处消费只经 `testIdPrefix = "config-chat"` 参数化命中 |
 | `packages/desktop/src/views/config/components/config-chat-panel.tsx`（新，消费方） | Component | 第三处消费者：`SessionPanel`（`testIdPrefix = "config-chat"`）+ `AgentSessionView` 注入形态 + composer 插槽；状态面来自 `useConfigChat`（`source = "config"`），骨架零业务判据不变 |
 | `packages/desktop/src/views/config/config-view.tsx` | Component | 左栏挂载该面板（横向分栏），页面不持折叠 state、不传折叠入参 |
+
+### 模块增量：AGENT.md 读取时机随首轮快照拍存（session-preamble-snapshot）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约 |
+|------|------|----------|
+| `packages/desktop/src/views/changes/agent/`（cwd 派生） | 措辞同步 | cwd 语义、`detail.worktree ?? root` 派生、双 root 不变量与 store 寻址口径逐条不变；唯「`AGENT.md` 读取根」的时机表述改为会话首轮快照拍存时读取一次（拍存与读回见 desktop-agent-execution「会话系统提示词快照的拍存与续轮复用」） |
