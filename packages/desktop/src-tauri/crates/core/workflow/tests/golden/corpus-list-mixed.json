@@ -6,6 +6,7 @@
         "phase": "implement",
         "startAt": "2024-09-22T10:13:26Z"
       },
+      "archivedAt": null,
       "created": "2024-09-22",
       "id": "id-list-active",
       "name": "list-active",
@@ -15,6 +16,7 @@
     },
     {
       "activePhase": null,
+      "archivedAt": null,
       "created": "2024-09-22",
       "id": "id-list-worktree",
       "name": "list-worktree",
@@ -28,6 +30,7 @@
       "changes": [
         {
           "activePhase": null,
+          "archivedAt": "2026-05-20",
           "created": "2024-09-22",
           "id": "id-list-archived",
           "name": "list-archived",
@@ -42,6 +45,7 @@
       "changes": [
         {
           "activePhase": null,
+          "archivedAt": "2026-02-02",
           "created": "2024-09-22",
           "id": "id-seeded-archived",
           "name": "seeded-archived",
@@ -56,6 +60,7 @@
       "changes": [
         {
           "activePhase": null,
+          "archivedAt": null,
           "created": "2024-09-22",
           "id": "id-unknown-time-archived",
           "name": "unknown-time-archived",

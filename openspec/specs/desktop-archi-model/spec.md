@@ -51,7 +51,7 @@ apis = ["ErrorCode"]        # 选填：这条依赖实际用到 `to` 元素的�
 - **`apis` 的值面四条（只许名字）**：① **只许名字**——逐项 MUST NOT 含空白、MUST NOT 含 `::`、MUST NOT 表达签名 / 参数 / 类型形状，即不得是「`config_path() -> PathBuf`」或「`scan::ImportFact`」一类形态；② **非空**——逐项 MUST NOT 为空串；③ **不重复**——同一关系的 `apis` 内同名重复即拒收（MUST NOT 静默去重，静默去重会让「写重了」与「写对了」不可辨）；④ **空数组拒收**——`apis = []` 与省略同义，显式空数组报 `invalidValue`（同 `doc = [..]` / `entry = [..]` 的「显式错形态直接拒收」先例）。四条违反一律 `invalidValue` + 位置，模型整体停摆。
 - **`apis` 的取值域 = `to` 元素的代码导出名**：与扫描事实（`ImportFact.names` / `DependencyEdge.names`）同一名字空间，比对 SHALL **逐字符**（MUST NOT 大小写折叠、MUST NOT 驼峰归一——否则判定侧常驻第二处映射规则）。取值域 MUST NOT 收窄为「契约 fence 声明的 op / `$defs` 名」：契约声明面是留白面（前端契约 `props = 0`），收窄即不可用；也 MUST NOT 放宽为「协议正文」（见下条）。
 - **`apis` 是开放值集，不进封闭词汇对拍**：与 `doc` / `entry` 同列——它的值域是任意代码标识符（开放集），不是封闭词汇；因此四组派生 `ALL` 常量与「消费面词汇集一致性对拍」的词表 MUST NOT 因本字段扩张，知识文本也只给纪律句、不给词表。
-- **值域封闭**：`kind` 必填且 SHALL 为 `package` / `domain` / `module` / `component` 四值之一；`gate` 可选且 SHALL 为 `off` / `warn` / `strict` 三值之一（缺省 `off`）；**`api`** 可选且 SHALL 为 `declared` / `none` 二值之一（缺省 `declared`）；**`entry`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「一个入口只属于一个模块」这条约束不可表达）；`path` SHALL 为字符串数组（缺省空）；**`doc`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「入口文档唯一」不可表达）；`summary` 可选字符串；`metadata` SHALL 为字符串→字符串的自由表（未知键忽略，非字符串值即 `invalidValue`）。**`docs` 已退役**：字段面 MUST NOT 含 `docs`，写了即 `unknownField`。
+- **值域封闭**：`kind` 必填且 SHALL 为 `package` / `domain` / `module` 三值之一；`gate` 可选且 SHALL 为 `off` / `warn` / `strict` 三值之一（缺省 `off`）；**`api`** 可选且 SHALL 为 `declared` / `none` 二值之一（缺省 `declared`）；**`entry`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「一个入口只属于一个模块」这条约束不可表达）；`path` SHALL 为字符串数组（缺省空）；**`doc`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「入口文档唯一」不可表达）；`summary` 可选字符串；`metadata` SHALL 为字符串→字符串的自由表（未知键忽略，非字符串值即 `invalidValue`）。**`docs` 已退役**：字段面 MUST NOT 含 `docs`，写了即 `unknownField`。
 - **未知字段拒绝**：元素表内出现未列出的字段（如 `gatte` / `docs`）SHALL 由 `deny_unknown_fields` 拒绝（`unknownField`）。
 - **属性与语义分离**：`gate` 档位 SHALL 是模型属性（本能力定义其值域与缺省）；档位的**语义消费**（参与归属、违例定级、门禁结论）归 `desktop-archi-drift` 与 `desktop-archi-gate`，本能力 MUST NOT 定义任何定级规则。
 - **`api` 状态指针（显式字段，非 `metadata`）**：元素 SHALL 有封闭二值的 `api` 字段（`declared` 缺省 / `none`，附 `ApiStatus::ALL`），语义为「本模块是否有公共 API 契约」的状态指针，并新增一层角色：**它是入口文档载体的开关**——`declared` ⇒ 入口文档 = 派生落点 `<models>/<分层目录…>/<FQN>.md`（= `contract_path`，`doc` MUST NOT 再声明第二个事实）；`none` ⇒ 入口文档 = `doc` 声明（可选）。该字段 MUST NOT 承载任何协议正文（签名 / 符号 / 接口 / 规范全文）。走显式字段而非 `metadata` 自由键的理由是可获得 `deny_unknown_fields` 的拼写校验：`api = "non"` 报 `invalidValue` 并列全合法值，而 `metadata = { api = "non" }` 会静默变成「未声明」。完备性判据（每个 `path` 非空元素 ∈ {`none`} ∪ {载体在案}）归 `desktop-archi-api-check`。
@@ -62,15 +62,15 @@ apis = ["ErrorCode"]        # 选填：这条依赖实际用到 `to` 元素的�
 - **关系 `apis` 不属协议正文（本变更的边界区分，防被当作破例）**：上条禁令的对象是**元素**上的正文，理由是「存一份正文必然漂移」。`relation.apis` 在四个维度上都与之可分——① **位置**：在关系上（**消费方**的依赖选择），不是元素上（提供方的自我描述）；② **内容**：只有名字，没有签名 / 类型形状 / 接口定义；③ **权威**：名字的权威仍在代码导出集与契约 fence，模型只回答「这条依赖选了哪几个」；④ **抗漂移**：每次检查与扫描事实机械对差（两桶见 `desktop-archi-drift`），错名不会静默。因此**元素**上的正文禁令逐字保留，关系上的**名字清单**被本条显式授权；把签名 / 类型形状 / `::` 限定路径写进 `apis` 仍按上条拒收。
 - 新元素缺省 `gate = "off"`（ratchet：存量全 `off`，想收紧的模块逐个改 `strict`，一个 change 收紧一块）。
 
-#### Scenario: 四值 kind 与三值 gate 解析成功
+#### Scenario: 三值 kind 与三值 gate 解析成功
 
-- **WHEN** 以合法模型（含 `package` / `domain` / `module` / `component` 四类元素与 `off` / `warn` / `strict` 三档 `gate`，其中至少一个元素省略 `gate`）
+- **WHEN** 以合法模型（含 `package` / `domain` / `module` 三类元素与 `off` / `warn` / `strict` 三档 `gate`，其中至少一个元素省略 `gate`）
 - **THEN** 解析成功；省略 `gate` 的元素取 `off`；每个元素的 `path` 缺省为空数组、`metadata` 缺省为空表、`entry` 与 `doc` 缺省为 `null`
 
 #### Scenario: 非法 kind 与非法 gate 被拒并列全合法值
 
 - **WHEN** 模型写 `kind = "pakage"` 或 `gate = "stirct"`
-- **THEN** 解析返回 `invalidValue` 诊断，`message` 含 parser 原文（`line` / `column` / 源码片段 / `^^^^` 指示）并**列出全部合法值**（`package` / `domain` / `module` / `component` 或 `off` / `warn` / `strict`），模型整体判定为停摆态
+- **THEN** 解析返回 `invalidValue` 诊断，`message` 含 parser 原文（`line` / `column` / 源码片段 / `^^^^` 指示）并**列出全部合法值**（`package` / `domain` / `module` 或 `off` / `warn` / `strict`），模型整体判定为停摆态
 
 #### Scenario: 内联 metadata 与非内联形态
 
@@ -256,7 +256,7 @@ archi 自实现（图规则）
 四个消费面（进程内诊断集、`archi_module` 工具响应、IPC DTO、**架构会话知识文本**）SHALL 对同一份模型语料覆盖**相同的词汇集**。需全覆盖的封闭词汇：
 
 ```
-element kind   package / domain / module / component
+element kind   package / domain / module
 gate 档        off / warn / strict
 api 状态       declared / none
 结构诊断       syntaxError / missingField / invalidValue / unknownField /
@@ -278,7 +278,7 @@ api 状态       declared / none
 #### Scenario: 语料含全词汇
 
 - **WHEN** 检查对拍语料
-- **THEN** 上述每一词汇至少各一条在场（`kind` 四类元素、`gate` 三档、`api` 状态两值、九类结构诊断各一坏点、边标记四值、节点标记两值）；语料 MUST NOT 再含「文档诊断」条目（该行已出射程）
+- **THEN** 上述每一词汇至少各一条在场（`kind` 三类元素、`gate` 三档、`api` 状态两值、九类结构诊断各一坏点、边标记四值、节点标记两值）；语料 MUST NOT 再含「文档诊断」条目（该行已出射程）
 
 #### Scenario: 三面（诊断 / 工具 / IPC）词汇集相等
 
@@ -293,7 +293,7 @@ api 状态       declared / none
 #### Scenario: 知识文本与三面同词汇集
 
 - **WHEN** 取架构会话知识文本（`source = "archi"` 的 `preamble` 内容）并枚举其词汇
-- **THEN** 其中含 `kind` 四值、`gate` 三值（含缺省 `off`）、`api` 状态两值（`declared` / `none`）、结构诊断九词，与另三面词汇集相等；把某个词从 `ALL` 删掉而知识侧仍能拼出该词（手抄）时测试红
+- **THEN** 其中含 `kind` 三值、`gate` 三值（含缺省 `off`）、`api` 状态两值（`declared` / `none`）、结构诊断九词，与另三面词汇集相等；把某个词从 `ALL` 删掉而知识侧仍能拼出该词（手抄）时测试红
 
 #### Scenario: ALL 与线格式词逐值对拍
 

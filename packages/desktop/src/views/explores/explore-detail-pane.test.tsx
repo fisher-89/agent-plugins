@@ -1332,7 +1332,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
               {
                 kind: 'toolUse',
                 id: 'call_1',
-                name: 'AskUserQuestion',
+                name: 'ask_user_question',
                 input: {
                   name: 'q',
                   question: '选哪个重试策略？',
@@ -1382,7 +1382,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
               {
                 kind: 'toolUse',
                 id: 'call_rerender',
-                name: 'AskUserQuestion',
+                name: 'ask_user_question',
                 input: { name: 'q', question: '重渲染后仍可答？', options: ['是', '否'] },
               },
             ],
@@ -1440,7 +1440,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
               {
                 kind: 'toolUse',
                 id: 'call_both',
-                name: 'AskUserQuestion',
+                name: 'ask_user_question',
                 input: { name: 'q', question: '并存？', options: ['是', '否'] },
               },
             ],
@@ -1480,7 +1480,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
               {
                 kind: 'toolUse',
                 id: 'call_ref',
-                name: 'AskUserQuestion',
+                name: 'ask_user_question',
                 input: { name: 'q', question: '引用稳定？', options: ['是', '否'] },
               },
             ],
@@ -1534,7 +1534,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
               {
                 kind: 'toolUse',
                 id: 'call_no_session',
-                name: 'AskUserQuestion',
+                name: 'ask_user_question',
                 input: { name: 'q', question: '无会话？', options: ['甲'] },
               },
             ],

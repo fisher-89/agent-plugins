@@ -97,43 +97,43 @@ path = ["./packages/desktop/src/components/agent/"]
 summary = "agent 会话组件的统一出口"
 
 [element."App.Frontend.Components.Agent.AgentBlocks"]
-kind = "component"
+kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/message-cards/blocks.tsx"]
 summary = "消息块与工具块的呈现"
 
 [element."App.Frontend.Components.Agent.AgentError"]
-kind = "component"
+kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/agent-error.ts"]
 summary = "会话错误行的呈现"
 
 [element."App.Frontend.Components.Agent.AgentInput"]
-kind = "component"
+kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/agent-input.tsx"]
 summary = "会话输入框与提交交互"
 
 [element."App.Frontend.Components.Agent.AgentMessages"]
-kind = "component"
+kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/agent-messages.tsx"]
 summary = "消息列表组装与滚动"
 
 [element."App.Frontend.Components.Agent.AgentSessionView"]
-kind = "component"
+kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/agent-session-view.tsx"]
 summary = "整段会话视图（含命令面类型驱动的状态）"
 
 [element."App.Frontend.Components.Agent.SessionPanel"]
-kind = "component"
+kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/session-panel.tsx"]
 summary = "会话面板骨架（头区动作 / 状态行 / 历史清单 / 折叠窄条，两处会话面共用）"
 
 [element."App.Frontend.Components.Agent.ToolCards"]
-kind = "component"
+kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/message-cards/tool-cards.tsx"]
 summary = "工具调用卡片的专门呈现"
@@ -144,37 +144,37 @@ gate = "off"
 summary = "通用交互组件集合（对话框、抽屉、分页、选择、组合框）"
 
 [element."App.Frontend.Components.Standard.Dailog"]
-kind = "component"
+kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/standard/dailog.tsx"]
 summary = "模态对话框外壳"
 
 [element."App.Frontend.Components.Standard.Drawer"]
-kind = "component"
+kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/standard/drawer.tsx"]
 summary = "抽屉面板外壳"
 
 [element."App.Frontend.Components.Standard.Pagination"]
-kind = "component"
+kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/standard/pagination.tsx"]
 summary = "分页控件"
 
 [element."App.Frontend.Components.Standard.Select"]
-kind = "component"
+kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/standard/select.tsx"]
 summary = "下拉选择控件"
 
 [element."App.Frontend.Components.Standard.Combobox"]
-kind = "component"
+kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/standard/combobox.tsx"]
 summary = "可选可填组合框（自由输入 + 建议清单）"
 
 [element."App.Frontend.Components.Standard.Tooltip"]
-kind = "component"
+kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/standard/tooltip.tsx"]
 summary = "文本气泡（原语层 Tooltip 的业务封装）"

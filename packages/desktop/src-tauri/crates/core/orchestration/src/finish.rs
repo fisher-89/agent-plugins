@@ -41,7 +41,7 @@ pub fn description(spec: FinishSpec) -> &'static str {
         FinishSpec::Decision => {
             "提交本步的路由决策（两动作封闭集之一）：backtrack（to 必须取 prompt 白名单内\
              相位 + reason ≤500 字符）/ stop（reason ≤500 字符）。无法裁决时调用 \
-             AskUserQuestion 工具（问题 + 非空选项）。越权目标与超长 reason 会被拒绝"
+             ask_user_question 工具（问题 + 非空选项）。越权目标与超长 reason 会被拒绝"
         }
     }
 }

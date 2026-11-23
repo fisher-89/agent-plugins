@@ -1411,7 +1411,7 @@ export type ArtifactEnvelope = {
 };
 
 /**
- *  ask 载荷：阻塞工具 `AskUserQuestion` 的等待中问题与候选选项（详情页
+ *  ask 载荷：阻塞工具 `ask_user_question` 的等待中问题与候选选项（详情页
  *  `AskCard` 与聊天窗 ask 活卡共读同一载荷）。
  */
 export type AskPayload = {
@@ -1737,7 +1737,8 @@ export type ChangeSummary = {
 	source: ChangeSource,
 	status: ChangeStatus | null,
 	activePhase: ActivePhase | null,
-	created: string | null,
+	created: string,
+	archivedAt: string | null,
 };
 
 /**  checklist 检查项。 */
@@ -1908,16 +1909,14 @@ export type EdgeMark =
 /**  豁免（灰实线） */
 "exempt";
 
-/**  元素种类（封闭四值；线格式小写词）。 */
+/**  元素种类（封闭三值；线格式小写词）。 */
 export type ElementKind = 
 /**  包级（顶层分组） */
 "package" | 
 /**  域级（业务域） */
 "domain" | 
-/**  模块级 */
-"module" | 
-/**  组件级 */
-"component";
+/**  模块级（crate / 目录型模块 / 视图 / 单文件组件） */
+"module";
 
 /**
  *  入口解析的来源（封闭二值）。

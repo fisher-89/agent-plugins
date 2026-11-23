@@ -211,7 +211,7 @@ pub fn node_id(key: &NodeKey) -> String {
     format!("{}:{}:{}:{}", key.0, key.1, key.2.as_str(), key.3)
 }
 
-/// ask 载荷：阻塞工具 `AskUserQuestion` 的等待中问题与候选选项（详情页
+/// ask 载荷：阻塞工具 `ask_user_question` 的等待中问题与候选选项（详情页
 /// `AskCard` 与聊天窗 ask 活卡共读同一载荷）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -300,7 +300,7 @@ pub enum RunUpdate {
         session_id: String,
         event: agent::AgentEvent,
     },
-    /// ask 中断（阻塞工具 `AskUserQuestion` 正在等待应答）
+    /// ask 中断（阻塞工具 `ask_user_question` 正在等待应答）
     Ask { ask: AskPayload },
     /// phase 间停等确认（archive 前停等点随行归档前置只读载荷；其余停等点 None）
     ConfirmWait {

@@ -1,7 +1,7 @@
 //! `archi_knowledge` 的单元测试：知识文本的分层收口（骨架只留不可脚本化的散文与
 //! 一行工具指路，示例 TOML 与字段形态归 `archi_scaffold`）、A 档指路句逐句在场
-//! （含自检纪律两句：结构诊断带 `file:line`、生成物重生成命令名）、派生段收缩为
-//! 四面词表 + 两处目录，以及拼装 / 降级 / 体量锚（实测值冻结 2139 B / 2629 B）。
+//! （含自检纪律两句：结构诊断带 `file:line`、生成物重生成只给通用指路）、派生段
+//! 收缩为四面词表 + 两处目录，以及拼装 / 降级 / 体量锚（实测值冻结 2095 B / 2573 B）。
 //!
 //! 零 mock：`include_str!` 取编译期内嵌的同一份字节（禁测试内复制副本）；
 //! `layout` 派生与 `ElementKind::ALL` / `GateTier::ALL` / `ApiStatus::ALL` /
@@ -68,18 +68,17 @@ fn 骨架零字段形态教学() {
 }
 
 // ---------------------------------------------------------------------------
-// 分层新增面：kind 四值语义 / 计数单源 / 看护配置
+// 分层新增面：kind 三值语义 / 计数单源 / 看护配置
 // ---------------------------------------------------------------------------
 
-/// 正向：`kind` 四值语义逐值在场（包根 / 容器 / crate / 组件文件）。
+/// 正向：`kind` 三值语义逐值在场（包根 / 容器 / crate）。
 #[test]
-fn 骨架含kind四值语义() {
+fn 骨架含kind三值语义() {
     let source = skeleton();
     for (value, meaning) in [
         ("`package`", "包根"),
         ("`domain`", "容器"),
         ("`module`", "crate"),
-        ("`component`", "组件文件"),
     ] {
         assert!(source.contains(value), "kind 值 `{value}` 在场");
         assert!(source.contains(meaning), "kind 语义 `{meaning}` 在场");
@@ -112,9 +111,9 @@ fn 骨架含看护配置一行() {
 // A 档指路句（D17 机械表）：每句携带工具名 + 该工具面确有的字段
 // ---------------------------------------------------------------------------
 
-/// 正向（表驱动）：A 档指路句逐句在场——纪律句关键词 → 工具名（或既有命令）→
+/// 正向（表驱动）：A 档指路句逐句在场——纪律句关键词 → 工具名（或通用生成入口）→
 /// 该面确有的字段 / 口径（D17 机械表八行 + 自检纪律两句：结构诊断带 `file:line`、
-/// 生成物过期的重生成命令名）。
+/// 生成物重生成只给通用指路）。
 #[test]
 fn 骨架_指路表逐句在场() {
     let source = skeleton();
@@ -128,11 +127,7 @@ fn 骨架_指路表逐句在场() {
         ("两轴", "archi_api", "action = \"check\""),
         ("config.json", "archi_drift", "报错点名"),
         ("结构诊断", "archi_module", "file:line"),
-        (
-            "生成物过期",
-            "pnpm api:export",
-            "cargo run -p archi-api-gen -- generate",
-        ),
+        ("生成物过期", "既有生成命令", "MUST NOT 手改生成物"),
     ];
     for (needle, tool, field) in cases {
         assert!(source.contains(needle), "指路句锚点 `{needle}` 在场");
@@ -166,18 +161,20 @@ fn 指路句_file_line由真实诊断投影背书() {
     );
 }
 
-/// 组合：生成物重生成命令名是仓内真实存在的命令——`pnpm api:export` 与
-/// `cargo run -p archi-api-gen -- generate` 同时在场（指路不指向不存在的命令）。
+/// 边界：知识是**产品通用文本**——重生成一句只给纪律与通用指路，MUST NOT 出现
+/// 本仓的专用命令名（产品对任意 workspace 生效，生成命令归属各自仓库的文档面）。
 #[test]
-fn 指路句重生成命令名在场() {
+fn 骨架零项目专用命令() {
     let source = skeleton();
+    for piece in ["pnpm", "cargo run", "api:export", "archi-api-gen"] {
+        assert!(
+            !source.contains(piece),
+            "骨架 MUST NOT 含本仓专用命令 `{piece}`"
+        );
+    }
     assert!(
-        source.contains("`pnpm api:export`"),
-        "点名 `pnpm api:export`（反引号包裹的命令词）"
-    );
-    assert!(
-        source.contains("`cargo run -p archi-api-gen -- generate`"),
-        "点名 `cargo run -p archi-api-gen -- generate`"
+        source.contains("既有生成命令"),
+        "通用指路句仍在场（既有生成命令）"
     );
     assert!(
         source.contains("MUST NOT 手改生成物"),
@@ -328,14 +325,14 @@ fn 骨架保留写面可见性与续接() {
 // 体量锚与占位符纪律
 // ---------------------------------------------------------------------------
 
-/// 边界：骨架体量冻结在**实测值 2139 B**（design 目标区间 2000–2150 B），门限
+/// 边界：骨架体量冻结在**实测值 2095 B**（design 目标区间 2000–2150 B），门限
 /// ≤ 2252 B 仍在断言内——增删内容须同批更新冻结值，MUST NOT 以「贴近门限」冒充达标。
 #[test]
 fn 骨架体量锚() {
     let bytes = skeleton().trim_end().len();
     assert_eq!(
-        bytes, 2139,
-        "骨架体量实测 2139 B 已冻结；内容变更须同批更新本值与全文锚"
+        bytes, 2095,
+        "骨架体量实测 2095 B 已冻结；内容变更须同批更新本值与全文锚"
     );
     assert!(
         (2000..=2150).contains(&bytes),
@@ -347,14 +344,14 @@ fn 骨架体量锚() {
     );
 }
 
-/// 边界：全文（骨架 + 派生段）体量冻结在**实测值 2629 B**（design 目标区间
+/// 边界：全文（骨架 + 派生段）体量冻结在**实测值 2573 B**（design 目标区间
 /// 2550–2750 B），门限 ≤ 2867 B 仍在断言内。
 #[test]
 fn 全文体量锚() {
     let bytes = text().len();
     assert_eq!(
-        bytes, 2629,
-        "全文体量实测 2629 B 已冻结；内容变更须同批更新本值与骨架锚"
+        bytes, 2573,
+        "全文体量实测 2573 B 已冻结；内容变更须同批更新本值与骨架锚"
     );
     assert!(
         (2550..=2750).contains(&bytes),

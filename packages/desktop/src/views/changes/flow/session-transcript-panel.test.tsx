@@ -410,7 +410,7 @@ function askMessage(seq: number): AgentEvent {
       {
         kind: 'toolUse',
         id: 'call_flow_1',
-        name: 'AskUserQuestion',
+        name: 'ask_user_question',
         input: { name: 'q', question: '回溯到哪？', options: ['proposal', 'dev-design'] },
       },
     ],
@@ -429,13 +429,13 @@ function twoAskMessage(seq: number): AgentEvent {
       {
         kind: 'toolUse',
         id: 'call_1',
-        name: 'AskUserQuestion',
+        name: 'ask_user_question',
         input: { name: 'q', question: '退回哪个相位？', options: ['proposal'] },
       },
       {
         kind: 'toolUse',
         id: 'call_2',
-        name: 'AskUserQuestion',
+        name: 'ask_user_question',
         input: { name: 'q', question: '采用哪个实现方案？', options: ['方案甲', '方案乙'] },
       },
     ],

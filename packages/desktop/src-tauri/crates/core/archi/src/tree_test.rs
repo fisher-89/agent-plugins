@@ -233,7 +233,7 @@ fn 单文件型元素根归该文件条目() {
         ("App.Frontend.Views", "module", &[]),
         (
             "App.Frontend.Views.Welcome",
-            "component",
+            "module",
             &["./packages/desktop/src/views/welcome-view.tsx"],
         ),
     ]);
@@ -299,7 +299,7 @@ fn 后代计数与归属标记正交并存() {
         ("App.Core.Archi", "module", &["./crates/core/archi/"]),
         (
             "App.Core.Archi.Scan",
-            "component",
+            "module",
             &["./crates/core/archi/src/scan/"],
         ),
     ]);
@@ -368,7 +368,7 @@ fn 嵌套父子各出元素根且内层文件归最深() {
         ("App.Core.Archi", "module", &["./crates/core/archi/"]),
         (
             "App.Core.Archi.Scan",
-            "component",
+            "module",
             &["./crates/core/archi/src/scan/"],
         ),
     ]);
@@ -468,7 +468,7 @@ fn 容器元素不产任何节点() {
         ("App", "package", &[]),
         ("App.DomainA", "domain", &[]),
         ("App.DomainA.Module", "module", &[]),
-        ("App.DomainA.Module.Component", "component", &[]),
+        ("App.DomainA.Module.Component", "module", &[]),
     ]);
     temp.write("src/a.ts", "export const a = 1;\n");
 
@@ -540,14 +540,14 @@ fn 生成物按入口同级落点归元素() {
         ("App.Backend.Infra", "module", &[]),
         (
             "App.Backend.Infra.ArchiRuntime",
-            "component",
+            "module",
             &["./crates/infra/archi/"],
         ),
         ("App.Frontend", "domain", &[]),
         ("App.Frontend.Views", "package", &[]),
         (
             "App.Frontend.Views.Welcome",
-            "component",
+            "module",
             &["./packages/desktop/src/views/welcome-view.tsx"],
         ),
     ]);
@@ -1237,7 +1237,7 @@ fn 归属优先级取单值() {
     temp.write_model(&[
         ("App", "package", &[]),
         ("App.Upper", "module", &["./src/"]),
-        ("App.Upper.Child", "component", &["./src/child/"]),
+        ("App.Upper.Child", "module", &["./src/child/"]),
     ]);
     temp.write("src/child/x.ts", "export const x = 1;\n");
 

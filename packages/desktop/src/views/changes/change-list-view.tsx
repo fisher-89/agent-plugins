@@ -37,6 +37,7 @@ function ChangeRow({
         {summary.created !== null && (
           <span className="text-xs text-muted-foreground" data-testid="created">
             {summary.created}
+            {summary.archivedAt ? ` ~ ${summary.archivedAt}` : ''}
           </span>
         )}
       </Button>

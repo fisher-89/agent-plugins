@@ -1072,7 +1072,7 @@ function askEvent(seq: number): AgentEvent {
       {
         kind: 'toolUse',
         id: 'call_drawer_1',
-        name: 'AskUserQuestion',
+        name: 'ask_user_question',
         input: { name: 'q', question: '回溯到哪？', options: ['proposal', 'dev-design'] },
       },
     ],
@@ -1201,13 +1201,13 @@ describe('DetailDrawer：ask 动作面逐层透传（AC-13）', () => {
             {
               kind: 'toolUse',
               id: 'call_a',
-              name: 'AskUserQuestion',
+              name: 'ask_user_question',
               input: { name: 'q', question: '第一问', options: ['甲', '乙'] },
             },
             {
               kind: 'toolUse',
               id: 'call_b',
-              name: 'AskUserQuestion',
+              name: 'ask_user_question',
               input: { name: 'q', question: '第二问', options: ['丙', '丁'] },
             },
           ],

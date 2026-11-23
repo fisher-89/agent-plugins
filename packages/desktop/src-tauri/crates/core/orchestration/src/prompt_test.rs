@@ -1335,14 +1335,14 @@ fn 两个修正prompt退役且prompt源内零残留() {
 // ask-tool-in-flow：决策协议段的两动作 + ask 工具指路（AC-12）
 // ---------------------------------------------------------------------------
 
-/// ask 工具指路（正向，AC-12）：全文含 `AskUserQuestion` 字面 + 「无法裁决」
-/// 语义；指路句位于协议段内（`find("决策协议") < find("AskUserQuestion")`）。
+/// ask 工具指路（正向，AC-12）：全文含 `ask_user_question` 字面 + 「无法裁决」
+/// 语义；指路句位于协议段内（`find("决策协议") < find("ask_user_question")`）。
 #[test]
 fn decision_prompt含ask工具指路且落在协议段内() {
     let prompt = decision_prompt(&base_input());
 
     assert!(
-        prompt.contains("AskUserQuestion"),
+        prompt.contains("ask_user_question"),
         "全文含工具名字面: {prompt}"
     );
     assert!(
@@ -1350,7 +1350,7 @@ fn decision_prompt含ask工具指路且落在协议段内() {
         "含「无法裁决」语义（何时改用工具的判据）: {prompt}"
     );
     let protocol_at = prompt.find("决策协议").expect("协议段在场");
-    let pointer_at = prompt.find("AskUserQuestion").expect("指路句在场");
+    let pointer_at = prompt.find("ask_user_question").expect("指路句在场");
     assert!(
         protocol_at < pointer_at,
         "指路句位于协议段内（协议段偏移 {protocol_at} < 指路偏移 {pointer_at}）"
@@ -1407,7 +1407,7 @@ fn decision_prompt信封插值边界下协议段与指路句仍在场() {
                 input.fail_report = report.clone();
                 let prompt = decision_prompt(&input);
                 assert!(prompt.contains("决策协议"), "协议段在场");
-                assert!(prompt.contains("AskUserQuestion"), "指路句在场");
+                assert!(prompt.contains("ask_user_question"), "指路句在场");
                 assert!(prompt.contains("`backtrack`"), "backtrack 条目在场");
                 assert!(prompt.contains("`stop`"), "stop 条目在场");
                 assert!(
@@ -1429,11 +1429,11 @@ fn decision_prompt空白名单下协议段与指路句不受影响() {
 
     assert!(prompt.contains("可回溯白名单"), "白名单段标题仍在");
     assert!(prompt.contains("决策协议"), "协议段仍在");
-    assert!(prompt.contains("AskUserQuestion"), "指路句仍在");
+    assert!(prompt.contains("ask_user_question"), "指路句仍在");
     assert!(prompt.contains("`backtrack`"), "backtrack 条目仍在");
 }
 
-/// archive 两步零 `AskUserQuestion`（边界，零改动回归）：归档产物不消费 ask。
+/// archive 两步零 `ask_user_question`（边界，零改动回归）：归档产物不消费 ask。
 #[test]
 fn archive两步产物零ask工具字样() {
     let spec_sync = spec_sync_prompt("demo-change");
@@ -1443,7 +1443,7 @@ fn archive两步产物零ask工具字样() {
         ("merge_conflict_prompt", &merge_conflict),
     ] {
         assert!(
-            !prompt.contains("AskUserQuestion"),
+            !prompt.contains("ask_user_question"),
             "{label} 不消费 ask 工具（归档面零 ask 字样）"
         );
         assert!(!prompt.contains("决策协议"), "{label} 零决策协议段");

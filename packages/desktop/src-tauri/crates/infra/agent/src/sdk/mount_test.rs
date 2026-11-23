@@ -766,9 +766,12 @@ fn definitions的ask位generic档追加且定义与ask模块逐字节相等() {
     )
     .expect("ask 位置位合法");
 
-    assert_eq!(mounts.len(), 8, "七内建 + AskUserQuestion");
+    assert_eq!(mounts.len(), 8, "七内建 + ask_user_question");
     let ask = mounts.last().expect("末项为 ask 工具");
-    assert_eq!(ask.definition.name, "AskUserQuestion", "工具名取 TOOL_NAME");
+    assert_eq!(
+        ask.definition.name, "ask_user_question",
+        "工具名取 TOOL_NAME"
+    );
     assert_eq!(ask.tier, ToolTier::Protocol, "ask 档位为 Protocol");
     assert_eq!(ask.exec, ToolExec::Ask(AskMode::Generic), "执行体携档位");
     assert_eq!(
@@ -811,7 +814,7 @@ fn definitions的ask位两档位模型视角零差异仅执行体不同() {
 }
 
 /// 追加序（正向，DD14）：`ask: Some` + `finish: Some(Decision)` → 名单尾两项
-/// 依次 `AskUserQuestion`、`finish_step`（ask 先、finish 保持末位）。
+/// 依次 `ask_user_question`、`finish_step`（ask 先、finish 保持末位）。
 #[test]
 fn definitions的ask位追加在finish之前() {
     let mounts = definitions(
@@ -827,7 +830,7 @@ fn definitions的ask位追加在finish之前() {
         .collect();
     assert_eq!(
         tail,
-        vec!["AskUserQuestion", "finish_step"],
+        vec!["ask_user_question", "finish_step"],
         "追加序为 ask 先、finish 后（finish 保持末位）"
     );
 }
@@ -855,10 +858,10 @@ fn definitions的ask位不被名字清单过滤() {
     assert_eq!(projected.len(), explore_names.len() + 1, "清单 + ask 一项");
     assert_eq!(
         projected.last().map(String::as_str),
-        Some("AskUserQuestion")
+        Some("ask_user_question")
     );
     assert!(
-        !explore_names.contains(&"AskUserQuestion"),
+        !explore_names.contains(&"ask_user_question"),
         "ask 不占名字清单（清单本身不含该名）"
     );
 }
@@ -881,7 +884,7 @@ fn definitions的ask与finish四组合互相独立() {
         let mounts = definitions(&injected_ask(&[], ask, finish), "").expect("四组合均合法");
         let projected = names(&mounts);
         assert_eq!(
-            projected.contains(&"AskUserQuestion".to_owned()),
+            projected.contains(&"ask_user_question".to_owned()),
             expect_ask,
             "(ask={ask:?}, finish={finish:?}) 的 ask 项在场性"
         );
@@ -894,7 +897,7 @@ fn definitions的ask与finish四组合互相独立() {
 }
 
 /// `ask: None` 零追加（异常，AC-3）：七件名清单 + `ask: None` → 挂载项数恰 7、
-/// 名单内零 `AskUserQuestion`。
+/// 名单内零 `ask_user_question`。
 #[test]
 fn definitions的ask位缺席时零追加() {
     for tools in [
@@ -915,9 +918,9 @@ fn definitions的ask位缺席时零追加() {
             before_done: None,
         };
         let mounts = definitions(&injections, "").expect("合法");
-        assert_eq!(mounts.len(), 7, "AskUserQuestion 不追加到内建七件");
+        assert_eq!(mounts.len(), 7, "ask_user_question 不追加到内建七件");
         assert!(
-            !names(&mounts).contains(&"AskUserQuestion".to_owned()),
+            !names(&mounts).contains(&"ask_user_question".to_owned()),
             "ask = None 时名单零该名（RunStarted.tools 随名单派生）"
         );
     }
@@ -948,7 +951,7 @@ fn definitions的tools三形态与ask两位组合() {
             let projected = names(&mounts);
             let expect_ask = ask.is_some();
             assert_eq!(
-                projected.contains(&"AskUserQuestion".to_owned()),
+                projected.contains(&"ask_user_question".to_owned()),
                 expect_ask,
                 "tools={tools:?} 与 ask={ask:?} 组合下 ask 追加只依赖 ask 位"
             );
@@ -1072,13 +1075,13 @@ fn mount_rs的ask与finish两分支无合取判据() {
 }
 
 /// 工具名字面量单点（异常，源码自证，AC-4 延伸）：`mount.rs` 全文零
-/// `"AskUserQuestion"` 字面量（经 `orchestration::ask::TOOL_NAME` 引用）；
+/// `"ask_user_question"` 字面量（经 `orchestration::ask::TOOL_NAME` 引用）；
 /// `TOOL_NAMES` 常量内亦不含该名（它不是七件之一）。
 #[test]
 fn mount_rs零ask工具名字面量且不在静态清单() {
     let own = source_of("src/sdk/mount.rs");
     assert!(
-        !own.contains("\"AskUserQuestion\""),
+        !own.contains("\"ask_user_question\""),
         "mount.rs 零工具名字面量（经 TOOL_NAME 单点引用）"
     );
     assert!(
@@ -1086,8 +1089,8 @@ fn mount_rs零ask工具名字面量且不在静态清单() {
         "工具名经 ask 模块单点引用"
     );
     assert!(
-        !TOOL_NAMES.contains(&"AskUserQuestion"),
-        "AskUserQuestion 不在十六项静态清单（按位追加的基线工具）"
+        !TOOL_NAMES.contains(&"ask_user_question"),
+        "ask_user_question 不在十六项静态清单（按位追加的基线工具）"
     );
 }
 
@@ -1161,7 +1164,7 @@ fn archi_api三档恒放行() {
 
 /// 正向（AC-15 / D13）：`archi_api` 的入参 schema 形态——`action` 为封闭二值
 /// （`check` / `bootstrap`）、`element` 可选字符串、`required == ["action"]`，描述里含
-/// 「生成物过期用既有命令重生成、MUST NOT 手改生成物」要点。
+/// 「生成物过期用既有生成命令重生成、MUST NOT 手改生成物」要点。
 #[test]
 fn archi_api入参schema形态() {
     let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
@@ -1187,6 +1190,22 @@ fn archi_api入参schema形态() {
             "描述含要点 `{piece}`：{}",
             definition.description
         );
+    }
+}
+
+/// 边界：工具描述是**产品通用文本**——对 agent 可见的描述面 MUST NOT 携带本仓的
+/// 专用命令名（产品对任意 workspace 生效，生成命令归属各自仓库的文档面）。
+#[test]
+fn 工具描述零项目专用命令() {
+    for mount in registry() {
+        for piece in ["pnpm", "cargo run", "api:export", "archi-api-gen"] {
+            assert!(
+                !mount.definition.description.contains(piece),
+                "{} 的描述 MUST NOT 含本仓专用命令 `{piece}`：{}",
+                mount.definition.name,
+                mount.definition.description
+            );
+        }
     }
 }
 
@@ -1724,7 +1743,7 @@ fn 提案工具不进tools_none语义且ask位独立追加() {
     };
     let mounts = definitions(&injections, "").expect("内建名单装配应成功");
     let mut expected: Vec<String> = TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
-    expected.push("AskUserQuestion".to_owned());
+    expected.push("ask_user_question".to_owned());
     assert_eq!(names(&mounts), expected, "七内建 + ask 工具（末位）");
     assert!(
         !names(&mounts).iter().any(|name| name == "propose_config"),
@@ -1769,7 +1788,7 @@ fn lookup提案工具近似名全none() {
 }
 
 /// 边界：`archi_scaffold` 的 `kind` enum 与 `ElementKind::ALL.map(as_str)` 逐值相等
-/// （长度 4、序一致，零第二份字面量）。
+/// （长度 3、序一致，零第二份字面量）。
 #[test]
 fn archi_scaffold定义kind词表派生() {
     let definition = lookup(ARCHI_SCAFFOLD_TOOL).expect("定义在案");
@@ -1783,7 +1802,7 @@ fn archi_scaffold定义kind词表派生() {
         .map(archi::dto::ElementKind::as_str)
         .to_vec();
     assert_eq!(enum_values, expected, "kind enum 由词表派生");
-    assert_eq!(enum_values.len(), 4, "四值封闭");
+    assert_eq!(enum_values.len(), 3, "三值封闭");
     assert_eq!(
         definition.parameters["required"],
         serde_json::json!([]),

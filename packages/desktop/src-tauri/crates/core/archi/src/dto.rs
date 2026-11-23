@@ -13,7 +13,7 @@ use crate::{diff, search};
 // 封闭词汇（九枚举，词汇单点）
 // ---------------------------------------------------------------------------
 
-/// 元素种类（封闭四值；线格式小写词）。
+/// 元素种类（封闭三值；线格式小写词）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum ElementKind {
@@ -21,10 +21,8 @@ pub enum ElementKind {
     Package,
     /// 域级（业务域）
     Domain,
-    /// 模块级
+    /// 模块级（crate / 目录型模块 / 视图 / 单文件组件）
     Module,
-    /// 组件级
-    Component,
 }
 
 impl ElementKind {
@@ -34,16 +32,14 @@ impl ElementKind {
             ElementKind::Package => "package",
             ElementKind::Domain => "domain",
             ElementKind::Module => "module",
-            ElementKind::Component => "component",
         }
     }
 
     /// 全部合法值（清单单点：工具描述从同一份词表派生，不另抄一份字面量）。
-    pub const ALL: [ElementKind; 4] = [
+    pub const ALL: [ElementKind; 3] = [
         ElementKind::Package,
         ElementKind::Domain,
         ElementKind::Module,
-        ElementKind::Component,
     ];
 }
 

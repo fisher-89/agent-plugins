@@ -449,7 +449,7 @@ describe('ContractPanel：生成交互', () => {
     expect(screen.queryByTestId('archi-contract-generate')).toBeNull();
     const readonly = screen.getByTestId('archi-contract-readonly').textContent ?? '';
     expect(readonly).toContain('生成需开 change');
-    expect(readonly).toContain('pnpm api:export');
+    expect(readonly).toContain('本仓的生成命令');
     expect(callsOf('archi_api_generate')).toHaveLength(0);
   });
 

@@ -59,7 +59,7 @@ impl Drop for TempDir {
 }
 
 /// 封闭词汇全值清单（测试内字面量镜像：多一值或少一值即红）。
-const ELEMENT_KINDS: [&str; 4] = ["package", "domain", "module", "component"];
+const ELEMENT_KINDS: [&str; 3] = ["package", "domain", "module"];
 const GATE_TIERS: [&str; 3] = ["off", "warn", "strict"];
 const DIAGNOSTIC_KINDS: [&str; 9] = [
     "syntaxError",
@@ -111,7 +111,7 @@ fn all_vocabulary_corpus(tag: &str) -> TempDir {
             "[element.\"App.Cycle2\"]\nkind = \"module\"\n\n",
             "[element.\"App.Ancestor\"]\nkind = \"domain\"\n\n",
             "[element.\"App.Ref\"]\nkind = \"module\"\n\n",
-            "[element.\"App.Orphan.Child\"]\nkind = \"component\"\n\n",
+            "[element.\"App.Orphan.Child\"]\nkind = \"module\"\n\n",
             "[[relation]]\nfrom = \"App.Cycle1\"\nto = \"App.Cycle2\"\n\n",
             "[[relation]]\nfrom = \"App.Cycle2\"\nto = \"App.Cycle1\"\n\n",
             "[[relation]]\nfrom = \"App.Ancestor\"\nto = \"App\"\n\n",
@@ -121,7 +121,7 @@ fn all_vocabulary_corpus(tag: &str) -> TempDir {
     temp
 }
 
-/// 健康全值语料：四种元素种类 × 三档 gate × 关系（边 / 节点标记）。
+/// 健康全值语料：三种元素种类 × 三档 gate × 关系（边 / 节点标记）。
 fn healthy_vocabulary_corpus(tag: &str) -> TempDir {
     let temp = TempDir::new(tag);
     temp.write_model(
@@ -130,7 +130,7 @@ fn healthy_vocabulary_corpus(tag: &str) -> TempDir {
             "[element.\"App\"]\nkind = \"package\"\ngate = \"off\"\n\n",
             "[element.\"App.Domain\"]\nkind = \"domain\"\ngate = \"warn\"\n\n",
             "[element.\"App.Domain.Module\"]\nkind = \"module\"\ngate = \"strict\"\n\n",
-            "[element.\"App.Domain.Module.Component\"]\nkind = \"component\"\n\n",
+            "[element.\"App.Domain.Module.Component\"]\nkind = \"module\"\n\n",
             "[element.\"App.Billing\"]\nkind = \"domain\"\n\n",
             "[[relation]]\nfrom = \"App.Domain.Module\"\nto = \"App.Billing\"\n",
         ),
@@ -247,7 +247,6 @@ fn 封闭词汇值域九组() {
         ElementKind::Package,
         ElementKind::Domain,
         ElementKind::Module,
-        ElementKind::Component,
     ]
     .into_iter()
     .map(ElementKind::as_str)
@@ -324,7 +323,7 @@ fn 新增词汇未同步即点名缺失() {
     );
 }
 
-/// 正向：健康全值语料 → 元素种类四值、gate 三档、边 / 节点标记 `none` 均经 DTO
+/// 正向：健康全值语料 → 元素种类三值、gate 三档、边 / 节点标记 `none` 均经 DTO
 /// 投影串可观测（第三面在元素 / 关系维度的等价断言）。
 #[test]
 fn 投影串覆盖元素种类与档位与标记词汇() {
@@ -469,12 +468,12 @@ fn 空模型与停摆态可区分() {
 use archi::dto::{ApiStatus, ArchiElement};
 
 /// 正向（AC-8）：既有三面词数不变（`DiagnosticKind` 9 / `GateTier` 3 /
-/// `ElementKind` 4）+ 新增 `ApiStatus` 两值全部在场；四面各自去重后长度不变。
+/// `ElementKind` 3）+ 新增 `ApiStatus` 两值全部在场；四面各自去重后长度不变。
 #[test]
 fn 四面词汇集新增api面() {
     assert_eq!(DiagnosticKind::ALL.len(), 9, "结构诊断九值不变");
     assert_eq!(GateTier::ALL.len(), 3, "gate 三值不变");
-    assert_eq!(ElementKind::ALL.len(), 4, "元素 kind 四值不变");
+    assert_eq!(ElementKind::ALL.len(), 3, "元素 kind 三值不变");
     assert_eq!(ApiStatus::ALL.len(), 2, "api 状态二值（第四面）");
 
     let faces: [(&str, Vec<&str>); 4] = [
@@ -617,8 +616,8 @@ fn 既有三面词序零变化() {
     let kinds: Vec<&str> = ElementKind::ALL.iter().map(|kind| kind.as_str()).collect();
     assert_eq!(
         kinds,
-        vec!["package", "domain", "module", "component"],
-        "元素 kind 四值词序不变"
+        vec!["package", "domain", "module"],
+        "元素 kind 三值词序不变"
     );
     let api: Vec<&str> = ApiStatus::ALL
         .iter()
@@ -663,8 +662,8 @@ fn api_status缺省与线形封闭() {
 fn entry不派生词表且四面封闭() {
     assert_eq!(
         archi::dto::ElementKind::ALL.len(),
-        4,
-        "元素 kind 四面之一仍封闭四值"
+        3,
+        "元素 kind 四面之一仍封闭三值"
     );
     assert_eq!(archi::dto::GateTier::ALL.len(), 3, "gate 封闭三值");
     assert_eq!(

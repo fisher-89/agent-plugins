@@ -655,7 +655,7 @@ function askTranscript(): AgentEvent[] {
         {
           kind: 'toolUse',
           id: 'call_1',
-          name: 'AskUserQuestion',
+          name: 'ask_user_question',
           input: { name: 'q', question: '选哪个？', options: ['甲', '乙'] },
         },
       ],
@@ -797,7 +797,7 @@ describe('AgentSessionView：ask 动作面两形态同透传（AC-11 / DD7）', 
         role: 'assistant',
         parts: [
           {
-            type: 'tool-AskUserQuestion',
+            type: 'tool-ask_user_question',
             toolCallId: 'call_view_1',
             state: 'input-available',
             input: { name: 'q', question: '选哪个？', options: ['甲', '乙'] },

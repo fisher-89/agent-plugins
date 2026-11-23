@@ -155,7 +155,7 @@ fn description两形态_各含关键语义且互不相等且不膨胀() {
     assert!(decision.contains("白名单"), "decision 形态含白名单语义");
     // 指路文案（AC-12）：含工具名字面 + 无法裁决语义；不含 ask 动作词形态
     assert!(
-        decision.contains("AskUserQuestion"),
+        decision.contains("ask_user_question"),
         "decision 形态指路 ask 工具（工具名字面）: {decision}"
     );
     assert!(
@@ -566,7 +566,7 @@ fn ask动作validate与schema双面拒绝() {
 fn finish_rs的ask只在文案与注释里() {
     let own = source_of("src/finish.rs");
     assert!(
-        own.contains("AskUserQuestion"),
+        own.contains("ask_user_question"),
         "description 里以文案指路 ask 工具（工具名出现在字符串内）"
     );
 

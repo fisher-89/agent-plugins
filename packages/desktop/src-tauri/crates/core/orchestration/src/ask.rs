@@ -7,9 +7,9 @@
 
 use serde_json::{json, Value};
 
-/// 工具名单点（infra 引它铸造挂载项——`"AskUserQuestion"` 全仓只有这一处
+/// 工具名单点（infra 引它铸造挂载项——`"ask_user_question"` 全仓只有这一处
 /// 字面量）。
-pub const TOOL_NAME: &str = "AskUserQuestion";
+pub const TOOL_NAME: &str = "ask_user_question";
 
 /// ask 参数校验产物。
 #[derive(Debug, Clone, PartialEq, Eq)]

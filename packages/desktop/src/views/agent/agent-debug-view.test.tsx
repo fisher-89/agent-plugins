@@ -883,7 +883,7 @@ describe('AgentDebugView：ask 动作面（AC-13）', () => {
         {
           kind: 'toolUse',
           id: 'call_1',
-          name: 'AskUserQuestion',
+          name: 'ask_user_question',
           input: { name: 'q', question: '选哪个重试策略？', options: ['指数退避', '固定间隔'] },
         },
       ],
@@ -922,7 +922,7 @@ describe('AgentDebugView：ask 动作面（AC-13）', () => {
         {
           kind: 'toolUse',
           id: 'call_raw',
-          name: 'AskUserQuestion',
+          name: 'ask_user_question',
           input: { name: 'q', question: 'q', options: ['a'] },
         },
       ],
@@ -967,7 +967,7 @@ describe('AgentDebugView：ask 动作面（AC-13）', () => {
         {
           kind: 'toolUse',
           id: 'call_stable',
-          name: 'AskUserQuestion',
+          name: 'ask_user_question',
           input: { name: 'q', question: '答哪个？', options: ['甲', '乙'] },
         },
       ],
@@ -1006,7 +1006,7 @@ describe('AgentDebugView：ask 动作面（AC-13）', () => {
         {
           kind: 'toolUse',
           id: 'call_stable_ref',
-          name: 'AskUserQuestion',
+          name: 'ask_user_question',
           input: { name: 'q', question: '引用稳定？', options: ['是', '否'] },
         },
       ],

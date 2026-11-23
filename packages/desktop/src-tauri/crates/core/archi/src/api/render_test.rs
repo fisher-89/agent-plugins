@@ -251,7 +251,7 @@ fn broken_models() -> Vec<(&'static str, &'static str)> {
         ),
         (
             "orphanHierarchy",
-            "[element.\"App.Auth.Token\"]\nkind = \"component\"\n",
+            "[element.\"App.Auth.Token\"]\nkind = \"module\"\n",
         ),
         (
             "unknownReference",

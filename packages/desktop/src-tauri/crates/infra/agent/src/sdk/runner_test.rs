@@ -2982,7 +2982,7 @@ impl orchestration::port::AskPort for NoopAskPort {
 //
 // 直测面：`session_pump` 是私有函数，但铸造点在其体内单点；可观测面 = 泵内
 // 铸出的 `LoopTurn.ask` 经 loop 的执行体行为外显（真实泵 + 脚本化 SSE provider
-// ——`AskUserQuestion` 调用与 `Generic` / `Flow` 两档 `AskPort` 广播都在这里
+// ——`ask_user_question` 调用与 `Generic` / `Flow` 两档 `AskPort` 广播都在这里
 // 落地，不靠直构 `AskContext` 绕过铸造点）。
 // ---------------------------------------------------------------------------
 
@@ -3127,7 +3127,7 @@ fn sse_stop(text: &str) -> String {
     body
 }
 
-/// 一段「调 `AskUserQuestion`」的流（工具名 + 完整参数单块）。
+/// 一段「调 `ask_user_question`」的流（工具名 + 完整参数单块）。
 fn sse_ask_tool_call(tool_call_id: &str, question: &str, options: &[&str]) -> String {
     let mut body = String::new();
     body.push_str(&sse_data(&serde_json::json!({
@@ -3141,7 +3141,7 @@ fn sse_ask_tool_call(tool_call_id: &str, question: &str, options: &[&str]) -> St
                     "id": tool_call_id,
                     "type": "function",
                     "function": {
-                        "name": "AskUserQuestion",
+                        "name": "ask_user_question",
                         "arguments": serde_json::json!({ "name": "q", "question": question, "options": options }).to_string(),
                     },
                 }],
@@ -3299,7 +3299,7 @@ async fn 泵内铸ask上下文_泛用档键为core会话id且port为none() {
         panic!("首事件应为 RunStarted，实际: {started:?}");
     };
     assert!(
-        tools.contains(&"AskUserQuestion".to_owned()),
+        tools.contains(&"ask_user_question".to_owned()),
         "ask 位在场即下发该工具: {tools:?}"
     );
     let engine_id = session_id.clone().expect("引擎侧 id 在场");
@@ -3451,7 +3451,7 @@ async fn 泵内ask位为none时不铸上下文且硬调即拒() {
         panic!("首事件应为 RunStarted");
     };
     assert!(
-        !tools.contains(&"AskUserQuestion".to_owned()),
+        !tools.contains(&"ask_user_question".to_owned()),
         "ask: None 时下发面不含该工具: {tools:?}"
     );
 

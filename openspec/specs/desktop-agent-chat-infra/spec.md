@@ -261,7 +261,7 @@
 `packages/desktop/src/components/agent/` SHALL 提供共享展示组件族,全部 agent 会话页面(explore 会话 / agent 调试 / change 流程抽屉 / 历史重放 / 未来页面)统一消费:
 
 - `AgentSessionView` 会话级唯一入口: 入参 `root` + `sessionId`(+ 可选 `refreshKey` / composer 插槽 / `askAnswer` 应答动作面),内部经通用查询面装配会话并按会话状态挂流(契约见「会话级统一渲染组件」requirement);消费点 MUST NOT 自行拼装消息、轮行或事件流;
-- `AgentMessages` 对话透镜: user / assistant 气泡(**一轮一条 assistant 气泡**,部件按到达顺序)、工具对卡、思考折叠、AskUserQuestion 卡(问题与选项原样可读;应答动作面在场时呈**活卡**、缺席时呈静态只读卡,见「ask 工具卡活卡与应答动作面」);超长 user 提问 SHALL 默认折叠为预览(展开后回到 text 部件的 markdown 渲染,见「超长 user 提问默认折叠」);辅助载体消息(system 角色承载的 data 部件)MUST NOT 进对话呈现,对话透镜 SHALL 基于过滤后列表判定空态;空内容轮的可见性 SHALL 按该轮 `metadata.record.status` 判定而非 `parts` 是否为空(失败 / 停止轮呈轮内状态行,见「轮内状态行与空内容轮可见性」);运行中状态 MUST NOT 在透镜内另立标记(`agent-messages-running` 已退役——运行态由会话元信息徽标与 composer 停止入口承载);
+- `AgentMessages` 对话透镜: user / assistant 气泡(**一轮一条 assistant 气泡**,部件按到达顺序)、工具对卡、思考折叠、ask_user_question 卡(问题与选项原样可读;应答动作面在场时呈**活卡**、缺席时呈静态只读卡,见「ask 工具卡活卡与应答动作面」);超长 user 提问 SHALL 默认折叠为预览(展开后回到 text 部件的 markdown 渲染,见「超长 user 提问默认折叠」);辅助载体消息(system 角色承载的 data 部件)MUST NOT 进对话呈现,对话透镜 SHALL 基于过滤后列表判定空态;空内容轮的可见性 SHALL 按该轮 `metadata.record.status` 判定而非 `parts` 是否为空(失败 / 停止轮呈轮内状态行,见「轮内状态行与空内容轮可见性」);运行中状态 MUST NOT 在透镜内另立标记(`agent-messages-running` 已退役——运行态由会话元信息徽标与 composer 停止入口承载);
 - `AgentInput` composer: prompt 输入（空串禁发;纯空白字符不单独拦截——trim 守卫不在组件侧）、permission-mode 档位（`StandardSelect` 选择器;**缺省隐藏**——`hidePermissionMode` 缺省 `true`，显式 `false` 才呈档位行；`onSend` 的 `permissionMode` 参数位恒保留，隐藏时取缺省 `bypassPermissions`）、发送、停止入口;并 SHALL 提供**整面板禁用态**(`disabled` + 禁用理由文案——输入框与发送同时禁用,理由文案原样呈现),供来源侧按业务判据(如 change 流程运行中 / 归档只读,见 desktop-change-chat)整面板禁发;`running` 语义 SHALL 为「呈停止入口」——发送入口不禁用,重复发送由会话层 `isStreaming` 守卫忽略;停止入口 SHALL 只随 `running` 呈现且 MUST NOT 被 `disabled` 隐去(运行中即便整面板禁用仍可从面板停止);`disabled` MUST NOT 复用为「运行中」的第二表达;
 - 工具卡注册表: 特化卡(AskUserQuestionCard 等)为可插拔位,未注册工具名回退默认对卡;
 - 部件运行态判据: 工具部件的「运行中」呈现 SHALL 以**该轮状态**为准（轮 `status === 'running'`）——轮已终结（`completed` / `failed` / `stopped` / `interrupted`）时，未配对的部件 MUST NOT 呈运行态（`TraceLine` 的运行标记 / shimmer 退场，取 `pending` 或无状态）,因为未配对只说明「没有结果落库」,不说明「正在跑」；`running` 轮内的未配对部件 SHALL 照常呈运行态。判据 MUST NOT 以「工具结果缺席」单独推断运行中;
@@ -276,7 +276,7 @@
 #### Scenario: 对话透镜映射
 
 - **WHEN** 会话状态含文本、思考、工具调用与工具结果
-- **THEN** `AgentMessages` 按序呈现 markdown 气泡、可展开思考块、成对工具卡,AskUserQuestion 呈问题与选项可读的卡（无应答动作面注入时为静态只读卡）
+- **THEN** `AgentMessages` 按序呈现 markdown 气泡、可展开思考块、成对工具卡,ask_user_question 呈问题与选项可读的卡（无应答动作面注入时为静态只读卡）
 
 #### Scenario: 终结轮的未配对部件不呈运行态
 
@@ -395,7 +395,7 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 - **引用列表**：`CitationList` SHALL 挂在正文 text 部件**底部**，条目显示 `title ?? url`，**按 url 去重**；MUST NOT 做行内角标、MUST NOT 做原句高亮。数据来源 SHALL 为 text 部件的 `providerMetadata.agent.citations`（命名空间 `agent`——消费点在 provider 之外，MUST NOT 借用 `anthropic` 命名空间）。
 - **外链**：`ExternalLink` SHALL 为**唯一外链调用点**（搜索卡来源与引用列表共用）：仅 `http:` / `https:` 目标的 url SHALL 渲染为可点击链接并经壳侧 opener 打开；其他 scheme（`javascript:`、`file:`、`mailto:` 等）MUST NOT 渲染为链接（降级为纯文本）。壳侧插件注册与 capabilities 权限面见 desktop-app-shell「外链打开插件与 capabilities 最小权限面」。
 - **空内容轮可见性**：`AgentMessages` 的过滤判据（`src/lib/agent-virtual.ts` 的 `filterConversation`）SHALL 在既有「system 角色不进对话呈现」过滤之后，按**轮状态**判定空内容 assistant 消息（`parts` 为空）是否呈现——`metadata.record.status` 为 `failed` / `stopped` 时 SHALL 呈现轮内状态行（见「轮内状态行与空内容轮可见性」），为 `completed` 或轮行缺席时 MUST NOT 渲染空气泡；虚拟列表项数 SHALL 基于过滤后列表（不把不渲染的空内容消息计入虚拟列表 `count` 与吸附层几何）。MUST NOT 仅以 `message.parts.length > 0` 作为唯一判据（那会吞掉失败 / 停止轮）。
-- **工具卡注册表**：`BUILD_IN_TOOL_CARDS` SHALL 注册内建工具特化卡——`AskUserQuestion`（静态卡 / 活卡双态）、`web_search`（`WebSearchCard`）、`bash` / `read` / `write`（终端 / 文件读写卡）；`Object.keys` 断言随注册表键面更新。未注册工具名 SHALL 回退默认对卡，且折叠式特化卡与默认对卡 SHALL 共用同一卡根钩子（`data-testid="block-tool-use"` + `data-tool-id`）与结果正文钩子（`data-testid="block-tool-result"`，展开后挂载），使消费方无需区分卡型即可定位；`AskUserQuestion` 为容器形态（问卷表单根 `data-testid="ask-question-card"`），不带折叠卡的 `block-tool-use` 钩子。
+- **工具卡注册表**：`BUILD_IN_TOOL_CARDS` SHALL 注册内建工具特化卡——`ask_user_question`（静态卡 / 活卡双态）、`web_search`（`WebSearchCard`）、`bash` / `read` / `write`（终端 / 文件读写卡）；`Object.keys` 断言随注册表键面更新。未注册工具名 SHALL 回退默认对卡，且折叠式特化卡与默认对卡 SHALL 共用同一卡根钩子（`data-testid="block-tool-use"` + `data-tool-id`）与结果正文钩子（`data-testid="block-tool-result"`，展开后挂载），使消费方无需区分卡型即可定位；`ask_user_question` 为容器形态（问卷表单根 `data-testid="ask-question-card"`），不带折叠卡的 `block-tool-use` 钩子。
 - **两路一致**：实时路（流内）与重放路（库为准）SHALL 收敛到同一卡片形状——实时路 `pause_turn` 期间卡片只显查询词（`output` 未到），轮收口后由重放折叠补出来源列表；`pause_turn` 拆出的两段响应 SHALL 累积在**同一轮同一条 assistant 消息**内（MUST NOT 因拆段产生第二条气泡）；终态一致性由「收口以重放重建」保证（见「会话级统一渲染组件」），MUST NOT 为搜索另立一条收口路径。
 
 > 2026-11-06 agent-stream-single-message 修订:空内容轮可见性判据由 `parts.length > 0` 改为按 `metadata.record.status`(空内容 `failed` / `stopped` 呈轮内状态行,`completed` 不渲染),并明确 `pause_turn` 两段响应累积于同一轮同一条 assistant 消息。搜索卡自身条款(标题行 = 查询词、`title ?? 主机名` 回退、`BUILD_IN_TOOL_CARDS` 注册面与 `block-web-search-query` / `block-web-search-sources` 钩子)按主基线现行口径保留——delta 中该段为较早副本,与本变更自述 `agent-blocks.tsx` / `tool-cards.tsx` 零改动一致,MUST NOT 据其回退。
@@ -496,7 +496,7 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 ### Requirement: ask 工具卡活卡与应答动作面
 
-`AskUserQuestion` 工具部件 SHALL 呈**双态卡**（同一组件，按应答动作面在场与否切换），卡内表单以 `@shadcn/react/questionnaire` primitives（经 `components/ui/questionnaire.tsx` shim）承载：
+`ask_user_question` 工具部件 SHALL 呈**双态卡**（同一组件，按应答动作面在场与否切换），卡内表单以 `@shadcn/react/questionnaire` primitives（经 `components/ui/questionnaire.tsx` shim）承载：
 
 - **卡壳**：卡 SHALL 由 `TraceLine`（标题「提问」，`output` 缺席且**该轮仍在运行**时为 running 图标、`output` 缺席而该轮已终结时为提问图标（运行态退场——未配对不等于在等）、落定后为提问图标 / 错误态）与 `Card` 包裹；问卷表单根 SHALL 带 `data-testid="ask-question-card"`，每问节点带 `data-testid="ask-question"`，每个选项行带 `data-testid="ask-answer-option"`。
 - **静态态（未注入动作面）**：问题与选项原样可读、零应答出口——选项行 SHALL 照常呈现（表单行可选中，但无提交入口、无自由文本输入，故零 `onAnswer` 调用）；文案 MUST NOT 承诺「请在下方输入框作答」这类该页面并不成立的引导。
@@ -514,7 +514,7 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 #### Scenario: 活卡选选项并提交
 
-- **WHEN** 以 `askAnswer` 注入动作面渲染一个 `input-available` 的 `AskUserQuestion` 部件（单问，`name = "pick"`，`options = ["A","B"]`）
+- **WHEN** 以 `askAnswer` 注入动作面渲染一个 `input-available` 的 `ask_user_question` 部件（单问，`name = "pick"`，`options = ["A","B"]`）
 - **THEN** 卡内呈 A / B 两个可选项、一个自由文本输入与提交入口；只点 A 时 `onAnswer` 零调用；再点提交 → `onAnswer('A')` 恰调用一次（用户原文，非 JSON），提交与输入入口随即退场；MUST NOT 直接调用任何 IPC 命令
 
 #### Scenario: 活卡自由文本应答
@@ -529,7 +529,7 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 #### Scenario: 未注入即无应答出口
 
-- **WHEN** 以不传 `askAnswer` 的方式渲染同一 `AskUserQuestion` 部件（历史重放 / 只读消费点）
+- **WHEN** 以不传 `askAnswer` 的方式渲染同一 `ask_user_question` 部件（历史重放 / 只读消费点）
 - **THEN** 卡呈问题与选项的可读文本、零提交入口、零自由文本输入、零 invoke；卡内文案不含「请在下方输入框作答」类误导引导
 
 #### Scenario: 已应答回填与历史原文兼容
@@ -539,18 +539,18 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 #### Scenario: pendingToolCallId 精确对账
 
-- **WHEN** 一次渲染中有两个 `AskUserQuestion` 部件且 `pendingToolCallId` 只等于其中之一
+- **WHEN** 一次渲染中有两个 `ask_user_question` 部件且 `pendingToolCallId` 只等于其中之一
 - **THEN** 只有 `toolCallId` 相等的那一个是活卡（有提交入口），另一个为静态卡（无提交 / 无输入入口）；`pendingToolCallId` 为 `null` 时全为静态
 
 #### Scenario: 已终结轮的 ask 卡零应答入口
 
-- **WHEN** 以注入形态（不传 `pendingToolCallId`）渲染一条 `interrupted` 轮，其中 `AskUserQuestion` 部件无结果（进程在停等期死亡遗留）
+- **WHEN** 以注入形态（不传 `pendingToolCallId`）渲染一条 `interrupted` 轮，其中 `ask_user_question` 部件无结果（进程在停等期死亡遗留）
 - **THEN** 该卡呈静态只读（问题与选项可读、无提交入口、无自由文本输入、卡壳无运行态）；点击/提交入口不产生 `onAnswer`；同一会话 `running` 轮的无结果 ask 卡仍为活卡
 
 #### Scenario: 动作面只达 ask 卡
 
-- **WHEN** 以 `askAnswer` 渲染含 `bash` / `read` / `finish_step` / `AskUserQuestion` 四类部件的会话
-- **THEN** 仅 `AskUserQuestion` 卡获得应答动作面，其余三卡渲染与行为零变化（它们不接收 `askAnswer`）
+- **WHEN** 以 `askAnswer` 渲染含 `bash` / `read` / `finish_step` / `ask_user_question` 四类部件的会话
+- **THEN** 仅 `ask_user_question` 卡获得应答动作面，其余三卡渲染与行为零变化（它们不接收 `askAnswer`）
 
 #### Scenario: 应答被拒可归因
 
@@ -789,7 +789,7 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 |------|------|------|
 | `packages/desktop/src/components/agent/message-cards/tool-cards.tsx`（扩） | ask 卡双态（表单化） | `interface AgentToolCardProps` 增 `askAnswer?: { onAnswer: (text: string) => void }`；`AskUserQuestionCard` 以 `@shadcn/react/questionnaire`（经 `components/ui/questionnaire.tsx` shim）承载表单：`TraceLine` + `Card` 卡壳、`data-testid="ask-question-card"` 表单根、`ask-question` / `ask-answer-option` / `ask-answer-input` / `ask-answer-submit` 钩子；可见态下提交上行**用户原文单值**（选项值或自由文本；结构由后端按 `name` 铸造，组件不拼 JSON）；多问形态只读（零提交入口）；已应答按应答信封 `answers[<name>]` 回填、旧扁平 map 兼容、非 JSON 结果不抛错；不可解析输入降级为破坏性提示；`BUILD_IN_TOOL_CARDS` 键面零变更 |
 | `packages/desktop/src/components/ui/questionnaire.tsx`（新） | questionnaire shim | shadcn 生成的样式层：`Questionnaire` / `QuestionnaireItem` / `QuestionnaireTitle` / `QuestionnaireChoices` / `QuestionnaireChoice` / `QuestionnaireChoiceDescription` / `QuestionnaireInput` / `QuestionnaireError` / `QuestionnaireActions` / `QuestionnairePrevious` / `QuestionnaireNext` / `QuestionnaireSubmit` 等；底层为 `@shadcn/react/questionnaire` primitives |
-| `packages/desktop/src/components/agent/agent-messages.tsx`（扩） | 动作面透传单点 | `AgentMessagesProps` 增 `askAnswer?: { onAnswer: (text: string) => void; pendingToolCallId?: string \| null }`；`ToolPartView` 仅对 `AskUserQuestion` 名透传（按 `pendingToolCallId` 判活），其余卡零影响 |
+| `packages/desktop/src/components/agent/agent-messages.tsx`（扩） | 动作面透传单点 | `AgentMessagesProps` 增 `askAnswer?: { onAnswer: (text: string) => void; pendingToolCallId?: string \| null }`；`ToolPartView` 仅对 `ask_user_question` 名透传（按 `pendingToolCallId` 判活），其余卡零影响 |
 | `packages/desktop/src/components/agent/agent-session-view.tsx`（扩） | 两形态同透传 | `AgentSessionViewProps` 增可选 `askAnswer`；自持形态（内部 `useAgentSession`）与注入形态（`session` prop）SHALL 都把 `answer` 动作与 `askAnswer.pendingToolCallId` 合成为同一动作面下行（自持形态可由组件自行提供 `onAnswer = session.answer`，注入形态由来源侧提供） |
 | `packages/desktop/src/components/agent/session-panel.tsx`（扩） | 面板骨架合成动作面 | 不需新增 `SessionPanelState` 字段——`SessionPanelState.session` 已是 `UseAgentSessionState`，骨架直接以 `state.session.answer` 合成 `askAnswer` 下传 `AgentSessionView`（archi / change-chat 两处 hook 与面板零改动即得活卡） |
 | `packages/desktop/src/hooks/use-agent-session.ts`（扩） | 通用侧应答动作 | `UseAgentSessionState` 增 `answer: (text: string) => void`（`root` / `sessionId` 为 null 时不 invoke；`ipc.agentAnswer(root, sessionId, text)` 的 `Err` 进既有 `error` 面） |
@@ -819,7 +819,7 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 | `packages/desktop/src/components/agent/agent-messages.tsx`（改） | 活卡兜底判据 | `isLiveAsk`：`pendingToolCallId === undefined` 时以该轮 `status === 'running'` 判活，MUST NOT 以 `part.state === 'input-available'`（= 结果缺席）兜底 |
 | `packages/desktop/src/components/agent/agent-messages.tsx`（改） | 轮内状态行 | `TurnStatusLine` 增 `interrupted` 支：呈「因应用重启中断」（`data-testid="turn-status-line"` / `data-status="interrupted"`），不进失败标题与错误原文展开面 |
 | `packages/desktop/src/components/agent/agent-messages.tsx`（改） | 轮运行态下行位 | `PartView` / `ToolPartView` 增「轮是否仍在运行」下行位：从该轮消息 `metadata.record.status` 取值穿到工具卡（缺省按运行中，保持无轮行的历史转录现状） |
-| `packages/desktop/src/components/agent/message-cards/tool-cards.tsx`（改） | 卡壳判据 | `AgentToolCardProps` 增可选「轮已终结」位：四张特化卡（Bash / Read / Write / AskUserQuestion）共用，缺席按运行中处理 |
+| `packages/desktop/src/components/agent/message-cards/tool-cards.tsx`（改） | 卡壳判据 | `AgentToolCardProps` 增可选「轮已终结」位：四张特化卡（Bash / Read / Write / ask_user_question）共用，缺席按运行中处理 |
 | `packages/desktop/src/components/agent/message-cards/tool-cards.tsx`（改） | `TraceLine status`（四处同形状） | 轮已终结且部件无结果时取 `pending`（或省略）而非 `running`，shimmer 退场；轮运行中沿用现状 |
 | `packages/desktop/src/hooks/use-agent-session.ts` | 零改动面 | `running` 派生已是「轮行清单含 `running`」⇒ `interrupted` 天然不派生运行中、不触发订阅 |
 | `packages/desktop/src/components/agent/agent-error.ts` | 零改动面 | `latestAgentFailure` 只认 `failed` 与「running 且失败 done」⇒ `interrupted` 天然不触顶部失败横幅（由测试固化该默认） |

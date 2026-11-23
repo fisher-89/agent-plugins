@@ -1,4 +1,4 @@
-//! `ask.rs`（`AskUserQuestion` 工具协议单点）与 crate 根出口面的单元测试：
+//! `ask.rs`（`ask_user_question` 工具协议单点）与 crate 根出口面的单元测试：
 //! 工具名单点 / description 语义与体量 / parameters 静态形状 / `validate` 六态
 //! 与边界 / 解耦守卫（源码自证）+ `lib.rs` 的出口面锚定。
 //!
@@ -46,11 +46,11 @@ fn valid_args() -> Value {
 
 #[test]
 fn 工具名单点_线值逐字且源码字面量单处() {
-    assert_eq!(TOOL_NAME, "AskUserQuestion", "工具名单点线值");
+    assert_eq!(TOOL_NAME, "ask_user_question", "工具名单点线值");
 
     let own = code_lines(&source_of("src/ask.rs"));
     assert_eq!(
-        own.matches("\"AskUserQuestion\"").count(),
+        own.matches("\"ask_user_question\"").count(),
         1,
         "ask.rs 代码行内字面量恰一处（单点判据）"
     );
@@ -440,7 +440,7 @@ fn crate根出口面可达且与ask模块路径同源() {
     // `description` / `parameters` / `validate` 三面与并行收口模块同名，库注释
     // 明示「不进根再导出」，消费方经 `ask::` 模块路径引用（下方同源断言覆盖
     // 该设计：模块路径调用是真值面）。
-    assert_eq!(crate::TOOL_NAME, "AskUserQuestion", "根路径工具名可达");
+    assert_eq!(crate::TOOL_NAME, "ask_user_question", "根路径工具名可达");
     assert_eq!(
         crate::TOOL_NAME,
         ask::TOOL_NAME,

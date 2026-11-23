@@ -21455,7 +21455,7 @@ async fn 决策白名单两形态_空集越权_单元素通过() {
             .expect("决策会话在场");
         assert!(decision.prompt.contains("可回溯白名单"), "白名单段在场");
         assert!(
-            decision.prompt.contains("AskUserQuestion"),
+            decision.prompt.contains("ask_user_question"),
             "ask 指路句在场（与白名单形态无关）"
         );
     }

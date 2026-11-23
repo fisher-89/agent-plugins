@@ -4278,7 +4278,7 @@ fn sink的ask_started载荷四形态逐字保真() {
 // ask-tool-in-flow：装配序端到端（sink 两 trait 视图 + 组合根注入真贯通）
 //
 // 直调 sink 的用例证不了「组合根真的把 ask_port 交给了门面」；本节以脚本化 SSE
-// provider 桩让 flow 档的 `AskUserQuestion` 真的进入执行体——`ask_started` /
+// provider 桩让 flow 档的 `ask_user_question` 真的进入执行体——`ask_started` /
 // `ask_resolved` 两拍真的落在 run 快照上，即装配序（sink 先建、两次强转、port
 // 注入）在真实链路上成立。
 // ---------------------------------------------------------------------------
@@ -4335,7 +4335,7 @@ async fn wait_for_async(what: &str, mut probe: impl FnMut() -> bool) {
 }
 
 /// 装配序端到端（组合，AC-2）：`change_flow_start_with` 起一轮 → implement 相位
-/// 的 executor 会话（flow 档）调用 `AskUserQuestion` 进入执行体 → 快照
+/// 的 executor 会话（flow 档）调用 `ask_user_question` 进入执行体 → 快照
 /// `status == WaitingAsk` 且 `ask.toolCallId` 为本次 tool_use id（`ask_started`
 /// 经组合根注入的 `ChangeFlowSink` 抵达 `control.publish`）；随后
 /// `change_flow_answer` 投递成功、执行体返回触发 `ask_resolved` 清槽。

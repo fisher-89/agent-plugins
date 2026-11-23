@@ -99,6 +99,7 @@ function changeList(name = 'add-feature'): Record<string, unknown> {
         status: 'active',
         activePhase: null,
         created: '2026-10-26',
+        archivedAt: null,
       },
     ],
     archiveGroups: [],
@@ -541,6 +542,7 @@ describe('ipc 结果面：脏结果只上报', () => {
           status: 'active',
           activePhase: null,
           created: 42,
+          archivedAt: null,
         },
       ],
       archiveGroups: [],
@@ -569,6 +571,7 @@ describe('ipc 结果面：脏结果只上报', () => {
           status: 'active',
           activePhase: { phase: 9, attempt: 0, startAt: null },
           created: null,
+          archivedAt: null,
         },
       ],
       archiveGroups: [],
@@ -954,7 +957,8 @@ describe('ipc 与 ipc-drift 组合', () => {
         source: 'active',
         status: 'active',
         activePhase: null,
-        created: position === index ? 42 : null,
+        created: position === index ? 42 : '2026-10-26',
+        archivedAt: null,
       }));
       invokeMock.mockResolvedValueOnce({ active, archiveGroups: [] });
       await ipc.listChanges(ROOT);

@@ -191,7 +191,7 @@
 | 视图内子域 | `views/<view>/` 下**除 `components` / `hooks` 外**、递归非测试源文件 **≥ 3** 的子目录 | `App.Frontend.Views.Changes.{Flow,Renderers,Agent}` |
 | 共享组件 | `src/components/agent/*.{ts,tsx}` 与 `src/components/standard/*.tsx` 每文件一元素（排除 `*.test.*` 与 barrel `index.tsx`）；`src/components/ui/` **收敛为 1 元素**；`components/agent/` 的 barrel `index.tsx` 由目录模块 `App.Frontend.Components.Agent` 持有 | `App.Frontend.Components.Agent.{AgentBlocks,AgentError,AgentInput,AgentMessages,AgentSessionView,SessionPanel,ToolCards}`、`App.Frontend.Components.Standard.{Dailog,Drawer,Pagination,Select,Tooltip}`、`App.Frontend.Components.Ui` |
 
-容器 SHALL 为 `App.Frontend`、`App.Frontend.Views`、`App.Frontend.Components`、`App.Frontend.Components.Standard`——`kind = "domain"`、`path` 空（**零例外**）；视图与视图内子域 SHALL 为 `module`、共享组件文件 SHALL 为 `component`、`App.Frontend.Components.Ui` SHALL 为 `module`；**`App.Frontend.Components.Agent` SHALL 为目录型 `module`**（`path` 为 `./packages/desktop/src/components/agent/`，入口为目录内 `index.tsx`，见 `desktop-frontend-module-entry`）。
+容器 SHALL 为 `App.Frontend`、`App.Frontend.Views`、`App.Frontend.Components`、`App.Frontend.Components.Standard`——`kind = "domain"`、`path` 空（**零例外**）；视图、视图内子域、共享组件文件与 `App.Frontend.Components.Ui` SHALL 为 `module`；**`App.Frontend.Components.Agent` SHALL 为目录型 `module`**（`path` 为 `./packages/desktop/src/components/agent/`，入口为目录内 `index.tsx`，见 `desktop-frontend-module-entry`）。
 
 - **`components/ui` 收敛的理由**：ui 是 shadcn 原语层，**39** 个文件恒被依赖、不承担「谁能依赖谁」的判定；逐文件建元素只增噪声（39 元素）不增信息。若将来 ui 内部出现实质分层，再拆元素（须改本 requirement）。
 - **封闭排除面**（不建元素、不参与覆盖、不贡献边）：`src/hooks/**`、`src/lib/**`、`src/types/**`（含 `types/generated/bindings.ts`）、`src/components/standard/hooks/**`、`*.test.{ts,tsx}`、`src/test-setup.ts`。
@@ -209,7 +209,7 @@
 #### Scenario: 共享组件逐文件与 ui 收敛
 
 - **WHEN** 检查 `src/components/` 的元素声明
-- **THEN** `agent/` 下 **7** 个源文件各一 `component` 元素（`index.tsx` barrel 排除、由目录型 `module` 元素 `App.Frontend.Components.Agent` 持有；含 `session-panel.tsx` → `SessionPanel`）、`standard/` 下 **5** 个 `.tsx` 各一元素（含 `tooltip.tsx` → `Tooltip`）、`ui/` 恰 1 个 `module` 元素且 `path` 指向该目录（入口为该目录内的 `index.ts`）
+- **THEN** `agent/` 下 **7** 个源文件各一 `module` 元素（`index.tsx` barrel 排除、由目录型 `module` 元素 `App.Frontend.Components.Agent` 持有；含 `session-panel.tsx` → `SessionPanel`）、`standard/` 下 **5** 个 `.tsx` 各一元素（含 `tooltip.tsx` → `Tooltip`）、`ui/` 恰 1 个 `module` 元素且 `path` 指向该目录（入口为该目录内的 `index.ts`）
 
 #### Scenario: 排除面零元素
 

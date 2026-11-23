@@ -3865,6 +3865,8 @@ fn 目录命令在登记面恰一次且包装同在册() {
 
 #[test]
 fn 目录与effort四类型在出线_dto清单() {
+    let _lock = lock();
+
     for name in [
         "AgentEffortTiers",
         "ModelCatalog",

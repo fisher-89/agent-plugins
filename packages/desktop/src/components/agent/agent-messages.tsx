@@ -90,7 +90,7 @@ function ToolPartView({
     // 动作面只达 ask 卡（其余三卡渲染与行为零变化）
     const cardAsk =
       askAnswer !== undefined &&
-      toolName === 'AskUserQuestion' &&
+      toolName === 'ask_user_question' &&
       isLiveAsk(part, askAnswer.pendingToolCallId, turnRunning)
         ? { onAnswer: askAnswer.onAnswer }
         : undefined;

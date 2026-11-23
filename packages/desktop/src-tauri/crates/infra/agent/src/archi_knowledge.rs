@@ -26,7 +26,7 @@ pub(crate) fn knowledge() -> Option<String> {
 }
 
 /// 骨架 + 派生段拼装：骨架 trim 后为空 / 含 `<>` 占位符即 `Err`（触发点写进文案），
-/// 否则以 `skeleton.trim_end()` 起手追加派生段（kind 四值 / gate 三值 + 缺省档 /
+/// 否则以 `skeleton.trim_end()` 起手追加派生段（kind 三值 / gate 三值 + 缺省档 /
 /// api 状态二值 + 缺省档 / 结构诊断九词 / 模型与契约资产两处相对路径）。
 pub(crate) fn build(skeleton: &str) -> Result<String, String> {
     if skeleton.trim().is_empty() {

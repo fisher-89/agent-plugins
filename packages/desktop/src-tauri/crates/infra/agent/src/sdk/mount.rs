@@ -2,7 +2,7 @@
 //! 事实源。成员校验、tier 准入、`RunStarted.tools`、loop 执行分派四处全查同一
 //! `definitions` 产出——MUST NOT 各自维护第二份名单。
 //!
-//! `finish_step` 与 `AskUserQuestion` MUST NOT 进静态清单：两者均由 [`definitions`]
+//! `finish_step` 与 `ask_user_question` MUST NOT 进静态清单：两者均由 [`definitions`]
 //! 按注入面的 `finish` / `ask` 位铸造后追加（前者的 evaluator 形态 ID enum 取自
 //! 本轮 prompt，后者按会话档位只换执行体）。
 //!
@@ -195,7 +195,7 @@ pub(crate) fn lookup(name: &str) -> Option<ToolDefinition> {
 }
 
 /// 本轮下发的挂载清单：`tools = None` → 内建七件；`Some(names)` → 按清单序
-/// 过滤（未知名 `Err`，文案携非法名）；`ask` 位置位时追加 `AskUserQuestion`，
+/// 过滤（未知名 `Err`，文案携非法名）；`ask` 位置位时追加 `ask_user_question`，
 /// `finish` 位置位时追加 `finish_step`（两条独立分支，序为 ask 先、finish 后）。
 pub(crate) fn definitions(
     injections: &agent::SessionInjections,
@@ -301,8 +301,7 @@ fn archi_api_definition() -> ToolDefinition {
             "内容不符 / 应删未删 / 应生成未生成）与契约判据摘要（按 category 计数 + 逐条 ",
             "kind / element / message）；`bootstrap` 按元素 FQN 输出契约 md 草稿（只出 ",
             "stdout 语义、零写盘）。模型结构错时返回诊断清单（先修模型）。生成物过期用既有",
-            "命令重生成（pnpm api:export / cargo run -p archi-api-gen -- generate），MUST NOT ",
-            "手改生成物"
+            "生成命令重生成，MUST NOT 手改生成物"
         )
         .to_owned(),
         parameters: serde_json::json!({
@@ -318,14 +317,14 @@ fn archi_api_definition() -> ToolDefinition {
 
 /// `archi_drift` 定义（漂移判据读数：写完模型 / 改完代码后自查覆盖、归属与契约面）。
 ///
-/// 描述里的两句是**读数口径**而非免责声明：本仓基线 `gate` 全 `off`，`unmatchedFiles`
+/// 描述里的两句是**读数口径**而非免责声明：`gate` 全 `off` 的模型 `unmatchedFiles`
 /// 是数百条量级的常态（直出即 15–25 KB 噪声），故明细只在 `scope = files` 出现。
 fn archi_drift_definition() -> ToolDefinition {
     ToolDefinition {
         name: ARCHI_DRIFT_TOOL.to_owned(),
         description: format!(
             "读架构漂移判据（写完模型 / 改完代码后自查覆盖、归属与契约面）。恒全量、零写盘。\
-             本仓 gate 全 off 时 unmatchedFiles 是数百条量级的常态不是错误（明细只在 scope = files 出现，\
+             gate 全 off 时 unmatchedFiles 是数百条量级的常态不是错误（明细只在 scope = files 出现，\
              摘要里只有计数位）。errors / warnings 通常为空，非空即逐条修；files 只在排查归属问题时用。\
              scope 三值：{}（缺省 summary）。每次调用都重新全量判定、零跨调用缓存——durationMs 让\
              重复调用的浪费可见",
@@ -358,7 +357,7 @@ fn archi_scaffold_definition() -> ToolDefinition {
         parameters: serde_json::json!({
             "type": "object",
             "properties": {
-                "kind": { "type": "string", "enum": ElementKind::ALL.map(ElementKind::as_str), "description": "元素 kind 四值之一（省略取 domain）" }
+                "kind": { "type": "string", "enum": ElementKind::ALL.map(ElementKind::as_str), "description": "元素 kind 三值之一（省略取 domain）" }
             },
             "required": []
         }),

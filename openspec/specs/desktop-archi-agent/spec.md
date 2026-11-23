@@ -130,7 +130,7 @@ SDK 引擎 SHALL 提供专用**只读**工具 `archi_api`（不在七通用工�
 - **两动作封闭**：`action` SHALL 只接受 `check` / `bootstrap` 两值（封闭值集；词汇外值以 `is_error` 回灌并点名合法值，MUST NOT 静默退化）。
 - **`check` = 两轴结构化结果**：返回「生成物新鲜度」与「契约 vs 代码」两轴的并列内容——① 三类差异（`mismatched` / `orphaned` / `missing`，repo 相对串，取自与 IPC / CLI 同一份比对实现）；② 契约判据摘要（按 `category` 计数的映射 + 逐条 `{ kind, category, element, target, message }`）。响应 SHALL 复用既有出线形状（`ArchiApiCheck` 的字段与 `ArchiApiFinding` 的条目），MUST NOT 在工具执行体内另拼一份投影；MUST NOT 各自实现在第二处（判定单源）。
 - **`bootstrap` = 草稿文本**：`element` 必填，返回与 CLI `bootstrap` 同一份草稿文本（契约 md 骨架，只出 stdout 语义）；`element` 缺失 / 元素不存在 / 无实现入口 ⇒ `is_error` 并透传 `ApiError` 文案。
-- **零写盘**：两动作 MUST NOT 创建 / 覆盖 / 删除任何文件——生成仍由会话经既有 `bash` 命令（`pnpm api:export` / `cargo run -p archi-api-gen -- generate`）执行。MUST NOT 存在「写生成物」的专用工具（`archi-runtime` 对 agent 面不可达，见 `desktop-crate-layout`）。
+- **零写盘**：两动作 MUST NOT 创建 / 覆盖 / 删除任何文件——生成仍由会话经既有 `bash` 工具执行本仓的生成命令（命令名归属本仓文档面，产品 MUST NOT 内建具体命令名）。MUST NOT 存在「写生成物」的专用工具（`archi-runtime` 对 agent 面不可达，见 `desktop-crate-layout`）。
 - **结构错以 `is_error` 回灌**：模型含任一结构诊断时两动作 SHALL 返回 `is_error` ToolResult（诊断清单带 `file:line`），MUST NOT 返回部分结果、MUST NOT 抛 panic。
 - **体量受上限约束**：响应 SHALL 经 `tools::cap_result` 的既有 L1 上限单点（MUST NOT 为本工具新增截断逻辑）；超限时摘要（按 `category` 计数）优先保留。
 - **上下文路由沿用**：执行体 SHALL 经 `LoopTurn` 的 per-turn `ArchiContext` 路由（root + 模型读面），MUST NOT 新增 `ToolExec` 变体、MUST NOT 把 store 句柄塞进七通用工具的 `execute` 签名。
@@ -168,10 +168,10 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_scaffold`（不在七通用工�
 
 ```jsonc
 { "name": "archi_scaffold",
-  "parameters": { "kind": "可选。元素 kind 四值之一（值集由 ElementKind::ALL 派生）；省略取 domain" } }
+  "parameters": { "kind": "可选。元素 kind 三值之一（值集由 ElementKind::ALL 派生）；省略取 domain" } }
 ```
 
-- **值集封闭且派生**：`kind` 的合法值 SHALL 由 `ElementKind::ALL` 派生（MUST NOT 手抄四值）；词汇外值 SHALL 以 `is_error` 回灌并**点名**合法值（MUST NOT 静默退化为缺省）。
+- **值集封闭且派生**：`kind` 的合法值 SHALL 由 `ElementKind::ALL` 派生（MUST NOT 手抄三值）；词汇外值 SHALL 以 `is_error` 回灌并**点名**合法值（MUST NOT 静默退化为缺省）。
 - **响应形状**：`{ "draft": "<TOML 片段>" }`——**一段**元素表模板，字段按模型字段面顺序列出（`kind` 实值；`gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata` 以注释行给出并各附一行纪律），另附一条 `[[relation]]` 模板注释。
 - **模板自证可解析**：草稿 SHALL 为合法 TOML 且经 `archi::parse` 的 `TomlParser` 解析后**零结构诊断**（机械锚：字段名 / 键形 / 内联 `metadata` 任一漂移即红）。纪律性提示 SHALL 只出现在注释行——MUST NOT 以注释外的非法行（如 `path = "<待填>"`）破坏可解析性。
 - **零写盘**：本工具 MUST NOT 创建 / 覆盖 / 删除任何文件（与 `archi_api` 的 `bootstrap` 同款「只出 stdout 语义」）；MUST NOT 成为「写模型工具」（写面仍是既有 `write` / `edit`，见「模型 = 源码（写纪律与不设专用写工具）」）。
@@ -180,13 +180,13 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_scaffold`（不在七通用工�
 
 #### Scenario: 草稿可解析且含必填提示
 
-- **WHEN** 调用 `archi_scaffold()`（省略 `kind`）与 `archi_scaffold(kind = "component")`
-- **THEN** 两次均返回单段元素表草稿（后者的 `kind` 行取 `component`）；草稿经 `TomlParser` 解析零结构诊断；`path` 的「叶元素必填、`./` 前缀、目录尾 `/`」与 `metadata` 的「必须内联表、禁子表」两句以注释行在场
+- **WHEN** 调用 `archi_scaffold()`（省略 `kind`）与 `archi_scaffold(kind = "module")`
+- **THEN** 两次均返回单段元素表草稿（后者的 `kind` 行取 `module`）；草稿经 `TomlParser` 解析零结构诊断；`path` 的「叶元素必填、`./` 前缀、目录尾 `/`」与 `metadata` 的「必须内联表、禁子表」两句以注释行在场
 
 #### Scenario: 词汇外 kind 被拒
 
 - **WHEN** 调用 `archi_scaffold(kind = "service" )`（词汇外值）
-- **THEN** 返回 `is_error` 并点名 `package` / `domain` / `module` / `component` 四值；零写盘、零副作用
+- **THEN** 返回 `is_error` 并点名 `package` / `domain` / `module` 三值；零写盘、零副作用
 
 #### Scenario: 模板不写盘
 
@@ -208,7 +208,7 @@ SDK 引擎 SHALL 提供专用**只读**工具 `archi_drift`（不在七通用工
   - `summary`（缺省）：`mode` / `status` / `passed` / `modelHash` / `model`（元素数、关系数、`byGate` 分布、`structuralErrors` 计数与明细）/ `counts`（`errors` / `warnings` / `suppressed` / `observations` / 契约判据三档计数 / 扫描四项计数）/ **`errors` 与 `warnings` 与 `modelWarnings` 全量明细** / 契约判据 `byKind` 计数 / `durationMs`。
   - `entries`：追加 `observations` 全量与契约判据条目全量。
   - `files`：追加 `files`（`unmatched` / `matched` / `excluded` / `unresolved` 全量）。
-- **`gate` 全 `off` 仓库的语义陷阱必须进描述**：本仓基线（`gate` 全 `off`）会把 `off` 元素覆盖的全部文件推入 `unmatchedFiles[]`（数百条），这是「`off` 元素不参与定级」的常态而非灾难——工具描述 SHALL 点名该事实，`summary` 里该数 SHALL 只出现在**计数位**（明细只在 `scope = files` 出现），MUST NOT 让模型把常态读成错误。
+- **`gate` 全 `off` 仓库的语义陷阱必须进描述**：`gate` 全 `off` 的仓库会把 `off` 元素覆盖的全部文件推入 `unmatchedFiles[]`（数百条），这是「`off` 元素不参与定级」的常态而非灾难——工具描述 SHALL 点名该事实，`summary` 里该数 SHALL 只出现在**计数位**（明细只在 `scope = files` 出现），MUST NOT 让模型把常态读成错误。
 - **投影单点**：响应 SHALL 由 `sdk/archi_drift_view` 的 `drift_summary` （及 `drift_entries` / `drift_files`）投影产出，工具执行体 MUST NOT 另拼一份 JSON；`durationMs` SHALL 由执行体以 `std::time::Instant` 计时（MUST NOT 改 `core/archi` 的报告结构）。
 - **错误面**：模型结构错 / 看护配置非法 / 扫描硬失败 SHALL 以 `is_error` 回灌（透传 `CheckError::message`，`Config` 文案含具体条目，如「`ignore` 第 N 条缺 `to`」），MUST NOT 返回部分结果、MUST NOT panic。
 - **零跨调用缓存**：每次调用 SHALL 现算（沿 `archi_search` 纪律），MUST NOT 在进程内缓存报告；`durationMs` 是让重复调用成本可见的唯一手段。
@@ -383,18 +383,18 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
   - `doc`（B，一行 + 判据指路）：单值、repo 相对，只有 `api = none` 的元素可写；`declared` 的入口文档恒为派生落点（按 FQN 段链去根与叶分目录、名为 `<FQN>.md`），写了即 `apiUnexpected`。判据长表归 `desktop-archi-api` / `desktop-archi-api-check`。
   - **字段形态与键形（C，散文必留）**：一元素一表头、键为带引号的完整 FQN 单键（禁点分嵌套写法——`[element.App.Auth]` 会被读成**另一个元素**）；`metadata` MUST 用内联表（子表同样会被读成另一个元素）；关系写 `[[relation]]`（`from` / `to` / `desc` / **`apis`**）。**字段序与各字段形态的完整模板不入散文**——用 `archi_scaffold` 取（D 档）。
   - **关系 `apis`（B，一行 + 判据指路，本变更新增）**：选填，**只写名字**——`to` 元素的代码导出名（禁签名 / 类型形状 / `::` 限定路径 / 空白），可留空即不声明 API 粒度，`apis = []` 与同名重复被拒；生成物面 MUST 留空（生成物是唯一真相，手写清单必然漂）。两桶结论（用了没声明 / 声明没用）由 `archi_drift` 的 `errors` / `warnings` / `observations` 给出，MUST NOT 在知识文本里复述判据长表，也 MUST NOT 让模型把它当协议正文写（正文仍在契约资产）。
-  - **`kind` 四值语义（C）**：`package` = 包根（无 `path`）/ `domain` = 容器（`path` 恒空）/ `module` = crate、目录型模块或视图 / `component` = 组件文件。四值词汇集由派生段给出，语义只在本条散文。
+  - **`kind` 三值语义（C）**：`package` = 包根（无 `path`）/ `domain` = 容器（`path` 恒空）/ `module` = crate、目录型模块、视图或单文件组件。三值词汇集由派生段给出，语义只在本条散文。
 - **层级与缺省（B + C）**：层级由 FQN 最长前缀推导（子元素须先声明祖先——违反时结构诊断 `orphanHierarchy` 由 `archi_module` / `archi_drift` 的 `is_error` 与读数给出）；新元素 `gate` 缺省 `off`（ratchet 逐块收紧）。
 - **计数复述单源（B，一行）**：模型文件表头注释里的元素 / 关系数量 SHALL 以工具读数（`archi_drift` 的 `model.elements` / `model.relations`）为准，改模型 SHALL 在同一批内更新表头；MUST NOT 让表头与模型本体各说各话。spec 的计数表与 ADR 的复算表属仓库文档面，知识文本 MUST NOT 复述任何具体数字。
 - **架构域看护配置（B，一行）**：`<archi_dir>/config.json` 存在且管 `ignore`（元素对豁免）/ `exclude`（扫描排除），未知键与缺 `reason` 即配置非法——非法时 `archi_drift` 以 `is_error` 点名具体条目；MUST NOT 在知识文本里复述字段长表。
 - **边界（C）**：模型里 MUST NOT 写接口 / 导出符号（契约权威在契约资产）；`api` / `entry` / `doc` 是三个**指针**（有无公共 API / 入口在哪 / 入口文档读哪份），MUST NOT 由它们扩张出协议正文；关系 `apis` 是**消费侧的依赖名字清单**（不是提供方的协议正文）——位置在关系、内容只有名字、权威仍在该元素的代码导出面。
-- **自检纪律（A，指路）**：改完可**提前**自查——`archi_drift` 取覆盖 / 归属 / 契约读数（`errors` / `warnings` 通常为空，非空即逐条修）、`archi_module` 取结构诊断（带 `file:line`）、契约面 `archi_api`（`action = "check"`）查两轴；生成物过期用既有命令（`pnpm api:export` / `cargo run -p archi-api-gen -- generate`）重生成，MUST NOT 手改生成物。该纪律 SHALL 为纯提示词约束加工具指路；引擎在收口时另有一次兜底自检（见「收口前引擎自检（架构判据读数）」），故自检 SHALL NOT 被表述为「不调工具就不算完」的义务。
+- **自检纪律（A，指路）**：改完可**提前**自查——`archi_drift` 取覆盖 / 归属 / 契约读数（`errors` / `warnings` 通常为空，非空即逐条修）、`archi_module` 取结构诊断（带 `file:line`）、契约面 `archi_api`（`action = "check"`）查两轴；生成物过期用本仓既有的生成命令重生成，MUST NOT 手改生成物。**知识文本只给通用指路，MUST NOT 点名本仓特有的命令名**——产品对任意 workspace 生效，生成命令归属各自仓库的文档面。该纪律 SHALL 为纯提示词约束加工具指路；引擎在收口时另有一次兜底自检（见「收口前引擎自检（架构判据读数）」），故自检 SHALL NOT 被表述为「不调工具就不算完」的义务。
 - **写面与可见性（C）**：直改主仓（无 worktree、无归档确认），改动随 `git diff` 评审；**禁止修改架构目录之外的文件**（源码 / 配置 / 脚本 / 域外文档一律不改，用户要求亦不越界；生成物重生成除外）；写盘后画布不自动更新，须提示用户点「刷新」。
 - **历史会话续接（C）**：续接历史会话时 SHALL 先取当下模型现状（`archi_module` 无参概览或指定元素）再回答「现在是什么样」一类问题，MUST NOT 依赖会话早前的描述。
 
 词表类内容 SHALL 从代码单点派生，MUST NOT 手抄：
 
-- `kind` 四值 ← `ElementKind::ALL`；`gate` 三值 + 缺省档 ← `GateTier::ALL` / `GateTier::default()`；`api` 状态二值 + 缺省档 ← `ApiStatus::ALL` / `ApiStatus::default()`；结构诊断九类词 ← `DiagnosticKind::ALL`；模型声明目录与契约资产目录 ← `foundation::layout` 的架构域相对路径派生族。
+- `kind` 三值 ← `ElementKind::ALL`；`gate` 三值 + 缺省档 ← `GateTier::ALL` / `GateTier::default()`；`api` 状态二值 + 缺省档 ← `ApiStatus::ALL` / `ApiStatus::default()`；结构诊断九类词 ← `DiagnosticKind::ALL`；模型声明目录与契约资产目录 ← `foundation::layout` 的架构域相对路径派生族。
 - `entry` / `doc` / **`apis`** SHALL **不进**派生词表：三者的值域是任意 repo 相对路径 / 任意代码标识符（开放集），不是封闭词汇；知识文本只给纪律句 + 工具指路，判据定义归 `desktop-archi-api` / `desktop-archi-api-check` / `desktop-archi-drift`，不在知识文本内复制判据长表。
 - **派生的目录方位 SHALL 为两处**：模型声明目录（`archi_graph_model_rel_dir`）、契约资产（`<archi_models_rel_dir>/<分层目录…>/<FQN>.md`）。**契约索引方位句 SHALL 删除**（生成物，零手写面）；**结构诊断九词与四面词表 SHALL 保留**（`desktop-archi-model`「消费面词汇集一致性对拍」把知识文本列为四面之一，删即破该机械闭环）。
 - 知识文本 SHALL 为**静态骨架 md（`include_str!`）+ 上述派生片段**在装配侧拼成的单条文本；新增 / 删除任一封闭词汇而知识未同步时，派生消费面测试 MUST 变红。
@@ -413,7 +413,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 #### Scenario: 字段纪律走工具指路而非长表
 
 - **WHEN** 审查知识文本的字段纪律段
-- **THEN** `path` / `entry` / `doc` 各为一行纪律 + 工具指路（`hasPath` / `resolvedEntry` / `apiUnexpected`）；零 `entry` 三档长表、零字段序清单、零示例 TOML 围栏；`kind` 四值语义、引号 FQN 单键、内联 `metadata`、层级先声明四条散文在场
+- **THEN** `path` / `entry` / `doc` 各为一行纪律 + 工具指路（`hasPath` / `resolvedEntry` / `apiUnexpected`）；零 `entry` 三档长表、零字段序清单、零示例 TOML 围栏；`kind` 三值语义、引号 FQN 单键、内联 `metadata`、层级先声明四条散文在场
 
 #### Scenario: 关系键面与 apis 纪律在场
 
@@ -428,7 +428,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 #### Scenario: 自检纪律与可见性在知识中可指认
 
 - **WHEN** 检查知识文本内容
-- **THEN** 同时含「改完可调 `archi_drift` 取读数并按条修」「结构诊断经 `archi_module` 带 `file:line`」「契约面可调 `archi_api` 查两轴」「生成物过期用既有命令重生成、MUST NOT 手改生成物」「写盘后画布不自动更新、提示用户刷新」「续接历史会话先取当下模型」六条；且知识文本内零 `<>` 占位符
+- **THEN** 同时含「改完可调 `archi_drift` 取读数并按条修」「结构诊断经 `archi_module` 带 `file:line`」「契约面可调 `archi_api` 查两轴」「生成物过期用本仓的生成命令重生成、MUST NOT 手改生成物」「写盘后画布不自动更新、提示用户刷新」「续接历史会话先取当下模型」六条；且知识文本内零 `<>` 占位符
 
 #### Scenario: 体量与目录方位实测
 
@@ -481,7 +481,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 - **三条补充规则 SHALL 逐条在案**：
   1. **静默错误必须留上下文**：`metadata` 写子表、`[element.App.Auth]` 点分嵌套会被解析成**另一个元素**（`deny_unknown_fields` 不触发），工具无法在动作前拦住 ⇒ 归 C 档，散文必留。
   2. **写入定位必须留一行**：新元素的模型落点（模型目录）与手写契约的落点（契约资产目录）都在动作前需要，且新元素的契约三路径为 `null`（`api.contractPath` 指不到不存在的东西）⇒ 归 B 档，各留一行。
-  3. **`kind` 语义不可脚本化**：「容器 = `domain` / crate 与目录 = `module` / 组件文件 = `component` / 包根 = `package`」是架构判断，工具只能事后判「和邻居不像」⇒ 归 C 档，散文必留。
+  3. **`kind` 语义不可脚本化**：「容器 = `domain` / crate、目录与单文件组件 = `module` / 包根 = `package`」是架构判断，工具只能事后判「和邻居不像」⇒ 归 C 档，散文必留。
 - **移动分层的原子性**：把某句从散文改判为 A/D 档时，**同批**必须落地「工具面确有该字段 / 模板」与「散文句替换为指路句」两半——只删不加（知识缺失）与只加不删（知识重复）同样违约。
 - **本变更的移动清单**（机械断言逐项在案）：示例 TOML → `archi_scaffold`；字段语法形态 → `archi_scaffold` + `archi_module` 字段清单；`entry` 三条纪律 → `archi_module.resolvedEntry`；`doc` 仅 `api = none` 可写 → 判据面 `apiUnexpected` + 一行指路；祖先先声明 → 结构诊断 `orphanHierarchy` + 一行指路；`path` 缺省判定 → `archi_module.hasPath` + 一行指路。
 
@@ -493,7 +493,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 #### Scenario: 静默陷阱与 kind 语义留在散文
 
 - **WHEN** 审查知识文本的 C 档
-- **THEN** `metadata` 内联表禁令（含「子表会被读成另一个元素」的成因）、带引号 FQN 单键禁令、`kind` 四值语义四处逐字在场
+- **THEN** `metadata` 内联表禁令（含「子表会被读成另一个元素」的成因）、带引号 FQN 单键禁令、`kind` 三值语义逐值在场
 
 #### Scenario: 只删不加即违约
 
@@ -618,7 +618,7 @@ archi 会话（装配层在 `SessionInjections.before_done` 置位 `ArchiPreclos
 | `crates/infra/agent/src/sdk/archi_drift_view.rs`（新） | 投影单点 | `drift_summary(&Report, duration_ms) -> Value` / `drift_entries` / `drift_files`；收口 notice 与工具响应共用（零第二份装配） |
 | `crates/infra/agent/src/sdk/preclose.rs`（新） | 收口自检执行体 | `touched(name, input, cwd) -> bool`（写入面命中 `<archi_dir>/graph/**` 或 `models/**`，前缀经 `foundation::layout`）；`run(&sender, turn, touched)`（`assets_hash` 比对 → `spawn_blocking` → notice / 日志，fail-open） |
 | `crates/infra/agent/src/archi_knowledge.rs` | 拼装（派生段收缩） | 派生段 = 四面词表 + 模型目录 + 契约资产（**删契约索引**）；降级为 `None` 语义逐字不变；体量锚由测试冻结 |
-| `crates/infra/agent/src/archi-knowledge.md` | 知识骨架（分层重写） | 删示例 TOML / 字段序清单 / `entry` 三档 / `doc` 判据细节；新增 `kind` 四值语义、计数单源、看护配置三块；`path` / `entry` / `doc` 三行纪律 + 工具指路；自检纪律降为「可提前自查」 |
+| `crates/infra/agent/src/archi-knowledge.md` | 知识骨架（分层重写） | 删示例 TOML / 字段序清单 / `entry` 三档 / `doc` 判据细节；新增 `kind` 三值语义、计数单源、看护配置三块；`path` / `entry` / `doc` 三行纪律 + 工具指路；自检纪律降为「可提前自查」 |
 | `crates/infra/agent/src/compose.rs` | 装配单点 | archi 臂名字清单加两名；`archi_matrix` 8 行（`dev-design` 执行 / 评估分行，新增 `drift` / `scaffold` 两维）；`model_write_lock(provenance)` 单点（会话级锁的置位规则，见 `desktop-write-protection`） |
 | `crates/infra/agent/src/sdk/loop.rs` | 挂点 | 自然收敛支调用已装配的 `before_done` 钩子（先于 `finish_success`）；T1 观测点在工具执行前（沙箱后入参在手时判定，零额外 IO）；其余四出口零调用 |
 | `crates/infra/agent/src/sdk/preclose.rs` | 钩子实现 | `BeforeDoneHook` 三面（`start` 起点哈希 / `observe_tool` T1 观测 / `before_done` 判定 + notice）；`spawn_blocking`；`CancelFlag::never()`；fail-open → `archi_preclose_skipped` |

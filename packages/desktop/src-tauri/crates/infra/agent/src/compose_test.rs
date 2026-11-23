@@ -1998,7 +1998,7 @@ async fn 装配产物真实驱动_explore来源runstarted报六工具加专用�
             EXPLORE_NOTE_TOOL.to_owned(),
             DB_TABLES_TOOL.to_owned(),
             DB_QUERY_TOOL.to_owned(),
-            "AskUserQuestion".to_owned(),
+            "ask_user_question".to_owned(),
         ],
         "注入经泵铸造与下发链端到端（AC-5 + 两 DB 名 + ask 位 Generic 追加）"
     );
@@ -2044,7 +2044,7 @@ async fn 装配产物真实驱动_debug来源runstarted报七名() {
         panic!("转录首事件应为 RunStarted，实际: {:?}", transcript.first());
     };
     let mut expected: Vec<String> = TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
-    expected.push("AskUserQuestion".to_owned());
+    expected.push("ask_user_question".to_owned());
     assert_eq!(
         tools, &expected,
         "debug 轮七名 + ask 工具（AC-7 端到端；ask 位恒显式置位）"
@@ -3979,7 +3979,7 @@ fn 装配层非法名err携名与来源() {
 // ---------------------------------------------------------------------------
 
 /// explore 臂（正向，AC-1）：`ask == Some(Generic)`；`tools` 清单逐名不变（七件
-/// 含 `create_explore_note`）；名字清单内不含 `AskUserQuestion`（ask 不占清单）。
+/// 含 `create_explore_note`）；名字清单内不含 `ask_user_question`（ask 不占清单）。
 #[test]
 fn 装配explore臂ask位generic且清单零ask工具名() {
     let injections = injections_of("explore", None);
@@ -3998,7 +3998,7 @@ fn 装配explore臂ask位generic且清单零ask工具名() {
         "清单含 explore 专用工具"
     );
     assert!(
-        !names.iter().any(|name| name == "AskUserQuestion"),
+        !names.iter().any(|name| name == "ask_user_question"),
         "ask 不占名字清单（按位追加的基线工具）"
     );
 }
@@ -4257,7 +4257,7 @@ async fn answer_until_registered(registry: &Arc<agent::AskRegistry>, key: &str, 
 }
 
 /// `ask_port` 两形态（边界，参数化 2 形态，AC-2）：模型真的调用
-/// `AskUserQuestion` →
+/// `ask_user_question` →
 /// - `Some(port)`：假 port 观测到 `["started","resolved"]` 两拍且载荷 `session_id`
 ///   等于组合根铸的 core 会话 id（组合根 → 门面 → 泵 → 执行体的贯通判据）；
 /// - `None`：该调用以 `is_error` 回灌（DD2 防御臂），轮不中断。
@@ -4386,7 +4386,7 @@ async fn compose_turn的ask_port两形态均贯通执行体() {
 
 /// change 来源端到端（组合，AC-2 的装配链侧证）：`source="change"` +
 /// `source_ref = <change>/implement/executor/1` → `RunStarted.tools` 同样含
-/// `AskUserQuestion`（同名覆盖不因来源而变），且 ask 项排在名字清单末位
+/// `ask_user_question`（同名覆盖不因来源而变），且 ask 项排在名字清单末位
 /// （按位追加、不占名字清单）。
 #[tokio::test(start_paused = true)]
 async fn 装配产物真实驱动_change来源runstarted含ask工具() {
@@ -4437,20 +4437,20 @@ async fn 装配产物真实驱动_change来源runstarted含ask工具() {
         .chain(std::iter::once(ARCHI_DRIFT_TOOL.to_owned()))
         .chain(std::iter::once(DB_TABLES_TOOL.to_owned()))
         .chain(std::iter::once(DB_QUERY_TOOL.to_owned()))
-        .chain(std::iter::once("AskUserQuestion".to_owned()))
+        .chain(std::iter::once("ask_user_question".to_owned()))
         .collect();
     assert_eq!(
         tools, &expected,
         "change 来源的 RunStarted.tools = 七内建 + 矩阵命中的 archi 工具 + 两 DB 名 + ask（末位）"
     );
     assert!(
-        !tools[..tools.len() - 1].contains(&"AskUserQuestion".to_owned()),
+        !tools[..tools.len() - 1].contains(&"ask_user_question".to_owned()),
         "ask 不占名字清单（仅末位按位追加）"
     );
 }
 
 /// 手工构造 `ask: None` 的注入面（不经 `assemble_injections`，异常 / AC-3）：
-/// 名单投影不含 `AskUserQuestion`——`RunStarted.tools` 随该名单派生，故「显式
+/// 名单投影不含 `ask_user_question`——`RunStarted.tools` 随该名单派生，故「显式
 /// 禁用」在组合根下游等价于硬禁用。
 #[test]
 fn 手工构造ask位none的注入面零ask名单项() {
@@ -4475,7 +4475,7 @@ fn 手工构造ask位none的注入面零ask名单项() {
         "ask: None → 名单恰七内建（零 ask 项、零 finish 项）"
     );
     assert!(
-        !names.iter().any(|name| name == "AskUserQuestion"),
+        !names.iter().any(|name| name == "ask_user_question"),
         "显式禁用面: 名单零 ask 工具"
     );
     // 对照臂：装配链产出的注入面（任何来源）都带 ask 位，故上面形态只能手工构造
@@ -5789,7 +5789,7 @@ fn config臂下发面与装配单源一致() {
         .iter()
         .map(|name| (*name).to_owned())
         .collect();
-    expected.push("AskUserQuestion".to_owned());
+    expected.push("ask_user_question".to_owned());
     assert_eq!(
         names, expected,
         "六名逐值有序（= assemble_injections 产出面）+ ask 位追加"

@@ -511,7 +511,7 @@ describe('SessionPanel：ask 动作面合成（骨架零改动即得活卡）', 
         role: 'assistant',
         parts: [
           {
-            type: 'tool-AskUserQuestion',
+            type: 'tool-ask_user_question',
             toolCallId: 'call_1',
             state: 'input-available',
             input: { name: 'q', question: '选哪个重试策略？', options: ['指数退避', '固定间隔'] },

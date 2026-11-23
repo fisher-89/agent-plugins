@@ -106,7 +106,7 @@ change 详情 SHALL 在**左栏**提供常驻的通用 Agent 面板，与右侧�
 #### Scenario: 工具面按单源装配且提示词面不扩
 
 - **WHEN** 审查 change 来源会话的工具面装配
-- **THEN** 注入面按 `desktop-agent-execution` 的名字清单单源装配（default 七工具 + 矩阵命中的 archi 工具 + 恒在的 `AskUserQuestion` 与只读 DB 工具两件；无 change 专属工具集分支、无新 `SessionToolset` 变体），首轮提示词无 change 环境前导模板插入
+- **THEN** 注入面按 `desktop-agent-execution` 的名字清单单源装配（default 七工具 + 矩阵命中的 archi 工具 + 恒在的 `ask_user_question` 与只读 DB 工具两件；无 change 专属工具集分支、无新 `SessionToolset` 变体），首轮提示词无 change 环境前导模板插入
 
 ### Requirement: 禁发与只读状态矩阵
 

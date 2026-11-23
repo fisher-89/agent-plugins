@@ -384,7 +384,7 @@ eval 节点与 active 节点的三会话联动（executor / evaluator / decision
 
 ### Requirement: 运行控制入口与 ask 应答
 
-change 详情页 SHALL 提供运行控制入口：发起 run（按 change id——执行锚与磁盘 / git 面经 id → 记录解析，见 desktop-change-orchestration）、停止运行中的 run、phase 间停等点的用户确认（继续 / 终止）。ask 中断 SHALL 由**阻塞工具 `AskUserQuestion`** 产生（不再是决策动作；见 desktop-change-orchestration「流程内 ask 停等与双入口应答」），并在页面呈现为**两处同源卡片**：① 右栏运行控制面板的 `AskCard`（问题 + 选项按钮 + 自由文本输入）；② 聊天窗 / 会话转录面板里 `AskUserQuestion` 工具调用的**活卡**（同一问题与选项，同样可应答）。两处 SHALL 读同一 `AskPayload`（`question` / `options` / `toolCallId`），用户在任一处应答（选项或自由文本）后经应答命令回流驱动 run 继续，**两处同步收起、`activeRun.status` 回 `running`**，MUST NOT 出现「一处已收起另一处仍挂着」或「再点报无等待」的错配。停止与发起 SHALL 沿运行控制命令面契约（提前 resolve、停止幂等）。控制入口状态 SHALL 如实反映 run 生命周期（可发起 / 运行中可停止 / ask 等待应答 / phase 间等待确认），MUST NOT 出现状态与可用操作错配（如已收口仍显停止入口为可用主操作）。
+change 详情页 SHALL 提供运行控制入口：发起 run（按 change id——执行锚与磁盘 / git 面经 id → 记录解析，见 desktop-change-orchestration）、停止运行中的 run、phase 间停等点的用户确认（继续 / 终止）。ask 中断 SHALL 由**阻塞工具 `ask_user_question`** 产生（不再是决策动作；见 desktop-change-orchestration「流程内 ask 停等与双入口应答」），并在页面呈现为**两处同源卡片**：① 右栏运行控制面板的 `AskCard`（问题 + 选项按钮 + 自由文本输入）；② 聊天窗 / 会话转录面板里 `ask_user_question` 工具调用的**活卡**（同一问题与选项，同样可应答）。两处 SHALL 读同一 `AskPayload`（`question` / `options` / `toolCallId`），用户在任一处应答（选项或自由文本）后经应答命令回流驱动 run 继续，**两处同步收起、`activeRun.status` 回 `running`**，MUST NOT 出现「一处已收起另一处仍挂着」或「再点报无等待」的错配。停止与发起 SHALL 沿运行控制命令面契约（提前 resolve、停止幂等）。控制入口状态 SHALL 如实反映 run 生命周期（可发起 / 运行中可停止 / ask 等待应答 / phase 间等待确认），MUST NOT 出现状态与可用操作错配（如已收口仍显停止入口为可用主操作）。
 
 活卡的判据 SHALL 为「`AskPayload.toolCallId` 与该工具部件的 `toolCallId` 相等且该部件仍为无结果态」——MUST NOT 以「工具结果缺席即认为在等」推断（历史转录里崩溃残留的未配对 `tool_use` 同一形态，无 id 对账会误呈为可应答）。活卡的表单交互与载荷口径见 desktop-agent-chat-infra「ask 工具卡活卡与应答动作面」：选项 + 自由文本经**提交入口**表单上行**用户原文**（结构由后端按工具声明的 `name` 铸造，前端两入口均不拼 JSON）。`AskCard` 侧同为选项按钮 / 自由文本直投原文（另对首尾空白做裁剪，空白应答即不提交）——两入口上行同一形态、同一语义（单次投递、两处同步收起）。
 
@@ -395,17 +395,17 @@ change 详情页 SHALL 提供运行控制入口：发起 run（按 change id—�
 
 #### Scenario: ask 中断卡片应答
 
-- **WHEN** 流程会话调用 `AskUserQuestion`（问题 + 选项）后用户在详情页 `AskCard` 中选择某选项
+- **WHEN** 流程会话调用 `ask_user_question`（问题 + 选项）后用户在详情页 `AskCard` 中选择某选项
 - **THEN** 应答经命令回流（`change_flow_answer`），run 按应答在同一 turn 内继续，中断卡片消失、控制入口回到运行态
 
 #### Scenario: 两处同源呈现与同步收起
 
-- **WHEN** 某流程会话的 `AskUserQuestion` 正在等待应答，用户打开该步节点的会话转录
+- **WHEN** 某流程会话的 `ask_user_question` 正在等待应答，用户打开该步节点的会话转录
 - **THEN** 详情页 `AskCard` 与转录面板里的 ask 活卡呈现同一问题与同一组选项；用户在任一处应答后两处同刻收起（`activeRun.ask` 清空、活卡转静态卡，工具结果回灌为应答信封 `{"status":"answered","answers":{"<name>":"<原文>"}}`）、`activeRun.status` 回 `running`
 
 #### Scenario: 非当前等待的 ask 部件为静态卡
 
-- **WHEN** 打开一条历史转录，其中某 `AskUserQuestion` 工具的 `toolCallId` 与 `activeRun.ask.toolCallId` 不相等（或 `activeRun.ask` 为 null）
+- **WHEN** 打开一条历史转录，其中某 `ask_user_question` 工具的 `toolCallId` 与 `activeRun.ask.toolCallId` 不相等（或 `activeRun.ask` 为 null）
 - **THEN** 该部件呈静态卡（问题与选项原样可读、零提交 / 零输入入口），MUST NOT 呈现为可应答的活卡
 
 #### Scenario: 确认应答后控制入口回运行态

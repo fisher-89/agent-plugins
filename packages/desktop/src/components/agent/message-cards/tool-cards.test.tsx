@@ -52,18 +52,18 @@ const ASK_INPUT = {
 };
 
 // ---------------------------------------------------------------------------
-// AskUserQuestion 特化卡
+// ask_user_question 特化卡
 // ---------------------------------------------------------------------------
 
-describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 特化', () => {
-  it('toolName 为 AskUserQuestion 时命中注册表，问题与选项结构化呈现', () => {
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+describe('BUILD_IN_TOOL_CARDS：ask_user_question 特化', () => {
+  it('toolName 为 ask_user_question 时命中注册表，问题与选项结构化呈现', () => {
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     expect(Card).toBeDefined();
 
     render(
       <Card
         toolCallId="tu_ask"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={ASK_INPUT}
         output={null}
@@ -86,11 +86,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 特化', () => {
   });
 
   it('input 形态不可解析（questions 非数组）→ 降级为错误提示，不抛错', () => {
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_ask"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={{ note: '未知形态' }}
         output={null}
@@ -105,11 +105,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 特化', () => {
   });
 
   it('选项形态残缺（label 缺失）→ 宽容解析不崩', () => {
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_ask"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={{ questions: [{ question: '残缺选项', options: [{ label: 42 }, '非法项'] }] }}
         output={null}
@@ -131,6 +131,7 @@ describe('BUILD_IN_TOOL_CARDS：回退与错误结果', () => {
     // 注册表键面数量与顺序随动：内建工具卡按源码声明序注册
     expect(Object.keys(BUILD_IN_TOOL_CARDS)).toEqual([
       'AskUserQuestion',
+      'ask_user_question',
       'finish_step',
       'web_search',
       'bash',
@@ -196,10 +197,10 @@ const SEARCH_OUTPUT = {
 };
 
 describe('BUILD_IN_TOOL_CARDS：web_search 注册表键面', () => {
-  it('键面含 web_search 且值为 WebSearchCard 本体（同引用），既有 AskUserQuestion 项仍在', () => {
+  it('键面含 web_search 且值为 WebSearchCard 本体（同引用），既有 ask_user_question 项仍在', () => {
     const keys = Object.keys(BUILD_IN_TOOL_CARDS);
     expect(keys).toContain('web_search');
-    expect(keys).toContain('AskUserQuestion');
+    expect(keys).toContain('ask_user_question');
     expect(BUILD_IN_TOOL_CARDS['web_search']).toBe(WebSearchCard);
   });
 
@@ -273,9 +274,9 @@ describe('BUILD_IN_TOOL_CARDS：finish_step 注册表键面', () => {
     expect(keys).toContain('finish_step');
     expect(BUILD_IN_TOOL_CARDS['finish_step']).toBe(FinishStepCard);
     // 既有项零回归
-    expect(BUILD_IN_TOOL_CARDS['AskUserQuestion']).toBeDefined();
+    expect(BUILD_IN_TOOL_CARDS['ask_user_question']).toBeDefined();
     expect(BUILD_IN_TOOL_CARDS['web_search']).toBe(WebSearchCard);
-    expect(keys).toHaveLength(8);
+    expect(keys).toHaveLength(9);
   });
 
   it('键名精确匹配：大小写 / 分隔符偏差与空串均 miss（键面不做归一化）', () => {
@@ -406,7 +407,7 @@ function highlightLanguages(): string[] {
 
 describe('BUILD_IN_TOOL_CARDS：既有六键零回归', () => {
   it.each([
-    ['AskUserQuestion', 'ask-question-card'],
+    ['ask_user_question', 'ask-question-card'],
     ['web_search', 'block-web-search'],
     ['bash', 'block-tool-use'],
     ['read', 'block-tool-use'],
@@ -422,7 +423,7 @@ describe('BUILD_IN_TOOL_CARDS：既有六键零回归', () => {
 
     const root = screen.getByTestId(rootTestId);
     expect(root).toBeTruthy();
-    // 四张折叠卡与 finish_step 卡带 data-tool-id；AskUserQuestion 为容器形态（无该钩子）
+    // 四张折叠卡与 finish_step 卡带 data-tool-id；ask_user_question 为容器形态（无该钩子）
     if (rootTestId !== 'ask-question-card') {
       expect(root.getAttribute('data-tool-id')).toBe(`tu_${toolName}`);
     }
@@ -448,8 +449,8 @@ describe('cardAttrs：卡根同形（既有分支）', () => {
     },
   );
 
-  it('对照：AskUserQuestion 为容器形态，不带该钩子', () => {
-    renderToolCard('AskUserQuestion', { state: 'input-available', input: { questions: [] } });
+  it('对照：ask_user_question 为容器形态，不带该钩子', () => {
+    renderToolCard('ask_user_question', { state: 'input-available', input: { questions: [] } });
     expect(screen.queryByTestId('block-tool-use')).toBeNull();
     expect(screen.getByTestId('ask-question-card')).toBeTruthy();
   });
@@ -641,13 +642,13 @@ describe('BashCard：折叠态标题（intent 呈现）', () => {
 
 describe('ReadCard：标题与行区间（既有分支 / rangeSuffix）', () => {
   it.each([
-    [{ path: 'src/a.ts', offset: 10, limit: 5 }, 'Read src/a.ts:10-15'],
-    [{ path: 'src/a.ts', offset: 10 }, 'Read src/a.ts:10-最后'],
-    [{ path: 'src/a.ts' }, 'Read src/a.ts'],
-    [{ path: 'src/a.ts', offset: '10' }, 'Read src/a.ts'],
-    [{ path: 'src/a.ts', offset: null }, 'Read src/a.ts'],
-    [{ path: 'src/a.ts', offset: 0, limit: 0 }, 'Read src/a.ts:0-0'],
-    [{}, 'Read null'],
+    [{ path: 'src/a.ts', offset: 10, limit: 5 }, 'Read · src/a.ts:10-15'],
+    [{ path: 'src/a.ts', offset: 10 }, 'Read · src/a.ts:10-最后'],
+    [{ path: 'src/a.ts' }, 'Read · src/a.ts'],
+    [{ path: 'src/a.ts', offset: '10' }, 'Read · src/a.ts'],
+    [{ path: 'src/a.ts', offset: null }, 'Read · src/a.ts'],
+    [{ path: 'src/a.ts', offset: 0, limit: 0 }, 'Read · src/a.ts:0-0'],
+    [{}, 'Read · null'],
   ])('input 为 %j → 标题逐字为 %j', (input, expected) => {
     const { unmount } = renderToolCard('read', {
       state: 'output-available',
@@ -913,7 +914,7 @@ describe('languageOf：分支表（经 WriteCard 驱动的语言实参）', () =
 
 describe('AskUserQuestionCard：宽容解析存活面（既有分支）', () => {
   it('label / description 非字符串 → 选项文本为空串且无描述文本', () => {
-    renderToolCard('AskUserQuestion', {
+    renderToolCard('ask_user_question', {
       input: { questions: [{ question: '问', options: [{ label: 42, description: 42 }] }] },
     });
     const option = screen.getByTestId('ask-answer-option');
@@ -921,14 +922,14 @@ describe('AskUserQuestionCard：宽容解析存活面（既有分支）', () => 
   });
 
   it('question 非字符串 → 题干文本为空串', () => {
-    renderToolCard('AskUserQuestion', {
+    renderToolCard('ask_user_question', {
       input: { questions: [{ question: 42, options: [] }] },
     });
     expect(screen.getByTestId('ask-question').textContent).toBe('');
   });
 
   it('options 非数组 → 该问题零选项行（不落假串）', () => {
-    renderToolCard('AskUserQuestion', {
+    renderToolCard('ask_user_question', {
       input: { questions: [{ question: '问', options: '非数组' }] },
     });
     expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
@@ -936,7 +937,7 @@ describe('AskUserQuestionCard：宽容解析存活面（既有分支）', () => 
   });
 
   it('description 缺席 → 选项文本恰为 label', () => {
-    renderToolCard('AskUserQuestion', {
+    renderToolCard('ask_user_question', {
       input: { questions: [{ question: '问', options: [{ label: '甲' }] }] },
     });
     const option = screen.getByTestId('ask-answer-option');
@@ -945,23 +946,23 @@ describe('AskUserQuestionCard：宽容解析存活面（既有分支）', () => 
 });
 
 // ---------------------------------------------------------------------------
-// ask-tool-in-flow：`AskUserQuestion` 卡双态（静态 / 活卡）与双形态解析
+// ask-tool-in-flow：`ask_user_question` 卡双态（静态 / 活卡）与双形态解析
 // ---------------------------------------------------------------------------
 
-/** 单问形态（阻塞工具 `AskUserQuestion` 的当前线形态，选项为裸字符串）。 */
+/** 单问形态（阻塞工具 `ask_user_question` 的当前线形态，选项为裸字符串）。 */
 const SINGLE_ASK_INPUT = {
   name: 'retry',
   question: '选哪个重试策略？',
   options: ['指数退避', '固定间隔'],
 };
 
-describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () => {
+describe('BUILD_IN_TOOL_CARDS：ask_user_question 双形态归一与双态', () => {
   it('静态态（AC-11）：未注入动作面 → 问题与选项可读，零提交入口、零自由文本、零 onAnswer', () => {
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_static"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={SINGLE_ASK_INPUT}
         output={null}
@@ -983,11 +984,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
 
   it('活卡自由文本与选项两路并存（AC-6）：选项与输入框同卡在场，提交走 onAnswer', () => {
     const onAnswer = vi.fn();
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_two_paths"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={SINGLE_ASK_INPUT}
         output={null}
@@ -1006,11 +1007,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
 
   it('点选项不即时应答：须再点提交，载荷为选项原文', () => {
     const onAnswer = vi.fn();
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_pick"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={SINGLE_ASK_INPUT}
         output={null}
@@ -1027,11 +1028,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
 
   it('提交后回落静态：提交与输入入口退场，二次点击零 replay', () => {
     const onAnswer = vi.fn();
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     const first = render(
       <Card
         toolCallId="tu_opt_once"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={SINGLE_ASK_INPUT}
         output={null}
@@ -1050,7 +1051,7 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
     const second = render(
       <Card
         toolCallId="tu_text_once"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={SINGLE_ASK_INPUT}
         output={null}
@@ -1067,11 +1068,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
 
   it('空提交被拦（AC-11）：未选选项且未输入 → click 后 onAnswer 零调用', () => {
     const onAnswer = vi.fn();
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_blank"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={SINGLE_ASK_INPUT}
         output={null}
@@ -1089,10 +1090,10 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
   });
 
   it('cardAsk 动作面类型面两形态：省略与给值均可编译，给值时卡内不消费 pendingToolCallId', () => {
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     const props: React.ComponentProps<typeof Card> = {
       toolCallId: 'tu_type',
-      toolName: 'AskUserQuestion',
+      toolName: 'ask_user_question',
       state: 'input-available',
       input: SINGLE_ASK_INPUT,
       output: null,
@@ -1112,11 +1113,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
   });
 
   it('单问形态（question + 裸字符串 options）→ 结构化呈现，与历史 questions 形态同构', () => {
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_single"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={SINGLE_ASK_INPUT}
         output={null}
@@ -1133,11 +1134,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
   });
 
   it('历史形态（questions 数组 + {label, description}）零改动仍可读', () => {
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_legacy"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={ASK_INPUT}
         output={null}
@@ -1149,11 +1150,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
 
   it('活卡态（注入 askAnswer）→ 选项可点 + 自由文本输入与提交', () => {
     const onAnswer = vi.fn();
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_live"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={SINGLE_ASK_INPUT}
         output={null}
@@ -1173,11 +1174,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
 
   it('多问形态（历史转录）即便注入动作面也呈只读：零提交入口、零 onAnswer', () => {
     const onAnswer = vi.fn();
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_multi"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={{
           questions: [
@@ -1200,13 +1201,13 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
   });
 
   it('两形态皆不匹配（DD9）：{} / question 非串 / 原串 / null / 数组 → 降级提示，零 panic', () => {
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     const cases: unknown[] = [{}, { question: 42, options: [] }, 'str', null, []];
     for (const input of cases) {
       const mounted = render(
         <Card
           toolCallId="tu_bad"
-          toolName="AskUserQuestion"
+          toolName="ask_user_question"
           state="input-available"
           input={input}
           output={null}
@@ -1223,11 +1224,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
 
   it('历史 SDK 形态（questions + {label, description}）在活卡态下同样可提交（双形态归一）', () => {
     const onAnswer = vi.fn();
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_legacy_live"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={{
           questions: [
@@ -1253,11 +1254,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
 
   it('options 缺席（单问形态）→ 空选项清单不崩，自由文本仍可提交', () => {
     const onAnswer = vi.fn();
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_no_options"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={{ question: '只有题干' }}
         output={null}
@@ -1272,11 +1273,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
   });
 
   it('混合选项形态：字符串与 {label, description} 并存 → 逐项归一到同一渲染（description 各自保真）', () => {
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_mixed"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={{
           questions: [
@@ -1298,11 +1299,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
   });
 
   it('零选项（options: []）→ 空列表、题干仍渲染；1000 选项逐项渲染不崩', () => {
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     const empty = render(
       <Card
         toolCallId="tu_empty_options"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={{ question: '零选项', options: [] }}
         output={null}
@@ -1316,7 +1317,7 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
     render(
       <Card
         toolCallId="tu_many_options"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={{ question: '千选项', options: many }}
         output={null}
@@ -1326,12 +1327,12 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
   });
 
   it('题干与选项边界：空串题干 / 特殊字符 / 超长选项逐字呈现', () => {
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     const long = '字'.repeat(1200);
     render(
       <Card
         toolCallId="tu_bounds"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={{ question: '', options: ['a\nb', 'a\0b🚀', long] }}
         output={null}
@@ -1350,11 +1351,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
   });
 
   it('已应答回灌（信封）：命中项选中且其余禁用，零提交入口', () => {
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_answered"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="output-available"
         input={SINGLE_ASK_INPUT}
         output={{ content: '{"status":"answered","answers":{"retry":"固定间隔"}}', isError: false }}
@@ -1373,11 +1374,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
   });
 
   it('已应答回灌（旧扁平 map，无 status 信封）：仍是兼容形态，命中项选中', () => {
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_legacy_map"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="output-available"
         // 旧线输入无 name（回填键回落 Q1）——与旧扁平 map 的键同源
         input={{ question: '选哪个重试策略？', options: ['指数退避', '固定间隔'] }}
@@ -1390,11 +1391,11 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
   });
 
   it('已应答回灌（历史原文，非 JSON）：不抛错，选项原样可读且无提交入口', () => {
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_plain"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="output-available"
         input={SINGLE_ASK_INPUT}
         output={{ content: '丁', isError: false }}
@@ -1415,7 +1416,7 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
 
 /** 四处 running 站点的四张特化卡与各自最小可解析输入。 */
 const FOUR_RUNNING_CARDS: [string, unknown][] = [
-  ['AskUserQuestion', SINGLE_ASK_INPUT],
+  ['ask_user_question', SINGLE_ASK_INPUT],
   ['bash', { command: 'ls -la' }],
   ['read', { path: 'a.ts' }],
   ['write', { path: 'a.ts', content: 'export const a = 1;' }],
@@ -1457,7 +1458,7 @@ describe('unpairedRunning：四张特化卡的 TraceLine 判据', () => {
   );
 
   it.each([
-    { toolName: 'AskUserQuestion', input: SINGLE_ASK_INPUT },
+    { toolName: 'ask_user_question', input: SINGLE_ASK_INPUT },
     { toolName: 'bash', input: { command: 'ls' } },
   ])(
     '$toolName：终结轮无结果 → 旋载图标退场、特化图标在场；运行中轮 → spinner 在场',
@@ -1549,11 +1550,11 @@ describe('unpairedRunning：范围边界（三张无 running 标记的卡与默�
 
   it('Ask 卡交互面不受轮状态影响：轮已终结但注入动作面 → 提交仍走 onAnswer', () => {
     const onAnswer = vi.fn();
-    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const Card = BUILD_IN_TOOL_CARDS['ask_user_question'];
     render(
       <Card
         toolCallId="tu_ask_terminal"
-        toolName="AskUserQuestion"
+        toolName="ask_user_question"
         state="input-available"
         input={SINGLE_ASK_INPUT}
         output={null}
@@ -1866,6 +1867,7 @@ describe('ConfigProposeCard：注册表与前端零配置语义', () => {
   it('注册表第 8 键 propose_config 在场，既有七键逐字零位移', () => {
     expect(Object.keys(BUILD_IN_TOOL_CARDS)).toEqual([
       'AskUserQuestion',
+      'ask_user_question',
       'finish_step',
       'web_search',
       'bash',

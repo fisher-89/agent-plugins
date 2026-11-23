@@ -1,2 +1,2 @@
 [element."App.Auth.Token"]
-kind = "component"
+kind = "module"

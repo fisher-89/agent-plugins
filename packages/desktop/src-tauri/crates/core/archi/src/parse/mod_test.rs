@@ -83,7 +83,7 @@ const CORE_SOURCE: &str = concat!(
 
 const AUTH_SOURCE: &str = concat!(
     "[element.\"App.Auth.Token\"]\n",
-    "kind = \"component\"\n",
+    "kind = \"module\"\n",
     "\n",
     "[[relation]]\n",
     "from = \"App.Auth.Token\"\n",
@@ -331,7 +331,7 @@ fn 多个坏文件诊断数等于坏文件数() {
     write_model(
         temp.root(),
         "04-syntax.toml",
-        "[element.\"App.Legacy]\nkind = \"component\"\n",
+        "[element.\"App.Legacy]\nkind = \"module\"\n",
     );
 
     let outcome = parse_dir(temp.root());

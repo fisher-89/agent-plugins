@@ -85,6 +85,7 @@ const fixtureList: ChangeList = {
       status: 'active',
       activePhase: null,
       created: '2026-09-01',
+      archivedAt: null,
     },
     {
       id: '0199a2f0-0012-7e45-8a9b-000000000012',
@@ -93,7 +94,8 @@ const fixtureList: ChangeList = {
       source: 'active',
       status: null,
       activePhase: null,
-      created: null,
+      created: '2026-10-01',
+      archivedAt: null,
     },
   ],
   archiveGroups: [
@@ -108,6 +110,7 @@ const fixtureList: ChangeList = {
           status: 'archived',
           activePhase: null,
           created: '2026-09-01',
+          archivedAt: '2026-09-05',
         },
       ],
     },
@@ -122,6 +125,7 @@ const fixtureList: ChangeList = {
           status: null,
           activePhase: null,
           created: '2026-05-15',
+          archivedAt: '2026-05-30',
         },
       ],
     },
@@ -135,7 +139,8 @@ const fixtureList: ChangeList = {
           source: 'archive',
           status: 'archived',
           activePhase: null,
-          created: null,
+          created: '2026-04-01',
+          archivedAt: null,
         },
       ],
     },
@@ -242,7 +247,8 @@ describe('ChangeListView：分组列表、运行中徽标与进入详情', () =>
           source: 'active',
           status: 'active',
           activePhase: { phase: 'implement', attempt: 2, startAt: null },
-          created: null,
+          created: '2026-04-01',
+          archivedAt: null,
         },
       ],
       archiveGroups: [],
@@ -325,7 +331,14 @@ describe('ChangeListView：created / 错误条 / 空态提示的分支形态', (
 
     // 按钮名本身含日期前缀，因此必须精确断言 created 挂钩的文本而非整页 textContent
     const createdTexts = screen.getAllByTestId('created').map((span) => span.textContent ?? '');
-    expect(createdTexts).toEqual(expect.arrayContaining(['2026-09-01', '2026-05-15']));
+    expect(createdTexts).toEqual(
+      expect.arrayContaining([
+        '2026-10-01',
+        '2026-09-01 ~ 2026-09-05',
+        '2026-05-15 ~ 2026-05-30',
+        '2026-04-01',
+      ]),
+    );
     for (const text of createdTexts) {
       expect(text.length).toBeGreaterThan(0);
     }
@@ -563,7 +576,8 @@ describe('ChangeListView：退役面负断言与状态面消费', () => {
           source: 'active',
           status: null,
           activePhase: null,
-          created: null,
+          created: '2026-04-01',
+          archivedAt: null,
         },
       ],
       archiveGroups: [],
@@ -585,7 +599,8 @@ describe('ChangeListView：退役面负断言与状态面消费', () => {
           source: 'active',
           status: 'active',
           activePhase: { phase: 'test-gen', attempt: 1, startAt: null },
-          created: null,
+          created: '2026-04-01',
+          archivedAt: null,
         },
         {
           id: 'no-status',
@@ -594,7 +609,8 @@ describe('ChangeListView：退役面负断言与状态面消费', () => {
           source: 'active',
           status: null,
           activePhase: null,
-          created: null,
+          created: '2026-06-01',
+          archivedAt: null,
         },
       ],
       archiveGroups: [
@@ -608,7 +624,8 @@ describe('ChangeListView：退役面负断言与状态面消费', () => {
               source: 'archive',
               status: 'archived',
               activePhase: null,
-              created: null,
+              created: '2026-02-10',
+              archivedAt: '2026-02-19',
             },
           ],
         },
@@ -648,6 +665,7 @@ describe('ChangeListView：条目渲染 summary.title（AC-8）', () => {
         status: 'active',
         activePhase: null,
         created: '2026-09-01',
+        archivedAt: null,
       },
     ],
     archiveGroups: [
@@ -662,6 +680,7 @@ describe('ChangeListView：条目渲染 summary.title（AC-8）', () => {
             status: 'archived',
             activePhase: null,
             created: '2026-05-01',
+            archivedAt: '2026-05-01',
           },
         ],
       },

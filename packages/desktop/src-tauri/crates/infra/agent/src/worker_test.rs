@@ -1219,7 +1219,7 @@ fn worker_with_ask_port(
 
 /// change 来源拿到句柄（正向，AC-2）：假 sink 同时实现 `RunEventSink` +
 /// `AskPort`；`source="change"` + `ask = Some(Flow)` 的轮 → 脚本化流缝让模型
-/// **真的调用** `AskUserQuestion` → 假 sink 的 `ask_started` / `ask_resolved`
+/// **真的调用** `ask_user_question` → 假 sink 的 `ask_started` / `ask_resolved`
 /// 各记录一条、载荷 `tool_call_id` 非空、应答经 `AskRegistry` 回灌后续跑。
 ///
 /// 观测边界：模型边界由本机回环脚本化 SSE 桩承担（`ask_scripted_provider`）；
@@ -1384,7 +1384,7 @@ fn 同一arc两次trait强转两侧观测同一实例() {
 /// 非 change 来源（`Generic` 档）→ `AskPort` 方法零调用（正向：port 只服务
 /// `Flow` 档；explore 来源装配 `ask = Some(Generic)`）。
 ///
-/// 驱动面同上：模型真的调用 `AskUserQuestion` → 执行体只登记 + 阻塞（不吃
+/// 驱动面同上：模型真的调用 `ask_user_question` → 执行体只登记 + 阻塞（不吃
 /// port），应答回灌后同 turn 续跑。
 #[tokio::test]
 async fn 非change来源的泛用档不吃ask_port() {
@@ -1449,7 +1449,7 @@ async fn 非change来源的泛用档不吃ask_port() {
 }
 
 /// `Flow` 档但组合根传 `None` port（异常，DD2 防御臂的生产形态）：模型调
-/// `AskUserQuestion` → 该调用以 `is_error`「ask 编排状态面未装配」回灌、注册表
+/// `ask_user_question` → 该调用以 `is_error`「ask 编排状态面未装配」回灌、注册表
 /// 零登记、run 不中断（正常收口）。
 #[tokio::test]
 async fn 流程档无port时调用以is_error回灌且轮正常收口() {

@@ -121,7 +121,7 @@ pub fn decision_prompt(input: &DecisionInput) -> String {
 ## 决策协议（调用 finish_step 提交两选一动作，形状由工具 schema 给出）\n\n\
 - `backtrack`（`to` 取白名单内相位 id + `reason` ≤{MAX_REASON_CHARS} 字符）：白名单内自主回溯，直接执行；目标为失败相位自身即重做本相位（仅当其在白名单内）。\n\
 - `stop`（`reason` ≤{MAX_REASON_CHARS} 字符）：终止本次运行。\n\
-无法裁决时调用 `AskUserQuestion` 工具提问（问题 + 非空选项，形状由工具 schema 给出）；应答后你可在同一轮内继续决策。\n\n\
+无法裁决时调用 `ask_user_question` 工具提问（问题 + 非空选项，形状由工具 schema 给出）；应答后你可在同一轮内继续决策。\n\n\
 红线：backtrack 目标不在白名单内的决议会被拒绝（一次即终止）；reason 超长会被拒绝。",
         phase = input.phase,
         attempt = input.attempt,

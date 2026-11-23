@@ -105,7 +105,7 @@ impl ArchiContext {
         })
     }
 
-    /// `archi_scaffold`：`kind` 可选（缺省 `domain`；值集外 `Err` 点名四值）→ 新元素
+    /// `archi_scaffold`：`kind` 可选（缺省 `domain`；值集外 `Err` 点名三值）→ 新元素
     /// TOML 草稿。只读零写盘——写盘仍走既有 `write` / `edit`。
     fn scaffold_payload(&self, input: &Value) -> Result<Value, String> {
         let kind = match input.get("kind").and_then(Value::as_str).map(str::trim) {
@@ -200,7 +200,7 @@ const SCAFFOLD_TEMPLATE: &str = r#"# 新元素模板（只读草稿：写盘仍�
 [element."NewElement"]
 
 kind = "__KIND__"
-# kind：package = 包根（无 path）/ domain = 容器（path 恒空）/ module = crate、目录型模块或视图 / component = 组件文件
+# kind：package = 包根（无 path）/ domain = 容器（path 恒空）/ module = crate、目录型模块、视图或单文件组件
 
 # gate：缺省 off（ratchet 逐块收紧），值 off / warn / strict
 # gate = "off"
@@ -224,11 +224,13 @@ kind = "__KIND__"
 # metadata：必须是内联表（子表会被读成另一个元素）
 # metadata = { owner = "team-x", layer = "core" }
 
-# 关系模板（三行全注释：空的 relation 表会触发 missingField）
+# 关系模板
 # [[relation]]
 # from = "App.NewElement"
 # to = "App.Dependency"
 # desc = "为什么依赖"
+# apis = ["ExportedName"]
+# apis：选填名字清单，只写名字、可留空、生成物面留空；差额看 archi_drift
 "#;
 
 /// 按 kind 出草稿（占位替换单点；草稿含注释行与一行实值 `kind`）。

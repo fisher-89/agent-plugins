@@ -63,7 +63,7 @@ const FULL_SOURCE: &str = concat!(
     "gate = \"warn\"\n",
     "\n",
     "[element.\"App.Legacy\"]\n",
-    "kind = \"component\"\n",
+    "kind = \"module\"\n",
     "gate = \"off\"\n",
     "\n",
     "[[relation]]\n",
@@ -141,7 +141,7 @@ fn 解析全字段源_元素关系逐字段相等且缺省取零值() {
             .element("App.Legacy")
             .expect("App.Legacy 在模型内")
             .kind,
-        ElementKind::Component
+        ElementKind::Module
     );
 
     // 关系
@@ -246,12 +246,12 @@ fn 缺必填字段归_missing_field_且位置未知形态自洽() {
     assert!(diagnostic.line != u32::MAX, "不出现 u32::MAX 哨兵值");
 }
 
-/// 异常：`invalidValue`——非法 `kind` 列出四个合法值，非法 `gate` 列出三个合法值。
+/// 异常：`invalidValue`——非法 `kind` 列出三个合法值，非法 `gate` 列出三个合法值。
 #[test]
 fn 非法枚举值归_invalid_value_且列出全部合法值() {
     let kind_diagnostic = single_diagnostic("[element.\"App\"]\nkind = \"pakage\"\n");
     assert_eq!(kind_diagnostic.kind, DiagnosticKind::InvalidValue);
-    for legal in ["package", "domain", "module", "component"] {
+    for legal in ["package", "domain", "module"] {
         assert!(
             kind_diagnostic.message.contains(legal),
             "kind 错误文案应列出合法值 {legal}: {}",

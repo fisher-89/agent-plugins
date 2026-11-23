@@ -10,7 +10,7 @@ import { AgentMessages } from './agent-messages';
 
 // ---------------------------------------------------------------------------
 // 探针装置（保留真实实现，仅记录 props）：注册表键 `BUILD_IN_TOOL_CARDS
-// ['AskUserQuestion']` 上包一层零行为探针，把每张 ask 特化卡收到的 `askAnswer`
+// ['ask_user_question']` 上包一层零行为探针，把每张 ask 特化卡收到的 `askAnswer`
 // 引用 push 进 `cardSpy` 后原样渲染真实卡。
 // `importOriginal` 保留全部真实实现（其余卡 / parseAsk 照旧）；探针挂注册表键而
 // 非组件名——`AskUserQuestionCard` 不是导出面，为测试加导出会污染死代码扫描。
@@ -25,14 +25,14 @@ type AskAnswerActions = ToolCardProps['askAnswer'];
 
 vi.mock('@/components/agent/message-cards/tool-cards', async (importOriginal) => {
   const actual = await importOriginal<typeof ToolCards>();
-  const Real = actual.BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+  const Real = actual.BUILD_IN_TOOL_CARDS['ask_user_question'];
   function ProbedAskCard(props: ToolCardProps) {
     cardSpy.refs.push(props.askAnswer ?? null);
     return <Real {...props} />;
   }
   return {
     ...actual,
-    BUILD_IN_TOOL_CARDS: { ...actual.BUILD_IN_TOOL_CARDS, AskUserQuestion: ProbedAskCard },
+    BUILD_IN_TOOL_CARDS: { ...actual.BUILD_IN_TOOL_CARDS, ask_user_question: ProbedAskCard },
   };
 });
 
@@ -396,13 +396,13 @@ describe('AgentMessages：四变体气泡', () => {
     expect(assistantTexts).toEqual(['第一段', '第二段']);
   });
 
-  it('注册表特化卡（AskUserQuestion 静态卡）：命中注册表即渲染专属卡而非默认对卡', () => {
+  it('注册表特化卡（ask_user_question 静态卡）：命中注册表即渲染专属卡而非默认对卡', () => {
     const events: AgentEvent[] = [
       message(1, [
         {
           kind: 'toolUse',
           id: 'tu_ask',
-          name: 'AskUserQuestion',
+          name: 'ask_user_question',
           input: {
             questions: [
               {
@@ -1439,13 +1439,13 @@ function twoAskEvents(): AgentEvent[] {
         {
           kind: 'toolUse',
           id: 'call_1',
-          name: 'AskUserQuestion',
+          name: 'ask_user_question',
           input: { name: 'q', question: '第一问', options: ['甲', '乙'] },
         },
         {
           kind: 'toolUse',
           id: 'call_2',
-          name: 'AskUserQuestion',
+          name: 'ask_user_question',
           input: { name: 'q', question: '第二问', options: ['丙', '丁'] },
         },
       ],
@@ -1488,13 +1488,13 @@ function pairedAskEvents(): AgentEvent[] {
         {
           kind: 'toolUse',
           id: 'call_1',
-          name: 'AskUserQuestion',
+          name: 'ask_user_question',
           input: { name: 'q', question: '第一问（未配对）', options: ['甲', '乙'] },
         },
         {
           kind: 'toolUse',
           id: 'call_2',
-          name: 'AskUserQuestion',
+          name: 'ask_user_question',
           input: { name: 'q', question: '第二问（已回灌）', options: ['丙', '丁'] },
         },
         { kind: 'toolResult', id: 'call_2', content: '丁', isError: false },
@@ -1640,7 +1640,7 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
           {
             kind: 'toolUse',
             id: 'call_ask',
-            name: 'AskUserQuestion',
+            name: 'ask_user_question',
             input: { name: 'q', question: '问', options: ['答'] },
           },
         ],
@@ -1682,7 +1682,7 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
           {
             kind: 'toolUse',
             id: 'call_ask3',
-            name: 'AskUserQuestion',
+            name: 'ask_user_question',
             input: { name: 'q', question: '问', options: ['答'] },
           },
         ],

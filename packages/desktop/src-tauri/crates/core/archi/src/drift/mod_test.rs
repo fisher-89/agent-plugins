@@ -2813,7 +2813,7 @@ fn model_hash口径回归手工复算() {
     );
     temp.write(
         ".dev-team/architecture/graph/model/02-more.toml",
-        "[element.\"App.Auth.Login\"]\nkind = \"component\"\n",
+        "[element.\"App.Auth.Login\"]\nkind = \"module\"\n",
     );
     assert_eq!(
         super::model_hash(temp.root()),

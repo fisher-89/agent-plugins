@@ -175,7 +175,7 @@
 
 - **二次确认**：点击生成 SHALL 弹二次确认（`StandardDialog` 既有原语），文案 SHALL 含三件事——① 「将写入 N 份（不符 X + 缺失 Y）」；② 「保留 M 份孤儿生成物不做处理」（M 为当前 `orphaned` 长度）；③ 写盘非原子的如实表述。MUST NOT 以轻量 toast 代替确认。
 - **成功后重跑检查**：生成成功后 SHALL 触发一次检查重取（用取数 hook 自身的刷新，不重挂整页），并 toast 报 `written` / `unchanged` 两份计数；MUST NOT 让面板停留在陈旧差异上。
-- **模式权限（U1）**：生成入口 SHALL 仅出现在 `mode = incremental`（change 详情「架构」页签）；`mode = full`（`/architecture`）MUST NOT 出现可提交的生成入口，改为一行提示「生成需开 change（或让左侧会话执行 `pnpm api:export`）」，形态沿既有 `archi-gate-readonly` 提示。
+- **模式权限（U1）**：生成入口 SHALL 仅出现在 `mode = incremental`（change 详情「架构」页签）；`mode = full`（`/architecture`）MUST NOT 出现可提交的生成入口，改为一行提示「生成需开 change（或让左侧会话执行本仓的生成命令）」，形态沿既有 `archi-gate-readonly` 提示。
 - **只读对象的延伸**：画布「只读约束的对象 = 画布的人类可提交入口」这一既有裁定同样覆盖本面板的生成按钮——MUST NOT 以「会话能写」为理由为 `full` 模式新增生成入口，亦 MUST NOT 以「画布只读」为理由禁止页内会话执行生成命令。
 - **生成期间零并发**：生成进行中 SHALL 禁用生成与检查按钮（防并发写同一批文件）；MUST NOT 在生成未完成时重跑检查。
 
@@ -192,7 +192,7 @@
 #### Scenario: full 模式零生成入口
 
 - **WHEN** 在 `/architecture`（`mode = full`）审查契约视图与源码
-- **THEN** 无任何可提交的生成按钮，呈一行「生成需开 change（或让左侧会话执行 `pnpm api:export`）」提示；源码内 `full` 分支零 `archiApiGenerate` 调用路径
+- **THEN** 无任何可提交的生成按钮，呈一行「生成需开 change（或让左侧会话执行本仓的生成命令）」提示；源码内 `full` 分支零 `archiApiGenerate` 调用路径
 
 #### Scenario: 生成中禁并发
 

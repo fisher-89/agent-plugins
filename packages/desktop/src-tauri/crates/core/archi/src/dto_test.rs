@@ -111,7 +111,7 @@ fn healthy_dir(tag: &str) -> TempDir {
         "02-billing.toml",
         concat!(
             "[element.\"App.Billing.Invoice\"]\n",
-            "kind = \"component\"\n",
+            "kind = \"module\"\n",
             "\n",
             "[[relation]]\n",
             "from = \"App\"\n",
@@ -274,7 +274,7 @@ fn graph_view九类结构错一律停摆() {
     let orphan = TempDir::new("halt-orphan");
     orphan.write_model(
         "01.toml",
-        "[element.\"App.Auth.Token\"]\nkind = \"component\"\n",
+        "[element.\"App.Auth.Token\"]\nkind = \"module\"\n",
     );
 
     let cases: [(&TempDir, &str); 10] = [
@@ -586,7 +586,7 @@ fn change_summary差异逐项() {
         concat!(
             "[element.\"App\"]\nkind = \"package\"\ngate = \"strict\"\n\n",
             "[element.\"App.Billing\"]\nkind = \"module\"\ngate = \"strict\"\n\n",
-            "[element.\"App.Billing.Invoice\"]\nkind = \"component\"\n\n",
+            "[element.\"App.Billing.Invoice\"]\nkind = \"module\"\n\n",
             "[[relation]]\nfrom = \"App\"\nto = \"App.Billing\"\n\n",
             "[[relation]]\nfrom = \"App\"\nto = \"App.Billing.Invoice\"\n",
         ),
@@ -738,12 +738,11 @@ fn search_scope_parse非法值列出合法值() {
 /// 边界：逐枚举线值（lowercase / camelCase）与非法值反序列化 `Err`（每枚举 N+1）。
 #[test]
 fn 词汇serde线形逐值() {
-    // ElementKind（4）
+    // ElementKind（3）
     for (value, line) in [
         (ElementKind::Package, "package"),
         (ElementKind::Domain, "domain"),
         (ElementKind::Module, "module"),
-        (ElementKind::Component, "component"),
     ] {
         assert_eq!(value.as_str(), line);
         assert_eq!(
@@ -988,16 +987,13 @@ fn 诊断all序与as_str同源逐位() {
     }
 }
 
-/// 回归：既有全量常量复用面——`ElementKind::ALL` 四值 / `GateTier::ALL` 三值逐值
+/// 回归：既有全量常量复用面——`ElementKind::ALL` 三值 / `GateTier::ALL` 三值逐值
 /// `as_str`；`GateTier::default() == Off`（知识文本 `gate` 段与缺省锚依赖此面，
 /// 既有断言不改）。
 #[test]
 fn 既有全量常量复用面零回归() {
-    assert_eq!(ElementKind::ALL.len(), 4, "元素 kind 封闭四值");
-    for (index, word) in ["package", "domain", "module", "component"]
-        .iter()
-        .enumerate()
-    {
+    assert_eq!(ElementKind::ALL.len(), 3, "元素 kind 封闭三值");
+    for (index, word) in ["package", "domain", "module"].iter().enumerate() {
         assert_eq!(
             ElementKind::ALL[index].as_str(),
             *word,
@@ -1941,7 +1937,7 @@ fn line_words<T: serde::Serialize + Copy>(values: Vec<T>) -> Vec<String> {
 #[test]
 fn 既有词汇与出线类型零变化() {
     // 九组既有封闭词汇：有 `ALL` 常量的取长度，其余取 serde 线值——两份都钉死尺寸
-    assert_eq!(ElementKind::ALL.len(), 4, "ElementKind 仍四值");
+    assert_eq!(ElementKind::ALL.len(), 3, "ElementKind 仍三值");
     assert_eq!(GateTier::ALL.len(), 3, "GateTier 仍三档");
     assert_eq!(DiagnosticKind::ALL.len(), 9, "DiagnosticKind 仍九值");
     assert_eq!(ApiStatus::ALL.len(), 2, "ApiStatus 仍二值");

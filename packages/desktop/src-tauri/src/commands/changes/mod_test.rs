@@ -1289,7 +1289,7 @@ async fn list归组随动_worktree条目入active组状态面完整() {
         .expect("worktree 条目应在场");
     assert_eq!(entry.id, "id-wt-list", "条目携身份锚 id（非目录名）");
     assert_eq!(entry.status, Some(ChangeStatus::Active), "状态面 status 在");
-    assert!(entry.created.is_some(), "状态面 created 在");
+    assert!(!entry.created.is_empty(), "状态面 created 在");
 }
 
 /// 归档引导命令面：记录携 worktree + 两树未命中 → `archive_change_with` Err

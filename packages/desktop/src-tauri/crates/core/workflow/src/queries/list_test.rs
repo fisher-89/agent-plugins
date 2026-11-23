@@ -437,8 +437,7 @@ fn db单源全量_异id全量投影且id恒在案与name恒裸名() {
         "状态面 active_phase 透出"
     );
     assert_eq!(
-        alpha.created.as_deref(),
-        Some("2024-09-22"),
+        alpha.created, "2024-09-22",
         "状态面 created 取 created_at（T0 = 2024-09-22 UTC）"
     );
     // 归档月组 = db archived 全量（组间新月份在前——磁盘前缀不参与）
@@ -676,11 +675,7 @@ fn worktree条目入进行中组_状态面完整且不误归未知时间组() {
     assert_eq!(entry.name, "wt-change", "目录名 = 建档裸名（未命中回退）");
     assert_eq!(entry.source, ChangeSource::Active, "进行中组");
     assert_eq!(entry.status, Some(ChangeStatus::Active), "状态面 status 在");
-    assert_eq!(
-        entry.created.as_deref(),
-        Some("2024-09-22"),
-        "状态面 created 在"
-    );
+    assert_eq!(entry.created, "2024-09-22", "状态面 created 在");
     assert!(
         entry.active_phase.is_some(),
         "状态面 active_phase 在（运行态透出）"

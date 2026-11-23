@@ -80,7 +80,7 @@ function unpairedRunning(
 /** 特化工具卡可插拔位类型（按组件装配，允许 memo 包装） */
 export type AgentToolCard = ComponentType<AgentToolCardProps>;
 
-/** AskUserQuestion 静态卡的问题/选项形态（宽容解析，未知形态回退 JSON 原样） */
+/** ask_user_question 静态卡的问题/选项形态（宽容解析，未知形态回退 JSON 原样） */
 interface AskOption extends QuestionnaireChoiceDefinition {
   description: string | null;
 }
@@ -104,7 +104,7 @@ function parseOptions(options: unknown[]): AskOption[] {
 
 /**
  * 宽松解析 ask 输入（双形态归一，皆不匹配即 null → 卡内回退 JSON 展示）：
- * - 单问形态 `{ name, question, options }`（阻塞工具 `AskUserQuestion` 的当前线
+ * - 单问形态 `{ name, question, options }`（阻塞工具 `ask_user_question` 的当前线
  *   形态；`name` 是**协议声明**的应答 map 键，缺失是历史转录，回落 `Q1`）；
  * - 历史形态 `{ questions: [{ question, options }] }`（旧工具参数面）。
  */
@@ -195,7 +195,7 @@ function AskChoicesView({
 }
 
 /**
- * AskUserQuestion 特化卡双态（同一组件、同一卡根钩子）：
+ * ask_user_question 特化卡双态（同一组件、同一卡根钩子）：
  * - 静态态（未注入动作面）：问题与选项原样可读、零交互；
  * - 活卡态（注入动作面）：选项为可点按钮 + 自由文本输入与提交；提交后本地
  *   即时禁用（防连点 / 重复应答），等待上层状态变化复位。
@@ -366,7 +366,7 @@ function ReadCard({
           <TraceIcon>
             <FileIcon />
           </TraceIcon>
-          <TraceTitle>Read {`${path}${rangeSuffix(record.offset, record.limit)}`}</TraceTitle>
+          <TraceTitle>Read · {`${path}${rangeSuffix(record.offset, record.limit)}`}</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
       <TraceCollapsibleContent>
@@ -428,7 +428,7 @@ function WriteCard({
           <TraceIcon>
             {unpairedRunning(output, turnRunning) ? <Spinner /> : <FileEditIcon />}
           </TraceIcon>
-          <TraceTitle>Write {path}</TraceTitle>
+          <TraceTitle>Write · {path}</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
       <TraceCollapsibleContent>
@@ -470,7 +470,7 @@ function EditCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.
           <TraceIcon>
             <FileEditIcon />
           </TraceIcon>
-          <TraceTitle>Edit {path}</TraceTitle>
+          <TraceTitle>Edit · {path}</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
       <TraceCollapsibleContent>
@@ -769,7 +769,9 @@ function ConfigProposeCard({
 }
 
 export const BUILD_IN_TOOL_CARDS: Record<string, AgentToolCard> = {
+  /** @deprecated 兼容旧版工具名 */
   AskUserQuestion: AskUserQuestionCard,
+  ask_user_question: AskUserQuestionCard,
   finish_step: FinishStepCard,
   web_search: WebSearchCard,
   bash: BashCard,

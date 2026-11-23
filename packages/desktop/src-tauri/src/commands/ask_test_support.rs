@@ -1,7 +1,7 @@
 // 命令测试共享装置：脚本化 SSE provider 桩（本机回环 HTTP 应答面）。
 //
 // 为什么需要它：`ask` 的两条端到端链（通用侧 `agent_answer`、流程侧
-// `change_flow_answer`）最深的一环是「模型真的调用 `AskUserQuestion` → 执行体
+// `change_flow_answer`）最深的一环是「模型真的调用 `ask_user_question` → 执行体
 // 阻塞 → 命令投递 → 同 turn 回灌」。discard 端点（恒拒连）只能证装配不 panic，
 // 证不了这一环；故以本机回环 HTTP 桩按请求序回放 SSE，作为**网络边界**的替身。
 
@@ -13,7 +13,7 @@ pub(crate) struct AskScriptedProvider {
 }
 
 impl AskScriptedProvider {
-    /// 起桩：首个请求回 `AskUserQuestion` 调用，其后恒回收口流。
+    /// 起桩：首个请求回 `ask_user_question` 调用，其后恒回收口流。
     pub(crate) fn new(tag: &str, question: &str, options: &[&str]) -> Self {
         use std::io::{BufRead, BufReader, Write};
         use std::net::TcpListener;
@@ -108,7 +108,7 @@ fn sse_line(payload: serde_json::Value) -> String {
     format!("data: {payload}\n\n")
 }
 
-/// 「调 `AskUserQuestion`」的一整段流（工具名 + 完整参数单块）。
+/// 「调 `ask_user_question`」的一整段流（工具名 + 完整参数单块）。
 fn sse_ask_body(question: &str, options: &[&str]) -> String {
     let mut body = String::new();
     body.push_str(&sse_line(serde_json::json!({
@@ -122,7 +122,7 @@ fn sse_ask_body(question: &str, options: &[&str]) -> String {
                     "id": "tu_cmd_ask",
                     "type": "function",
                     "function": {
-                        "name": "AskUserQuestion",
+                        "name": "ask_user_question",
                         "arguments": serde_json::json!({ "name": "q", "question": question, "options": options }).to_string(),
                     },
                 }],

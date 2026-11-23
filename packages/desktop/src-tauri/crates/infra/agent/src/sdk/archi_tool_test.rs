@@ -399,7 +399,7 @@ async fn 词汇面与dto投影串等价() {
             "[element.\"App.A\"]\nkind = \"module\"\n\n",
             "[element.\"App.B\"]\nkind = \"module\"\n\n",
             "[element.\"App.Ref\"]\nkind = \"module\"\n\n",
-            "[element.\"App.Orphan.Child\"]\nkind = \"component\"\n\n",
+            "[element.\"App.Orphan.Child\"]\nkind = \"module\"\n\n",
             "[[relation]]\nfrom = \"App.A\"\nto = \"App.B\"\n\n",
             "[[relation]]\nfrom = \"App.B\"\nto = \"App.A\"\n\n",
             "[[relation]]\nfrom = \"App.Ref\"\nto = \"App.Missing\"\n",
@@ -982,12 +982,12 @@ async fn archi_scaffold省略kind取domain且字段序齐备() {
     }
 }
 
-/// 正向（表驱动）：四种 `kind` 逐值 → 草稿实值行逐值对应。
+/// 正向（表驱动）：三种 `kind` 逐值 → 草稿实值行逐值对应。
 #[tokio::test]
-async fn archi_scaffold四kind逐值() {
+async fn archi_scaffold三kind逐值() {
     let dir = healthy("scaffold-kinds");
     let context = ArchiContext::new(dir.path().to_path_buf());
-    for kind in ["package", "domain", "module", "component"] {
+    for kind in ["package", "domain", "module"] {
         let value = execute_json(
             &context,
             crate::sdk::tools::ARCHI_SCAFFOLD_TOOL,
@@ -1023,7 +1023,8 @@ async fn archi_scaffold草稿零结构诊断() {
     assert!(!briefs[0].has_path, "草稿的 path 为注释（未声明）");
 }
 
-/// 边界：关系部分全为注释行（零裸 `[[relation]]` 表，避免 `missingField`）。
+/// 边界：关系部分全为注释行（零裸 `[[relation]]` 表，避免 `missingField`），四键齐备
+/// ——`apis` 行与其选填纪律在场（形态教学单源：模型语料里零 `apis`，模板是唯一教学点）。
 #[tokio::test]
 async fn archi_scaffold关系块全注释() {
     let dir = healthy("scaffold-relation");
@@ -1031,6 +1032,15 @@ async fn archi_scaffold关系块全注释() {
     let value = execute_json(&context, crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, json!({})).await;
     let draft = value["draft"].as_str().expect("草稿为字符串");
     assert!(draft.contains("# [[relation]]"), "关系模板以注释给出");
+    for key in ["# from = ", "# to = ", "# desc = ", "# apis = "] {
+        assert!(
+            draft.contains(key),
+            "关系四键之一以注释在场 `{key}`：{draft}"
+        );
+    }
+    for needle in ["只写名字", "可留空", "生成物面留空", "archi_drift"] {
+        assert!(draft.contains(needle), "`apis` 选填纪律 `{needle}` 在场");
+    }
     assert!(
         !draft
             .lines()
@@ -1050,9 +1060,9 @@ async fn archi_scaffold零写盘() {
 }
 
 /// 异常（表驱动）：`kind` 非法**串**（`packagex` / 大小写变体 `Domain`）→ `Err` 文案
-/// 点名四值；空串 / `null` / 非字符串按「省略」处置（取 `domain`），零静默退化。
+/// 点名三值；空串 / `null` / 非字符串按「省略」处置（取 `domain`），零静默退化。
 #[tokio::test]
-async fn archi_scaffold非法kind报错点名四值() {
+async fn archi_scaffold非法kind报错点名三值() {
     let dir = healthy("scaffold-invalid-kind");
     let context = ArchiContext::new(dir.path().to_path_buf());
     for input in [json!({ "kind": "packagex" }), json!({ "kind": "Domain" })] {
@@ -1060,7 +1070,7 @@ async fn archi_scaffold非法kind报错点名四值() {
             .execute(crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, &input)
             .await
             .expect_err("值集外应 Err");
-        for value in ["domain", "module", "component", "package"] {
+        for value in ["domain", "module", "package"] {
             assert!(error.contains(value), "Err 文案点名 {value}：{error}");
         }
     }
@@ -1332,7 +1342,7 @@ async fn archi_drift零跨调用缓存() {
         "02-more.toml",
         concat!(
             "[element.\"App.Auth.Login\"]\n",
-            "kind = \"component\"\n",
+            "kind = \"module\"\n",
             "path = [\"./src/auth/login.rs\"]\n",
         ),
     );

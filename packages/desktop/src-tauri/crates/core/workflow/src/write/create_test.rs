@@ -2482,11 +2482,9 @@ fn created出线且成功立即可见() {
     );
     assert_eq!(list.active[0].name, "combo-visible", "列表条目裸名");
     assert_eq!(list.active[0].status, Some(ChangeStatus::Active));
-    assert!(
-        list.active[0].created.as_deref() == Some(before.as_str())
-            || list.active[0].created.as_deref() == Some(after.as_str()),
-        "created 透传建档日期，实际: {:?}",
-        list.active[0].created
+    assert_eq!(
+        list.active[0].created, outcome.created,
+        "created 透传建档日期（列表投影 = 建档出线值）"
     );
 }
 

@@ -2,7 +2,7 @@
 
 ## 职能
 
-工具调用卡片的专门呈现与内置注册表：7 个工具各有一张特化卡（AskUserQuestion / finish_step /
+工具调用卡片的专门呈现与内置注册表：7 个工具各有一张特化卡（ask_user_question / finish_step /
 web_search / bash / read / write / edit），并以 `BUILD_IN_TOOL_CARDS` 暴露「工具名 → 卡组件」
 的注册表，供 `AgentMessages` 的分派消费。
 

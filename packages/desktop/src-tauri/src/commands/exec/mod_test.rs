@@ -3172,7 +3172,7 @@ fn agent_answer登记于全部命令表且名字唯一() {
 // ---------------------------------------------------------------------------
 
 /// 通用侧应答链端到端（组合，AC-1 / AC-13）：`agent_start_with(source="explore")`
-/// 起一轮 → 模型调 `AskUserQuestion` 进入阻塞 → `agent_answer` 投递 → 同 turn
+/// 起一轮 → 模型调 `ask_user_question` 进入阻塞 → `agent_answer` 投递 → 同 turn
 /// 内回灌并收口 `completed`；会话 id 与提前 resolve 的 `summary.session_id` 同一
 /// （零新会话）。
 #[tokio::test]
@@ -3267,7 +3267,7 @@ async fn explore轮ask阻塞经agent_answer回灌并同turn收口completed() {
 
 /// change-chat 的 `Flow` 档可 ask（组合，AC-13 / DD15）：`source="change"` +
 /// `source_ref = <change id>`（无 run 形态）→ 装配层置 `ask=Some(Flow)`，
-/// `ChatAskPort` 空实现使该轮 `AskUserQuestion` **不返回 is_error**（若 port 缺席
+/// `ChatAskPort` 空实现使该轮 `ask_user_question` **不返回 is_error**（若 port 缺席
 /// 则必为「ask 编排状态面未装配」），应答经 `agent_answer` 回灌成功。
 #[tokio::test]
 async fn change_chat轮ask经chat空port不误判且可应答() {

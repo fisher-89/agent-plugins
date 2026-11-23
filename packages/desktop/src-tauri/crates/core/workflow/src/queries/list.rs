@@ -39,7 +39,8 @@ pub struct ChangeSummary {
     pub source: ChangeSource,
     pub status: Option<ChangeStatus>,
     pub active_phase: Option<ActivePhase>,
-    pub created: Option<String>,
+    pub created: String,
+    pub archived_at: Option<String>,
 }
 
 /// archive 月份分组；`month` 为 `None` 即"未知时间"组，固定排组序列尾。
@@ -101,7 +102,8 @@ fn db_entry(record: &ChangeStateRecord) -> ChangeSummary {
             attempt: active.attempt,
             start_at: Some(super::iso_from_millis(active.start_at)),
         }),
-        created: Some(utc_date(record.created_at)),
+        created: utc_date(record.created_at),
+        archived_at: record.archived_at.map(utc_date),
     }
 }
 
@@ -150,7 +152,7 @@ fn group_archive(changes: Vec<(ChangeSummary, Option<String>)>) -> Vec<ArchiveGr
         .into_iter()
         .rev()
         .map(|(month, mut changes)| {
-            changes.sort_by(|a, b| b.name.cmp(&a.name));
+            changes.sort_by(|a, b| b.archived_at.cmp(&a.archived_at));
             ArchiveGroup {
                 month: Some(month),
                 changes,
@@ -158,7 +160,7 @@ fn group_archive(changes: Vec<(ChangeSummary, Option<String>)>) -> Vec<ArchiveGr
         })
         .collect();
     if !unknown.is_empty() {
-        unknown.sort_by(|a, b| b.name.cmp(&a.name));
+        unknown.sort_by(|a, b| b.archived_at.cmp(&a.archived_at));
         groups.push(ArchiveGroup {
             month: None,
             changes: unknown,

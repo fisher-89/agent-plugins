@@ -1,10 +1,10 @@
 //! 脚本化 SSE provider 桩（本机回环 HTTP 应答面，仅测试用）。
 //!
 //! 为什么需要它：`AskPort` 的「句柄是否真的抵达 `Flow` 档执行体」与「执行体两拍
-//! 是否真的广播」这两条判据，只有在模型**真的调用** `AskUserQuestion` 时才可观测。
+//! 是否真的广播」这两条判据，只有在模型**真的调用** `ask_user_question` 时才可观测。
 //! discard 端点（恒拒连）只能证装配不 panic——`compose` / `worker` 两组用例因此
 //! 曾停在「端口在场、零调用」的装配面，判据空转。本桩按请求序回放 SSE 作为
-//! **网络边界**的替身：首请求回一次 `AskUserQuestion` 调用，其后恒回收口流。
+//! **网络边界**的替身：首请求回一次 `ask_user_question` 调用，其后恒回收口流。
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -19,7 +19,7 @@ pub(crate) struct AskScriptedProvider {
 }
 
 impl AskScriptedProvider {
-    /// 起桩：首个请求回 `AskUserQuestion`（工具名 + 完整参数单块），其后恒回
+    /// 起桩：首个请求回 `ask_user_question`（工具名 + 完整参数单块），其后恒回
     /// 文本收口流。
     pub(crate) fn new(tag: &str, tool_call_id: &str, question: &str, options: &[&str]) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("绑定回环端口失败");
@@ -109,7 +109,7 @@ fn sse_data(payload: &serde_json::Value) -> String {
     format!("data: {payload}\n\n")
 }
 
-/// 「调 `AskUserQuestion`」的一整段流（工具名 + 完整参数单块）。
+/// 「调 `ask_user_question`」的一整段流（工具名 + 完整参数单块）。
 fn sse_ask_body(tool_call_id: &str, question: &str, options: &[&str]) -> String {
     let mut body = String::new();
     body.push_str(&sse_data(&serde_json::json!({
@@ -123,7 +123,7 @@ fn sse_ask_body(tool_call_id: &str, question: &str, options: &[&str]) -> String 
                     "id": tool_call_id,
                     "type": "function",
                     "function": {
-                        "name": "AskUserQuestion",
+                        "name": "ask_user_question",
                         "arguments": serde_json::json!({ "name": "q", "question": question, "options": options }).to_string(),
                     },
                 }],

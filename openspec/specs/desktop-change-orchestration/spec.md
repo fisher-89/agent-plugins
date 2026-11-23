@@ -241,7 +241,7 @@ Evaluator 会话 SHALL 以 `finish_step` 工具收口（协议定义见 desktop-
 - `{ action: "backtrack", to ∈ 白名单, reason ≤500 }` — 自治，walker 经写面 `backtrack` 执行；目标为失败相位自身即「重做本相位」（仅当该相位在白名单内）；
 - `{ action: "stop", reason }` — 终止 run。
 
-**无法裁决时 SHALL 调用 `ask` 工具**（`AskUserQuestion`，见 desktop-agent-execution「ask 工具协议与阻塞应答通道」与本文「流程内 ask 停等与双入口应答」）——该工具在同一 turn 内阻塞、应答后模型继续，MUST NOT 以决策动作的形式提交提问（`finish_step` 的 decision 形态 `enum` MUST NOT 含 `ask`，`question` / `options` 两个 property 随之删除）。`finish_step` 的 decision 形态 `description` SHALL 明示该指路（两动作 + 「无法裁决时调用 `AskUserQuestion` 工具（问题 + 非空选项）」）。
+**无法裁决时 SHALL 调用 `ask` 工具**（`ask_user_question`，见 desktop-agent-execution「ask 工具协议与阻塞应答通道」与本文「流程内 ask 停等与双入口应答」）——该工具在同一 turn 内阻塞、应答后模型继续，MUST NOT 以决策动作的形式提交提问（`finish_step` 的 decision 形态 `enum` MUST NOT 含 `ask`，`question` / `options` 两个 property 随之删除）。`finish_step` 的 decision 形态 `description` SHALL 明示该指路（两动作 + 「无法裁决时调用 `ask_user_question` 工具（问题 + 非空选项）」）。
 
 封闭集外的动作（含已退役的 `retry` 与已迁出的 `ask`）与形状漂移 SHALL 由 `finish_step` 的工具校验 `Err` **当场回灌**（is_error ToolResult，模型在同一 turn 内纠正重试）——MUST NOT 一次即打死 run，MUST NOT 跨轮计数。`DecisionAction` SHALL 只含 `backtrack` / `stop` 两变体（`Ask` 历史遗留已删除，不再为历史 `SystemNotice{finish_step}` 载荷保留反序列化兼容）——封闭集外的历史 `ask` 载荷 SHALL 在 schema / `validate` / 载荷提取三层同源拒绝，MUST NOT 保留第三变体、MUST NOT 为它保留 walker 防御臂。重做语义 SHALL 由白名单自含承载（单一载体）：`allowed_backtrack_phases` 含失败相位自身 ⟺ 该相位可重做（其 step 序列含 agent 步）；零 agent 步的相位（test-execution / archive）自身不入白名单——决策上下文里不存在「重做本相位」这个选项。
 
@@ -273,11 +273,11 @@ Evaluator 会话 SHALL 以 `finish_step` 工具收口（协议定义见 desktop-
 #### Scenario: ask 不再是决策动作
 
 - **WHEN** 决策 agent 尝试经 `finish_step` 提交 `{action:"ask", question, options}`
-- **THEN** 工具校验 `Err` 当场回灌（`action` 枚举只含 `backtrack` / `stop`，文案指路调用 `AskUserQuestion` 工具），run 不中断、不进入停等；同一 turn 内模型改为调用 ask 工具后问答照常成立
+- **THEN** 工具校验 `Err` 当场回灌（`action` 枚举只含 `backtrack` / `stop`，文案指路调用 `ask_user_question` 工具），run 不中断、不进入停等；同一 turn 内模型改为调用 ask 工具后问答照常成立
 
 #### Scenario: 决策 ask 往返不再消耗整轮
 
-- **WHEN** 决策会话中模型调用 `AskUserQuestion` 并获用户应答
+- **WHEN** 决策会话中模型调用 `ask_user_question` 并获用户应答
 - **THEN** 该决策 turn 继续（零 `Continue` 重开、零 `decision_answer_prompt`），模型随后在同一 turn 内以 `finish_step` 提交 `backtrack` 或 `stop`；决策会话数 1
 
 #### Scenario: verdict fail 分叉与重做自含
@@ -484,7 +484,7 @@ run 落库写缝 SHALL 收在 walker 侧单点：`walk_run` 终态出口（`guar
 
 ### Requirement: 相位 prompt 组装面静态化（静态主体 + 动态 append）
 
-executor / evaluator 会话 prompt SHALL 以写面下发的静态角色知识文本（desktop-phase-prompts / desktop-workflow-write-face）为主体；动态面 SHALL 全部 append 而非模板替换：上下文头一行 `change: <name>`、回溯重做窗口段（见「决策协议」与 desktop-workflow-write-face「回溯重做窗口推导与 prompt 携带」）、static-check / archi-check / 测试修复失败注入、输出协议附录（evaluator）、decision 两动作与有界输入段（决策会话）与一句「无法裁决时调用 `AskUserQuestion` 工具」指路。prompt 组装 MUST NOT 使用 `<change>` / `<phase>` 模板替换。段序 SHALL 为「上下文头 → 静态主体 → 回溯重做窗口段 → 失败反馈段（门禁修复注入）→ 输出协议附录（evaluator）」：窗口段是失败反馈段的上位语境（前者答「为什么这个相位被叫回来」，后者答「本相位这次错在哪」），MUST NOT 倒置于反馈段之后；单行「回溯原因」形式已退役（窗口段完全取代，单点渲染）。窗口段的条目数与裁剪完全由写面下发的集合决定（写面常量 `MAX_BACKTRACK_WINDOWS`：≤ 该上限时全量并集、超限取创建序末位两层；双分支完整表述见「决策协议」与 desktop-workflow-write-face「回溯重做窗口推导与 prompt 携带」），orchestration 侧 MUST NOT 二次裁剪、亦不定义该常量。**verdict 裁决内化后动态面 SHALL NOT 含任何「verdict 解析失败修复注入」**——纠错由 `finish_step` 工具在同一 turn 内闭合，不产生跨轮反馈注入。**协议形状不进 prompt 主体**：`finish_step` 与 `AskUserQuestion` 的 description / parameters 形状 SHALL 由**工具挂载面**承载（挂载清单 + 动态 schema），MUST NOT 作为 prompt 正文重复一遍——prompt 侧只留「何时收口 / 何时提问」的各一句指引与落账归属红线。`decision_answer_prompt`（ask 应答的唯一再提示面）SHALL 随 ask 停等内移一并退役（应答不再开新一轮，`grep` 零命中）。`WorkerTurnRequest.provenance.source_ref = <change>/<phase>/<role>/<attempt>` 与 `root` / `model_level` 结构化通道不变——phase / attempt 盖戳不依赖 prompt 文本。
+executor / evaluator 会话 prompt SHALL 以写面下发的静态角色知识文本（desktop-phase-prompts / desktop-workflow-write-face）为主体；动态面 SHALL 全部 append 而非模板替换：上下文头一行 `change: <name>`、回溯重做窗口段（见「决策协议」与 desktop-workflow-write-face「回溯重做窗口推导与 prompt 携带」）、static-check / archi-check / 测试修复失败注入、输出协议附录（evaluator）、decision 两动作与有界输入段（决策会话）与一句「无法裁决时调用 `ask_user_question` 工具」指路。prompt 组装 MUST NOT 使用 `<change>` / `<phase>` 模板替换。段序 SHALL 为「上下文头 → 静态主体 → 回溯重做窗口段 → 失败反馈段（门禁修复注入）→ 输出协议附录（evaluator）」：窗口段是失败反馈段的上位语境（前者答「为什么这个相位被叫回来」，后者答「本相位这次错在哪」），MUST NOT 倒置于反馈段之后；单行「回溯原因」形式已退役（窗口段完全取代，单点渲染）。窗口段的条目数与裁剪完全由写面下发的集合决定（写面常量 `MAX_BACKTRACK_WINDOWS`：≤ 该上限时全量并集、超限取创建序末位两层；双分支完整表述见「决策协议」与 desktop-workflow-write-face「回溯重做窗口推导与 prompt 携带」），orchestration 侧 MUST NOT 二次裁剪、亦不定义该常量。**verdict 裁决内化后动态面 SHALL NOT 含任何「verdict 解析失败修复注入」**——纠错由 `finish_step` 工具在同一 turn 内闭合，不产生跨轮反馈注入。**协议形状不进 prompt 主体**：`finish_step` 与 `ask_user_question` 的 description / parameters 形状 SHALL 由**工具挂载面**承载（挂载清单 + 动态 schema），MUST NOT 作为 prompt 正文重复一遍——prompt 侧只留「何时收口 / 何时提问」的各一句指引与落账归属红线。`decision_answer_prompt`（ask 应答的唯一再提示面）SHALL 随 ask 停等内移一并退役（应答不再开新一轮，`grep` 零命中）。`WorkerTurnRequest.provenance.source_ref = <change>/<phase>/<role>/<attempt>` 与 `root` / `model_level` 结构化通道不变——phase / attempt 盖戳不依赖 prompt 文本。
 
 #### Scenario: 上下文头在场
 
@@ -506,7 +506,7 @@ executor / evaluator 会话 prompt SHALL 以写面下发的静态角色知识文
 #### Scenario: 决策 prompt 指路 ask 工具而非承载其形状
 
 - **WHEN** 审查决策会话 prompt 文本与工具 definitions
-- **THEN** prompt 只含两动作说明与一句「无法裁决时调用 `AskUserQuestion` 工具（问题 + 非空选项）」；`question` / `options` 的字段形状只出现在该工具的 parameters 中；`decision_answer_prompt` 全仓零命中
+- **THEN** prompt 只含两动作说明与一句「无法裁决时调用 `ask_user_question` 工具（问题 + 非空选项）」；`question` / `options` 的字段形状只出现在该工具的 parameters 中；`decision_answer_prompt` 全仓零命中
 
 ### Requirement: 角色要点静态化（role_brief 退役）
 
@@ -1020,9 +1020,9 @@ attempt = store 内该 (change_id, phase) 的 PhaseRecord 全量条数（含 sta
 
 ### Requirement: 流程内 ask 停等与双入口应答
 
-change 流程的 ask SHALL 由**阻塞工具** `AskUserQuestion`（`ToolExec::Ask(AskMode::Flow)`，同名覆盖通用档，见 desktop-agent-execution「ask 工具协议与阻塞应答通道」）承载，流程侧只额外负责编排状态广播与停等态清理：
+change 流程的 ask SHALL 由**阻塞工具** `ask_user_question`（`ToolExec::Ask(AskMode::Flow)`，同名覆盖通用档，见 desktop-agent-execution「ask 工具协议与阻塞应答通道」）承载，流程侧只额外负责编排状态广播与停等态清理：
 
-- **工具契约单源**：工具名 / `description` / `parameters` / `validate` SHALL 住 `crates/core/orchestration/src/ask.rs`（与 `finish.rs` 并列的模块），`AskQuestion { question, options }` 为校验产物；`AskUserQuestion` 与 `finish_step` MUST NOT 互相引用——**`ask.rs` 全文 MUST NOT 出现 `finish` 字样**，`finish.rs` 中的 `ask` MUST NOT 出现在代码路径（只允许出现在「无法裁决时调用 `AskUserQuestion`」的文案字符串里）；两模块的挂载也互不依赖（`ask` 位与 `finish` 位独立置位）。该解耦 SHALL 可机械验证（源码自证用例 + `grep` 判据）。
+- **工具契约单源**：工具名 / `description` / `parameters` / `validate` SHALL 住 `crates/core/orchestration/src/ask.rs`（与 `finish.rs` 并列的模块），`AskQuestion { question, options }` 为校验产物；`ask_user_question` 与 `finish_step` MUST NOT 互相引用——**`ask.rs` 全文 MUST NOT 出现 `finish` 字样**，`finish.rs` 中的 `ask` MUST NOT 出现在代码路径（只允许出现在「无法裁决时调用 `ask_user_question`」的文案字符串里）；两模块的挂载也互不依赖（`ask` 位与 `finish` 位独立置位）。该解耦 SHALL 可机械验证（源码自证用例 + `grep` 判据）。
 - **`AskPort`（编排侧状态面）**：SHALL 定义 `ask_started(&self, ask: AskPayload)` 与 `ask_resolved(&self)` 两方法（实现驻壳层 `ChangeFlowSink`）；`ask_started` 的载荷 SHALL 为完整 `AskPayload`（含 `question` / `options` / `tool_call_id` / `session_id`），`ask_resolved` 无载荷（解除信号只表达「本条 ask 结束」）。
 - **执行体序列（`Flow` 档）**：`ask_started`（携本 tool_use 的 id 与 core session id）→ 登记 ask 注册表 → `select!` 阻塞（应答 / 停止两臂）→ **两臂返回后都** `ask_resolved`。停等态清理（`status` 回 `running`、`ask` 载荷槽清空、广播 `RunNotice::Step`）SHALL 全部落在 `ask_resolved` 的实现里（单点），MUST NOT 由应答命令承担——两入口（`change_flow_answer` / `agent_answer`）因此天然幂等（先到者胜），且清理与「应答从哪来」解耦。
 - **双端同步呈现**：`AskPayload` SHALL 扩 `tool_call_id: Option<String>`（行内卡对账：本次 ask 对应哪个 `tool_use`）与 `session_id: Option<String>`（转录定位：提问属哪条会话）两 **additive** 字段（`#[serde(default)]`，旧线缺字段读 `None`）；`RunUpdate::Ask` SHALL 收敛为单载荷形态 `Ask { ask: AskPayload }`（载荷单源——MUST NOT 在变体字段与载荷类型里各存一份同义字段）；`RunNotice` 六变体与 `kind()` 投影 MUST NOT 变更（通知面仍 kind-only）。详情页 `AskCard` 与聊天窗 ask 活卡 SHALL 读**同一** `AskPayload`：两处任一入口应答后两处 SHALL 同步收起、`activeRun.status` SHALL 回 `running`。
@@ -1033,7 +1033,7 @@ change 流程的 ask SHALL 由**阻塞工具** `AskUserQuestion`（`ToolExec::As
 #### Scenario: 流程 ask 走工具而非决策动作
 
 - **WHEN** change 流程某决策会话需要用户裁决
-- **THEN** 模型调用 `AskUserQuestion`（与通用会话同一工具名与 schema）；`run` 在同一 turn 内阻塞，`activeRun.status` 切到等待用户决策态、`activeRun.ask` 携 `question` / `options` / `toolCallId` / `sessionId`；决策会话 MUST NOT 因此收口
+- **THEN** 模型调用 `ask_user_question`（与通用会话同一工具名与 schema）；`run` 在同一 turn 内阻塞，`activeRun.status` 切到等待用户决策态、`activeRun.ask` 携 `question` / `options` / `toolCallId` / `sessionId`；决策会话 MUST NOT 因此收口
 
 #### Scenario: 双入口应答幂等
 
@@ -1058,7 +1058,7 @@ change 流程的 ask SHALL 由**阻塞工具** `AskUserQuestion`（`ToolExec::As
 #### Scenario: 与 finish_step 解耦
 
 - **WHEN** 审查 `orchestration/ask.rs` 与 `orchestration/finish.rs`
-- **THEN** `ask.rs` 全文零 `finish` 字样（无 `use crate::finish`、无共享类型）；`finish.rs` 的 `ask` 只出现在 description 的文案字符串；挂载面两条追加分支互不引用；`finish = None` 的会话仍下发 `AskUserQuestion`、`ask = None` 的会话仍下发 `finish_step`（若 `finish` 位在）
+- **THEN** `ask.rs` 全文零 `finish` 字样（无 `use crate::finish`、无共享类型）；`finish.rs` 的 `ask` 只出现在 description 的文案字符串；挂载面两条追加分支互不引用；`finish = None` 的会话仍下发 `ask_user_question`、`ask = None` 的会话仍下发 `finish_step`（若 `finish` 位在）
 
 #### Scenario: 通知面 kind 零变更
 
@@ -1205,8 +1205,8 @@ evaluator 形态的 `finish_step` SHALL 让逐项结果自带**检查项标题**
 | `crates/infra/store/**` | 零改动 | `PhaseRecord` / `StepRecord` / `RunNodeRecord` 形状与 `StepKind` 词面不变；`start_change_phase` / `log_change_phase` 的 attempt 推导式子逐字不动（词汇冻结即零迁移） |
 | `packages/desktop/src/**` | 零改动（存量解码保留） | `run-state.ts` 的 `STEP_LABEL` 穷尽 Record 与 gate 分组保留三词（旧库行解码必需）；`change-flow-graph.tsx` 静默节点判据对「不存在的节点」天然无害 |
 | `crates/core/orchestration/src/{walker_test,steps_test,control_test}.rs` + `crates/core/workflow/src/{write/phase_table_test,state_test}.rs` | 直测 | 形状面断言改锚点（`node_of(PhaseStart)` → 首个真实步；`step_instances(WhitelistGate)` → `step_instances(Decision)`；`node.step == PhaseLog` → `phase_log_input` 载荷 / pipeline attempts）；新增 `enter_phase` / `settle_phase` / 双失败面 / 词汇冻结守卫用例；6 处 `walk_run` 整链期望值重定 |
-| `crates/core/orchestration/src/ask.rs`（新） | ask 工具定义与校验单点 | `pub const TOOL_NAME: &str = "AskUserQuestion"`；`pub fn description() -> &'static str`；`pub fn parameters() -> serde_json::Value`（`question` 必填、`options` `minItems: 1`）；`pub fn validate(args: &Value) -> Result<AskQuestion, String>`（question 非空 / options 非空字符串数组，Err 文案自足）；`pub struct AskQuestion { pub question: String, pub options: Vec<String> }`。**MUST NOT `use crate::finish`**（全文零 `finish` 字样，源码自证守卫） |
-| `crates/core/orchestration/src/finish.rs`（收窄） | decision 形态两动作 | `parameters(FinishSpec::Decision)` 的 `action.enum` == `["backtrack","stop"]`，删除 `question` / `options` 两个 property；`description(Decision)` 改写为两动作 + 「无法裁决时调用 `AskUserQuestion` 工具（问题 + 非空选项）」；`validate` 仍走 `validate_decision`；evaluator 形态与 `FinishPayload` 逐字不变 |
+| `crates/core/orchestration/src/ask.rs`（新） | ask 工具定义与校验单点 | `pub const TOOL_NAME: &str = "ask_user_question"`；`pub fn description() -> &'static str`；`pub fn parameters() -> serde_json::Value`（`question` 必填、`options` `minItems: 1`）；`pub fn validate(args: &Value) -> Result<AskQuestion, String>`（question 非空 / options 非空字符串数组，Err 文案自足）；`pub struct AskQuestion { pub question: String, pub options: Vec<String> }`。**MUST NOT `use crate::finish`**（全文零 `finish` 字样，源码自证守卫） |
+| `crates/core/orchestration/src/finish.rs`（收窄） | decision 形态两动作 | `parameters(FinishSpec::Decision)` 的 `action.enum` == `["backtrack","stop"]`，删除 `question` / `options` 两个 property；`description(Decision)` 改写为两动作 + 「无法裁决时调用 `ask_user_question` 工具（问题 + 非空选项）」；`validate` 仍走 `validate_decision`；evaluator 形态与 `FinishPayload` 逐字不变 |
 | `crates/core/orchestration/src/decision.rs`（收窄） | 动作封闭集与 ask 历史遗留移除 | `DecisionAction::{ Backtrack, Stop }` 两变体（`Ask` 变体删除，历史 notice 反序列化兼容一并退场）；`validate_decision` 只含 `"backtrack"` / `"stop"` 两臂；`ensure_backtrack_allowed` / `MAX_REASON_CHARS` 逐字不变 |
 | `crates/core/orchestration/src/prompt.rs`（改） | 决策 prompt 两动作 + ask 指路 | `decision_prompt` 的协议段由三选一改两选一 + 一句 ask 工具指路（形状不复述）；`decision_answer_prompt` **删除**（`grep` 零命中）；`evaluator_protocol` 零改动 |
 | `crates/core/orchestration/src/walker.rs`（改） | 决策 ask 分支退役 | `decision_session` / `resolve_deadlock` 零 `Ask` 臂、零 `TXT_ASK_DRIFT` 常量（历史遗留已移除）；动作裁决只剩 `backtrack` / `stop` 两分支；`WhitelistGate` 每轮一节点语义不变 |

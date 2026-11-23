@@ -5446,7 +5446,7 @@ async fn archi面write新建与edit改gate行落盘且保护零拦截() {
                 "write",
                 serde_json::json!({
                     "path": ".dev-team/architecture/graph/model/09-x.toml",
-                    "content": "[element.\"App.Auth.Token\"]\nkind = \"component\"\n",
+                    "content": "[element.\"App.Auth.Token\"]\nkind = \"module\"\n",
                 }),
             ),
             raw_tool_call(
@@ -6308,7 +6308,7 @@ async fn ask泛用档阻塞后回灌并同turn续跑() {
         vec![
             raw_tool_call(
                 "tu_ask",
-                "AskUserQuestion",
+                "ask_user_question",
                 serde_json::json!({ "name": "q", "question": "选哪个重试策略？", "options": ["指数退避", "固定间隔"] }),
             ),
             raw_final(usage(1, 2)),
@@ -6383,7 +6383,7 @@ async fn ask两档下发的工具名单逐名相等() {
     }
     assert_eq!(tools_of[0], tools_of[1], "两档工具名单逐名相等");
     assert!(
-        tools_of[0].contains(&"AskUserQuestion".to_owned()),
+        tools_of[0].contains(&"ask_user_question".to_owned()),
         "名单含 ask 工具（按位追加）"
     );
 }
@@ -6401,7 +6401,7 @@ async fn ask流程档广播序列与载荷逐字() {
         vec![
             raw_tool_call(
                 "tu_flow",
-                "AskUserQuestion",
+                "ask_user_question",
                 serde_json::json!({ "name": "q", "question": "采用哪个方案？", "options": ["A", "B"] }),
             ),
             raw_final(usage(1, 1)),
@@ -6462,7 +6462,7 @@ async fn ask流程档应答回灌且resolved先于回灌() {
         vec![
             raw_tool_call(
                 "tu_order",
-                "AskUserQuestion",
+                "ask_user_question",
                 serde_json::json!({ "name": "q", "question": "q", "options": ["固定间隔"] }),
             ),
             raw_final(usage(1, 1)),
@@ -6512,7 +6512,7 @@ async fn ask流程档停止臂仍执行resolved恰一次() {
         vec![
             raw_tool_call(
                 "tu_stop",
-                "AskUserQuestion",
+                "ask_user_question",
                 serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
             ),
             raw_final(usage(1, 1)),
@@ -6566,7 +6566,7 @@ async fn ask流程档port缺席时is_error回灌且零登记() {
         vec![
             raw_tool_call(
                 "tu_no_port",
-                "AskUserQuestion",
+                "ask_user_question",
                 serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
             ),
             raw_final(usage(1, 1)),
@@ -6616,7 +6616,7 @@ async fn ask上下文缺席时is_error回灌且零panic() {
         vec![
             raw_tool_call(
                 "tu_no_ctx",
-                "AskUserQuestion",
+                "ask_user_question",
                 serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
             ),
             raw_final(usage(1, 1)),
@@ -6653,7 +6653,7 @@ async fn ask参数非法当场回灌且零登记() {
         vec![
             raw_tool_call(
                 "tu_bad_args",
-                "AskUserQuestion",
+                "ask_user_question",
                 serde_json::json!({ "name": "q", "question": "", "options": [] }),
             ),
             raw_final(usage(1, 1)),
@@ -6693,7 +6693,7 @@ async fn ask单次回灌后二次应答err且转录恰一条tool_result() {
         vec![
             raw_tool_call(
                 "tu_single",
-                "AskUserQuestion",
+                "ask_user_question",
                 serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
             ),
             raw_final(usage(1, 1)),
@@ -6762,7 +6762,7 @@ async fn ask流程档started先于阻塞可回调内应答() {
         vec![
             raw_tool_call(
                 "tu_callback",
-                "AskUserQuestion",
+                "ask_user_question",
                 serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
             ),
             raw_final(usage(1, 1)),
@@ -6813,7 +6813,7 @@ async fn ask应答正文边界逐字进tool_result() {
             vec![
                 raw_tool_call(
                     "tu_text",
-                    "AskUserQuestion",
+                    "ask_user_question",
                     serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
                 ),
                 raw_final(usage(1, 1)),
@@ -6861,7 +6861,7 @@ async fn ask选项边界逐项保真() {
             vec![
                 raw_tool_call(
                     "tu_options",
-                    "AskUserQuestion",
+                    "ask_user_question",
                     serde_json::json!({ "name": "q", "question": "q", "options": options }),
                 ),
                 raw_final(usage(1, 1)),
@@ -6894,7 +6894,7 @@ async fn ask选项边界逐项保真() {
     }
 }
 
-/// 同批多工具共存（边界）：`read` + `AskUserQuestion` 同批两调用 → 结果收进
+/// 同批多工具共存（边界）：`read` + `ask_user_question` 同批两调用 → 结果收进
 /// 恰一条 user 消息（`history` 末条逐条覆盖）；`Ask` 臂不打断同批其它执行体。
 #[tokio::test]
 async fn ask与其它工具同批共存且结果收进一条user消息() {
@@ -6906,7 +6906,7 @@ async fn ask与其它工具同批共存且结果收进一条user消息() {
             raw_tool_call("tu_read", "read", serde_json::json!({ "path": "b.txt" })),
             raw_tool_call(
                 "tu_ask_batch",
-                "AskUserQuestion",
+                "ask_user_question",
                 serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
             ),
             raw_final(usage(1, 1)),
@@ -6953,7 +6953,7 @@ async fn ask与其它工具同批共存且结果收进一条user消息() {
 }
 
 /// `ask: None` 的硬禁用（边界，既有机制零改动回归，AC-3）：`ask: None` 会话中
-/// 模型硬调 `AskUserQuestion` → `tool_unavailable`、注册表零登记、run 不中断。
+/// 模型硬调 `ask_user_question` → `tool_unavailable`、注册表零登记、run 不中断。
 #[tokio::test]
 async fn ask位缺席时硬调即tool_unavailable且零登记() {
     let dir = tempdir("ask-disabled");
@@ -6962,7 +6962,7 @@ async fn ask位缺席时硬调即tool_unavailable且零登记() {
         vec![
             raw_tool_call(
                 "tu_disabled",
-                "AskUserQuestion",
+                "ask_user_question",
                 serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
             ),
             raw_final(usage(1, 1)),
@@ -7483,7 +7483,7 @@ async fn 事件通道已关闭时在途项不补ack且loop不悬挂() {
     let model = FakeModel::with_turns(vec![
         vec![raw_tool_call(
             "tu_ask",
-            "AskUserQuestion",
+            "ask_user_question",
             serde_json::json!({ "name": "q", "question": "继续？", "options": ["继续"] }),
         )],
         vec![raw_text("不应到达")],
@@ -7559,7 +7559,7 @@ async fn ask阻塞窗口零drain_应答后下一边界才取走() {
     let model = FakeModel::with_turns(vec![
         vec![raw_tool_call(
             "tu_ask",
-            "AskUserQuestion",
+            "ask_user_question",
             serde_json::json!({ "name": "q", "question": "继续？", "options": ["继续"] }),
         )],
         vec![raw_text("应答后继续")],

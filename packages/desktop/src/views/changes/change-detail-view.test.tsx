@@ -3070,7 +3070,7 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
         {
           kind: 'toolUse',
           id: toolCallId,
-          name: 'AskUserQuestion',
+          name: 'ask_user_question',
           input: { question: '回溯到哪个相位？', options: ['proposal', 'dev-design'] },
         },
       ],
@@ -3376,13 +3376,13 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
             {
               kind: 'toolUse',
               id: 'call_cur',
-              name: 'AskUserQuestion',
+              name: 'ask_user_question',
               input: { question: '当前问', options: ['甲', '乙'] },
             },
             {
               kind: 'toolUse',
               id: 'call_other',
-              name: 'AskUserQuestion',
+              name: 'ask_user_question',
               input: { question: '历史问', options: ['丙', '丁'] },
             },
           ],
