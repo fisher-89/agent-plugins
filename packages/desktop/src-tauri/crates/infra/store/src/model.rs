@@ -3,6 +3,9 @@ use std::path::Path;
 use agent::{AgentEvent, AgentPermissionMode, AgentRunStatus};
 use native_db::{native_db, ToKey};
 use native_model::{native_model, Model};
+// 外部 crate 走前置 `::`：本 crate 内另有同名模块 `crate::notification`
+//（记录 ↔ 载荷映射与落库 sink），uniform-path 会歧义（design DD11）
+use ::notification::{NotificationKind, NotificationLevel};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
@@ -1611,6 +1614,43 @@ impl AgentInstanceRecord {
             is_default: false,
         }
     }
+}
+
+/// 通知收件箱记录（通知域，**user 维度**落全局库）：一条通知的载荷面 + 读
+/// 状态，`kind` 两档共用一张表（事件进列表与未读，反馈只落库不展示——口径
+/// 靠 `kind` 字段单点，MUST NOT 拆表）。
+///
+/// 读状态 [`Self::read_at`] 属记录面、**不进**出线载荷（投递面是「不可变的一
+/// 条内容」）；因此列表的已读灰态只能由前端会话本地态承载（重启不恢复）。
+///
+/// 表与字段说明由 `///` doc 经 `describe` 自动派生（db 查看器零模型特定代码）。
+///
+/// `native_model` id 取现役最大值 + 1（= 18）而非补历史空洞 3 / 14：空洞无法
+/// 证明从未被占用，上界之外必不冲突。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 18, version = 1)]
+#[native_db]
+pub struct NotificationRecord {
+    /// 稳定标识（主键）：事件为幂等串 `run:{run_id}:…`，反馈为前端铸造的 UUID
+    #[primary_key]
+    pub id: String,
+    /// 用途二值（event 进收件箱 / feedback 只落库）
+    pub kind: NotificationKind,
+    /// 呈现级别四档
+    pub level: NotificationLevel,
+    /// 主文案
+    pub message: String,
+    /// 副文案（无则 None）
+    pub body: Option<String>,
+    /// 工作区归属字符串（本记录自带归属，MUST NOT 依赖跨库 join）；反馈轨 None
+    pub root: Option<String>,
+    /// 触发源引用（事件为 change id）；反馈轨 None
+    pub source_ref: Option<String>,
+    /// 产生时刻（UTC unix 毫秒；upsert 不覆盖——保「首次事件时刻」稳定）
+    pub created_at: i64,
+    /// 已读时刻（UTC unix 毫秒；None = 未读；upsert 只保不翻——重投不复活已读）
+    pub read_at: Option<i64>,
 }
 
 /// 复合键打包：高 64 位 `hash64(session_id)`、低 64 位 seq。store 内唯一

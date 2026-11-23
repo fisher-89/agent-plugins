@@ -1,5 +1,5 @@
-# 03 · infra 适配层（8 元素 / 24 关系）
-# 外部系统适配器，依赖方向为 infra → core（唯一跨域边 store → core.workflow 与生产依赖一致）。
+# 03 · infra 适配层（8 元素 / 25 关系）
+# 外部系统适配器，依赖方向为 infra → core（跨域边 store → core.workflow / core.notification 与生产依赖一致）。
 
 [element."App.Backend.Infra"]
 kind = "domain"
@@ -142,6 +142,11 @@ desc = "会话事件与运行状态的记录类型"
 from = "App.Backend.Infra.Store"
 to = "App.Backend.Core.Foundation"
 desc = "按工作区分库的文件定位"
+
+[[relation]]
+from = "App.Backend.Infra.Store"
+to = "App.Backend.Core.Notification"
+desc = "收件箱记录字段复用通知词表并实现落库 sink"
 
 [[relation]]
 from = "App.Backend.Infra.Store"

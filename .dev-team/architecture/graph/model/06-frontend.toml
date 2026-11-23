@@ -1,11 +1,11 @@
-# 06 · 前端（32 元素 / 74 关系）
+# 06 · 前端（32 元素 / 75 关系）
 # 元素 = 页壳 1 + 视图 9 + 视图内子域 3 + 共享组件文件 13 + 原语层 1 + 目录模块 1 + 生成物中继 1，另有 3 个容器。
 # 关系只取 import 证据，目标按「最具体已声明元素」归属；指向 hooks / lib / types 的 import 不建边。
 
 [element."App.Frontend.Shell"]
 kind = "module"
 gate = "off"
-path = ["./packages/desktop/src/app.tsx", "./packages/desktop/src/routes.tsx", "./packages/desktop/src/main.tsx", "./packages/desktop/src/components/app-sidebar.tsx"]
+path = ["./packages/desktop/src/app.tsx", "./packages/desktop/src/routes.tsx", "./packages/desktop/src/main.tsx", "./packages/desktop/src/components/app-sidebar.tsx", "./packages/desktop/src/components/notification-bell.tsx"]
 summary = "页壳：入口、路由表与侧栏装配"
 
 [element."App.Frontend.Views"]
@@ -191,6 +191,11 @@ gate = "off"
 api = "none"
 path = ["./packages/desktop/src/types/generated/"]
 summary = "IPC 命令面与出线 DTO 的 TypeScript 投影（tauri-specta 生成，勿手改）"
+
+[[relation]]
+from = "App.Frontend.Shell"
+to = "App.Frontend.Components.Standard.Drawer"
+desc = "收件箱抽屉复用标准抽屉"
 
 [[relation]]
 from = "App.Frontend.Shell"

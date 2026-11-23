@@ -9,6 +9,8 @@ dunce = { workspace = true }
 foundation = { workspace = true }
 native_db = { workspace = true }
 native_model = { workspace = true }
+# 收件箱记录字段直接复用通知词表枚举（`kind` / `level`），落库 sink 实现其 `Sink`
+notification = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

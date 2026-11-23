@@ -1,0 +1,74 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\core\foundation)
+    Checking agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\core\agent)
+    Checking notification v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\core\notification)
+   Compiling dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri)
+    Checking watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\infra\watch)
+    Checking specta-zod v0.0.4 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\tools\specta-zod-patched)
+   Compiling export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\tools\export-bindings)
+    Checking archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\core\archi)
+    Checking config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\core\config)
+    Checking exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\infra\exec)
+    Checking workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\core\workflow)
+    Checking checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\core\checks)
+    Checking orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\core\orchestration)
+    Checking store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\infra\store)
+    Checking archi-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\infra\archi)
+    Checking vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\infra\vcs)
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\infra\checks)
+    Checking archi-api-gen v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\tools\archi-api-gen)
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\backend-notification-hub\packages\desktop\src-tauri\crates\infra\agent)
+error[E0063]: missing fields `bus`, `change_name`, `run_id` and 1 other field in initializer of `commands::change_flow::ChangeFlowSink`
+    --> src\commands\change_flow\mod_test.rs:1484:16
+     |
+1484 |     let sink = ChangeFlowSink {
+     |                ^^^^^^^^^^^^^^ missing `bus`, `change_name`, `run_id` and 1 other field
+
+error[E0063]: missing fields `bus`, `change_name`, `run_id` and 1 other field in initializer of `commands::change_flow::ChangeFlowSink`
+    --> src\commands\change_flow\mod_test.rs:3726:16
+     |
+3726 |     let sink = ChangeFlowSink {
+     |                ^^^^^^^^^^^^^^ missing `bus`, `change_name`, `run_id` and 1 other field
+
+error[E0063]: missing fields `bus`, `change_name`, `run_id` and 1 other field in initializer of `commands::change_flow::ChangeFlowSink`
+    --> src\commands\change_flow\mod_test.rs:3770:16
+     |
+3770 |     let sink = ChangeFlowSink {
+     |                ^^^^^^^^^^^^^^ missing `bus`, `change_name`, `run_id` and 1 other field
+
+error[E0063]: missing fields `bus`, `change_name`, `run_id` and 1 other field in initializer of `commands::change_flow::ChangeFlowSink`
+    --> src\commands\change_flow\mod_test.rs:3805:16
+     |
+3805 |     let sink = ChangeFlowSink {
+     |                ^^^^^^^^^^^^^^ missing `bus`, `change_name`, `run_id` and 1 other field
+
+error[E0063]: missing fields `bus`, `change_name`, `run_id` and 1 other field in initializer of `commands::change_flow::ChangeFlowSink`
+    --> src\commands\change_flow\mod_test.rs:4056:25
+     |
+4056 |     let sink = Arc::new(ChangeFlowSink {
+     |                         ^^^^^^^^^^^^^^ missing `bus`, `change_name`, `run_id` and 1 other field
+
+error[E0063]: missing fields `bus`, `change_name`, `run_id` and 1 other field in initializer of `commands::change_flow::ChangeFlowSink`
+    --> src\commands\change_flow\mod_test.rs:4115:16
+     |
+4115 |     let sink = ChangeFlowSink {
+     |                ^^^^^^^^^^^^^^ missing `bus`, `change_name`, `run_id` and 1 other field
+
+error[E0063]: missing fields `bus`, `change_name`, `run_id` and 1 other field in initializer of `commands::change_flow::ChangeFlowSink`
+    --> src\commands\change_flow\mod_test.rs:4173:16
+     |
+4173 |     let sink = ChangeFlowSink {
+     |                ^^^^^^^^^^^^^^ missing `bus`, `change_name`, `run_id` and 1 other field
+
+error[E0063]: missing fields `bus`, `change_name`, `run_id` and 1 other field in initializer of `commands::change_flow::ChangeFlowSink`
+    --> src\commands\change_flow\mod_test.rs:4250:20
+     |
+4250 |         let sink = ChangeFlowSink {
+     |                    ^^^^^^^^^^^^^^ missing `bus`, `change_name`, `run_id` and 1 other field
+
+For more information about this error, try `rustc --explain E0063`.
+error: could not compile `dev-team` (lib test) due to 8 previous errors
+warning: build failed, waiting for other jobs to finish...
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

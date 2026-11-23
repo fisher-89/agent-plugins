@@ -14,6 +14,7 @@ use workflow::write::{
 use crate::control::{emit_node, now_millis, ChangeFlowControl, RunGuard, StepSettle};
 use crate::decision::{ensure_backtrack_allowed, CandidateReport, DecisionAction, DecisionInput};
 use crate::finish::FinishPayload;
+use crate::notify::RunNotifier;
 use crate::port::{
     ArchiCheckMode, ArchiCheckOutcome, ArchiveVcsPort, MutationSkipReason, MutationTestConclusion,
     MutationTestOutcome, OutputRefSink, RebaseOutcome, RunFault, RunHistoryPort,
@@ -156,8 +157,9 @@ impl Terminal {
 /// 一写（running 行，失败 fail-fast 收口）→ drive（计划步循环，emit 节点 + 边经
 /// control 累积 + Notice 广播）→ 终态出口单点第二写（节点整包 + 边整包 →
 /// run_history 组装 → best-effort 落包）→ `guard.finish`（既有唯一终态出口）。
-// 三执行缝（agent / 工具步 / vcs）+ 快照 + 运行史 + 注册表 + 控制柄 + 入参：
-// 参数面为组合根装配契约（design「公共函数 / API」定稿签名），拆结构体只增间接。
+// 三执行缝（agent / 工具步 / vcs）+ 快照 + 运行史 + 注册表 + 控制柄 + 入参
+// + 通知出口：参数面为组合根装配契约（design「公共函数 / API」定稿签名），拆结构
+// 体只增间接。
 #[allow(clippy::too_many_arguments)]
 pub async fn walk_run(
     worker: Arc<dyn WorkerAgentPort>,
@@ -168,7 +170,11 @@ pub async fn walk_run(
     control: Arc<ChangeFlowControl>,
     guard: RunGuard,
     request: RunRequest,
+    notifier: Option<Arc<dyn RunNotifier>>,
 ) -> ChangeRunStatus {
+    // 注入点：早于起点写缝——起点 fail-fast 终态也要发 `Finished`（终态清理与
+    // 通知都在 `RunGuard::emit` 的旁路出口上，晚挂即漏首拍）
+    let guard = guard.with_notifier(notifier);
     // 起点第一写：run 运行史建 running 行（支撑启动标定）。失败 = store 已
     // 坏，后续相位写必败——fail-fast 收口（D5），零相位执行
     if let Err(error) = history.run_started(&workflow::state::RunStartCommand {

@@ -3,6 +3,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use ::notification::{Notification, NotificationKind, NotificationPage};
 use agent::{
     sum_usage_tokens, AgentEvent, AgentEventKind, AgentPermissionMode, SessionPage,
     SessionProvenance, SessionRow, SessionStats, SessionSummary, TurnSummary,
@@ -17,9 +18,9 @@ use crate::envelope::{self, ModelInfo, RecordsPage};
 use crate::model::{
     now_millis, pack_session_event_key, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord,
     AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord,
-    PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionConfigSnapshot,
-    SessionEventRecord, SessionEventRecordKey, SessionRecord, StepRecord, StoreMetaRecord,
-    WorkspaceRecord, CLI_TENANT_RETIRED, WORKSPACE_STORE_FORMAT_KEY,
+    NotificationRecord, PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord,
+    SessionConfigSnapshot, SessionEventRecord, SessionEventRecordKey, SessionRecord, StepRecord,
+    StoreMetaRecord, WorkspaceRecord, CLI_TENANT_RETIRED, WORKSPACE_STORE_FORMAT_KEY,
     WORKSPACE_STORE_FORMAT_VERSION,
 };
 use crate::query::{self, QueryError, QueryPage, QuerySpec};
@@ -201,6 +202,9 @@ fn sum_present(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
 /// 前端恒传页宽 20，超上限截断）。
 const MAX_SESSION_PAGE_LIMIT: u32 = 500;
 
+/// 收件箱分页上限（同一层级的 IPC 滥用兜底；前端恒传页宽 50，超上限截断）。
+const MAX_NOTIFICATION_PAGE_LIMIT: u32 = 200;
+
 /// explore 名称长度上限（与写面 `create` 同宽）。
 const MAX_EXPLORE_NAME_LENGTH: usize = 128;
 
@@ -331,6 +335,9 @@ pub(crate) fn global_models() -> &'static Models {
         models
             .define::<AgentInstanceRecord>()
             .expect("定义 AgentInstanceRecord 失败");
+        models
+            .define::<NotificationRecord>()
+            .expect("定义 NotificationRecord 失败");
         models
     })
 }
@@ -2271,6 +2278,165 @@ impl Store {
             .collect();
         records.sort_by_key(|record| record.edge_seq());
         Ok(records.into_iter().map(edge_state_record).collect())
+    }
+
+    // --- 通知收件箱域（desktop-notification-hub：user 维度全局库；落库 sink 与
+    // 命令面共读本组方法；记录 ↔ 载荷映射住 `crate::notification`，本文件零
+    // 手抄字段）-----------------------------------------------------------
+
+    /// 通知落库（主键 upsert）：命中同主键 → **只**覆盖 `message` / `body` /
+    /// `level`，`read_at` 与 `created_at` 原样保留（重投不复活已读、首次事件
+    /// 时刻稳定）；未命中 → 全量插入（`read_at = None`）。
+    pub fn publish_notification(&self, notification: &Notification) -> Result<(), StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let stored: Option<NotificationRecord> = rw
+            .get()
+            .primary(notification.id.as_str())
+            .map_err(db_err("读取通知记录"))?;
+        let record = match stored {
+            Some(existing) => NotificationRecord {
+                message: notification.message.clone(),
+                body: notification.body.clone(),
+                level: notification.level,
+                ..existing
+            },
+            None => NotificationRecord::from_notification(notification),
+        };
+        rw.upsert(record).map_err(db_err("写入通知记录"))?;
+        rw.commit()
+            .map_err(db_err("提交 publish_notification 事务"))
+    }
+
+    /// 收件箱分页读：只 `kind = Event`（`Feedback` 不进列表），按
+    /// `(created_at desc, id asc)` 稳定排序（同毫秒落库的两条靠次级键定序，
+    /// 页界不重叠），`total` = Event 全量计数、`limit` 超
+    /// [`MAX_NOTIFICATION_PAGE_LIMIT`] 截断、越界 `offset` 返回空页。
+    pub fn list_notifications(
+        &self,
+        offset: u32,
+        limit: u32,
+    ) -> Result<NotificationPage, StoreError> {
+        let mut events: Vec<NotificationRecord> = self
+            .read_all::<NotificationRecord>("遍历通知整包")?
+            .into_iter()
+            .filter(|record| record.kind == NotificationKind::Event)
+            .collect();
+        events.sort_by(|left, right| {
+            right
+                .created_at
+                .cmp(&left.created_at)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        let total = events.len() as u32;
+        let start = offset as usize;
+        let window: &[NotificationRecord] = if start >= events.len() {
+            &[]
+        } else {
+            let end = start.saturating_add(limit.min(MAX_NOTIFICATION_PAGE_LIMIT) as usize);
+            &events[start..end.min(events.len())]
+        };
+        Ok(NotificationPage {
+            items: window
+                .iter()
+                .map(NotificationRecord::to_notification)
+                .collect(),
+            total,
+        })
+    }
+
+    /// 未读计数：只数 `kind = Event` 且 `read_at` 为空（与列表口径同源）。
+    pub fn unread_notification_count(&self) -> Result<u32, StoreError> {
+        let unread = self
+            .read_all::<NotificationRecord>("遍历通知整包")?
+            .into_iter()
+            .filter(|record| record.kind == NotificationKind::Event && record.read_at.is_none())
+            .count();
+        Ok(unread as u32)
+    }
+
+    /// 逐条置已读：只翻 `kind = Event` 且未读的行到 `Some(now)`，未知 id 与
+    /// `Feedback` 行忽略（幂等）；返回**提交后**的剩余未读数。
+    pub fn mark_notifications_read(&self, ids: &[String]) -> Result<u32, StoreError> {
+        let wanted: HashSet<&str> = ids.iter().map(String::as_str).collect();
+        let now = now_millis();
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let all: Vec<NotificationRecord> = rw
+            .scan()
+            .primary::<NotificationRecord>()
+            .map_err(db_err("扫描通知清单"))?
+            .all()
+            .map_err(db_err("扫描通知清单"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描通知清单"))?;
+        for mut record in all {
+            if record.kind != NotificationKind::Event
+                || record.read_at.is_some()
+                || !wanted.contains(record.id.as_str())
+            {
+                continue;
+            }
+            record.read_at = Some(now);
+            rw.upsert(record).map_err(db_err("置通知已读"))?;
+        }
+        rw.commit()
+            .map_err(db_err("提交 mark_notifications_read 事务"))?;
+        self.unread_notification_count()
+    }
+
+    /// 全量置已读（含未加载页）：把全部未读 `kind = Event` 行翻到
+    /// `Some(now)`；返回**提交后**的剩余未读数（恒 0）。
+    pub fn mark_all_notifications_read(&self) -> Result<u32, StoreError> {
+        let now = now_millis();
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let all: Vec<NotificationRecord> = rw
+            .scan()
+            .primary::<NotificationRecord>()
+            .map_err(db_err("扫描通知清单"))?
+            .all()
+            .map_err(db_err("扫描通知清单"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描通知清单"))?;
+        for mut record in all {
+            if record.kind != NotificationKind::Event || record.read_at.is_some() {
+                continue;
+            }
+            record.read_at = Some(now);
+            rw.upsert(record).map_err(db_err("置通知已读"))?;
+        }
+        rw.commit()
+            .map_err(db_err("提交 mark_all_notifications_read 事务"))?;
+        self.unread_notification_count()
+    }
+
+    /// 死未读清理（`Finished` 后调用）：同一 run 的 `confirm:*` / `ask:*` 未读
+    /// `Event` 行一并置已读——用户在停等点上按停止键时，那条「等你确认」永远
+    /// 等不到人。按主键前缀圈定（与「主键即幂等串」同源，零二级索引）；
+    /// miss 即零写入（幂等），其他 run 与 `Feedback` 行不受影响。
+    pub fn retire_run_notifications(&self, run_id: &str) -> Result<(), StoreError> {
+        let confirm_prefix = format!("run:{run_id}:confirm:");
+        let ask_prefix = format!("run:{run_id}:ask:");
+        let now = now_millis();
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let all: Vec<NotificationRecord> = rw
+            .scan()
+            .primary::<NotificationRecord>()
+            .map_err(db_err("扫描通知清单"))?
+            .all()
+            .map_err(db_err("扫描通知清单"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描通知清单"))?;
+        for mut record in all {
+            if record.kind != NotificationKind::Event
+                || record.read_at.is_some()
+                || !(record.id.starts_with(&confirm_prefix) || record.id.starts_with(&ask_prefix))
+            {
+                continue;
+            }
+            record.read_at = Some(now);
+            rw.upsert(record).map_err(db_err("置通知已读"))?;
+        }
+        rw.commit()
+            .map_err(db_err("提交 retire_run_notifications 事务"))
     }
 
     /// 本库已注册模型清单与记录计数

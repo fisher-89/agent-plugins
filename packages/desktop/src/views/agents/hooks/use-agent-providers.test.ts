@@ -79,6 +79,9 @@ function mockDispatch() {
       stored = [...stored.filter((row) => row.id !== record.id), record];
       return Promise.resolve(record);
     }
+    if (command === 'notification_record') {
+      return Promise.resolve(null);
+    }
     if (command === 'delete_agent_provider') {
       const id = numOr('id', -1);
       stored = stored.filter((row) => row.id !== id);
@@ -889,9 +892,11 @@ describe('useAgentProviders：经 ipc 的参数面 / 结果面', () => {
   });
 
   it('models 多传未知子键 → 本地 IpcArgsError、invoke 零调用（strict 深层，零往返）', async () => {
-    invokeMock.mockImplementation((command: string) =>
-      command === 'list_agent_providers' ? Promise.resolve([]) : Promise.resolve({}),
-    );
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_providers') return Promise.resolve([]);
+      // 落库旁路的出线是 `void`（返回 `{}` 会被 drift 记为结果面漂移）
+      return Promise.resolve(null);
+    });
     const { result } = renderHook(() => useAgentProviders());
     await settleLoaded();
     const afterLoad = countOf('save_agent_provider');
@@ -1053,5 +1058,141 @@ describe('useAgentProviders：两档 effort 入参', () => {
 
     expect(result.current.providers[0]?.efforts).toEqual(efforts);
     expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 通知门面落库旁路（desktop-notification-hub AC-2）：两动作失败原文案不变 +
+// `notification_record` 各恰一次
+// ---------------------------------------------------------------------------
+
+/** `notification_record` 的落库入参序列。 */
+function recordCalls(): { level: string; message: string; body: string | null }[] {
+  return invokeMock.mock.calls
+    .filter(([name]) => name === 'notification_record')
+    .map(
+      ([, params]) =>
+        (params as { record: { level: string; message: string; body: string | null } }).record,
+    );
+}
+
+const SAVE_INPUT = {
+  id: null,
+  name: '新 provider',
+  protocol: 'openai' as const,
+  baseUrl: 'https://api.example.com/v1',
+  apiKey: 'sk-live-1234567890',
+  models: TIERS,
+  contextLength: null,
+  maxTokens: null,
+  webSearch: false,
+  efforts: { high: 'high' as const, low: 'low' as const },
+};
+
+describe('useAgentProviders：失败提示的门面落库旁路', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    stored = [];
+  });
+
+  it('正向：save / remove 各失败一次 → 原文案 + 落库各一次（error 档、无副文案）', async () => {
+    const actions = [
+      {
+        command: 'save_agent_provider',
+        reason: 'db: provider 名已存在',
+        prefix: '保存 provider 失败：',
+        run: (hook: ReturnType<typeof useAgentProviders>) => hook.save(SAVE_INPUT),
+      },
+      {
+        command: 'delete_agent_provider',
+        reason: 'db: provider 被引用',
+        prefix: '删除 provider 失败：',
+        run: (hook: ReturnType<typeof useAgentProviders>) => hook.remove(1),
+      },
+    ];
+
+    for (const action of actions) {
+      invokeMock.mockImplementation((name: string) => {
+        if (name === action.command) return Promise.reject(new Error(action.reason));
+        if (name === 'list_agent_providers') return Promise.resolve([...stored]);
+        return Promise.resolve(null);
+      });
+      toastErrorMock.mockReset();
+      stored = [provider(1, 'cli-a')];
+      const { result } = renderHook(() => useAgentProviders());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      invokeMock.mockClear();
+
+      await act(async () => {
+        await action.run(result.current);
+      });
+
+      const message = `${action.prefix}Error: ${action.reason}`;
+      expect(toastErrorMock).toHaveBeenCalledTimes(1);
+      expect(toastErrorMock).toHaveBeenCalledWith(message);
+      expect(recordCalls()).toHaveLength(1);
+      expect(recordCalls()[0].level).toBe('error');
+      expect(recordCalls()[0].message).toBe(message);
+      expect(recordCalls()[0].body).toBeNull();
+    }
+  });
+
+  it('边界：同一动作重复失败两次 → 两次提示、两次落库（不去重）', async () => {
+    invokeMock.mockImplementation((name: string) => {
+      if (name === 'delete_agent_provider') return Promise.reject(new Error('db: provider 被引用'));
+      if (name === 'list_agent_providers') return Promise.resolve([...stored]);
+      return Promise.resolve(null);
+    });
+    stored = [provider(1, 'cli-a')];
+    const { result } = renderHook(() => useAgentProviders());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    invokeMock.mockClear();
+
+    await act(async () => {
+      await result.current.remove(1);
+    });
+    await act(async () => {
+      await result.current.remove(1);
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledTimes(2);
+    expect(recordCalls()).toHaveLength(2);
+  });
+
+  it('正向：两动作成功路径零 toast、零落库', async () => {
+    mockDispatch();
+    stored = [provider(1, 'cli-a')];
+    const { result } = renderHook(() => useAgentProviders());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    invokeMock.mockClear();
+
+    await act(async () => {
+      await result.current.remove(1);
+    });
+
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(recordCalls()).toHaveLength(0);
+  });
+
+  it('异常：落库 reject 时既有 toast 断言仍成立、清单刷新零变化', async () => {
+    invokeMock.mockImplementation((name: string) => {
+      if (name === 'delete_agent_provider') return Promise.reject(new Error('db: provider 被引用'));
+      if (name === 'list_agent_providers') return Promise.resolve([...stored]);
+      if (name === 'notification_record') return Promise.reject(new Error('落库失败'));
+      return Promise.resolve(null);
+    });
+    stored = [provider(1, 'cli-a')];
+    const { result } = renderHook(() => useAgentProviders());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    invokeMock.mockClear();
+
+    await act(async () => {
+      await result.current.remove(1);
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock).toHaveBeenCalledWith('删除 provider 失败：Error: db: provider 被引用');
+    expect(countOf('list_agent_providers')).toBe(0);
   });
 });

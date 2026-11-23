@@ -2,6 +2,7 @@ pub mod ask;
 pub mod control;
 pub mod decision;
 pub mod finish;
+pub mod notify;
 pub mod port;
 pub mod prompt;
 pub mod run_history;
@@ -18,6 +19,7 @@ pub use ask::{AskQuestion, TOOL_NAME};
 pub use control::{ChangeFlowControl, RunGuard};
 pub use decision::{CandidateReport, DecisionAction, DecisionInput};
 pub use finish::{description, parameters, validate, FinishPayload};
+pub use notify::{deliver, project, NotifyContext, RunNotifier};
 pub use port::{
     ArchiCheckOutcome, ArchiCheckRunner, ArchiveVcsPort, AskPort, BoxDiffFuture, BoxToolFuture,
     BoxTurnFuture, DiffContextPort, RunEventSink, RunHistoryPort, StaticCheckOutcome,
@@ -43,6 +45,8 @@ mod control_test;
 mod decision_test;
 #[cfg(test)]
 mod finish_test;
+#[cfg(test)]
+mod notify_test;
 #[cfg(test)]
 mod port_test;
 #[cfg(test)]

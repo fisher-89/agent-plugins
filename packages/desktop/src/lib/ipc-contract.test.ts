@@ -69,6 +69,7 @@ const channelCommands = [
   'changeFlowStart',
   'changeFlowWatch',
   'watchSubscribe',
+  'notificationSubscribe',
 ] as const;
 
 /** 互相可赋值面等价判据：`zod` 的 `.and()` 推面会把交叉联合展平（成员补可选位），
@@ -184,7 +185,7 @@ describe('三表 runtime 面：键集与 commands 逐一对应', () => {
     });
   });
 
-  it('信封面：5 个 Channel 命令表项恰为 onEvent 且值为 ZodType', () => {
+  it('信封面：6 个 Channel 命令表项恰为 onEvent 且值为 ZodType', () => {
     for (const key of channelCommands) {
       const table = Reflect.get(channelArgs, key) as Record<string, unknown>;
       expect(Object.keys(table)).toEqual(['onEvent']);

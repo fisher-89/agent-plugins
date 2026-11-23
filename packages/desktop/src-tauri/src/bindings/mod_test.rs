@@ -182,6 +182,11 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "archiApiGenerate",
     "archiRelation",
     "readFile",
+    "notificationSubscribe",
+    "notificationList",
+    "notificationMarkRead",
+    "notificationMarkAllRead",
+    "notificationRecord",
 ];
 
 /// 38 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
@@ -243,6 +248,11 @@ const COMMAND_NAMES: &[&str] = &[
     "archi_api_generate",
     "archi_relation",
     "read_file",
+    "notification_subscribe",
+    "notification_list",
+    "notification_mark_read",
+    "notification_mark_all_read",
+    "notification_record",
 ];
 
 /// 全部出线 DTO 类型名（产物 Types 段的 `export type` 全集）。
@@ -353,6 +363,12 @@ const DTO_TYPES: &[&str] = &[
     "FileTreeMark",
     "GateTier",
     "NodeMark",
+    // 通知域（desktop-notification-hub）出线类型
+    "Notification",
+    "NotificationFeedbackInput",
+    "NotificationKind",
+    "NotificationLevel",
+    "NotificationPage",
 ];
 
 /// 类型段内逐字段名（顶层字段声明行：缩进后为标识符 + `:` 起头；doc 注释 /
@@ -1221,16 +1237,17 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     // 本变更范围）：条目数 37 → 38（app_environment，登记序即 all_commands!
     // 末尾），首锚不变、尾锚随新命令后移
     // 合并侧两变更各补录一条（架构页文件树 + agent_answer）：条目数 48 → 50；
-    // 其后补 agent_steer（50 → 51）；本变更再补两条契约面命令（51 → 53）
+    // 其后补 agent_steer（50 → 51）；archi_relation（56 → 57）；本变更再补五条
+    // 通知域命令（57 → 62，登记序即 all_commands! 末尾）
     assert_eq!(
         COMMAND_NAMES.len(),
-        57,
-        "命令清单本变更补录一条（archi_relation，56 → 57）"
+        62,
+        "命令清单本变更补录五条（通知域，57 → 62）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        57,
-        "包装清单本变更补录一条（archiRelation，56 → 57）"
+        62,
+        "包装清单本变更补录五条（通知域，57 → 62）"
     );
     assert!(
         COMMAND_NAMES.contains(&"agent_steer"),
@@ -1243,8 +1260,13 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
     assert_eq!(
         COMMAND_NAMES.last(),
-        Some(&"read_file"),
-        "尾锚为通用读命令（archi 组之后登记）"
+        Some(&"notification_record"),
+        "尾锚随通知域五命令后移（登记序末尾）"
+    );
+    assert_eq!(
+        COMMAND_WRAPPERS.last(),
+        Some(&"notificationRecord"),
+        "包装尾锚同式随动"
     );
     assert!(
         COMMAND_NAMES.contains(&"app_environment"),
@@ -1308,14 +1330,18 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
 fn dto类型清单零补录_条目数与首尾锚持衡() {
     assert_eq!(
         DTO_TYPES.len(),
-        105,
-        "清单 104 → 105：本变更补录一类型（ArchiRelationDetail）"
+        110,
+        "清单 105 → 110：本变更补录五类型（通知域五出线 DTO）"
     );
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(
         DTO_TYPES.last(),
-        Some(&"NodeMark"),
-        "尾锚随退役条目回落到封闭词汇末项"
+        Some(&"NotificationPage"),
+        "尾锚随通知域五出线类型追加"
+    );
+    assert!(
+        DTO_TYPES.contains(&"NodeMark"),
+        "封闭词汇末项条目仍在册（不因追加丢失）"
     );
     assert!(
         DTO_TYPES.contains(&"AppEnvironment"),
@@ -1822,14 +1848,15 @@ fn 登记面_新命令为清单末条且既有清单零遗漏() {
         "invoke 目标在产物中恰一次"
     );
 
-    // 清单末条随尾部追加随动：`archi_drift` 之后是本变更的通用读命令 `readFile`
-    //（既有条目零位移——`appEnvironment` / `archiDrift` 仍在册且各恰一次，见上）
-    let index = content.find("readFile:").expect("包装在场");
+    // 清单末条随尾部追加随动：通知域五条登记在 `readFile` 之后，
+    // `notificationRecord` 因而是末条（既有条目零位移——`appEnvironment` /
+    // `archiDrift` / `readFile` 仍在册且各恰一次，见上）
+    let index = content.find("notificationRecord:").expect("包装在场");
     let tail = &content[index..];
     let line_end = tail.find('\n').expect("包装行有换行");
     assert!(
         tail[line_end + 1..].starts_with("};"),
-        "readFile 为清单末条（生成物中其后即对象收尾）"
+        "notificationRecord 为清单末条（生成物中其后即对象收尾）"
     );
 
     // 清单是产物的子集：逐条命中（历史缺录的滞后债不在本变更范围）
@@ -1915,7 +1942,8 @@ fn archi命令族在册且既有条目零位移() {
         );
     }
 
-    // 尾部追加：新命令位于 `app_environment` 之后且序固定
+    // 尾部追加：新命令位于 `app_environment` 之后且序固定（通知域五条在本族
+    // 之后按登记序追加，故尾部清单含 16 条）
     let tail_start = COMMAND_NAMES
         .iter()
         .position(|name| *name == "app_environment")
@@ -1935,6 +1963,11 @@ fn archi命令族在册且既有条目零位移() {
             "archi_api_generate",
             "archi_relation",
             "read_file",
+            "notification_subscribe",
+            "notification_list",
+            "notification_mark_read",
+            "notification_mark_all_read",
+            "notification_record",
         ],
         "archi 命令尾部追加（既有条目零位移）"
     );
@@ -2105,12 +2138,13 @@ fn 双产物同目录同时存在且zod产物含三表与降级哨兵() {
             "zod 产物缺 {table} 表"
         );
     }
-    // 降级哨兵只落 5 个 Channel 形参位（agentStart / agentSessionWatch /
-    // changeFlowStart / changeFlowWatch / watchSubscribe 的 onEvent）
+    // 降级哨兵只落 6 个 Channel 形参位（agentStart / agentSessionWatch /
+    // changeFlowStart / changeFlowWatch / watchSubscribe / notificationSubscribe
+    // 的 onEvent）
     assert_eq!(
         zod.matches("degraded(").count(),
-        5,
-        "degraded( 恰 5 处（Channel 形参位）"
+        6,
+        "degraded( 恰 6 处（Channel 形参位）"
     );
     // 职责切分：schema 产物不改写命令面、不 import 类型产物
     assert!(
@@ -2215,18 +2249,14 @@ fn 登记面_架构页会话清单命令在册() {
     );
 }
 
-/// 边界：命令总数 51 → 54（本变更新增 `list_model_catalog` 一条），两份清单
-/// 条目数持衡（漏登记或重复登记即红）。
+/// 边界：命令总数 51 → 62（累计补录含本变更通知域五条），两份清单条目数持衡
+///（漏登记或重复登记即红）。
 #[test]
 fn 登记面_命令总数加三且两清单持衡() {
-    assert_eq!(
-        COMMAND_NAMES.len(),
-        57,
-        "累计补录六条后的命令总数（51 → 57）"
-    );
+    assert_eq!(COMMAND_NAMES.len(), 62, "累计补录后的命令总数（51 → 62）");
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        57,
+        62,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
 }
@@ -2364,7 +2394,8 @@ const ARCHI_DRIFT_DTO_TYPES: [&str; 16] = [
     "ArchiUnresolvedFile",
 ];
 
-/// 正向（AC-20）：`archi_drift` 在册（`read_file` 之后为通用读命令，尾锚随动）。
+/// 正向（AC-20）：`archi_drift` 在册（`read_file` 之后为通用读命令，本变更再追加
+/// 通知域五条，尾锚随动）。
 #[test]
 fn archi_drift登记面加一且尾锚随动() {
     assert!(
@@ -2377,13 +2408,19 @@ fn archi_drift登记面加一且尾锚随动() {
     );
     assert_eq!(
         COMMAND_NAMES.last(),
-        Some(&"read_file"),
-        "尾锚为通用读命令（read_file 最后登记）"
+        Some(&"notification_record"),
+        "尾锚为通知域落库命令（通知域五条最后登记）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.last(),
-        Some(&"readFile"),
+        Some(&"notificationRecord"),
         "包装清单同序尾锚"
+    );
+    // 既有前缀零位移：前 57 条的尾锚仍是通用读命令
+    assert_eq!(
+        COMMAND_NAMES[..57].last(),
+        Some(&"read_file"),
+        "既有 57 条前缀零位移（read_file 仍为前缀末条）"
     );
     // 前一条 archi 命令下标零位移（尾部追加不改既有条目）
     let gate_index = COMMAND_NAMES
@@ -2692,25 +2729,35 @@ fn 登记面_三新命令在两清单与生成物各在册() {
     }
 }
 
-/// 正向：总数锚 51 → 54（逐变更叠加，两份清单持衡、一一对应）；
-/// 尾锚仍为 `read_file`（`list_model_catalog` 插在 agents 组内，尾锚零位移）。
+/// 正向：总数锚 51 → 62（逐变更叠加，两份清单持衡、一一对应）；
+/// 尾锚随通知域五条追加落到 `notification_record`，既有 57 条前缀零位移。
 #[test]
 fn 登记面_总数五十且尾锚零位移() {
-    assert_eq!(COMMAND_NAMES.len(), 57, "命令清单总数 51 → 57");
+    assert_eq!(COMMAND_NAMES.len(), 62, "命令清单总数 51 → 62");
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        57,
+        62,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
     assert_eq!(
         COMMAND_NAMES.last(),
-        Some(&"read_file"),
-        "尾锚为通用读命令（三行删除在 changes / explores / archi 组内，尾部 read_file 登记）"
+        Some(&"notification_record"),
+        "尾锚为通知域落库命令（通知域五条最后登记）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.last(),
-        Some(&"readFile"),
+        Some(&"notificationRecord"),
         "包装清单同序尾锚"
+    );
+    assert_eq!(
+        COMMAND_NAMES[..57].last(),
+        Some(&"read_file"),
+        "既有 57 条前缀零位移（尾部 read_file 仍是前缀末条）"
+    );
+    assert_eq!(
+        COMMAND_WRAPPERS[..57].last(),
+        Some(&"readFile"),
+        "包装清单前缀同序尾锚"
     );
 }
 
@@ -3412,21 +3459,32 @@ fn 文件树四类型与命令在双产物在册() {
 }
 
 /// 边界（AC-14 / 尾锚判据）：既有清单条目零位移——新增项只插在 archi 段尾部，
-/// `read_file` / `readFile` 仍为末条。
+/// `read_file` / `readFile` 仍是既有 57 条前缀的末条（本变更的通知域五条在其后
+/// 追加，全量尾锚随动到 `notification_record`）。
 #[test]
 fn 文件树登记面尾锚零位移() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
     assert_eq!(
-        COMMAND_NAMES.last(),
+        COMMAND_NAMES[..57].last(),
         Some(&"read_file"),
-        "命令清单尾锚仍 read_file"
+        "既有 57 条前缀尾锚仍 read_file"
+    );
+    assert_eq!(
+        COMMAND_WRAPPERS[..57].last(),
+        Some(&"readFile"),
+        "包装清单前缀尾锚仍 readFile"
+    );
+    assert_eq!(
+        COMMAND_NAMES.last(),
+        Some(&"notification_record"),
+        "全量尾锚随通知域五条追加"
     );
     assert_eq!(
         COMMAND_WRAPPERS.last(),
-        Some(&"readFile"),
-        "包装清单尾锚仍 readFile"
+        Some(&"notificationRecord"),
+        "包装清单全量尾锚同序"
     );
     // archi 段在清单中的相邻序：archi_file_tree 紧跟 archi_drift
     let drift_index = COMMAND_NAMES
@@ -4300,4 +4358,150 @@ fn 生成物_关系面清单与产物双向自洽() {
             "产物有该类型而总清单漏登：{name}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 通知域（desktop-notification-hub）：五命令按登记序追加、出线载荷零读状态、
+// zod 三表项齐备、`all_commands!` 登记面锚
+// ---------------------------------------------------------------------------
+
+/// 正向：五命令 / 五包装按登记序落在清单末尾，既有前缀零位移（首锚与 57 条
+/// 前缀逐条不变）。
+#[test]
+fn 通知五命令按登记序追加且既有前缀零位移() {
+    assert_eq!(
+        &COMMAND_NAMES[COMMAND_NAMES.len() - 5..],
+        &[
+            "notification_subscribe",
+            "notification_list",
+            "notification_mark_read",
+            "notification_mark_all_read",
+            "notification_record",
+        ],
+        "invoke 名按 all_commands! 登记序追加"
+    );
+    assert_eq!(
+        &COMMAND_WRAPPERS[COMMAND_WRAPPERS.len() - 5..],
+        &[
+            "notificationSubscribe",
+            "notificationList",
+            "notificationMarkRead",
+            "notificationMarkAllRead",
+            "notificationRecord",
+        ],
+        "包装名与 invoke 名同序"
+    );
+    assert_eq!(
+        COMMAND_NAMES.len(),
+        COMMAND_WRAPPERS.len(),
+        "两清单长度恒相等"
+    );
+
+    // 既有前缀零位移：前 57 条的首锚与尾锚不变（通知域只追加不改写）
+    assert_eq!(COMMAND_NAMES[..57].first(), Some(&"list_changes"));
+    assert_eq!(COMMAND_NAMES[..57].last(), Some(&"read_file"));
+    assert_eq!(COMMAND_WRAPPERS[..57].last(), Some(&"readFile"));
+}
+
+/// 异常：`all_commands!` 登记面反向锚——`notification_` 前缀命令名恰 5 处且零
+/// 重复、`pub mod notifications;` 恰一处（漏登记即命令不可达）。
+#[test]
+fn commands登记面通知命令恰五处且模块登记恰一处() {
+    let source = include_str!("../commands/mod.rs");
+
+    // 模块路径 `commands::notifications::…` 不含 `notification_` 下划线形态，
+    // 故计数即命令名出现次数
+    assert_eq!(
+        source.match_indices("notification_").count(),
+        5,
+        "五条通知命令逐条登记"
+    );
+
+    let names = [
+        "notification_subscribe",
+        "notification_list",
+        "notification_mark_read",
+        "notification_mark_all_read",
+        "notification_record",
+    ];
+    for name in names {
+        // 每条命令名在宏清单里恰一次（`notification_mark_read` 与
+        // `notification_mark_all_read` 互不包含）
+        let pattern = format!("::{name},");
+        assert_eq!(
+            source.matches(&pattern).count(),
+            1,
+            "命令名 {name} 应恰登记一次"
+        );
+    }
+    assert_eq!(
+        source.matches("pub mod notifications;").count(),
+        1,
+        "模块登记恰一处"
+    );
+}
+
+/// 正向 / 边界：`Notification` 载荷类型体零读状态、`NotificationLevel` 联合恰四
+/// 字面量（变体序冻结的产物锚）。
+#[test]
+fn 通知载荷出线八字段零读状态且级别联合四字面量() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    let section = type_section(&content, "Notification");
+    assert_eq!(
+        field_names(&section),
+        vec![
+            "id",
+            "kind",
+            "level",
+            "message",
+            "body",
+            "root",
+            "sourceRef",
+            "createdAt",
+        ],
+        "八字段按声明序出线"
+    );
+    assert!(!section.contains("readAt"), "载荷不含读状态（camelCase）");
+    assert!(!section.contains("read_at"), "载荷不含读状态（线名）");
+
+    let level = type_section(&content, "NotificationLevel");
+    for literal in ["\"info\"", "\"success\"", "\"warning\"", "\"error\""] {
+        assert!(level.contains(literal), "级别联合缺字面量 {literal}");
+    }
+    assert_eq!(
+        level.matches('"').count(),
+        8,
+        "恰四字面量（两条引号/字面量）"
+    );
+
+    let page = type_section(&content, "NotificationPage");
+    assert_eq!(field_names(&page), vec!["items", "total"], "分页信封两字段");
+}
+
+/// 正向：zod 三表（argsSchemas / resultSchemas / channelArgs）各含五新命令键。
+#[test]
+fn 通知五命令的zod三表项齐备() {
+    let _lock = lock();
+    let content = authoritative_zod_snapshot();
+
+    let wrappers = [
+        "notificationSubscribe",
+        "notificationList",
+        "notificationMarkRead",
+        "notificationMarkAllRead",
+        "notificationRecord",
+    ];
+    for wrapper in wrappers {
+        assert_eq!(
+            content.matches(&format!("get \"{wrapper}\"()")).count(),
+            3,
+            "{wrapper} 应在参数 / 结果 / 信道三表各有一项"
+        );
+    }
+    assert!(
+        content.contains("NotificationFeedbackInputSchema"),
+        "反馈入参 schema 随批生成"
+    );
 }

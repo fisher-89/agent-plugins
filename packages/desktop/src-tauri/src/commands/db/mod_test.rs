@@ -96,7 +96,7 @@ fn append_events(store: &store::Store, session_id: &str, seqs: &[u64]) {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn db_models_scope_global忽略root仅返回user维度三行且blank_root不影响() {
+fn db_models_scope_global忽略root仅返回user维度四行且blank_root不影响() {
     let env = Env::new("models-global");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
@@ -114,9 +114,10 @@ fn db_models_scope_global忽略root仅返回user维度三行且blank_root不影�
         vec![
             ("workspace".to_owned(), 2),
             ("agent_provider".to_owned(), 0),
-            ("agent_instance".to_owned(), 0)
+            ("agent_instance".to_owned(), 0),
+            ("notification".to_owned(), 0)
         ],
-        "Global scope 仅返回全局库 user 维度三行（agent 管理两模型计数 0 也列出）"
+        "Global scope 仅返回全局库 user 维度四行（通知表 additive：空库计数 0 也列出）"
     );
 
     // Global 忽略 root：blank root 同口径（不触发空结果分支）
@@ -301,8 +302,13 @@ fn 两库清单互不混列_跨维度模型名扫描err() {
     let global_names = names_of(&global_models);
     assert_eq!(
         global_names,
-        vec!["workspace", "agent_provider", "agent_instance"],
-        "Global scope 恰 user 维度三行"
+        vec![
+            "workspace",
+            "agent_provider",
+            "agent_instance",
+            "notification"
+        ],
+        "Global scope 恰 user 维度四行"
     );
     // Workspace scope 不出现 workspace 行
     let ws_models = db_models(state.clone(), DbDimension::Workspace, root.clone())

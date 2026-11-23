@@ -2630,6 +2630,7 @@ dependencies = [
  "exec",
  "foundation",
  "native_db",
+ "notification",
  "orchestration",
  "serde",
  "serde_json",
@@ -6091,6 +6092,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0676bb32a98c1a483ce53e500a81ad9c3d5b3f7c920c28c24e9cb0980d0b5bc8"
 
 [[package]]
+name = "notification"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "specta",
+]
+
+[[package]]
 name = "notify"
 version = "8.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6579,6 +6589,7 @@ version = "0.1.0"
 dependencies = [
  "agent",
  "foundation",
+ "notification",
  "serde",
  "serde_json",
  "specta",
@@ -9213,6 +9224,7 @@ dependencies = [
  "foundation",
  "native_db",
  "native_model",
+ "notification",
  "redb 2.6.3",
  "serde",
  "serde_json",

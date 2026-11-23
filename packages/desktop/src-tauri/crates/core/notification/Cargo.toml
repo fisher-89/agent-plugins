@@ -1,0 +1,16 @@
+# 边界中立的通知词汇 crate：只承载「一条通知是什么」与「怎么把它投出去」。
+# 纪律：禁 Tauri（不认 Channel） / 禁 tokio 运行时（无 spawn、无 async） /
+# 禁 workspace 内部依赖（渠道实现反向依赖本 crate） / 不认识 sonner（呈现是
+# 前端门面的事）。依赖面因此恰 serde + specta 两行。
+[package]
+name = "notification"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+specta = { workspace = true }
+
+# 测试面（不进 [dependencies]：边界中立清单面由 `lib_test` 的段扫描锚定）
+[dev-dependencies]
+serde_json = { workspace = true }

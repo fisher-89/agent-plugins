@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
-import { toast } from 'sonner';
 
 import { FileViewer } from '@/components/file/file-viewer';
 import { StandardDialog } from '@/components/standard/dailog';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { notify } from '@/lib/notify';
 import { commands, type ArchiApiCheck, type ArchiApiFinding } from '@/types/generated/bindings';
 
 import { useArchiApiCheck } from '../hooks/use-archi-api-check';
@@ -302,7 +302,7 @@ export function ContractPanel({
     commands
       .archiApiGenerate(root)
       .then((outcome) => {
-        toast(`写入 ${outcome.written.length} 份 / 未变 ${outcome.unchanged.length} 份`);
+        notify('info', `写入 ${outcome.written.length} 份 / 未变 ${outcome.unchanged.length} 份`);
         setGenerating(false);
         refresh();
       })

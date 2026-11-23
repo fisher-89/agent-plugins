@@ -8,11 +8,13 @@
 //! 注记：`RunGuard::finish` 消费 self——「重复 finish」在类型层不可表达（终
 //! 态出口唯一），幂等收口以「终态除名、无残留可改写面」断言承载。
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use agent::AskRegistry;
+use notification::Notification;
 
 use crate::control::ChangeFlowControl;
+use crate::notify::{NotifyContext, RunNotifier};
 use crate::state::{
     AskPayload, ChangeRunStatus, ChangeStepKind, ChangeStepState, ChangeStepStatus, RunNotice,
     RunUpdate,
@@ -3315,4 +3317,349 @@ async fn answer转投前已释放runs锁_同期publish不被阻塞() {
         published.load(std::sync::atomic::Ordering::Relaxed) > 0,
         "探针至少有若干次 publish 完成（零死锁）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 事件轨旁路接线（DD12）：`RunGuard::emit` 是 `ConfirmWait` / `Finished` 的真实
+// 出口，旁路先于 `control.publish`；`Step` / `Edge` / `SessionEvent` 零投递
+// ---------------------------------------------------------------------------
+
+/// 旁路替身调用记录（顺序敏感：`deliver` 先于随后的广播）。
+#[derive(Debug)]
+enum GuardCall {
+    Deliver(Notification),
+    Retire,
+}
+
+/// 记录型 `RunNotifier` 替身：投递时对同一广播流做一次非阻塞探测（旁路是否
+/// 先于 `publish`），失败形态只自留痕（旁路语义）。
+struct GuardNotifier {
+    context: NotifyContext,
+    calls: Mutex<Vec<GuardCall>>,
+    /// 投递时刻广播流中的挂起条数（每投递一次追加一项）。
+    pending_at_deliver: Mutex<Vec<usize>>,
+    probe: Mutex<Option<tokio::sync::broadcast::Receiver<RunNotice>>>,
+    swallowed: Mutex<Vec<String>>,
+}
+
+impl GuardNotifier {
+    fn new(run_id: &str) -> Arc<Self> {
+        Arc::new(Self {
+            context: NotifyContext {
+                root: ROOT.to_owned(),
+                change_id: CHANGE_ID.to_owned(),
+                change_name: NAME.to_owned(),
+                run_id: run_id.to_owned(),
+                workflow_type: "requirement".to_owned(),
+            },
+            calls: Mutex::new(Vec::new()),
+            pending_at_deliver: Mutex::new(Vec::new()),
+            probe: Mutex::new(None),
+            swallowed: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// 挂上广播探测接收端（与测试自身的接收端各订阅一次，互不吞消息）。
+    fn watch(&self, receiver: tokio::sync::broadcast::Receiver<RunNotice>) {
+        *self.probe.lock().expect("探测锁不可中毒") = Some(receiver);
+    }
+
+    fn deliveries(&self) -> Vec<Notification> {
+        self.calls
+            .lock()
+            .expect("调用锁不可中毒")
+            .iter()
+            .filter_map(|call| match call {
+                GuardCall::Deliver(notification) => Some(notification.clone()),
+                GuardCall::Retire => None,
+            })
+            .collect()
+    }
+
+    fn retire_count(&self) -> usize {
+        self.calls
+            .lock()
+            .expect("调用锁不可中毒")
+            .iter()
+            .filter(|call| matches!(call, GuardCall::Retire))
+            .count()
+    }
+
+    fn pending_at_deliver(&self) -> Vec<usize> {
+        self.pending_at_deliver
+            .lock()
+            .expect("探测记录锁不可中毒")
+            .clone()
+    }
+
+    fn swallowed(&self) -> Vec<String> {
+        self.swallowed.lock().expect("留痕锁不可中毒").clone()
+    }
+}
+
+impl RunNotifier for GuardNotifier {
+    fn context(&self) -> &NotifyContext {
+        &self.context
+    }
+
+    fn deliver(&self, notification: &Notification) {
+        let pending = self
+            .probe
+            .lock()
+            .expect("探测锁不可中毒")
+            .as_mut()
+            .map(|receiver| receiver.try_recv().is_ok() as usize)
+            .unwrap_or(0);
+        self.pending_at_deliver
+            .lock()
+            .expect("探测记录锁不可中毒")
+            .push(pending);
+        self.swallowed
+            .lock()
+            .expect("留痕锁不可中毒")
+            .push(format!("deliver 降级留痕：{}", notification.id));
+        self.calls
+            .lock()
+            .expect("调用锁不可中毒")
+            .push(GuardCall::Deliver(notification.clone()));
+    }
+
+    fn retire(&self) {
+        self.swallowed
+            .lock()
+            .expect("留痕锁不可中毒")
+            .push("retire 降级留痕".to_owned());
+        self.calls
+            .lock()
+            .expect("调用锁不可中毒")
+            .push(GuardCall::Retire);
+    }
+}
+
+/// 有 notifier 的 guard（`with_notifier` 为 `pub(crate)`，同 crate 测试可直接
+/// 挂上出口）。
+fn guard_with_notifier(
+    control: &Arc<ChangeFlowControl>,
+    notifier: Option<Arc<dyn RunNotifier>>,
+) -> crate::control::RunGuard {
+    control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("登记 run 应成功")
+        .with_notifier(notifier)
+}
+
+/// 正向：`emit(ConfirmWait)` → 替身恰一条 `Warning`（主键按 run id + 相位铸造），
+/// 且投递时刻同一广播流零挂起（旁路先于 `publish`，DD12 的「先旁路、后主线」序）。
+#[tokio::test]
+async fn 旁路emit_confirmwait先投递后广播() {
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("登记 run 应成功");
+    let notifier = GuardNotifier::new("run-1");
+    notifier.watch(control.subscribe(ROOT, CHANGE_ID).expect("探测订阅应成功"));
+    let guard = guard.with_notifier(Some(Arc::clone(&notifier) as Arc<dyn RunNotifier>));
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).expect("订阅应成功");
+
+    guard.emit(RunUpdate::ConfirmWait {
+        phase: "dev-design".to_owned(),
+        archive: None,
+    });
+
+    let deliveries = notifier.deliveries();
+    assert_eq!(deliveries.len(), 1, "停等恰一条通知");
+    assert_eq!(deliveries[0].id, "run:run-1:confirm:dev-design");
+    assert_eq!(
+        deliveries[0].level,
+        notification::NotificationLevel::Warning,
+        "停等档恒 Warning"
+    );
+    assert_eq!(
+        notifier.pending_at_deliver(),
+        vec![0],
+        "投递时刻广播流零挂起（旁路先于 publish）"
+    );
+    assert_eq!(
+        rx.try_recv().expect("主线广播仍发生"),
+        RunNotice::ConfirmWait
+    );
+    assert_eq!(notifier.retire_count(), 0, "停等不触发终态清理");
+}
+
+/// 正向：`finish(Completed)` 走唯一终态出口 → `deliver` 1 次 + `retire` 1 次，
+/// 注册表除名后 `snapshot` 为空。
+#[tokio::test]
+async fn 旁路finish投递并清理一次且终态除名() {
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let notifier = GuardNotifier::new("run-1");
+    let guard = guard_with_notifier(
+        &control,
+        Some(Arc::clone(&notifier) as Arc<dyn RunNotifier>),
+    );
+
+    guard.finish(ChangeRunStatus::Completed, None);
+
+    let deliveries = notifier.deliveries();
+    assert_eq!(deliveries.len(), 1, "终态恰一条通知");
+    assert_eq!(deliveries[0].id, "run:run-1:finished");
+    assert_eq!(
+        deliveries[0].level,
+        notification::NotificationLevel::Success,
+        "Completed → Success"
+    );
+    assert_eq!(notifier.retire_count(), 1, "终态恰清理一次");
+    assert!(
+        control.snapshot(ROOT, CHANGE_ID).is_none(),
+        "终态出口照旧除名"
+    );
+}
+
+/// 正向：三排除变体零投递零清理，`RunNotice` 广播面照旧（旁路不改主线）。
+#[tokio::test]
+async fn 旁路三排除变体零投递且广播照旧() {
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let notifier = GuardNotifier::new("run-1");
+    let guard = guard_with_notifier(
+        &control,
+        Some(Arc::clone(&notifier) as Arc<dyn RunNotifier>),
+    );
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).expect("订阅应成功");
+
+    guard.emit(RunUpdate::Step {
+        step: sample_step(),
+    });
+    guard.emit(RunUpdate::Edge {
+        edge: crate::state::ChangeStepEdge {
+            from: ("x".to_owned(), 1, ChangeStepKind::Executor, 0),
+            to: ("x".to_owned(), 1, ChangeStepKind::PhaseLog, 0),
+            kind: crate::state::EdgeKind::Forward,
+        },
+    });
+    guard.emit(session_event("sess-1", 1));
+
+    assert!(
+        notifier.deliveries().is_empty(),
+        "运行期信号零投递，实际: {:?}",
+        notifier.deliveries()
+    );
+    assert_eq!(notifier.retire_count(), 0, "非终态零清理");
+
+    let mut kinds = Vec::new();
+    while let Ok(notice) = rx.try_recv() {
+        kinds.push(notice);
+    }
+    for expected in [RunNotice::Step, RunNotice::Edge, RunNotice::SessionEvent] {
+        assert!(
+            kinds.contains(&expected),
+            "主线广播照旧：{expected:?} / {kinds:?}"
+        );
+    }
+}
+
+/// 边界：无 notifier（`begin_run` 铸 `None`）→ 零旁路调用，广播与快照面与
+/// 改动前逐字一致。
+#[tokio::test]
+async fn 无notifier时广播与快照面照旧() {
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let guard = guard_with_notifier(&control, None);
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).expect("订阅应成功");
+
+    guard.emit(RunUpdate::ConfirmWait {
+        phase: "archive".to_owned(),
+        archive: None,
+    });
+
+    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 条目在场");
+    assert_eq!(snapshot.status, ChangeRunStatus::WaitingConfirm);
+    assert_eq!(
+        rx.try_recv().expect("广播照旧"),
+        RunNotice::ConfirmWait,
+        "无旁路时主线逐字不变"
+    );
+}
+
+/// 边界：同一终态两次（直接 `emit(Finished)` 后再 `finish`）→ `deliver` 2 次 /
+/// `retire` 2 次（守卫不去重，幂等由 store 主键与 `retire_run_notifications`
+/// 承担）。
+#[tokio::test]
+async fn 同一终态两次emit与finish各投递清理一次() {
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let notifier = GuardNotifier::new("run-1");
+    let guard = guard_with_notifier(
+        &control,
+        Some(Arc::clone(&notifier) as Arc<dyn RunNotifier>),
+    );
+
+    guard.emit(RunUpdate::Finished {
+        status: ChangeRunStatus::Completed,
+        reason: None,
+    });
+    guard.finish(ChangeRunStatus::Completed, None);
+
+    assert_eq!(notifier.deliveries().len(), 2, "两次投递（守卫不去重）");
+    assert_eq!(notifier.retire_count(), 2, "两次清理（接口不裁剪）");
+}
+
+/// 边界：`emitter().attach_output_ref(...)` 的合成 guard 走既有 `emit_node`
+/// 路径 → `Step` 属排除变体，零投递零 panic，广播与节点面照旧。
+#[tokio::test]
+async fn 合成emitter的补发拍零投递且节点照旧() {
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let notifier = GuardNotifier::new("run-1");
+    let guard = guard_with_notifier(
+        &control,
+        Some(Arc::clone(&notifier) as Arc<dyn RunNotifier>),
+    );
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).expect("订阅应成功");
+
+    let emitter = guard.emitter();
+    emitter.attach_output_ref("implement", 0, ChangeStepKind::Executor, 0, "exec-1");
+
+    assert!(
+        notifier.deliveries().is_empty(),
+        "Step 属排除变体（补发拍同样零投递）"
+    );
+    assert_eq!(notifier.retire_count(), 0);
+    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 条目在场");
+    assert_eq!(
+        snapshot.nodes.len(),
+        1,
+        "补发拍落图（既有 emit_node 路径零改）"
+    );
+    assert_eq!(
+        snapshot.nodes[0].output_ref.as_deref(),
+        Some("exec-1"),
+        "output_ref 落值照旧"
+    );
+    assert_eq!(rx.try_recv().expect("广播照旧"), RunNotice::Step);
+}
+
+/// 异常：替身按旁路语义降级 → `emit` 返回 `()`、`publish` 照常、订阅端仍收到
+/// 该条（主线不因旁路失败中断，R-9 的 core 侧判据）。
+#[tokio::test]
+async fn 旁路降级时主线广播不中断() {
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let notifier = GuardNotifier::new("run-1");
+    let guard = guard_with_notifier(
+        &control,
+        Some(Arc::clone(&notifier) as Arc<dyn RunNotifier>),
+    );
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).expect("订阅应成功");
+
+    let _: () = guard.emit(RunUpdate::Finished {
+        status: ChangeRunStatus::Failed,
+        reason: Some("引擎失败".to_owned()),
+    });
+
+    assert_eq!(
+        rx.try_recv().expect("旁路降级不影响主线"),
+        RunNotice::Finished
+    );
+    assert_eq!(
+        notifier.swallowed().len(),
+        2,
+        "投递与清理的失败都只在替身内部留痕（不上抛）"
+    );
+    assert_eq!(notifier.deliveries().len(), 1, "降级形态仍记录投递");
+    assert_eq!(notifier.retire_count(), 1, "终态清理不因降级缺席");
 }

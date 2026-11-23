@@ -1,6 +1,5 @@
 import { type MenuTriggerState, type UseRenderRenderProp } from '@base-ui/react';
 import { useEffect, useState } from 'react';
-import { toast } from 'sonner';
 
 import {
   DropdownMenu,
@@ -11,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ipc } from '@/lib/ipc';
+import { notify } from '@/lib/notify';
 import { type ExploreScanEntry } from '@/types/generated/bindings';
 
 export interface ExploreOpenFileProps {
@@ -34,7 +34,7 @@ export function ExploreOpenFile({
         if (!cancelled) setEntries(result);
       })
       .catch((err: unknown) => {
-        if (!cancelled) toast.error(String(err));
+        if (!cancelled) notify('error', String(err));
       });
     return () => {
       cancelled = true;
@@ -65,7 +65,7 @@ export function ExploreOpenFile({
               ipc
                 .createExploreRecord(root, entry.name)
                 .then(() => onCreated(entry.name, null))
-                .catch((err: unknown) => toast.error(String(err)));
+                .catch((err: unknown) => notify('error', String(err)));
             }}
           >
             <div>{entry.name}</div>

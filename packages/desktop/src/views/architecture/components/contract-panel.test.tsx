@@ -89,6 +89,8 @@ function serve(check: ArchiApiCheck | Error): void {
       return Promise.resolve({ written: ['a.i.rs'], unchanged: [] });
     }
     if (command === 'read_file') return Promise.resolve(sliceOf('// 生成物\n'));
+    // 生成成功经门面落库一次（旁路：本件不观测，回 null 使结果面 soft-report 自洽）
+    if (command === 'notification_record') return Promise.resolve(null);
     return Promise.reject(new Error(`未预期命令: ${command}`));
   });
 }
@@ -603,5 +605,104 @@ describe('ContractPanel：零第二份取数（源码自证）', () => {
       );
     }
     expect(source).toContain('new Map<string, number>()');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 通知门面旁路（desktop-notification-hub AC-2）：写契约成功的裸 toast 对位
+// `notify('info', …)`——DOM 文案零改 + 落库一次（info 档、无副文案）
+// ---------------------------------------------------------------------------
+
+/** `notification_record` 的落库入参序列。 */
+function recordCalls(): { level: string; message: string; body: string | null }[] {
+  return callsOf('notification_record').length === 0
+    ? []
+    : invokeMock.mock.calls
+        .filter(([command]) => command === 'notification_record')
+        .map(
+          ([, params]) =>
+            (params as { record: { level: string; message: string; body: string | null } }).record,
+        );
+}
+
+describe('ContractPanel：写契约成功的通知门面旁路', () => {
+  /** 生成成功的分派面（落库可注入 reject）。 */
+  function serveGenerate(recordReject: boolean): void {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_api_check')
+        return Promise.resolve(apiCheck({ mismatched: ['m.i.rs'] }));
+      if (command === 'archi_api_generate') {
+        return Promise.resolve({ written: ['m1.i.rs', 'm2.i.rs'], unchanged: [] });
+      }
+      if (command === 'read_file') return Promise.resolve(sliceOf('// 生成物\n'));
+      if (command === 'notification_record') {
+        return recordReject ? Promise.reject(new Error('落库失败')) : Promise.resolve(null);
+      }
+      return Promise.reject(new Error(`未预期命令: ${command}`));
+    });
+  }
+
+  async function generateOnce(): Promise<void> {
+    renderPanel();
+    await waitFor(() => expect(itemsIn('artifacts')).toHaveLength(1));
+    fireEvent.click(screen.getByTestId('archi-contract-generate'));
+    await waitFor(() => expect(screen.getByRole('button', { name: '提交' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+    await waitFor(() => expect(callsOf('archi_api_generate')).toHaveLength(1));
+  }
+
+  it('正向：生成成功 → DOM 文案不变且落库一次（info 档、无副文案）', async () => {
+    serveGenerate(false);
+    await generateOnce();
+
+    await waitFor(() => expect(recordCalls()).toHaveLength(1));
+    expect(recordCalls()[0].level).toBe('info');
+    expect(recordCalls()[0].body).toBeNull();
+    expect(recordCalls()[0].message).toContain('写入 2 份');
+
+    // 真实 sonner：既有 DOM 文案断言零改
+    await waitFor(() =>
+      expect(document.querySelector('[data-sonner-toast]')?.textContent ?? '').toContain(
+        '写入 2 份',
+      ),
+    );
+  });
+
+  it('边界：生成失败走 inline 错误态，零落库（失败不经提示轨）', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_api_check')
+        return Promise.resolve(apiCheck({ mismatched: ['m.i.rs'] }));
+      if (command === 'archi_api_generate') {
+        return Promise.reject(new Error('写入失败（已写 2 份，不回滚）'));
+      }
+      if (command === 'read_file') return Promise.resolve(sliceOf('// 生成物\n'));
+      if (command === 'notification_record') return Promise.resolve(null);
+      return Promise.reject(new Error(`未预期命令: ${command}`));
+    });
+    renderPanel();
+    await waitFor(() => expect(itemsIn('artifacts')).toHaveLength(1));
+    fireEvent.click(screen.getByTestId('archi-contract-generate'));
+    await waitFor(() => expect(screen.getByRole('button', { name: '提交' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-contract-error').textContent).toContain('写入失败'),
+    );
+    expect(recordCalls()).toHaveLength(0);
+  });
+
+  it('异常：落库 reject 时 DOM toast 文案断言仍成立、面板状态不变', async () => {
+    serveGenerate(true);
+    await generateOnce();
+
+    expect(recordCalls()).toHaveLength(1);
+    await waitFor(() =>
+      expect(document.querySelector('[data-sonner-toast]')?.textContent ?? '').toContain(
+        '写入 2 份',
+      ),
+    );
+    // 面板状态零变化：复检后生成物轴仍是同一条不符、零错误块（落库失败是旁路）
+    expect(itemsIn('artifacts')).toHaveLength(1);
+    expect(screen.queryByTestId('archi-contract-error')).toBeNull();
   });
 });

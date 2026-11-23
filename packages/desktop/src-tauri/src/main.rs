@@ -7,6 +7,7 @@ use store::WorkspaceStores;
 
 use agent::{AskRegistry, SessionStreamRegistry, SteerRegistry, StopRegistry};
 use dev_team::commands::all_commands;
+use dev_team::commands::notifications::NotificationBus;
 use dev_team::commands::watch::WatchRegistry;
 use dev_team::env;
 use dev_team::selfcheck;
@@ -102,11 +103,17 @@ fn setup_hook(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let data_root = app.state::<env::DataRoot>().path.clone();
     // 任一步失败即 setup Err → 启动失败（fail fast，无静默空清单降级）。
     let stores = WorkspaceStores::open(&data_root)?;
+    // 通知扇出点：全局库 + Hub + broadcast 的单对象。必须先取 `global_shared`
+    // 再 `manage(stores)`——`manage` 之后 `WorkspaceStores` 所有权已交出
+    let global = stores.global_shared();
     // 引擎异常日志：进程一次初始化（append-only 尽力而为）+ panic 钩子
     //（泵任务 panic 默认只进无控制台的 stderr，日志面补观测）
     agent_runtime::init_engine_log(&data_root.join(env::LOGS_DIR_NAME));
     agent_runtime::install_engine_panic_hook();
     app.manage(stores);
+    // 收件箱扇出点（user 维度，只持全局库实例）：change flow 的 sink 与
+    // 通知命令面共读同一对象
+    app.manage(Arc::new(NotificationBus::new(global)));
     // watch 订阅注册表：消费页面生命周期由命令面退订承载，此处只挂空表
     app.manage(WatchRegistry::default());
     // agent 停止注册表（内核治理面，键 = core session id）：

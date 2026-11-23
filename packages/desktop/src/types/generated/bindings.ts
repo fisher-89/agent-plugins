@@ -331,6 +331,19 @@ export const commands = {
 	archiRelation: (root: string, from: string, to: string) => __TAURI_INVOKE<ArchiRelationDetail>("archi_relation", { root, from, to }),
 	/**  通用文件读取（唯一内容出口）：字节分页 + 同批 stat。 */
 	readFile: (path: string, offset: number | null, limit: number | null) => __TAURI_INVOKE<FileSlice | null>("read_file", { path, offset, limit }),
+	/**  订阅后端事件通知：返回**当前未读数**作为前端徽标初值。 */
+	notificationSubscribe: (onEvent: Channel<Notification>) => __TAURI_INVOKE<number>("notification_subscribe", { onEvent }),
+	/**  收件箱分页读（倒序 + 页界信封；只 `kind = Event`）。 */
+	notificationList: (offset: number, limit: number) => __TAURI_INVOKE<NotificationPage>("notification_list", { offset, limit }),
+	/**  逐条置已读；返回剩余未读数（前端据此回写徽标，MUST NOT 自行推算）。 */
+	notificationMarkRead: (ids: string[]) => __TAURI_INVOKE<number>("notification_mark_read", { ids }),
+	/**  全部已读（含未加载页）；返回剩余未读数（恒 0）。 */
+	notificationMarkAllRead: () => __TAURI_INVOKE<number>("notification_mark_all_read"),
+	/**
+	 *  前端动作反馈落库：`kind = Feedback` 由服务端补（[`Notification::feedback`]），
+	 *  **不广播**（本窗口的交互反馈不是跨窗口事件）。
+	 */
+	notificationRecord: (record: NotificationFeedbackInput) => __TAURI_INVOKE<null>("notification_record", { record }),
 };
 
 /* Types */
@@ -2117,6 +2130,82 @@ export type NodeMark =
 "none" | 
 /**  存在未兑现声明（🟡） */
 "unfulfilled";
+
+/**
+ *  一条通知（出线 DTO 亦是它：`Channel` 投递与命令返回同型）。
+ * 
+ *  载荷全量出线、MUST NOT 降位为 kind-only 信号——通知是**内容本身**，与
+ *  「状态已变、请重查」的失效信号语义不同。**不含读状态**：读属收件箱记录面，
+ *  投递面是「不可变的一条内容」。
+ */
+export type Notification = {
+	/**  稳定标识：事件为幂等串（同主键重投即更新同一行），反馈为前端铸造的 UUID */
+	id: string,
+	/**  用途二值（事件 / 反馈） */
+	kind: NotificationKind,
+	/**  呈现级别四档 */
+	level: NotificationLevel,
+	/**  主文案（事件文案的字面唯一真相在编排侧投影函数） */
+	message: string,
+	/**  副文案（前端呈现为 sonner 的 `description`）；无则 None */
+	body: string | null,
+	/**  工作区归属字符串（记录自带归属，MUST NOT 依赖跨库 join）；反馈轨恒 None */
+	root: string | null,
+	/**  触发源引用（事件为 change id）；反馈轨恒 None */
+	sourceRef: string | null,
+	/**  产生时刻（UTC unix 毫秒） */
+	createdAt: number,
+};
+
+/**
+ *  前端反馈轨的落库入参：id 由前端铸造（`crypto.randomUUID()`），服务端补
+ *  `kind` / `root` / `source_ref` / `created_at`（见 [`Notification::feedback`]）。
+ */
+export type NotificationFeedbackInput = {
+	/**  前端铸造的唯一标识（反馈天生唯一，无 dedupe 需求） */
+	id: string,
+	/**  呈现级别四档 */
+	level: NotificationLevel,
+	/**  主文案 */
+	message: string,
+	/**  副文案；无则 None */
+	body: string | null,
+};
+
+/**
+ *  通知的两种用途（camelCase 线格式）：后端事件与前端动作反馈同一模型两用途
+ * （MUST NOT 拆两张表，过滤与未读口径靠本字段单点）。
+ * 
+ *  **变体序冻结**：落库行以 serde 编码承载本枚举，重排即旧行解码错位。
+ */
+export type NotificationKind = 
+/**  后端事件（流程停等 / 终态）：进收件箱列表、计入未读、经通道实时增量 */
+"event" | 
+/**  前端动作反馈：只落库，不进列表、不计未读、不广播（本窗口的交互反馈） */
+"feedback";
+
+/**
+ *  呈现级别四档（camelCase 线格式）：逐档对位前端 sonner 的四档呈现。
+ * 
+ *  变体序冻结——对位关系是线面契约，重排即呈现档位错位。
+ */
+export type NotificationLevel = 
+/**  信息档（对位 sonner 的裸 `toast(...)`；前端不为它弹第二遍） */
+"info" | 
+/**  成功档（对位 `toast.success`） */
+"success" | 
+/**  警告档（对位 `toast.warning`） */
+"warning" | 
+/**  错误档（对位 `toast.error`） */
+"error";
+
+/**  收件箱分页信封：本页条目 + 该 kind 全量计数。 */
+export type NotificationPage = {
+	/**  本页条目（倒序，页界自洽） */
+	items: Notification[],
+	/**  `kind = Event` 的**全量**计数（非本页长度；分页边界与行集同一读快照） */
+	total: number,
+};
 
 /**  一站流水线：该 phase 的全部 attempt 序列。 */
 export type PhaseEntry = {

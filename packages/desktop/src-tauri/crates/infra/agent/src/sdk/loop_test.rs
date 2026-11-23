@@ -7938,8 +7938,8 @@ async fn db分派两工具到执行体且结果非错误() {
         Case {
             tool: DB_TABLES_TOOL,
             input: serde_json::json!({}),
-            check: |payload| payload.as_array().is_some_and(|rows| rows.len() == 14),
-            tag: "表清单为 14 行数组",
+            check: |payload| payload.as_array().is_some_and(|rows| rows.len() == 15),
+            tag: "表清单为 15 行数组",
         },
         Case {
             tool: DB_QUERY_TOOL,

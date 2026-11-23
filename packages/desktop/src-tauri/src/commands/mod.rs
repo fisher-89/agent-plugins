@@ -9,6 +9,7 @@ pub mod env;
 pub mod exec;
 pub mod explores;
 pub mod fs;
+pub mod notifications;
 pub mod stats;
 pub mod watch;
 pub mod workspaces;
@@ -94,6 +95,11 @@ macro_rules! all_commands {
             $crate::commands::archi::archi_api_generate,
             $crate::commands::archi::archi_relation,
             $crate::commands::fs::read_file,
+            $crate::commands::notifications::notification_subscribe,
+            $crate::commands::notifications::notification_list,
+            $crate::commands::notifications::notification_mark_read,
+            $crate::commands::notifications::notification_mark_all_read,
+            $crate::commands::notifications::notification_record,
         ]
     };
 }

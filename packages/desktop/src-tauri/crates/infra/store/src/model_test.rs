@@ -1192,6 +1192,7 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
             <WorkspaceRecord as native_model::Model>::native_model_id(),
             <AgentProviderRecord as native_model::Model>::native_model_id(),
             <AgentInstanceRecord as native_model::Model>::native_model_id(),
+            <crate::model::NotificationRecord as native_model::Model>::native_model_id(),
         ])
         .collect();
     ids.sort_unstable();
@@ -1199,7 +1200,7 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
     deduped.dedup();
     assert_eq!(
         ids, deduped,
-        "全册 id 无冲突（既有 1/2/4/5/6/7/8 与新 9..15）"
+        "全册 id 无冲突（既有 1/2/4/5/6/7/8 + 9..17 + 本变更 18）"
     );
 
     // list_models 覆盖持衡：信封注册面每模型一行即可浏览（run 执行图三模型
@@ -5570,4 +5571,220 @@ fn agent_model_tiers三档结构零改动且与efforts为兄弟列() {
     assert_eq!(decoded.models, record.models, "三档往返保真");
     assert_eq!(decoded.efforts, record.efforts, "两档与三档各自独立往返");
     assert_eq!(decoded, record);
+}
+
+// ---------------------------------------------------------------------------
+// NotificationRecord（desktop-notification-hub）：九字段线形 / id 18 / 枚举交叉
+// 编码 / 解码拒绝 / 结构锚
+// ---------------------------------------------------------------------------
+
+/// 通知记录 fixture（事件轨，四 Option 字段中三者在场、`read_at` 未读）。
+fn fixture_notification_record(id: &str) -> crate::model::NotificationRecord {
+    crate::model::NotificationRecord {
+        id: id.to_owned(),
+        kind: ::notification::NotificationKind::Event,
+        level: ::notification::NotificationLevel::Warning,
+        message: format!("变更「add-feature」停在 dev-design 前等你确认（{id}）"),
+        body: Some("设计相位产出。".to_owned()),
+        root: Some("/ws/alpha".to_owned()),
+        source_ref: Some("add-feature".to_owned()),
+        created_at: 1_727_000_000_000,
+        read_at: None,
+    }
+}
+
+/// 正向：serde 线形九字段（多词键 camelCase），编码 → 解码逐字段相等。
+#[test]
+fn 通知记录线形九字段camelcase且往返相等() {
+    let record = fixture_notification_record("run:r1:confirm:dev-design");
+    let value = serde_json::to_value(&record).expect("序列化应成功");
+    let object = value.as_object().expect("线形为对象");
+
+    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec![
+            "body",
+            "createdAt",
+            "id",
+            "kind",
+            "level",
+            "message",
+            "readAt",
+            "root",
+            "sourceRef",
+        ],
+        "九字段且多词键为 camelCase"
+    );
+
+    let back: crate::model::NotificationRecord = serde_json::from_value(value).expect("解码应成功");
+    assert_eq!(back, record, "编解码往返逐字段相等");
+}
+
+/// 正向：`native_model` id 18 / version 1（现役最大值 +1，不复用历史空洞）。
+#[test]
+fn 通知记录native_model_id为十八且版本一() {
+    assert_eq!(
+        <crate::model::NotificationRecord as native_model::Model>::native_model_id(),
+        18,
+        "id 取现役最大值 + 1（= 18），不复用历史空洞 3 / 14"
+    );
+    assert_eq!(
+        <crate::model::NotificationRecord as native_model::Model>::native_model_version(),
+        1
+    );
+}
+
+/// 边界：四 Option 字段的 None / Some("") 组合与 `created_at` 三档边界。
+#[test]
+fn 通知记录四option字段组合与时间边界原样() {
+    let option_cases: Vec<(Option<String>, Option<String>, Option<String>, Option<i64>)> = vec![
+        (None, None, None, None),
+        (
+            Some(String::new()),
+            Some(String::new()),
+            Some(String::new()),
+            Some(0),
+        ),
+        (None, Some("/ws/beta".to_owned()), None, Some(i64::MAX)),
+        (
+            Some("副文案".to_owned()),
+            None,
+            Some("fix-bug".to_owned()),
+            Some(-1),
+        ),
+    ];
+    for (body, root, source_ref, read_at) in option_cases {
+        for created_at in [0i64, -1, i64::MAX] {
+            let record = crate::model::NotificationRecord {
+                body: body.clone(),
+                root: root.clone(),
+                source_ref: source_ref.clone(),
+                read_at,
+                created_at,
+                ..fixture_notification_record("run:r1:finished")
+            };
+            let value = serde_json::to_value(&record).expect("序列化应成功");
+            let back: crate::model::NotificationRecord =
+                serde_json::from_value(value).expect("解码应成功");
+            assert_eq!(back, record, "Some(\"\") 不折成 None、时间不钳位");
+        }
+    }
+}
+
+/// 边界：`kind` × `level` 交叉编码往返同值（变体序冻结的反向锚）。
+#[test]
+fn 通知记录枚举交叉编码往返同值() {
+    for (kind, level) in [
+        (
+            ::notification::NotificationKind::Event,
+            ::notification::NotificationLevel::Warning,
+        ),
+        (
+            ::notification::NotificationKind::Feedback,
+            ::notification::NotificationLevel::Error,
+        ),
+    ] {
+        let record = crate::model::NotificationRecord {
+            kind,
+            level,
+            ..fixture_notification_record("uuid-1")
+        };
+        let value = serde_json::to_value(&record).expect("序列化应成功");
+        assert_eq!(
+            value["kind"],
+            serde_json::json!(match kind {
+                ::notification::NotificationKind::Event => "event",
+                ::notification::NotificationKind::Feedback => "feedback",
+            })
+        );
+        let back: crate::model::NotificationRecord =
+            serde_json::from_value(value).expect("解码应成功");
+        assert_eq!(back.kind, kind);
+        assert_eq!(back.level, level);
+    }
+}
+
+/// 异常：缺 `id` / 缺 `kind` / 非法 `kind` / 非法 `level` 一律解码 `Err`。
+#[test]
+fn 通知记录解码拒绝缺字段与非法枚举线值() {
+    let full =
+        serde_json::to_value(fixture_notification_record("run:r1:finished")).expect("序列化应成功");
+
+    let mut without_id = full.as_object().expect("对象").clone();
+    without_id.remove("id");
+    let mut without_kind = full.as_object().expect("对象").clone();
+    without_kind.remove("kind");
+    let mut bad_kind = full.as_object().expect("对象").clone();
+    bad_kind.insert("kind".to_owned(), serde_json::json!("unknown"));
+    let mut bad_level = full.as_object().expect("对象").clone();
+    bad_level.insert("level".to_owned(), serde_json::json!("debug"));
+
+    for (label, value) in [
+        ("缺 id", serde_json::Value::Object(without_id)),
+        ("缺 kind", serde_json::Value::Object(without_kind)),
+        ("kind 非法", serde_json::Value::Object(bad_kind)),
+        ("level 非法", serde_json::Value::Object(bad_level)),
+    ] {
+        let decoded: Result<crate::model::NotificationRecord, _> = serde_json::from_value(value);
+        assert!(decoded.is_err(), "{label}：应拒绝而非静默产出空记录");
+    }
+}
+
+/// 结构锚：`native_model(id = 18, version = 1)` 恰一处、`NotificationRecord` 的
+/// `id` 带 `#[primary_key]`、九字段的 `///` doc 齐备（表与字段说明的唯一派生源）。
+#[test]
+fn 通知记录结构锚_id属性与字段doc齐备() {
+    let source = include_str!("model.rs");
+
+    assert_eq!(
+        source
+            .matches("#[native_model(id = 18, version = 1)]")
+            .count(),
+        1,
+        "id 18 的模型声明恰一处"
+    );
+
+    let start = source
+        .find("pub struct NotificationRecord {")
+        .expect("model.rs 应含 NotificationRecord 声明");
+    let body = &source[start..];
+    let end = body.find("\n}").expect("结构体应有闭合行");
+    let block = &body[..end];
+
+    assert_eq!(
+        block.matches("#[primary_key]").count(),
+        1,
+        "九字段中恰 id 为主键"
+    );
+    let mut documented = 0usize;
+    for field in [
+        "pub id: String,",
+        "pub kind: NotificationKind,",
+        "pub level: NotificationLevel,",
+        "pub message: String,",
+        "pub body: Option<String>,",
+        "pub root: Option<String>,",
+        "pub source_ref: Option<String>,",
+        "pub created_at: i64,",
+        "pub read_at: Option<i64>,",
+    ] {
+        let position = block
+            .find(field)
+            .unwrap_or_else(|| panic!("结构体缺字段：{field}"));
+        let before = &block[..position];
+        let previous_line = before
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or_default()
+            .trim();
+        assert!(
+            previous_line.starts_with("///") || previous_line.starts_with("#[primary_key]"),
+            "字段 {field} 的上一行应为 doc 注释，实际：{previous_line}"
+        );
+        documented += 1;
+    }
+    assert_eq!(documented, 9, "九字段逐字段说明齐备");
 }

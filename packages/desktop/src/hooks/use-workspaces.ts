@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { toast } from 'sonner';
 
 import { ipc } from '../lib/ipc';
 import { resetDrift } from '../lib/ipc-drift';
+import { notify } from '../lib/notify';
 import { type WorkspaceRecord } from '../types/generated/bindings';
 
 /** 动作失败 toast 固定前缀（design D8：文案供断言；remove 的 store miss 幂等非错误不 toast） */
@@ -17,7 +17,7 @@ export interface WorkspaceState {
   loading: boolean;
   /**
    * 仅承载 list_workspaces 加载失败（双轨语义：add/remove 动作失败在
-   * hook 内直调 toast.error 呈现，不置本字段）。
+   * hook 内经 `lib/notify.ts` 门面呈现，不置本字段）。
    */
   error: string | null;
   add: (root: string) => Promise<WorkspaceRecord | null>;
@@ -34,7 +34,7 @@ export interface WorkspaceState {
  * （null）。add 成功直接以返回记录的 canonical root 为当前根（新记录在
  * 默认序中未必居首）；select 为纯本地切换，无后端调用。错误呈现双轨：
  * 查询轨道 list_workspaces 失败置 error 态 inline 持久；动作轨道
- * add/remove 失败 hook 内直调 toast.error（固定前缀 + String(err)），
+ * add/remove 失败 hook 内经 `lib/notify.ts` 门面呈现（固定前缀 + String(err)），
  * 不置 error 态，返回值（null / false）仅供流程控制。remove 返回 false
  * （store miss）为幂等非错误：无 error、无 toast。无轮询、无文件 watch。
  */
@@ -91,7 +91,7 @@ export function useWorkspaces(): WorkspaceState {
   return { root, workspaces, loading, error, add, remove, select };
 }
 
-/** 动作轨道：失败直调 toast.error（不置 error 态），返回值仅供流程控制 */
+/** 动作轨道：失败经 `lib/notify.ts` 门面呈现（不置 error 态），返回值仅供流程控制 */
 function useWorkspacesActions(applyRoot: (next: string | null) => void, refresh: () => void) {
   const add = useCallback(
     async (root: string): Promise<WorkspaceRecord | null> => {
@@ -102,7 +102,7 @@ function useWorkspacesActions(applyRoot: (next: string | null) => void, refresh:
         refresh();
         return record;
       } catch (err: unknown) {
-        toast.error(`${ACTION_ERROR_PREFIX.add}${String(err)}`);
+        notify('error', `${ACTION_ERROR_PREFIX.add}${String(err)}`);
         return null;
       }
     },
@@ -117,7 +117,7 @@ function useWorkspacesActions(applyRoot: (next: string | null) => void, refresh:
         refresh();
         return hit;
       } catch (err: unknown) {
-        toast.error(`${ACTION_ERROR_PREFIX.remove}${String(err)}`);
+        notify('error', `${ACTION_ERROR_PREFIX.remove}${String(err)}`);
         return false;
       }
     },

@@ -16,8 +16,8 @@ use specta::Type;
 use crate::describe;
 use crate::model::{
     AgentInstanceRecord, AgentProviderRecord, AgentRunRecord, ChangeRecord, ChecklistItemRecord,
-    ExploreRecord, PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionEventRecord,
-    SessionRecord, StepRecord, WorkspaceRecord,
+    ExploreRecord, NotificationRecord, PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord,
+    SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
 };
 use crate::query::{db_err as query_db_err, QueryError};
 use crate::store::{db_err, DbDimension, StoreError};
@@ -122,6 +122,15 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         key_of: agent_instance_key,
         schema: describe::schema_of::<AgentInstanceRecord>,
         walk: walk_agent_instances,
+    },
+    ModelEntry {
+        name: "notification",
+        dimension: DbDimension::User,
+        count: count_model::<NotificationRecord>,
+        scan: scan_notifications,
+        key_of: notification_key,
+        schema: describe::schema_of::<NotificationRecord>,
+        walk: walk_notifications,
     },
     ModelEntry {
         name: "agent_run",
@@ -373,6 +382,15 @@ fn scan_agent_instances(
     scan_model::<AgentInstanceRecord>(db, offset, limit, key_of)
 }
 
+fn scan_notifications(
+    db: &Database<'static>,
+    offset: u32,
+    limit: u32,
+    key_of: KeyOfFn,
+) -> Result<RecordsPage, StoreError> {
+    scan_model::<NotificationRecord>(db, offset, limit, key_of)
+}
+
 fn scan_agent_runs(
     db: &Database<'static>,
     offset: u32,
@@ -487,6 +505,11 @@ fn agent_instance_key(value: &Value) -> Value {
     value["id"].clone()
 }
 
+/// notification 主键 = 稳定标识（事件为幂等串、反馈为前端铸 UUID）。
+fn notification_key(value: &Value) -> Value {
+    value["id"].clone()
+}
+
 /// agent run 主键 = id。
 fn agent_run_key(value: &Value) -> Value {
     value["id"].clone()
@@ -570,6 +593,14 @@ fn walk_agent_instances(
     visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
 ) -> Result<u64, QueryError> {
     walk_model::<AgentInstanceRecord>(db, key_of, visit)
+}
+
+fn walk_notifications(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<NotificationRecord>(db, key_of, visit)
 }
 
 fn walk_agent_runs(

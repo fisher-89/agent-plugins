@@ -8,6 +8,7 @@ use agent::{AgentEventKind, AgentRunStatus, AskRegistry, ModelLevel};
 use foundation::cancel::CancelFlag;
 
 use crate::control::{emit_node, ChangeFlowControl, RunGuard, StepSettle};
+use crate::notify::{NotifyContext, RunNotifier};
 use crate::port::{
     ArchiCheckMode, ArchiCheckOutcome, ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture,
     BoxTurnFuture, MutationCounts, MutationSkipReason, MutationTestConclusion, MutationTestOutcome,
@@ -1656,6 +1657,50 @@ fn spawn_run(
         Arc::clone(control),
         guard,
         request,
+        None,
+    ));
+    (task, rx, history)
+}
+
+/// 携事件轨出口的 run 驱动（通知接线用例专用）：与 [`spawn_run`] 同装置，仅
+/// `walk_run` 第 9 参不同——`Some(替身)` 走真实旁路出口。
+fn spawn_run_notified(
+    worker: Arc<dyn WorkerAgentPort>,
+    tools: Arc<dyn ToolStepPort>,
+    snapshot: Arc<dyn WorkflowSnapshotPort>,
+    control: &Arc<ChangeFlowControl>,
+    auto_next_phase: bool,
+    root: &str,
+    notifier: Arc<dyn RunNotifier>,
+) -> (
+    tokio::task::JoinHandle<ChangeRunStatus>,
+    tokio::sync::broadcast::Receiver<RunNotice>,
+    Arc<RecordingHistory>,
+) {
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("登记 run 应成功");
+    let rx = control.subscribe(ROOT, CHANGE_ID).expect("run 订阅应成功");
+    let request = RunRequest {
+        root: root.to_owned(),
+        main_root: root.to_owned(),
+        change_id: CHANGE_ID.to_owned(),
+        run_id: "run-1".to_owned(),
+        auto_next_phase,
+        stop_before: None,
+        started_at: STARTED_AT,
+    };
+    let history = RecordingHistory::new();
+    let task = tokio::spawn(walk_run(
+        worker,
+        tools,
+        Arc::new(FakeVcs::clean()) as Arc<dyn ArchiveVcsPort>,
+        snapshot,
+        history.clone() as Arc<dyn RunHistoryPort>,
+        Arc::clone(control),
+        guard,
+        request,
+        Some(notifier),
     ));
     (task, rx, history)
 }
@@ -1701,6 +1746,7 @@ fn spawn_run_with_vcs(
         Arc::clone(control),
         guard,
         request,
+        None,
     ));
     (task, rx, history)
 }
@@ -1749,6 +1795,7 @@ fn spawn_real_run(
         Arc::clone(control),
         guard,
         request,
+        None,
     ));
     (task, rx, store)
 }
@@ -1794,6 +1841,7 @@ fn spawn_real_run_archive(
         Arc::clone(control),
         guard,
         request,
+        None,
     ));
     (task, rx)
 }
@@ -6469,6 +6517,7 @@ async fn run_started_err_fail_fast_零相位执行() {
         Arc::clone(&control),
         guard,
         request,
+        None,
     ));
     let status = task.await.expect("run 任务正常结束");
 
@@ -6522,6 +6571,7 @@ async fn run_finished_err_best_effort_静默收口() {
         Arc::clone(&control),
         guard,
         request,
+        None,
     ));
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
@@ -22471,4 +22521,386 @@ fn walker旧口径串零残留() {
             "walker.rs 不得残留旧口径串 {stale:?}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 事件轨注入面（`walk_run` 第 9 参）：真实 run 链上的旁路出口
+// ---------------------------------------------------------------------------
+
+/// 记录型 `RunNotifier` 替身（`context()` 返回真实上下文；投递序进共享日志）。
+struct WalkerNotifier {
+    context: NotifyContext,
+    calls: Mutex<Vec<WalkerCall>>,
+    /// 传 true 时 `deliver` / `retire` 只自留痕（旁路失败形态）。
+    swallow: bool,
+}
+
+#[derive(Debug)]
+enum WalkerCall {
+    Deliver(notification::Notification),
+    Retire(String),
+}
+
+impl WalkerNotifier {
+    fn new(swallow: bool) -> Arc<Self> {
+        Arc::new(Self {
+            context: NotifyContext {
+                root: ROOT.to_owned(),
+                change_id: CHANGE_ID.to_owned(),
+                change_name: "通知接线变更".to_owned(),
+                run_id: "run-1".to_owned(),
+                workflow_type: "requirement".to_owned(),
+            },
+            calls: Mutex::new(Vec::new()),
+            swallow,
+        })
+    }
+
+    fn deliveries(&self) -> Vec<notification::Notification> {
+        self.calls
+            .lock()
+            .expect("调用日志锁不可中毒")
+            .iter()
+            .filter_map(|call| match call {
+                WalkerCall::Deliver(notification) => Some(notification.clone()),
+                WalkerCall::Retire(_) => None,
+            })
+            .collect()
+    }
+
+    fn retires(&self) -> Vec<String> {
+        self.calls
+            .lock()
+            .expect("调用日志锁不可中毒")
+            .iter()
+            .filter_map(|call| match call {
+                WalkerCall::Deliver(_) => None,
+                WalkerCall::Retire(run_id) => Some(run_id.clone()),
+            })
+            .collect()
+    }
+}
+
+impl RunNotifier for WalkerNotifier {
+    fn context(&self) -> &NotifyContext {
+        &self.context
+    }
+
+    fn deliver(&self, notification: &notification::Notification) {
+        if self.swallow {
+            return;
+        }
+        self.calls
+            .lock()
+            .expect("调用日志锁不可中毒")
+            .push(WalkerCall::Deliver(notification.clone()));
+    }
+
+    fn retire(&self) {
+        if self.swallow {
+            return;
+        }
+        self.calls
+            .lock()
+            .expect("调用日志锁不可中毒")
+            .push(WalkerCall::Retire(self.context.run_id.clone()));
+    }
+}
+
+/// 两相位放行至 `Completed` 的装置（既有 `spawn_run` / `spawn_confirmer(true)`
+/// 同构：`proposal` → `dev-design` → done）。
+async fn run_two_phases_to_completed(notifier: Arc<dyn RunNotifier>) -> ChangeRunStatus {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("proposal", &[]),
+            route_outcome("dev-design", &["proposal", "dev-design"]),
+            done_outcome(),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+
+    let (task, _rx, _history) = spawn_run_notified(
+        worker,
+        tools,
+        snapshot,
+        &control,
+        false,
+        "/tmp/root",
+        notifier,
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    task.await.expect("run 任务正常结束")
+}
+
+/// 正向（端到端接线）：携 `Some(替身)` 跑两相位 run 全放行至 `Completed` →
+/// 替身收恰 2 条 `confirm:*` + 恰 1 条 `run:{run_id}:finished`（`Success`）+
+/// `retire` 恰 1 次（回溯 1 的根因反锚：事件轨真实出口是 `RunGuard::emit`）。
+#[tokio::test]
+async fn walk_run两相位run携notifier收集停等与终态且清理一次() {
+    let notifier = WalkerNotifier::new(false);
+    let status = run_two_phases_to_completed(Arc::clone(&notifier) as Arc<dyn RunNotifier>).await;
+    assert_eq!(status, ChangeRunStatus::Completed);
+
+    let deliveries = notifier.deliveries();
+    assert_eq!(
+        deliveries.len(),
+        3,
+        "两条停等 + 一条终态，实际: {:?}",
+        deliveries.iter().map(|n| n.id.clone()).collect::<Vec<_>>()
+    );
+    let ids: Vec<&str> = deliveries.iter().map(|n| n.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec![
+            "run:run-1:confirm:proposal",
+            "run:run-1:confirm:dev-design",
+            "run:run-1:finished",
+        ],
+        "投递序 = 投影发生序，终态收尾单点"
+    );
+    assert_eq!(
+        deliveries[0].level,
+        notification::NotificationLevel::Warning
+    );
+    assert_eq!(
+        deliveries[1].level,
+        notification::NotificationLevel::Warning
+    );
+    assert_eq!(
+        deliveries[2].level,
+        notification::NotificationLevel::Success
+    );
+    assert_eq!(
+        notifier.retires(),
+        vec!["run-1".to_owned()],
+        "终态清理恰一次（中间相位的 confirm 不清死未读）"
+    );
+}
+
+/// 正向（白名单在生产链上成立）：整 run 的运行期变体（`Step` / `Edge` /
+/// `SessionEvent`）不产通知——投递计数恰等于纳入变体数。
+#[tokio::test]
+async fn walk_run运行期变体零投递且投递条数等于纳入变体数() {
+    let notifier = WalkerNotifier::new(false);
+    let status = run_two_phases_to_completed(Arc::clone(&notifier) as Arc<dyn RunNotifier>).await;
+    assert_eq!(status, ChangeRunStatus::Completed, "run 语义零变化");
+
+    for delivery in notifier.deliveries() {
+        assert!(
+            delivery.id.contains(":confirm:") || delivery.id.ends_with(":finished"),
+            "只有纳入变体落通知，实际: {}",
+            delivery.id
+        );
+    }
+    assert_eq!(
+        notifier.deliveries().len(),
+        3,
+        "两相位 run 的纳入变体恰 3 条（Step / Edge / SessionEvent 零产）"
+    );
+}
+
+/// 正向（fail-fast 起点）：`run_started` 返回 `Err` → 替身收 1 条
+/// `Finished(Failed)` + `retire` 1 次（attach 在函数体第一行，早于起点写缝），
+/// `walk_run` 仍返回 `Failed`、零相位执行。
+#[tokio::test]
+async fn walk_run起点失败仍投递终态且零相位执行() {
+    // 起点写缝的 reason 是「落库失败前缀 + 落库 Err 原文」的既有合成（walker.rs
+    // fail-fast 分流面，本 change 零 diff）——`Failed` 的 body 取该 reason 全文
+    const START_FAILURE: &str = "store 已坏注入";
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[])])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+
+    let history = RecordingHistory::new();
+    history.arm_start_failure(START_FAILURE);
+
+    let notifier = WalkerNotifier::new(false);
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("登记 run 应成功");
+    let request = RunRequest {
+        root: "/tmp/root".to_owned(),
+        main_root: "/tmp/root".to_owned(),
+        change_id: CHANGE_ID.to_owned(),
+        run_id: "run-1".to_owned(),
+        auto_next_phase: false,
+        stop_before: None,
+        started_at: STARTED_AT,
+    };
+    let task = tokio::spawn(walk_run(
+        worker,
+        tools,
+        Arc::new(FakeVcs::clean()) as Arc<dyn ArchiveVcsPort>,
+        snapshot,
+        history as Arc<dyn RunHistoryPort>,
+        Arc::clone(&control),
+        guard,
+        request,
+        Some(Arc::clone(&notifier) as Arc<dyn RunNotifier>),
+    ));
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(status, ChangeRunStatus::Failed, "fail-fast 收敛 failed");
+    assert_eq!(commands.lock().expect("命令锁").len(), 0, "零相位执行");
+    assert_eq!(requests.lock().expect("请求锁").len(), 0, "零会话发起");
+    let deliveries = notifier.deliveries();
+    assert_eq!(deliveries.len(), 1, "起点失败只产一条终态通知");
+    assert_eq!(deliveries[0].id, "run:run-1:finished");
+    assert_eq!(deliveries[0].level, notification::NotificationLevel::Error);
+    let expected_reason = format!("run 运行史落库失败（run 起始行）: {START_FAILURE}");
+    assert_eq!(
+        deliveries[0].body.as_deref(),
+        Some(expected_reason.as_str()),
+        "Failed 的 body 取 walker reason 全文（前缀 + 落库 Err 原文），非注入原文"
+    );
+    assert_eq!(notifier.retires(), vec!["run-1".to_owned()]);
+}
+
+/// 正向（受控停止）：confirm 否决 → 终态 `Stopped` → 替身收 1 条 `Finished`
+/// （`Info`），等待类通知不被伪造。
+#[tokio::test]
+async fn walk_run受控停止投递info终态且不伪造停等() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+
+    let notifier = WalkerNotifier::new(false);
+    let (task, _rx, _history) = spawn_run_notified(
+        worker,
+        tools,
+        snapshot,
+        &control,
+        false,
+        "/tmp/root",
+        Arc::clone(&notifier) as Arc<dyn RunNotifier>,
+    );
+    let _confirmer = spawn_confirmer(&control, false);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(status, ChangeRunStatus::Stopped, "受控终态 stopped");
+    let finished: Vec<notification::Notification> = notifier
+        .deliveries()
+        .into_iter()
+        .filter(|notification| notification.id.ends_with(":finished"))
+        .collect();
+    assert_eq!(finished.len(), 1, "终态恰一条（不伪造第二条）");
+    assert_eq!(
+        finished[0].level,
+        notification::NotificationLevel::Info,
+        "Stopped → Info"
+    );
+    assert_eq!(finished[0].body, None, "停止档无副文案");
+    assert_eq!(notifier.retires(), vec!["run-1".to_owned()]);
+}
+
+/// 边界（三相位 run）：3 条 `confirm:*` 主键互不相同（相位区分），`retire` 只在
+/// 终态 1 次。
+#[tokio::test]
+async fn walk_run三相位run的主键按相位区分且只清一次() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("proposal", &[]),
+            route_outcome("dev-design", &["proposal", "dev-design"]),
+            route_outcome("implement", &["proposal", "dev-design", "implement"]),
+            done_outcome(),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+
+    let notifier = WalkerNotifier::new(false);
+    let (task, _rx, _history) = spawn_run_notified(
+        worker,
+        tools,
+        snapshot,
+        &control,
+        false,
+        "/tmp/root",
+        Arc::clone(&notifier) as Arc<dyn RunNotifier>,
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed);
+
+    let ids: Vec<String> = notifier
+        .deliveries()
+        .into_iter()
+        .map(|notification| notification.id)
+        .collect();
+    let confirms: Vec<&String> = ids.iter().filter(|id| id.contains(":confirm:")).collect();
+    assert_eq!(confirms.len(), 3, "三相位各一条停等：{ids:?}");
+    let unique: std::collections::HashSet<&&String> = confirms.iter().collect();
+    assert_eq!(unique.len(), 3, "主键按相位区分（互不相同）");
+    assert_eq!(ids.last().map(String::as_str), Some("run:run-1:finished"));
+    assert_eq!(notifier.retires().len(), 1, "中间相位的 confirm 不清死未读");
+}
+
+/// 边界（无通知出口）：`None` → 终态与广播面与既有基线逐字一致、零 panic。
+#[tokio::test]
+async fn walk_run无通知出口时终态与广播面照旧() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+
+    let (task, mut rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(status, ChangeRunStatus::Completed, "引擎语义逐字不变");
+    assert_eq!(history.finish_count(), 1, "终态落包恰一次");
+    let notices = drain_notices(&mut rx);
+    assert!(
+        notices.contains(&RunNotice::ConfirmWait) && notices.contains(&RunNotice::Finished),
+        "广播面照旧：{notices:?}"
+    );
+}
+
+/// 异常（旁路降级）：替身内部吞掉 `deliver` / `retire` → run 终态、落包面与
+/// 返回值零变化（旁路不改业务；`walk_run` 签名与既有返回值语义零变）。
+#[tokio::test]
+async fn walk_run旁路降级时终态与落包面零变化() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+
+    let notifier = WalkerNotifier::new(true);
+    let (task, _rx, history) = spawn_run_notified(
+        worker,
+        tools,
+        snapshot,
+        &control,
+        false,
+        "/tmp/root",
+        Arc::clone(&notifier) as Arc<dyn RunNotifier>,
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(status, ChangeRunStatus::Completed, "返回值语义零变");
+    assert_eq!(history.finish_count(), 1, "落包捕获面零变化");
+    assert!(
+        notifier.deliveries().is_empty() && notifier.retires().is_empty(),
+        "降级形态零可观测投递（失败只在替身内部）"
+    );
 }

@@ -1,4 +1,4 @@
-# 02 · core 分层（8 元素 / 9 关系）
+# 02 · core 分层（9 元素 / 10 关系）
 # 与基础设施无关的领域与流程引擎；出边只沿本层内部的依赖方向，全部边 = Cargo [dependencies] 的 workspace 内声明。
 
 [element."App.Backend.Core"]
@@ -48,6 +48,12 @@ gate = "off"
 path = ["./packages/desktop/src-tauri/crates/core/checks/"]
 summary = "测试报告语义与检查结论的领域规则"
 
+[element."App.Backend.Core.Notification"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/core/notification/"]
+summary = "通知词表与扇出点（渠道中立，零基础设施依赖）"
+
 [[relation]]
 from = "App.Backend.Core.Archi"
 to = "App.Backend.Core.Foundation"
@@ -77,6 +83,11 @@ desc = "步骤执行经由会话契约投递与回收"
 from = "App.Backend.Core.Orchestration"
 to = "App.Backend.Core.Foundation"
 desc = "变更目录与归档路径派生"
+
+[[relation]]
+from = "App.Backend.Core.Orchestration"
+to = "App.Backend.Core.Notification"
+desc = "终态与停等更新投影为通知词表"
 
 [[relation]]
 from = "App.Backend.Core.Orchestration"

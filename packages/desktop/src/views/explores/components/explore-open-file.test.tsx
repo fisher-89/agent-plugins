@@ -290,3 +290,79 @@ describe('ExploreOpenFile：结果面软失败', () => {
     expect(toastMock.error).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 通知门面落库旁路（desktop-notification-hub AC-2）：两处失败原文案不变 +
+// `notification_record` 各恰一次
+// ---------------------------------------------------------------------------
+
+/** `notification_record` 的落库入参序列。 */
+function recordCalls(): { level: string; message: string; body: string | null }[] {
+  return invokeMock.mock.calls
+    .filter(([command]) => command === 'notification_record')
+    .map(
+      ([, args]) =>
+        (args as { record: { level: string; message: string; body: string | null } }).record,
+    );
+}
+
+describe('ExploreOpenFile：失败提示的门面落库旁路', () => {
+  it('正向：扫描失败 → toast.error 原文 + 落库一次（error 档、无副文案）', async () => {
+    scanAnswer = () => Promise.reject('目录不可读');
+    renderOpenFile();
+
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith('目录不可读'));
+    expect(recordCalls()).toHaveLength(1);
+    expect(recordCalls()[0].level).toBe('error');
+    expect(recordCalls()[0].message).toBe('目录不可读');
+    expect(recordCalls()[0].body).toBeNull();
+  });
+
+  it('正向：建档失败 → toast.error 原文 + 落库一次', async () => {
+    scanAnswer = () => Promise.resolve([{ name: 'valid-topic', modifiedAt: null }]);
+    createAnswer = () => Promise.reject('笔记已被占用');
+    renderOpenFile();
+
+    await openMenu();
+    fireEvent.click(await screen.findByTestId('explore-import-item'));
+
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith('笔记已被占用'));
+    expect(recordCalls()).toHaveLength(1);
+    expect(recordCalls()[0].message).toBe('笔记已被占用');
+  });
+
+  it('边界：Error 实例与裸字符串两形态均转同一文案 `String(err)`', async () => {
+    scanAnswer = () => Promise.reject(new Error('目录不可读'));
+    renderOpenFile();
+
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith('Error: 目录不可读'));
+    expect(recordCalls()[0].message).toBe('Error: 目录不可读');
+  });
+
+  it('正向：正常扫描 / 正常建档零错误 toast、零落库', async () => {
+    scanAnswer = () => Promise.resolve([{ name: 'valid-topic', modifiedAt: null }]);
+    createAnswer = () => Promise.resolve(exploreRecord('valid-topic'));
+    renderOpenFile();
+
+    await openMenu();
+    fireEvent.click(await screen.findByTestId('explore-import-item'));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+
+    expect(toastMock.error).not.toHaveBeenCalled();
+    expect(recordCalls()).toHaveLength(0);
+  });
+
+  it('异常：落库 reject 时既有 toast 断言仍成立、onCreated 行为不变', async () => {
+    scanAnswer = () => Promise.resolve([{ name: 'valid-topic', modifiedAt: null }]);
+    createAnswer = () => Promise.resolve(exploreRecord('valid-topic'));
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'notification_record') return Promise.reject(new Error('落库失败'));
+      return ipc(command);
+    });
+
+    scanAnswer = () => Promise.reject('目录不可读');
+    renderOpenFile();
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith('目录不可读'));
+    expect(recordCalls()).toHaveLength(1);
+  });
+});

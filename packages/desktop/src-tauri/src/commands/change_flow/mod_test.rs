@@ -23,7 +23,14 @@ use orchestration::state::{
     AskPayload, ChangeRunStatus, ChangeStepKind, ChangeStepState, ChangeStepStatus, RunNotice,
     RunUpdate,
 };
-use orchestration::RunEventSink;
+use orchestration::{AskPort, RunEventSink};
+
+use ::notification::{Notification, NotificationLevel};
+
+use crate::commands::notifications::{
+    notification_subscribe_with, NotificationBridge, NotificationBus,
+};
+use orchestration::notify::{NotifyContext, RunNotifier};
 
 use super::{
     change_flow_answer_with, change_flow_confirm_with, change_flow_start_with,
@@ -76,7 +83,10 @@ impl Env {
 fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
     let app = tauri::test::mock_app();
     let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
+    // 通知扇出点：与 `src/main.rs` 同序同构（先取 global_shared 再 manage(stores)）
+    let global = stores.global_shared();
     app.manage(stores);
+    app.manage(Arc::new(NotificationBus::new(global)));
     // ask 注册表与 run 控制注册表同源（与 `src/main.rs` 同构托管）
     let ask_registry = Arc::new(AskRegistry::default());
     app.manage(Arc::clone(&ask_registry));
@@ -87,6 +97,14 @@ fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
     // steer 注入注册表：与 `src/main.rs` 同址同型空表托管（composition 第 5 实参）
     app.manage(Arc::new(SteerRegistry::default()));
     app
+}
+
+/// 取测用 app 的通知扇出点（与 `app_with` 托管的同一全局库实例同源）：直调
+/// sink 的用例需要它补齐 `ChangeFlowSink` 的旁路四字段。
+fn notification_bus(app: &App<tauri::test::MockRuntime>) -> Arc<NotificationBus> {
+    Arc::new(NotificationBus::new(
+        app.state::<WorkspaceStores>().global_shared(),
+    ))
 }
 
 /// db 建档种子（前置校验 1/2 的正向与反相 fixture）：经 store change 域操作
@@ -1485,6 +1503,13 @@ fn sink事件桥接_session_event记会话锚且首拍挂载在途节点() {
         root: root.clone(),
         change_id: change.to_owned(),
         control: Arc::clone(&control),
+        notifier: notification_bridge(
+            &root,
+            change,
+            "run-sink-1",
+            "requirement",
+            notification_bus(&app),
+        ),
     };
     sink.emit(RunUpdate::SessionEvent {
         session_id: "ses-sink".to_owned(),
@@ -3727,6 +3752,13 @@ fn change_flow_sink的ask_started广播_ask并切停等态() {
         root: env.root(),
         change_id: CHANGE.to_owned(),
         control: Arc::clone(&control),
+        notifier: notification_bridge(
+            &env.root(),
+            CHANGE,
+            "run-1",
+            "requirement",
+            notification_bus(&app),
+        ),
     };
     use orchestration::port::AskPort;
     sink.ask_started(AskPayload {
@@ -3771,6 +3803,13 @@ fn change_flow_sink的ask_resolved清槽并广播step() {
         root: env.root(),
         change_id: CHANGE.to_owned(),
         control: Arc::clone(&control),
+        notifier: notification_bridge(
+            &env.root(),
+            CHANGE,
+            "run-1",
+            "requirement",
+            notification_bus(&app),
+        ),
     };
     use orchestration::port::AskPort;
     sink.ask_started(AskPayload {
@@ -3806,6 +3845,13 @@ fn change_flow_sink无run时两方法静默不panic() {
         root: env.root(),
         change_id: CHANGE.to_owned(),
         control: Arc::clone(&control),
+        notifier: notification_bridge(
+            &env.root(),
+            CHANGE,
+            "run-1",
+            "requirement",
+            notification_bus(&app),
+        ),
     };
     use orchestration::port::AskPort;
     sink.ask_started(AskPayload {
@@ -4057,6 +4103,13 @@ fn sink同一实例两trait视图作用于同一条run() {
         root: env.root(),
         change_id: CHANGE.to_owned(),
         control: Arc::clone(&control),
+        notifier: notification_bridge(
+            &env.root(),
+            CHANGE,
+            "run-1",
+            "requirement",
+            notification_bus(&app),
+        ),
     });
     let event_face: Arc<dyn RunEventSink> = Arc::clone(&sink) as Arc<dyn RunEventSink>;
     let ask_face: Arc<dyn AskPort> = sink;
@@ -4116,6 +4169,13 @@ fn 停止路径ask_resolved不残留停等态且注册表除名() {
         root: env.root(),
         change_id: CHANGE.to_owned(),
         control: Arc::clone(&control),
+        notifier: notification_bridge(
+            &env.root(),
+            CHANGE,
+            "run-1",
+            "requirement",
+            notification_bus(&app),
+        ),
     };
     use orchestration::port::AskPort;
     sink.ask_started(AskPayload {
@@ -4174,6 +4234,13 @@ fn sink的ask_resolved不倒灌已收口终态但清槽() {
         root: env.root(),
         change_id: CHANGE.to_owned(),
         control: Arc::clone(&control),
+        notifier: notification_bridge(
+            &env.root(),
+            CHANGE,
+            "run-1",
+            "requirement",
+            notification_bus(&app),
+        ),
     };
     use orchestration::port::AskPort;
     sink.ask_started(AskPayload {
@@ -4251,6 +4318,13 @@ fn sink的ask_started载荷四形态逐字保真() {
             root: env.root(),
             change_id: CHANGE.to_owned(),
             control: Arc::clone(&control),
+            notifier: notification_bridge(
+                &env.root(),
+                CHANGE,
+                "run-1",
+                "requirement",
+                notification_bus(&app),
+            ),
         };
         sink.ask_started(AskPayload {
             question: question.clone(),
@@ -4474,4 +4548,790 @@ async fn 装配序端到端_流程档ask_started真的抵达快照且应答可�
     );
     // 收尾：停止本 run（后续相位由既有用例承载，不在本用例延长驱动窗口）
     change_flow_stop_with(app.handle().clone(), root, CHANGE.to_owned()).expect("停止受理");
+}
+
+// ---------------------------------------------------------------------------
+// 通知投影接线（desktop-notification-hub）：emit / ask_started 与投影同源、
+// Finished 后清同 run 死未读、旁路失败不改主线
+// ---------------------------------------------------------------------------
+
+/// 事件轨出口（真实 bridge + 指定扇出点）：与 `change_flow_start_with` 的装配
+/// 同构（上下文五值 → `NotificationBridge`）；`bus` 可注入故障面。
+fn notification_bridge(
+    root: &str,
+    change: &str,
+    run_id: &str,
+    workflow_type: &str,
+    bus: Arc<NotificationBus>,
+) -> Arc<dyn RunNotifier> {
+    Arc::new(NotificationBridge::new(
+        NotifyContext {
+            root: root.to_owned(),
+            change_id: change.to_owned(),
+            change_name: change.to_owned(),
+            run_id: run_id.to_owned(),
+            workflow_type: workflow_type.to_owned(),
+        },
+        bus,
+    ))
+}
+
+/// 直构 `ChangeFlowSink`（五值来源与 `change_flow_start_with` 同构）。
+fn notification_sink(
+    app: &App<tauri::test::MockRuntime>,
+    root: &str,
+    change: &str,
+    run_id: &str,
+    workflow_type: &str,
+) -> ChangeFlowSink {
+    ChangeFlowSink {
+        root: root.to_owned(),
+        change_id: change.to_owned(),
+        control: Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner()),
+        notifier: notification_bridge(root, change, run_id, workflow_type, notification_bus(app)),
+    }
+}
+
+/// 全局库通知行集（主键自然序）。
+fn notification_ids(app: &App<tauri::test::MockRuntime>) -> Vec<String> {
+    app.state::<WorkspaceStores>()
+        .global_shared()
+        .scan("notification", 0, 200)
+        .expect("扫描应成功")
+        .records
+        .into_iter()
+        .map(|record| record.value["id"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+fn notification_value(app: &App<tauri::test::MockRuntime>, id: &str) -> serde_json::Value {
+    app.state::<WorkspaceStores>()
+        .global_shared()
+        .scan("notification", 0, 200)
+        .expect("扫描应成功")
+        .records
+        .into_iter()
+        .find(|record| record.value["id"] == serde_json::json!(id))
+        .unwrap_or_else(|| panic!("库中缺通知行 {id}"))
+        .value
+}
+
+/// 捕获型通知 Channel：逐条解析出线 JSON（收件箱订阅端观测——真实
+/// `Channel::new` + 真实转发任务，与 `commands/notifications/mod_test.rs` 同形）。
+struct CapturedNotifications(Arc<Mutex<Vec<Notification>>>);
+
+impl CapturedNotifications {
+    fn new() -> Self {
+        Self(Arc::new(Mutex::new(Vec::new())))
+    }
+
+    fn channel(&self) -> Channel<Notification> {
+        let sink = Arc::clone(&self.0);
+        Channel::new(move |body: InvokeResponseBody| {
+            if let InvokeResponseBody::Json(text) = body {
+                if let Ok(notification) = serde_json::from_str::<Notification>(&text) {
+                    sink.lock().expect("捕获锁不可中毒").push(notification);
+                }
+            }
+            Ok(())
+        })
+    }
+
+    fn items(&self) -> Vec<Notification> {
+        self.0.lock().expect("捕获锁不可中毒").clone()
+    }
+}
+
+/// 相位表内该相位的人话标签（唯一来源＝相位表，测试只查表）。
+fn phase_label(workflow_type: &str, phase: &str) -> String {
+    workflow::write::phase_table(workflow_type)
+        .expect("fixture 工作流类型应在表内")
+        .iter()
+        .find(|definition| definition.id == phase)
+        .unwrap_or_else(|| panic!("fixture 相位应在表内：{phase}"))
+        .description
+        .to_owned()
+}
+
+fn finished_update(status: ChangeRunStatus, reason: Option<&str>) -> RunUpdate {
+    RunUpdate::Finished {
+        status,
+        reason: reason.map(str::to_owned),
+    }
+}
+
+/// 正向：三排除变体零通知行，且 `control.publish` 的既有转发照常发生（旁路
+/// 不改主线）。
+#[test]
+fn 通知投影三排除变体零通知行且主线转发照常() {
+    let env = Env::new("notify-excluded");
+    let app = app_with(&env);
+    let root = env.root();
+    let change = "notify-excluded";
+    let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
+    let _guard = control
+        .begin_run(&root, change, "run-nx".to_owned(), STARTED_AT)
+        .expect("发起应成功");
+    let mut notices = control.subscribe(&root, change).expect("订阅应成功");
+    let sink = notification_sink(&app, &root, change, "run-nx", "requirement");
+
+    sink.emit(RunUpdate::Step {
+        step: ChangeStepState {
+            phase: "implement".to_owned(),
+            attempt: 1,
+            step: ChangeStepKind::Executor,
+            instance_no: 0,
+            status: ChangeStepStatus::Running,
+            session_id: None,
+            detail: None,
+            output_ref: None,
+            started_at: STARTED_AT,
+            ended_at: None,
+            token_input: None,
+            token_output: None,
+        },
+    });
+    sink.emit(RunUpdate::Edge {
+        edge: orchestration::state::ChangeStepEdge {
+            from: ("implement".to_owned(), 1, ChangeStepKind::Executor, 0),
+            to: ("implement".to_owned(), 1, ChangeStepKind::Executor, 1),
+            kind: orchestration::state::EdgeKind::Forward,
+        },
+    });
+    sink.emit(RunUpdate::SessionEvent {
+        session_id: "ses-nx".to_owned(),
+        event: AgentEvent::stamp(
+            None,
+            0,
+            AgentEventKind::Raw {
+                event_type: "probe".to_owned(),
+                raw_json: "{}".to_owned(),
+            },
+        ),
+    });
+
+    assert!(
+        notification_ids(&app).is_empty(),
+        "运行期信号不产通知，实际: {:?}",
+        notification_ids(&app)
+    );
+
+    let mut kinds = Vec::new();
+    while let Ok(notice) = notices.try_recv() {
+        kinds.push(notice);
+    }
+    for expected in [RunNotice::Step, RunNotice::Edge, RunNotice::SessionEvent] {
+        assert!(
+            kinds.contains(&expected),
+            "既有 kind-only 转发仍发生：{expected:?} / {kinds:?}"
+        );
+    }
+}
+
+/// 正向（DD12 反锚）：`emit(ConfirmWait)` 与 `emit(Finished(Completed))` 经壳侧
+/// `RunEventSink` 视图**零通知**——该 trait 不是事件轨出口（`ConfirmWait` /
+/// `Finished` 由编排侧 `RunGuard::emit` 直落旁路）；主线 `control.publish` 的
+/// `RunNotice` 转发仍发生。
+#[test]
+fn emit停等与终态零通知且主线广播照常() {
+    let env = Env::new("notify-confirm");
+    let app = app_with(&env);
+    let root = env.root();
+    let change = "notify-confirm";
+    let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
+    let _guard = control
+        .begin_run(&root, change, "run-cf".to_owned(), STARTED_AT)
+        .expect("发起应成功");
+    let mut notices = control.subscribe(&root, change).expect("订阅应成功");
+    let sink = notification_sink(&app, &root, change, "run-cf", "requirement");
+
+    for update in [
+        RunUpdate::ConfirmWait {
+            phase: "dev-design".to_owned(),
+            archive: None,
+        },
+        finished_update(ChangeRunStatus::Completed, None),
+    ] {
+        sink.emit(update);
+    }
+
+    assert!(
+        notification_ids(&app).is_empty(),
+        "壳侧 emit 不产通知，实际: {:?}",
+        notification_ids(&app)
+    );
+    let mut kinds = Vec::new();
+    while let Ok(notice) = notices.try_recv() {
+        kinds.push(notice);
+    }
+    for expected in [RunNotice::ConfirmWait, RunNotice::Finished] {
+        assert!(
+            kinds.contains(&expected),
+            "既有 kind-only 转发仍发生：{expected:?} / {kinds:?}"
+        );
+    }
+}
+
+/// 正向（纯桥形态）：`emit(SessionEvent)` → 会话槽同步 + `RunNotice` 转发 +
+/// 库零通知行（该 trait 只承载会话事件，不碰事件轨）。
+#[test]
+fn emit会话事件同步会话槽且库零行() {
+    let env = Env::new("notify-session");
+    let app = app_with(&env);
+    let root = env.root();
+    let change = "notify-session";
+    let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
+    let _guard = control
+        .begin_run(&root, change, "run-se".to_owned(), STARTED_AT)
+        .expect("发起应成功");
+    let mut notices = control.subscribe(&root, change).expect("订阅应成功");
+    let sink = notification_sink(&app, &root, change, "run-se", "requirement");
+
+    sink.emit(RunUpdate::SessionEvent {
+        session_id: "ses-bridge".to_owned(),
+        event: AgentEvent::stamp(
+            None,
+            0,
+            AgentEventKind::Raw {
+                event_type: "probe".to_owned(),
+                raw_json: "{}".to_owned(),
+            },
+        ),
+    });
+
+    let session = control.current_session(&root, change);
+    assert_eq!(
+        session.as_deref(),
+        Some("ses-bridge"),
+        "会话槽同步（既有断言零改）"
+    );
+    assert_eq!(
+        notices.try_recv().expect("转发应发生"),
+        RunNotice::SessionEvent,
+        "RunNotice 转发照旧"
+    );
+    assert!(
+        notification_ids(&app).is_empty(),
+        "会话事件不产通知，实际: {:?}",
+        notification_ids(&app)
+    );
+}
+
+/// 正向：`ask_started` 落一行 `Warning`，主键带工具调用 id、body 为 question、
+/// 选项串不进副文案。
+#[test]
+fn 通知投影ask_started落warning行且选项不进body() {
+    let env = Env::new("notify-ask");
+    let app = app_with(&env);
+    let root = env.root();
+    let change = "notify-ask";
+    let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
+    let _guard = control
+        .begin_run(&root, change, "run-ask".to_owned(), STARTED_AT)
+        .expect("发起应成功");
+    let mut notices = control.subscribe(&root, change).expect("订阅应成功");
+    let sink = notification_sink(&app, &root, change, "run-ask", "requirement");
+
+    sink.ask_started(AskPayload {
+        question: "改哪一层？".to_owned(),
+        options: vec!["前端".to_owned(), "后端".to_owned()],
+        tool_call_id: Some("tool-7".to_owned()),
+        session_id: Some("ses-ask".to_owned()),
+    });
+
+    assert_eq!(
+        notification_ids(&app),
+        vec!["run:run-ask:ask:tool-7".to_owned()],
+        "库恰一行（主键带工具调用 id）"
+    );
+    let row = notification_value(&app, "run:run-ask:ask:tool-7");
+    assert_eq!(row["kind"], serde_json::json!("event"));
+    assert_eq!(row["level"], serde_json::json!("warning"));
+    assert_eq!(row["body"], serde_json::json!("改哪一层？"));
+    assert_eq!(row["root"], serde_json::json!(root), "root 取上下文");
+    assert_eq!(
+        row["sourceRef"],
+        serde_json::json!(change),
+        "source_ref 取上下文"
+    );
+    assert!(
+        row["message"].as_str().unwrap_or_default().contains(change),
+        "文案必含变更名，实际: {}",
+        row["message"]
+    );
+    let body = row["body"].as_str().unwrap_or_default();
+    assert!(
+        !body.contains("前端") && !body.contains("后端"),
+        "选项零出现"
+    );
+    assert_eq!(
+        notices.try_recv().expect("ask 更新仍流出"),
+        RunNotice::Ask,
+        "既有 control.publish 的 Ask 转发照旧"
+    );
+    assert_eq!(
+        control
+            .snapshot(&root, change)
+            .expect("run 条目在场")
+            .status,
+        ChangeRunStatus::WaitingAsk,
+        "ask 面切停等态（主线语义零变化）"
+    );
+
+    // `ask_resolved` 逐字不动：resolve 后零新增通知行
+    let before = notification_ids(&app).len();
+    sink.ask_resolved();
+    assert_eq!(notification_ids(&app).len(), before, "清理路径零随动");
+}
+
+/// 边界：`tool_call_id` 缺位退化为发起时刻主键；同 run 两次不同工具调用各一行。
+#[test]
+fn 通知投影ask主键退化与多轮ask各一行() {
+    let env = Env::new("notify-ask-degenerate");
+    let app = app_with(&env);
+    let root = env.root();
+    let change = "notify-ask-deg";
+    let sink = notification_sink(&app, &root, change, "run-deg", "requirement");
+
+    for (question, tool_call_id) in [("第一轮", "tool-A"), ("第二轮", "tool-B")] {
+        sink.ask_started(AskPayload {
+            question: question.to_owned(),
+            options: Vec::new(),
+            tool_call_id: Some(tool_call_id.to_owned()),
+            session_id: None,
+        });
+    }
+    assert_eq!(
+        notification_ids(&app).len(),
+        2,
+        "两个工具调用各一行（不互相覆盖）"
+    );
+
+    let degenerate = notification_sink(&app, &root, "notify-ask-deg", "run-deg2", "requirement");
+    degenerate.ask_started(AskPayload {
+        question: "旧线载荷无工具调用 id".to_owned(),
+        options: Vec::new(),
+        tool_call_id: None,
+        session_id: None,
+    });
+    let ids: Vec<String> = notification_ids(&app)
+        .into_iter()
+        .filter(|id| id.starts_with("run:run-deg2:ask:"))
+        .collect();
+    assert_eq!(ids.len(), 1, "退化主键仍落一行");
+    let suffix = ids[0].trim_start_matches("run:run-deg2:ask:").to_owned();
+    assert!(
+        suffix
+            .parse::<i64>()
+            .map(|value| value > 0)
+            .unwrap_or(false),
+        "退化主键取发起时刻（毫秒数字），实际: {suffix}"
+    );
+}
+
+/// 异常：通知库不可用（workspace 维度 store 构造的 bus）→ `emit` 正常返回、
+/// 主线转发仍发生、run 状态零变化（R-9：不改业务返回值）。
+#[test]
+fn ask_started库不可用时零上抛且主线零变化() {
+    let env = Env::new("notify-unavailable");
+    let app = app_with(&env);
+    let root = env.root();
+    let change = "notify-unavailable";
+    let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
+    let _guard = control
+        .begin_run(&root, change, "run-ua".to_owned(), STARTED_AT)
+        .expect("发起应成功");
+    let mut notices = control.subscribe(&root, change).expect("订阅应成功");
+
+    // 故障注入：bus 持 workspace 维度库（落库 sink 必失败、in-app sink 照常）
+    let workspace_store = Arc::new(
+        store::Store::open_workspace(&env.data_dir.path().join("notify-ws.redb"))
+            .expect("open_workspace 应成功"),
+    );
+    let sink = ChangeFlowSink {
+        root: root.clone(),
+        change_id: change.to_owned(),
+        control: Arc::clone(&control),
+        notifier: notification_bridge(
+            &root,
+            change,
+            "run-ua",
+            "requirement",
+            Arc::new(NotificationBus::new(workspace_store)),
+        ),
+    };
+
+    sink.ask_started(AskPayload {
+        question: "故障注入下仍要广播".to_owned(),
+        options: Vec::new(),
+        tool_call_id: Some("tool-ua".to_owned()),
+        session_id: None,
+    });
+
+    match notices.try_recv() {
+        Ok(RunNotice::Ask) => {}
+        other => panic!("既有 ask 广播仍发生，实际: {other:?}"),
+    }
+    let snapshot = control.snapshot(&root, change).expect("运行中快照可达");
+    assert_eq!(
+        snapshot.status,
+        ChangeRunStatus::WaitingAsk,
+        "run 状态零变化（旁路失败不改主线）"
+    );
+    assert!(
+        notification_ids(&app).is_empty(),
+        "全局库零通知行（落库 sink 失败静默）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 通知接线的发起侧（`change_flow_start_with` 真实装配）：上面直构 sink 的用例
+// 只证投影与 sink 语义，证不了本命令把记录四值（变更名 / 工作流类型 / run id /
+// 托管 bus）交给 sink——本节两条用例走生产装配。
+// ---------------------------------------------------------------------------
+
+/// 相位表内的相位 id 序（唯一来源＝相位表；测试零第二份相位清单）。
+fn phase_ids(workflow_type: &str) -> Vec<&'static str> {
+    workflow::write::phase_table(workflow_type)
+        .expect("fixture 工作流类型应在表内")
+        .iter()
+        .map(|definition| definition.id)
+        .collect()
+}
+
+/// 指定相位子集按 pass 落账（`phase_next` 据此推进或判定 done）。
+fn seed_phases_passed(app: &App<tauri::test::MockRuntime>, root: &str, id: &str, phases: &[&str]) {
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(root)
+        .expect("for_root 应成功");
+    for (index, phase) in phases.iter().enumerate() {
+        let started = store
+            .start_change_phase(id, phase, STARTED_AT + (index as i64) * 1000)
+            .expect("开相种子应成功");
+        store
+            .log_change_phase(&workflow::state::PhaseLogCommand {
+                change_id: id.to_owned(),
+                phase: (*phase).to_owned(),
+                verdict: workflow::model::Verdict::Pass,
+                report: "种子通过".to_owned(),
+                skipped: false,
+                checklist: Vec::new(),
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
+                start_at: Some(started.start_at),
+                timestamp: started.start_at + 500,
+            })
+            .expect("落账种子应成功");
+    }
+}
+
+/// 正向（发起侧装配）：`change_flow_start_with` 起一轮后 sink 的上下文四值在
+/// 真实链路上全部成立——通知主键带返回摘要的 run id、`sourceRef` 取记录 id、
+/// 文案含记录 name（fixture 令 id ≠ name 使两者可分辨）、停等通知的 body 由记录
+/// workflow_type 在相位表内解析（类型未携带即查表落空）；且该通知经 app 托管的
+/// **同一** `Arc<NotificationBus>` 抵达订阅端（sink 若另持 bus，本 Channel 零消息）。
+#[tokio::test]
+async fn start_sink携带记录四值且通知经托管bus抵达订阅端() {
+    const ID: &str = "notify-wire";
+    const NAME: &str = "通知接线变更";
+    let env = Env::new("notify-wire");
+    let root = env.root();
+    env.change_dir(ID);
+    let app = app_with(&env);
+    seed_change_full(&app, &root, ID, NAME, "requirement");
+    seed_sdk_default_instance(&app);
+    // 路由相位（表头 initialize 与末位 archive 之外）全 pass：起跑经 initialize
+    // 短路落 pass 后即撞 archive 停止门，确定性地产一条 ConfirmWait
+    let table = phase_ids("requirement");
+    seed_phases_passed(&app, &root, ID, &table[1..table.len() - 1]);
+
+    // 订阅面只能取托管态：`notification_subscribe_with` 读 app 的 `NotificationBus`
+    let captured = CapturedNotifications::new();
+    let unread =
+        notification_subscribe_with(app.handle().clone(), captured.channel()).expect("订阅应成功");
+    assert_eq!(unread, 0, "起跑前零未读");
+
+    let (channel, _notices) = capturing_channel();
+    let summary = change_flow_start_with(
+        app.handle().clone(),
+        channel,
+        root.clone(),
+        ID.to_owned(),
+        true,
+    )
+    .await
+    .expect("受理");
+
+    // 先等停等门本身（快照面可观测），再核通知面：失败点因此落在通知链而不是超时
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    wait_for("停在 archive 停等门", || {
+        control
+            .snapshot(&root, ID)
+            .is_some_and(|snapshot| snapshot.status == ChangeRunStatus::WaitingConfirm)
+    });
+
+    let expected_id = format!("run:{}:confirm:archive", summary.run_id);
+    // 停等通知由编排侧 `RunGuard::emit` 的旁路出口投递（`notify::deliver` →
+    // bridge → bus），与本命令的 `ChangeFlowSink` 无关（壳侧只做会话槽与 Ask
+    // 面）；落库与广播同拍，先等库行再看稳定态。
+    wait_for("停等通知落库", || !notification_ids(&app).is_empty());
+    assert_eq!(
+        notification_ids(&app),
+        vec![expected_id.clone()],
+        "停等通知经 sink 落库恰一行（主键 = run:<摘要 run_id>:confirm:<相位>）"
+    );
+
+    wait_for("停等通知抵达订阅端", || {
+        !captured.items().is_empty()
+    });
+    let received = captured.items();
+    assert_eq!(
+        received.len(),
+        1,
+        "起跑到停等只产一条通知（运行期三变体排除），实际: {received:?}"
+    );
+
+    let notification = received[0].clone();
+    assert_eq!(
+        notification.id, expected_id,
+        "主键 = run:<摘要 run_id>:confirm:<相位>"
+    );
+    assert_eq!(
+        notification.source_ref.as_deref(),
+        Some(ID),
+        "source_ref 取记录 id"
+    );
+    assert_eq!(
+        notification.root.as_deref(),
+        Some(root.as_str()),
+        "root 取运行归属"
+    );
+    assert_eq!(
+        notification.level,
+        NotificationLevel::Warning,
+        "停等档恒 Warning"
+    );
+    let label = phase_label("requirement", "archive");
+    assert_eq!(
+        notification.body.as_deref(),
+        Some(label.as_str()),
+        "body 由记录 workflow_type 查相位表（类型未携带即 None）"
+    );
+    let message = notification.message.clone();
+    assert!(message.contains(NAME), "文案必含变更名，实际: {message}");
+    assert!(
+        !message.contains(ID),
+        "文案取记录 name 而非 id（fixture 令两者不同），实际: {message}"
+    );
+
+    // 落库面与订阅面同一条（装配序先落库后广播：行在时 Channel 已收）
+    let row = notification_value(&app, &expected_id);
+    assert_eq!(row["kind"], serde_json::json!("event"));
+    assert_eq!(row["message"], serde_json::json!(message));
+    assert_eq!(row["sourceRef"], serde_json::json!(ID));
+    assert_eq!(row["root"], serde_json::json!(root));
+
+    // 收尾：停等拒绝 → run 收敛 stopped（不留悬挂 run）
+    change_flow_confirm_with(
+        app.handle().clone(),
+        root.clone(),
+        ID.to_owned(),
+        false,
+        true,
+    )
+    .expect("停等应答应受理");
+    wait_for("终态除名", || control.snapshot(&root, ID).is_none());
+
+    // AC-6 的真实 run 面判据：终态 `Finished`（Stopped 也是终态）经 core
+    // `notify::deliver` 调 `retire`，同 run 的停等未读转已读
+    let finished = notification_value(&app, &format!("run:{}:finished", summary.run_id));
+    assert_eq!(
+        finished["level"],
+        serde_json::json!("info"),
+        "Stopped → Info"
+    );
+    assert!(
+        !notification_value(&app, &expected_id)["readAt"].is_null(),
+        "同 run 停等未读经 retire 转已读"
+    );
+}
+
+/// 正向（组合，全链路一条）：`change_flow_start_with` 起一轮 → 真实 walker 收敛
+/// `Finished(Completed)`（全表 pass ⇒ 路由首拍即 done）→ 全局库恰一行终态通知 +
+/// 订阅端 Channel 恰收一条 + `change_flow_*` 摘要与错误文案逐字不变。
+#[tokio::test]
+async fn start到finished全链路一条通知且命令面返回值逐字不变() {
+    const ID: &str = "notify-chain";
+    const NAME: &str = "通知全链路变更";
+    let env = Env::new("notify-chain");
+    let root = env.root();
+    env.change_dir(ID);
+    let app = app_with(&env);
+    // test-only 表全 pass：首拍 phase_next 即 done，零相位执行即收敛 Completed
+    seed_change_full(&app, &root, ID, NAME, "test-only");
+    seed_sdk_default_instance(&app);
+    seed_phases_passed(&app, &root, ID, &phase_ids("test-only"));
+
+    // 通知在位不改命令面错误约定：两处空白守卫文案逐字不变
+    let blank_root = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        "   ".to_owned(),
+        ID.to_owned(),
+        true,
+    )
+    .await
+    .expect_err("blank root 应 Err");
+    assert_eq!(
+        blank_root, "非法 root: 不得为空白（无 cwd 无从发起）",
+        "错误文案逐字不变"
+    );
+    let blank_id = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        "\n".to_owned(),
+        true,
+    )
+    .await
+    .expect_err("blank id 应 Err");
+    assert_eq!(
+        blank_id, "非法 id: 不得为空白（无 change 无从发起）",
+        "错误文案逐字不变"
+    );
+
+    let captured = CapturedNotifications::new();
+    assert_eq!(
+        notification_subscribe_with(app.handle().clone(), captured.channel()).expect("订阅应成功"),
+        0,
+        "起跑前零未读"
+    );
+
+    let (channel, _notices) = capturing_channel();
+    let summary = change_flow_start_with(
+        app.handle().clone(),
+        channel,
+        root.clone(),
+        ID.to_owned(),
+        true,
+    )
+    .await
+    .expect("受理");
+    assert!(
+        summary.run_id.starts_with("run-"),
+        "run-<millis> 铸造: {}",
+        summary.run_id
+    );
+    assert_eq!(
+        summary.status,
+        ChangeRunStatus::Running,
+        "提前 resolve 的返回值逐字不变"
+    );
+
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    wait_for("终态除名", || control.snapshot(&root, ID).is_none());
+
+    let expected_id = format!("run:{}:finished", summary.run_id);
+    // 终态通知由 `RunGuard::emit` 的旁路出口投递（`notify::deliver` 的
+    // `Finished` 分支）：先等库行，再断言行集。
+    wait_for("终态通知落库", || !notification_ids(&app).is_empty());
+    assert_eq!(
+        notification_ids(&app),
+        vec![expected_id.clone()],
+        "库恰一行终态通知（Step / Edge / SessionEvent 零产）"
+    );
+    let row = notification_value(&app, &expected_id);
+    assert_eq!(row["kind"], serde_json::json!("event"));
+    assert_eq!(
+        row["level"],
+        serde_json::json!("success"),
+        "Completed → Success"
+    );
+    assert_eq!(row["body"], serde_json::Value::Null, "完成档无副文案");
+    assert_eq!(row["sourceRef"], serde_json::json!(ID));
+    let message = row["message"].as_str().unwrap_or_default().to_owned();
+    assert!(message.contains(NAME), "文案必含变更名，实际: {message}");
+
+    wait_for("订阅端收到终态通知", || {
+        !captured.items().is_empty()
+    });
+    let received = captured.items();
+    assert_eq!(
+        received.len(),
+        1,
+        "Channel 恰收一条（终态是本次 run 唯一值得喊人的时刻）"
+    );
+    assert_eq!(received[0].id, expected_id, "订阅面与落库面同一条");
+    assert_eq!(received[0].level, NotificationLevel::Success);
+
+    // 真实 walker 的终态即 design 所述 `Finished(Completed)` 通路（run 史为证）
+    let runs = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功")
+        .list_change_runs(ID)
+        .expect("run 史清单应成功");
+    assert_eq!(runs.len(), 1, "恰一次 run 全史在案");
+    assert_eq!(runs[0].run_id, summary.run_id, "run id 与摘要同源");
+    assert_eq!(
+        runs[0].status,
+        workflow::state::RunStatus::Completed,
+        "全表 pass ⇒ 路由即 done ⇒ Finished(Completed)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 接线结构锚（AC-4 / DD12）：白名单只在 `notify::project`、终态判定只在 core
+// ---------------------------------------------------------------------------
+
+/// 源码行（剔除整行注释——锚的是调用面而非散文里提到的名字）。
+fn code_lines(source: &str) -> Vec<&str> {
+    source
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !(trimmed.starts_with("//") || trimmed.is_empty())
+        })
+        .collect()
+}
+
+/// 异常（结构锚）：`mod.rs` 四断言——`walk_run(` 恰 1 处且实参含 `Some(`；
+/// `retire` / `retire_run` 零命中；`RunUpdate::Finished` 零命中；`notify::deliver`
+/// 恰 1 处（`ask_started` 的一行转发）。
+#[test]
+fn 接线结构锚_walk_run注入与壳层零终态判定() {
+    let source = include_str!("mod.rs");
+    let code = code_lines(source);
+
+    let walk_calls = code
+        .iter()
+        .filter(|line| line.contains("walk_run("))
+        .count();
+    assert_eq!(walk_calls, 1, "walk_run 唯一调用点");
+    // 实参经 rustfmt 折行后与 `walk_run(` 不在同一行——定位调用点后在实参窗口内找
+    // 第 9 参的 `Some(`（同行写法会超 100 列，被 fmt 门禁打回）
+    let walk_at = code
+        .iter()
+        .position(|line| line.contains("walk_run("))
+        .expect("walk_run 调用点在位");
+    assert!(
+        code.iter()
+            .skip(walk_at)
+            .take(12)
+            .any(|line| line.contains("Some(")),
+        "walk_run 第 9 参携 Some(notifier)"
+    );
+    for needle in ["retire", "retire_run", "RunUpdate::Finished"] {
+        assert!(
+            !code.iter().any(|line| line.contains(needle)),
+            "壳层零终态判定 / 零清理转发：{needle}"
+        );
+    }
+    let delivers = code
+        .iter()
+        .filter(|line| line.contains("notify::deliver"))
+        .count();
+    assert_eq!(delivers, 1, "投影 → 投递组合点只在 ask_started 一行");
 }

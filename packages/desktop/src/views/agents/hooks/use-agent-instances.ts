@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { toast } from 'sonner';
 
 import { ipc } from '../../../lib/ipc';
+import { notify } from '../../../lib/notify';
 import { type AgentEngineKind, type AgentInstanceRecord } from '../../../types/generated/bindings';
 
 /** 动作失败 toast 固定前缀（文案供断言；remove 的 store miss 幂等非错误不 toast） */
@@ -24,7 +24,7 @@ export interface AgentInstancesState {
   loading: boolean;
   /**
    * 仅承载 list_agent_instances 加载失败（双轨语义：save/remove/setDefault
-   * 动作失败在 hook 内直调 toast.error 呈现，不置本字段）。
+   * 动作失败在 hook 内经 `lib/notify.ts` 门面呈现，不置本字段）。
    */
   error: string | null;
   save: (input: AgentInstanceSaveInput) => Promise<AgentInstanceRecord | null>;
@@ -37,7 +37,7 @@ export interface AgentInstancesState {
  * agent 清单取数收口 hook：挂载自动 invoke("list_agent_instances") 一次，
  * 此后由动作轨道刷新（显式动作刷新，无轮询）。错误呈现双轨（沿
  * use-agent-providers 同口径）：查询轨道加载失败置 error 态 inline 持久；
- * 动作轨道失败 hook 内直调 toast.error（固定前缀 + String(err)），不置
+ * 动作轨道失败 hook 内经 `lib/notify.ts` 门面呈现（固定前缀 + String(err)），不置
  * error 态。remove 返回 false（store miss）为幂等非错误。
  */
 export function useAgentInstances(): AgentInstancesState {
@@ -73,7 +73,7 @@ export function useAgentInstances(): AgentInstancesState {
   return { instances, loading, error, save, remove, setDefault };
 }
 
-/** 动作轨道：失败直调 toast.error（不置 error 态），返回值仅供流程控制 */
+/** 动作轨道：失败经 `lib/notify.ts` 门面呈现（不置 error 态），返回值仅供流程控制 */
 function useAgentInstancesActions(refresh: () => void) {
   const save = useCallback(
     async (input: AgentInstanceSaveInput): Promise<AgentInstanceRecord | null> => {
@@ -87,7 +87,7 @@ function useAgentInstancesActions(refresh: () => void) {
         refresh();
         return record;
       } catch (err: unknown) {
-        toast.error(`${ACTION_ERROR_PREFIX.save}${String(err)}`);
+        notify('error', `${ACTION_ERROR_PREFIX.save}${String(err)}`);
         return null;
       }
     },
@@ -101,7 +101,7 @@ function useAgentInstancesActions(refresh: () => void) {
         refresh();
         return hit;
       } catch (err: unknown) {
-        toast.error(`${ACTION_ERROR_PREFIX.remove}${String(err)}`);
+        notify('error', `${ACTION_ERROR_PREFIX.remove}${String(err)}`);
         return false;
       }
     },
@@ -115,7 +115,7 @@ function useAgentInstancesActions(refresh: () => void) {
         refresh();
         return record;
       } catch (err: unknown) {
-        toast.error(`${ACTION_ERROR_PREFIX.setDefault}${String(err)}`);
+        notify('error', `${ACTION_ERROR_PREFIX.setDefault}${String(err)}`);
         return null;
       }
     },

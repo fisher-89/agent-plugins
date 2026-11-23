@@ -68,6 +68,9 @@ function mockDispatch() {
       stored = stored.filter((row) => row.id !== id);
       return Promise.resolve(true);
     }
+    if (command === 'notification_record') {
+      return Promise.resolve(null);
+    }
     if (command === 'set_default_agent_instance') {
       const id = numOr('id', -1);
       stored = stored.map((row) => ({ ...row, isDefault: row.id === id }));
@@ -451,5 +454,124 @@ describe('useAgentInstances：经 ipc 的参数面 / 结果面', () => {
       '保存 agent 失败：CLI_TENANT_RETIRED：cli 实例不可修改',
     );
     expect(driftCount()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 通知门面落库旁路（desktop-notification-hub AC-2）：三动作失败原文案不变 +
+// `notification_record` 各恰一次
+// ---------------------------------------------------------------------------
+
+/** `notification_record` 的落库入参序列。 */
+function recordCalls(): { level: string; message: string; body: string | null }[] {
+  return invokeMock.mock.calls
+    .filter(([name]) => name === 'notification_record')
+    .map(
+      ([, params]) =>
+        (params as { record: { level: string; message: string; body: string | null } }).record,
+    );
+}
+
+/** 只让指定动作失败的分派（其余命令走既有 mockDispatch 语义）。 */
+function failOnly(command: string, reason: string): void {
+  mockDispatch();
+  invokeMock.mockImplementation((name: string) => {
+    if (name === command) return Promise.reject(new Error(reason));
+    if (name === 'list_agent_instances') return Promise.resolve([...stored]);
+    return Promise.resolve(null);
+  });
+}
+
+describe('useAgentInstances：失败提示的门面落库旁路', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    stored = [];
+  });
+
+  it('正向：save / remove / setDefault 各失败一次 → 原文案 + 落库各一次', async () => {
+    const actions = [
+      {
+        command: 'save_agent_instance',
+        reason: 'db: agent 名已存在',
+        call: (hook: ReturnType<typeof useAgentInstances>) =>
+          hook.save({ id: null, name: '重复', engine: 'cli', providerId: null }),
+        prefix: '保存 agent 失败：',
+      },
+      {
+        command: 'delete_agent_instance',
+        reason: 'db: agent 被引用',
+        call: (hook: ReturnType<typeof useAgentInstances>) => hook.remove(1),
+        prefix: '删除 agent 失败：',
+      },
+      {
+        command: 'set_default_agent_instance',
+        reason: 'db: agent 不存在: id=404',
+        call: (hook: ReturnType<typeof useAgentInstances>) => hook.setDefault(404),
+        prefix: '设置默认 agent 失败：',
+      },
+    ];
+
+    for (const action of actions) {
+      failOnly(action.command, action.reason);
+      toastErrorMock.mockReset();
+      stored = [instance(1, 'cli-a', 'cli')];
+      const { result } = renderHook(() => useAgentInstances());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      invokeMock.mockClear();
+
+      await act(async () => {
+        await action.call(result.current);
+      });
+
+      const message = `${action.prefix}Error: ${action.reason}`;
+      expect(toastErrorMock).toHaveBeenCalledTimes(1);
+      expect(toastErrorMock).toHaveBeenCalledWith(message);
+      expect(recordCalls()).toHaveLength(1);
+      expect(recordCalls()[0].level).toBe('error');
+      expect(recordCalls()[0].message).toBe(message);
+      expect(recordCalls()[0].body).toBeNull();
+    }
+  });
+
+  it('正向：三动作成功路径零 toast、零落库', async () => {
+    mockDispatch();
+    stored = [instance(1, 'cli-a', 'cli'), instance(2, 'sdk-b', 'sdk')];
+    const { result } = renderHook(() => useAgentInstances());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    invokeMock.mockClear();
+
+    await act(async () => {
+      await result.current.setDefault(2);
+    });
+    await act(async () => {
+      await result.current.remove(1);
+    });
+
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(recordCalls()).toHaveLength(0);
+  });
+
+  it('异常：落库 reject 时既有 toast 断言仍成立、清单刷新零变化', async () => {
+    failOnly('delete_agent_instance', 'db: agent 被引用');
+    stored = [instance(1, 'cli-a', 'cli')];
+    const { result } = renderHook(() => useAgentInstances());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((name: string) => {
+      if (name === 'delete_agent_instance') return Promise.reject(new Error('db: agent 被引用'));
+      if (name === 'list_agent_instances') return Promise.resolve([...stored]);
+      if (name === 'notification_record') return Promise.reject(new Error('落库失败'));
+      return Promise.resolve(null);
+    });
+
+    await act(async () => {
+      await result.current.remove(1);
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock).toHaveBeenCalledWith('删除 agent 失败：Error: db: agent 被引用');
+    // 失败路径不刷新清单（既有语义零变化）
+    expect(countOf('list_agent_instances')).toBe(0);
   });
 });

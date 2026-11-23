@@ -292,6 +292,21 @@ export const argsSchemas = {
 			"offset": z.number().nullable(),
 			"limit": z.number().nullable(),
 		}); },
+	get "notificationSubscribe"() { return z.strictObject({
+			"onEvent": degraded("channel: 非 JSON 可表达，跳过值校验"),
+		}); },
+	get "notificationList"() { return z.strictObject({
+			"offset": z.int().min(0).max(4294967295),
+			"limit": z.int().min(0).max(4294967295),
+		}); },
+	get "notificationMarkRead"() { return z.strictObject({
+			"ids": z.array(z.string()),
+		}); },
+	get "notificationMarkAllRead"() { return z.strictObject({
+		}); },
+	get "notificationRecord"() { return z.strictObject({
+			"record": z.lazy(() => NotificationFeedbackInputSchema),
+		}); },
 } as const;
 
 /** 逐命令结果 schema（`Result` 取 Ok 臂；`Option` 出 nullable） */
@@ -360,6 +375,11 @@ export const resultSchemas = {
 	get "archiApiGenerate"() { return z.lazy(() => ArchiApiWriteOutcomeSchema); },
 	get "archiRelation"() { return z.lazy(() => ArchiRelationDetailSchema); },
 	get "readFile"() { return z.lazy(() => FileSliceSchema).nullable(); },
+	get "notificationSubscribe"() { return z.int().min(0).max(4294967295); },
+	get "notificationList"() { return z.lazy(() => NotificationPageSchema); },
+	get "notificationMarkRead"() { return z.int().min(0).max(4294967295); },
+	get "notificationMarkAllRead"() { return z.int().min(0).max(4294967295); },
+	get "notificationRecord"() { return z.null(); },
 } as const;
 
 /** 逐命令 `Channel<T>` 形参的信封 schema（键 = 形参名；无 Channel 的命令为空对象） */
@@ -496,6 +516,17 @@ export const channelArgs = {
 	get "archiRelation"() { return {
 		}; },
 	get "readFile"() { return {
+		}; },
+	get "notificationSubscribe"() { return {
+			get "onEvent"() { return z.lazy(() => NotificationSchema); },
+		}; },
+	get "notificationList"() { return {
+		}; },
+	get "notificationMarkRead"() { return {
+		}; },
+	get "notificationMarkAllRead"() { return {
+		}; },
+	get "notificationRecord"() { return {
 		}; },
 } as const;
 export const ActivePhaseSchema = z.strictObject({
@@ -1280,6 +1311,33 @@ export const MutationConfigSchema = z.strictObject({
 });
 
 export const NodeMarkSchema = z.union([z.literal("none"), z.literal("unfulfilled")]);
+
+export const NotificationSchema = z.strictObject({
+	get id() { return z.string(); },
+	get kind() { return NotificationKindSchema; },
+	get level() { return NotificationLevelSchema; },
+	get message() { return z.string(); },
+	get body() { return z.string().nullable(); },
+	get root() { return z.string().nullable(); },
+	get sourceRef() { return z.string().nullable(); },
+	get createdAt() { return z.number(); },
+});
+
+export const NotificationFeedbackInputSchema = z.strictObject({
+	get id() { return z.string(); },
+	get level() { return NotificationLevelSchema; },
+	get message() { return z.string(); },
+	get body() { return z.string().nullable(); },
+});
+
+export const NotificationKindSchema = z.union([z.literal("event"), z.literal("feedback")]);
+
+export const NotificationLevelSchema = z.union([z.literal("info"), z.literal("success"), z.literal("warning"), z.literal("error")]);
+
+export const NotificationPageSchema = z.strictObject({
+	get items() { return z.array(NotificationSchema); },
+	get total() { return z.int().min(0).max(4294967295); },
+});
 
 export const PhaseEntrySchema = z.strictObject({
 	get phase() { return z.string(); },

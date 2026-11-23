@@ -5,6 +5,7 @@ use agent::AskRegistry;
 use foundation::cancel::CancelFlag;
 use tokio::sync::{broadcast, oneshot, watch};
 
+use crate::notify::{self, RunNotifier};
 use crate::state::{
     ArchivePreflight, AskPayload, ChangeRunSnapshot, ChangeRunStatus, ChangeStepEdge,
     ChangeStepKind, ChangeStepState, ChangeStepStatus, RunNotice, RunUpdate,
@@ -113,6 +114,7 @@ impl ChangeFlowControl {
         Ok(RunGuard {
             key,
             control: Arc::clone(self),
+            notifier: None,
         })
     }
 
@@ -342,12 +344,28 @@ pub struct RunGuard {
     /// 复合键（workspace root, change id）
     key: (String, String),
     control: Arc<ChangeFlowControl>,
+    /// run 级旁路出口（`walk_run` 入口单点 attach）。**不落注册表**——
+    /// [`ChangeFlowControl`] 保持进程内零 IO、`publish` 函数体逐字不动。
+    notifier: Option<Arc<dyn RunNotifier>>,
 }
 
 impl RunGuard {
+    /// 挂上本 run 的事件轨出口（唯一调用点是 `walk_run` 入口）。
+    ///
+    /// 消费 self 写字段返回：注入发生在 run 起点，早于任何 `emit`。
+    pub(crate) fn with_notifier(self, notifier: Option<Arc<dyn RunNotifier>>) -> Self {
+        Self { notifier, ..self }
+    }
+
     /// 广播一条 run 状态更新（无订阅者时静默——broadcast 语义），快照面
     /// 随 [`ChangeFlowControl::publish`] 同步。
+    ///
+    /// 旁路**先于**广播：先投影落库、后广播；通知失败（实现自降级）不影响随后
+    /// 的 [`ChangeFlowControl::publish`]。
     pub fn emit(&self, update: RunUpdate) {
+        if let Some(notifier) = &self.notifier {
+            notify::deliver(&update, notifier.as_ref(), now_millis());
+        }
         self.control.publish(&self.key.0, &self.key.1, update);
     }
 
@@ -439,6 +457,7 @@ impl RunGuard {
         StepEmitter {
             key: self.key.clone(),
             control: Arc::clone(&self.control),
+            notifier: self.notifier.clone(),
         }
     }
 
@@ -631,6 +650,8 @@ pub(crate) fn now_millis() -> i64 {
 pub struct StepEmitter {
     key: (String, String),
     control: Arc<ChangeFlowControl>,
+    /// 与 [`RunGuard`] 同一出口（run 级旁路注入，随 emitter 克隆传递）。
+    notifier: Option<Arc<dyn RunNotifier>>,
 }
 
 impl StepEmitter {
@@ -648,6 +669,7 @@ impl StepEmitter {
         let guard = RunGuard {
             key: self.key.clone(),
             control: Arc::clone(&self.control),
+            notifier: self.notifier.clone(),
         };
         emit_node(
             &guard,

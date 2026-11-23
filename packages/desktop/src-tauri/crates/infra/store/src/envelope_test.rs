@@ -107,7 +107,8 @@ fn scan_err(store: &Store, model: &str) -> String {
 fn 注册表按维度分组列出模型且list_models计数与写入量一致() {
     let env = Env::new("registry");
 
-    // 全局库：三模型组（workspace 注册表 + agent 管理两模型），计数与写入量一致
+    // 全局库：四模型组（workspace 注册表 + agent 管理两模型 + 通知收件箱），
+    // 计数与写入量一致
     let global = open_global_ok(&env.db_path("global"));
     add_ok(&global, &env.ws("one"));
     let global_models = global.list_models().unwrap();
@@ -119,9 +120,10 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致() 
         vec![
             ("workspace", 1),
             ("agent_provider", 0),
-            ("agent_instance", 0)
+            ("agent_instance", 0),
+            ("notification", 0)
         ],
-        "全局库静态注册表为三模型组（agent 管理两行计数 0 也列出），计数与写入量一致"
+        "全局库静态注册表为四模型组（agent 管理两行与通知收件箱计数 0 也列出），计数与写入量一致"
     );
     drop(global);
 
@@ -846,13 +848,18 @@ fn records_page_total为u64大值序列化为合法json_number不溢出不乱码
 }
 
 #[test]
-fn 全部注册模型空库扫描均回空分页信封_十四个per_model包装零新分支() {
+fn 全部注册模型空库扫描均回空分页信封_十五个per_model包装零新分支() {
     let env = Env::new("all-models-scan");
 
-    // 全局库三模型：ScanFn 返回类型随动后空库均恰空分页信封（登记一行接入
+    // 全局库四模型：ScanFn 返回类型随动后空库均恰空分页信封（登记一行接入
     // 不因分页信封漂移）
     let global = open_global_ok(&env.db_path("global"));
-    for model in ["workspace", "agent_provider", "agent_instance"] {
+    for model in [
+        "workspace",
+        "agent_provider",
+        "agent_instance",
+        "notification",
+    ] {
         let page = global
             .scan(model, 0, 10)
             .unwrap_or_else(|e| panic!("全局库 scan({model}) 应成功: {e}"));
@@ -958,12 +965,16 @@ fn seed_run(store: &Store, run_id: &str) -> (String, u64, u64) {
     (run_id.to_owned(), nodes.len() as u64, edges.len() as u64)
 }
 
-/// 正向（AC-2）：`entries()` 长度恰 14、名字唯一、序 = 登记序（user 三行在前 /
+/// 正向（AC-2）：`entries()` 长度恰 15、名字唯一、序 = 登记序（user 四行在前 /
 /// workspace 十一行在后），维度分组与名字集一致。
 #[test]
 fn entries长度与登记序与维度分组() {
     let entries = crate::envelope::entries();
-    assert_eq!(entries.len(), 14, "注册表恰十四行");
+    assert_eq!(
+        entries.len(),
+        15,
+        "注册表恰十五行（本变更补 notification 一行）"
+    );
     let names: Vec<&str> = entries.iter().map(|entry| entry.name).collect();
     assert_eq!(
         names,
@@ -971,6 +982,7 @@ fn entries长度与登记序与维度分组() {
             "workspace",
             "agent_provider",
             "agent_instance",
+            "notification",
             "agent_run",
             "session",
             "session_event",
@@ -983,12 +995,12 @@ fn entries长度与登记序与维度分组() {
             "run_node",
             "run_edge",
         ],
-        "名字逐值有序（user 三行在前 / workspace 十一行在后）"
+        "名字逐值有序（user 四行在前 / workspace 十一行在后）"
     );
     let mut unique = names.clone();
     unique.sort();
     unique.dedup();
-    assert_eq!(unique.len(), 14, "名字唯一");
+    assert_eq!(unique.len(), 15, "名字唯一");
 
     let user: Vec<&str> = entries
         .iter()
@@ -997,8 +1009,13 @@ fn entries长度与登记序与维度分组() {
         .collect();
     assert_eq!(
         user,
-        vec!["workspace", "agent_provider", "agent_instance"],
-        "user 维度三行"
+        vec![
+            "workspace",
+            "agent_provider",
+            "agent_instance",
+            "notification"
+        ],
+        "user 维度四行（registry 登记面 additive）"
     );
     let workspace: Vec<&str> = entries
         .iter()
@@ -1217,4 +1234,225 @@ fn scan三新表沿用查看页五百上限口径() {
 
     let runs = ws.scan("run", 0, 10).expect("run scan 应成功");
     assert_eq!(runs.records[0].value["runId"], serde_json::json!(run_id));
+}
+
+// ---------------------------------------------------------------------------
+// 通知表登记面（desktop-notification-hub）：登记一行 = db 查看器零模型特定代码
+// 即可见（清单 / 计数 / 扫描 / 表说明四读面同源）
+// ---------------------------------------------------------------------------
+
+/// 通知载荷 fixture（事件轨，`kind = Event`）。
+fn fixture_notification(id: &str) -> ::notification::Notification {
+    ::notification::Notification {
+        id: id.to_owned(),
+        kind: ::notification::NotificationKind::Event,
+        level: ::notification::NotificationLevel::Warning,
+        message: format!("变更「add-feature」停在 dev-design 前等你确认（{id}）"),
+        body: Some("设计相位产出。".to_owned()),
+        root: Some("/ws/alpha".to_owned()),
+        source_ref: Some("add-feature".to_owned()),
+        created_at: 1_727_000_000_000,
+    }
+}
+
+/// 正向：`entry` 命中且维度为 user；全局库 `list_models` 含该行，计数与写入量一致
+///（登记面 additive——空库计数 0 也列出）。
+#[test]
+fn 通知表登记行维度为user且计数与写入量一致() {
+    let entry = crate::envelope::entry("notification").expect("注册表应含 notification 行");
+    assert_eq!(entry.dimension, DbDimension::User, "收件箱是 user 维度");
+
+    let env = Env::new("notification-registry");
+    let global = open_global_ok(&env.db_path("global"));
+    let models = global.list_models().expect("清单应成功");
+    let names: Vec<&str> = models.iter().map(|model| model.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec![
+            "workspace",
+            "agent_provider",
+            "agent_instance",
+            "notification"
+        ],
+        "user 段序 = 登记序（notification 在 agent_instance 之后）"
+    );
+    let count_of = |name: &str| {
+        models
+            .iter()
+            .find(|model| model.name == name)
+            .unwrap_or_else(|| panic!("模型 {name} 应在清单中"))
+            .count
+    };
+    assert_eq!(count_of("notification"), 0, "空库计数 0 也列出");
+
+    for index in 0..3 {
+        global
+            .publish_notification(&fixture_notification(&format!("run:r{index}:finished")))
+            .expect("落库应成功");
+    }
+    let models = global.list_models().expect("清单应成功");
+    let count = models
+        .iter()
+        .find(|model| model.name == "notification")
+        .map(|model| model.count)
+        .expect("计数行应在场");
+    assert_eq!(count, 3, "计数随写入量");
+}
+
+/// 边界：`dimension_of` 精确名判据（近似名 / 空串 / 空白一律 None）。
+#[test]
+fn 通知表名精确命中且近似形态全miss() {
+    assert_eq!(
+        crate::envelope::dimension_of("notification"),
+        Some(DbDimension::User)
+    );
+    for name in ["notifications", "Notification", "", "   "] {
+        assert_eq!(
+            crate::envelope::dimension_of(name),
+            None,
+            "精确名判据（零归一）：{name:?}"
+        );
+    }
+}
+
+/// 异常：workspace 库 `list_models` 零 notification 行（收件箱 MUST NOT 落
+/// workspace 库的注册面判据）。
+#[test]
+fn workspace库清单零通知行() {
+    let env = Env::new("notification-workspace-registry");
+    let ws = open_ws_ok(&env.db_path("ws"));
+
+    let names: Vec<String> = ws
+        .list_models()
+        .expect("清单应成功")
+        .into_iter()
+        .map(|model| model.name)
+        .collect();
+    assert!(
+        !names.iter().any(|name| name == "notification"),
+        "workspace 清单不含通知表，实际: {names:?}"
+    );
+}
+
+/// 正向：`scan` 的每条信封 key == 记录 id；`total` == 全量行数。
+#[test]
+fn 通知表scan的信封键为记录id且total为全量() {
+    let env = Env::new("notification-scan");
+    let global = open_global_ok(&env.db_path("global"));
+    for index in 0..3 {
+        global
+            .publish_notification(&fixture_notification(&format!("run:r{index}:finished")))
+            .expect("落库应成功");
+    }
+
+    let page = global.scan("notification", 0, 10).expect("扫描应成功");
+    assert_eq!(page.total, 3, "total = 全量行数");
+    assert_eq!(page.records.len(), 3);
+    for record in &page.records {
+        assert_eq!(
+            record.key, record.value["id"],
+            "notification_key 取 json[\"id\"]"
+        );
+    }
+}
+
+/// 边界：空库返回空分页信封；`limit > 500` 钳位（`MAX_SCAN_LIMIT` 口径不变）。
+#[test]
+fn 通知表scan空库与limit钳位() {
+    let env = Env::new("notification-scan-bounds");
+    let global = open_global_ok(&env.db_path("global"));
+
+    let empty = global.scan("notification", 0, 10).expect("扫描应成功");
+    assert!(empty.records.is_empty(), "空库空分页");
+    assert_eq!(empty.total, 0);
+
+    global
+        .publish_notification(&fixture_notification("run:r1:finished"))
+        .expect("落库应成功");
+    let clamped = global
+        .scan("notification", 0, 10_000)
+        .expect("大 limit 应成功");
+    assert_eq!(clamped.total, 1);
+    assert_eq!(clamped.records.len(), 1, "钳位不改变行集");
+}
+
+/// 异常：以 workspace 维度查通知表 → Err（跨维度不可达）。
+#[test]
+fn workspace库查通知表err() {
+    let env = Env::new("notification-cross-dimension");
+    let ws = open_ws_ok(&env.db_path("ws"));
+
+    assert!(
+        ws.scan("notification", 0, 10).is_err(),
+        "跨维度模型名即未知模型"
+    );
+    assert!(
+        crate::describe::table(DbDimension::Workspace, "notification").is_err(),
+        "表说明面同样按维度锁定"
+    );
+}
+
+/// 正向 / 边界：表说明面——表名 / 九字段 / 每字段 doc 非空 / 四 Option 字段渲染为
+/// 可空 / `id` 为主键说明（`///` doc 派生，零模型特定代码）。
+#[test]
+fn 通知表说明面九字段且doc与非空渲染齐备() {
+    let doc = crate::describe::table(DbDimension::User, "notification").expect("表说明应成功");
+
+    assert_eq!(doc.table, "notification");
+    assert_eq!(doc.dimension, DbDimension::User);
+    assert!(!doc.summary.trim().is_empty(), "表介绍非空");
+    let names: Vec<&str> = doc.fields.iter().map(|field| field.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec![
+            "id",
+            "kind",
+            "level",
+            "message",
+            "body",
+            "root",
+            "sourceRef",
+            "createdAt",
+            "readAt",
+        ],
+        "九字段按源码序且线名为 camelCase"
+    );
+    for field in &doc.fields {
+        assert!(!field.doc.trim().is_empty(), "字段 {} 说明非空", field.name);
+    }
+    let ty_of = |name: &str| {
+        doc.fields
+            .iter()
+            .find(|field| field.name == name)
+            .unwrap_or_else(|| panic!("字段 {name} 应在场"))
+            .ty
+            .clone()
+    };
+    for optional in ["body", "root", "sourceRef"] {
+        assert_eq!(ty_of(optional), "string | null", "{optional} 渲染为可空");
+    }
+    assert_eq!(
+        ty_of("readAt"),
+        "number | null",
+        "readAt 是毫秒时间戳（i64），渲染为可空数"
+    );
+    assert!(
+        ty_of("kind").contains("NotificationKind"),
+        "kind 渲染为枚举引用，实际: {}",
+        ty_of("kind")
+    );
+    assert!(
+        ty_of("level").contains("NotificationLevel"),
+        "level 渲染为枚举引用，实际: {}",
+        ty_of("level")
+    );
+    assert_eq!(ty_of("id"), "string", "id 为文本主键");
+    assert!(
+        doc.fields
+            .iter()
+            .find(|field| field.name == "id")
+            .map(|field| field.doc.contains("主键"))
+            .unwrap_or(false),
+        "id 的 doc 标注主键"
+    );
 }

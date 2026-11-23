@@ -138,7 +138,7 @@ fn add_ok(store: &Store, dir: &Path) -> WorkspaceRecord {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn open_global列user维度三模型_open_workspace仅列workspace维度十一行() {
+fn open_global列user维度四模型_open_workspace仅列workspace维度十一行() {
     let env = Env::new("registry-split");
 
     let global = open_global_ok(&env.db_path("global"));
@@ -148,8 +148,13 @@ fn open_global列user维度三模型_open_workspace仅列workspace维度十一�
             .iter()
             .map(|model| model.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["workspace", "agent_provider", "agent_instance"],
-        "user 组静态注册恰 workspace 注册表 + agent 管理两模型（空库计数 0 也列出）"
+        vec![
+            "workspace",
+            "agent_provider",
+            "agent_instance",
+            "notification"
+        ],
+        "user 组静态注册恰 workspace 注册表 + agent 管理两模型 + 通知收件箱（空库计数 0 也列出）"
     );
     assert!(global_models.iter().all(|model| model.count == 0));
     drop(global);
@@ -585,9 +590,10 @@ fn 组合链open注册后for_root落库会话与explore且全局库无混入() {
         vec![
             ("workspace", 1),
             ("agent_provider", 0),
-            ("agent_instance", 0)
+            ("agent_instance", 0),
+            ("notification", 0)
         ],
-        "全局库仅 user 维度模型行（三模型组）"
+        "全局库仅 user 维度模型行（四模型组）"
     );
     // workspace 库含会话 / explore 行，注册表记录不混入
     let ws_models = store.list_models().unwrap();
@@ -2089,9 +2095,10 @@ fn list_models分维度计数与各库实有记录数一致() {
         vec![
             ("workspace", 2),
             ("agent_provider", 0),
-            ("agent_instance", 0)
+            ("agent_instance", 0),
+            ("notification", 0)
         ],
-        "全局库 workspace 计数与注册记录数一致（agent 管理两模型计数 0 也列出）"
+        "全局库 workspace 计数与注册记录数一致（agent 管理两模型与通知收件箱计数 0 也列出）"
     );
     drop(global);
 
@@ -4744,9 +4751,10 @@ fn 组合链provider新建_sdkagent新建引用_set_default_解析命中_重开�
             vec![
                 ("workspace", 0),
                 ("agent_provider", 1),
-                ("agent_instance", 1)
+                ("agent_instance", 1),
+                ("notification", 0)
             ],
-            "全局库单库贯通：三模型行共存，计数与实有记录一致"
+            "全局库单库贯通：四模型行共存，计数与实有记录一致"
         );
         (
             provider,
@@ -9025,8 +9033,8 @@ fn store_describe两库行集与list_models逐名一致() {
     );
     assert_eq!(
         global.describe().expect("global describe").len(),
-        3,
-        "user 三行"
+        4,
+        "user 四行"
     );
 }
 
@@ -9796,4 +9804,630 @@ fn read_agent_run_row(path: &Path, id: i64) -> AgentRunRecord {
         .expect("按 AgentRunRecord 解码");
     assert_eq!(version, 4, "轮行模型版本段 2:v4（零版本递增）");
     record
+}
+
+// ---------------------------------------------------------------------------
+// 通知收件箱域（desktop-notification-hub）：upsert 幂等 / 过滤口径 / 稳定序 /
+// 页界 / 未读与标记 / 死未读清理（user 维度全局库）
+// ---------------------------------------------------------------------------
+
+/// 事件轨通知 fixture。
+fn notification_event(id: &str, created_at: i64) -> ::notification::Notification {
+    ::notification::Notification {
+        id: id.to_owned(),
+        kind: ::notification::NotificationKind::Event,
+        level: ::notification::NotificationLevel::Warning,
+        message: format!("变更「add-feature」停在 dev-design 前等你确认（{id}）"),
+        body: Some("设计相位产出。".to_owned()),
+        root: Some("/ws/alpha".to_owned()),
+        source_ref: Some("add-feature".to_owned()),
+        created_at,
+    }
+}
+
+/// 反馈轨通知 fixture（`root` / `source_ref` 恒 None）。
+fn notification_feedback(id: &str, created_at: i64) -> ::notification::Notification {
+    ::notification::Notification {
+        id: id.to_owned(),
+        kind: ::notification::NotificationKind::Feedback,
+        level: ::notification::NotificationLevel::Error,
+        message: "保存 agent 配置失败".to_owned(),
+        body: None,
+        root: None,
+        source_ref: None,
+        created_at,
+    }
+}
+
+/// 库中通知记录（按主键自然序扫描后的全部行）。
+fn notification_rows(store: &Store) -> Vec<crate::model::NotificationRecord> {
+    store
+        .scan("notification", 0, 500)
+        .expect("扫描应成功")
+        .records
+        .into_iter()
+        .map(|record| {
+            serde_json::from_value::<crate::model::NotificationRecord>(record.value)
+                .expect("解码应成功")
+        })
+        .collect()
+}
+
+fn notification_row(store: &Store, id: &str) -> crate::model::NotificationRecord {
+    notification_rows(store)
+        .into_iter()
+        .find(|row| row.id == id)
+        .unwrap_or_else(|| panic!("库中缺 {id} 行"))
+}
+
+/// 正向：新主键 → 恰一行、九字段相符、`read_at` 为 None。
+#[test]
+fn publish_notification新主键落一行且读状态为未读() {
+    let env = Env::new("notification-publish");
+    let store = open_global_ok(&env.db_path("global"));
+
+    let notification = notification_event("run:r1:confirm:dev-design", 1_727_000_000_000);
+    store
+        .publish_notification(&notification)
+        .expect("落库应成功");
+
+    let rows = notification_rows(&store);
+    assert_eq!(rows.len(), 1, "恰一行");
+    let row = &rows[0];
+    assert_eq!(row.id, notification.id);
+    assert_eq!(row.kind, notification.kind);
+    assert_eq!(row.level, notification.level);
+    assert_eq!(row.message, notification.message);
+    assert_eq!(row.body, notification.body);
+    assert_eq!(row.root, notification.root);
+    assert_eq!(row.source_ref, notification.source_ref);
+    assert_eq!(row.created_at, notification.created_at);
+    assert_eq!(row.read_at, None, "新行未读");
+}
+
+/// 正向：同主键二次（`message` / `body` / `level` 均改）→ 仍一行，三字段取后者，
+/// `created_at` 保留首次值。
+#[test]
+fn publish_notification同主键二次只覆盖三字段且保留创建时刻() {
+    let env = Env::new("notification-upsert");
+    let store = open_global_ok(&env.db_path("global"));
+    let id = "run:r1:finished";
+
+    store
+        .publish_notification(&notification_event(id, 1_000))
+        .expect("首次落库应成功");
+    store
+        .publish_notification(&::notification::Notification {
+            message: "变更「add-feature」运行失败".to_owned(),
+            body: Some("写面失败：static-check 未过".to_owned()),
+            level: ::notification::NotificationLevel::Error,
+            created_at: 9_999,
+            ..notification_event(id, 1_000)
+        })
+        .expect("二次落库应成功");
+
+    let rows = notification_rows(&store);
+    assert_eq!(rows.len(), 1, "同主键仍一行");
+    let row = &rows[0];
+    assert_eq!(row.message, "变更「add-feature」运行失败", "message 取后者");
+    assert_eq!(
+        row.body.as_deref(),
+        Some("写面失败：static-check 未过"),
+        "body 取后者"
+    );
+    assert_eq!(
+        row.level,
+        ::notification::NotificationLevel::Error,
+        "level 取后者"
+    );
+    assert_eq!(row.created_at, 1_000, "created_at 保留首次值");
+}
+
+/// 边界：先置已读再同主键重投 → `read_at` 仍 `Some`（不复活已读，AC-5）。
+#[test]
+fn publish_notification重投不复活已读() {
+    let env = Env::new("notification-read-preserved");
+    let store = open_global_ok(&env.db_path("global"));
+    let id = "run:r1:confirm:archive".to_owned();
+
+    store
+        .publish_notification(&notification_event(&id, 1_000))
+        .expect("落库应成功");
+    assert_eq!(
+        store
+            .mark_notifications_read(std::slice::from_ref(&id))
+            .expect("置已读应成功"),
+        0
+    );
+    let read_at = notification_row(&store, &id).read_at;
+    assert!(read_at.is_some(), "首条置已读后 read_at 在场");
+
+    store
+        .publish_notification(&::notification::Notification {
+            message: "变更「add-feature」停在 archive 前等你确认".to_owned(),
+            ..notification_event(&id, 1_000)
+        })
+        .expect("重投应成功");
+
+    let row = notification_row(&store, &id);
+    assert_eq!(row.read_at, read_at, "重投不复活已读（读状态原样）");
+    assert_eq!(
+        row.message, "变更「add-feature」停在 archive 前等你确认",
+        "文案仍更新"
+    );
+}
+
+/// 边界：极端字段（三 Option 缺席 / 超长 / 特殊字符 / 空 id / 超长 id）逐字往返。
+#[test]
+fn publish_notification极端字段逐字往返() {
+    let env = Env::new("notification-extreme");
+    let store = open_global_ok(&env.db_path("global"));
+
+    let long_message = "长文案".repeat(600);
+    let cases = [
+        ::notification::Notification {
+            body: None,
+            root: None,
+            source_ref: None,
+            ..notification_event("run:r1:finished", 1)
+        },
+        ::notification::Notification {
+            message: long_message.clone(),
+            ..notification_event("run:r2:finished", 2)
+        },
+        ::notification::Notification {
+            message: "含换行\n与空字节\0与 emoji 🎉".to_owned(),
+            ..notification_event("run:r3:finished", 3)
+        },
+        ::notification::Notification {
+            id: String::new(),
+            ..notification_event("ignored", 4)
+        },
+        ::notification::Notification {
+            id: "i".repeat(1200),
+            ..notification_event("ignored", 5)
+        },
+    ];
+    for notification in cases {
+        store
+            .publish_notification(&notification)
+            .expect("落库应成功");
+        let row = notification_row(&store, &notification.id);
+        assert_eq!(row.to_notification(), notification, "极端字段逐字往返");
+    }
+}
+
+/// 边界：零修剪——连续 500 条 publish 后 `total` 仍 500（零淘汰、零 TTL）。
+#[test]
+fn publish_notification零修剪() {
+    let env = Env::new("notification-no-prune");
+    let store = open_global_ok(&env.db_path("global"));
+
+    for index in 0..500 {
+        store
+            .publish_notification(&notification_event(
+                &format!("run:r{index}:finished"),
+                index,
+            ))
+            .expect("落库应成功");
+    }
+
+    let page = store.list_notifications(0, 200).expect("列表应成功");
+    assert_eq!(page.total, 500, "全量计数零淘汰");
+    assert_eq!(page.items.len(), 200, "页宽不随写入量变化");
+}
+
+/// 异常：workspace 维度库实例上调用 → `Err`（收件箱只在全局库的结构性判据）。
+#[test]
+fn 通知六方法在workspace维度库上均err() {
+    let env = Env::new("notification-cross-dimension");
+    let ws = open_workspace_ok(&env.db_path("ws"));
+    let notification = notification_event("run:r1:finished", 1);
+
+    assert!(
+        ws.publish_notification(&notification).is_err(),
+        "收件箱只在全局库（结构性判据）"
+    );
+    assert!(ws.list_notifications(0, 10).is_err());
+    assert!(ws.unread_notification_count().is_err());
+    assert!(ws
+        .mark_notifications_read(&["run:r1:finished".to_owned()])
+        .is_err());
+    assert!(ws.mark_all_notifications_read().is_err());
+    assert!(ws.retire_run_notifications("r1").is_err());
+}
+
+/// 正向：只 `kind = Event`（`Feedback` 零出现），`total` 只数事件行。
+#[test]
+fn list_notifications只含event行() {
+    let env = Env::new("notification-list-filter");
+    let store = open_global_ok(&env.db_path("global"));
+    for index in 0..4 {
+        store
+            .publish_notification(&notification_event(
+                &format!("run:r{index}:finished"),
+                index,
+            ))
+            .expect("落库应成功");
+    }
+    for index in 0..3 {
+        store
+            .publish_notification(&notification_feedback(&format!("uuid-{index}"), index))
+            .expect("落库应成功");
+    }
+
+    let page = store.list_notifications(0, 10).expect("列表应成功");
+    assert_eq!(page.items.len(), 4, "反馈零出现");
+    assert_eq!(page.total, 4, "total 只数事件行");
+    assert!(page
+        .items
+        .iter()
+        .all(|item| item.kind == ::notification::NotificationKind::Event));
+}
+
+/// 正向：`created_at` 降序、同毫秒按 id 升序补齐；两页无重叠无遗漏。
+#[test]
+fn list_notifications稳定降序且页界不重叠() {
+    let env = Env::new("notification-list-order");
+    let store = open_global_ok(&env.db_path("global"));
+    for (id, created_at) in [
+        ("run:b:finished", 100),
+        ("run:a:finished", 100),
+        ("run:c:finished", 200),
+    ] {
+        store
+            .publish_notification(&notification_event(id, created_at))
+            .expect("落库应成功");
+    }
+
+    let page = store.list_notifications(0, 10).expect("列表应成功");
+    assert_eq!(
+        page.items
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["run:c:finished", "run:a:finished", "run:b:finished"],
+        "created_at 降序 + 同毫秒 id 升序"
+    );
+
+    let first = store.list_notifications(0, 1).expect("首页应成功");
+    let second = store.list_notifications(1, 1).expect("次页应成功");
+    assert_eq!(first.items[0].id, "run:c:finished");
+    assert_eq!(second.items[0].id, "run:a:finished");
+    assert_ne!(first.items[0].id, second.items[0].id, "页界无重叠");
+}
+
+/// 边界：空库、越界 offset、`limit = 0`、`limit > 200` 钳位、`total` 与
+/// `items.len()` 脱钩。
+#[test]
+fn list_notifications页界边界形态() {
+    let env = Env::new("notification-list-bounds");
+    let store = open_global_ok(&env.db_path("global"));
+
+    let empty = store.list_notifications(0, 10).expect("空库应成功");
+    assert!(empty.items.is_empty());
+    assert_eq!(empty.total, 0);
+
+    for index in 0..12 {
+        store
+            .publish_notification(&notification_event(
+                &format!("run:r{index:03}:finished"),
+                index as i64,
+            ))
+            .expect("落库应成功");
+    }
+
+    let beyond = store.list_notifications(u32::MAX, 10).expect("越界应成功");
+    assert!(beyond.items.is_empty(), "越界 offset 空页");
+    assert_eq!(beyond.total, 12, "total 不变");
+
+    let zero = store.list_notifications(0, 0).expect("零页宽应成功");
+    assert!(zero.items.is_empty(), "limit = 0 → 空条目");
+    assert_eq!(zero.total, 12, "total 仍全量");
+
+    let decoupled = store.list_notifications(0, 5).expect("分页应成功");
+    assert_eq!(decoupled.items.len(), 5, "items 是页宽");
+    assert_eq!(decoupled.total, 12, "total 是全量（与页宽脱钩）");
+
+    for index in 12..205 {
+        store
+            .publish_notification(&notification_event(
+                &format!("run:r{index:03}:finished"),
+                index as i64,
+            ))
+            .expect("落库应成功");
+    }
+    let clamped = store.list_notifications(0, 500).expect("大页宽应成功");
+    assert_eq!(clamped.items.len(), 200, "limit 超 200 钳位");
+    assert_eq!(clamped.total, 205);
+}
+
+/// 正向 / 边界：未读计数只数未读事件行；空库与全读（反馈仍未读）两形态均为 0。
+#[test]
+fn unread_notification_count只数未读事件行() {
+    let env = Env::new("notification-unread");
+    let store = open_global_ok(&env.db_path("global"));
+
+    assert_eq!(store.unread_notification_count().expect("空库应成功"), 0);
+
+    for index in 0..3 {
+        store
+            .publish_notification(&notification_event(
+                &format!("run:r{index}:finished"),
+                index,
+            ))
+            .expect("落库应成功");
+    }
+    for index in 0..3 {
+        store
+            .publish_notification(&notification_feedback(&format!("uuid-{index}"), index))
+            .expect("落库应成功");
+    }
+    assert_eq!(
+        store.unread_notification_count().expect("混合样本应成功"),
+        3,
+        "反馈不计未读"
+    );
+
+    store
+        .mark_notifications_read(&["run:r0:finished".to_owned()])
+        .expect("置已读应成功");
+    assert_eq!(store.unread_notification_count().expect("计数应成功"), 2);
+
+    store.mark_all_notifications_read().expect("全部已读应成功");
+    assert_eq!(
+        store.unread_notification_count().expect("全读应成功"),
+        0,
+        "反馈仍未读但不计未读"
+    );
+}
+
+/// 正向：3 条未读标 1 条 → 返回 2；该行 `read_at` 为 Some、另两行仍 None。
+#[test]
+fn mark_notifications_read翻单行且返回剩余未读() {
+    let env = Env::new("notification-mark-read");
+    let store = open_global_ok(&env.db_path("global"));
+    for index in 0..3 {
+        store
+            .publish_notification(&notification_event(
+                &format!("run:r{index}:finished"),
+                index,
+            ))
+            .expect("落库应成功");
+    }
+
+    let remaining = store
+        .mark_notifications_read(&["run:r1:finished".to_owned()])
+        .expect("置已读应成功");
+    assert_eq!(remaining, 2);
+
+    assert!(notification_row(&store, "run:r1:finished")
+        .read_at
+        .is_some());
+    assert_eq!(notification_row(&store, "run:r0:finished").read_at, None);
+    assert_eq!(notification_row(&store, "run:r2:finished").read_at, None);
+}
+
+/// 边界：空 `ids` / 未知 id / 已读 id 二次标记 / 重复 id / 反馈 id 逐形态零变化。
+#[test]
+fn mark_notifications_read边界形态零变化() {
+    let env = Env::new("notification-mark-read-edges");
+    let store = open_global_ok(&env.db_path("global"));
+    for index in 0..3 {
+        store
+            .publish_notification(&notification_event(
+                &format!("run:r{index}:finished"),
+                index,
+            ))
+            .expect("落库应成功");
+    }
+    store
+        .publish_notification(&notification_feedback("uuid-1", 9))
+        .expect("落库应成功");
+
+    assert_eq!(
+        store.mark_notifications_read(&[]).expect("空集合应成功"),
+        3,
+        "空 ids 零变化、返回当前未读"
+    );
+    assert_eq!(
+        store
+            .mark_notifications_read(&["run:missing".to_owned()])
+            .expect("未知 id 应成功"),
+        3,
+        "未知 id 忽略"
+    );
+    assert_eq!(
+        store
+            .mark_notifications_read(&vec!["run:r0:finished".to_owned(); 3])
+            .expect("重复 id 应成功"),
+        2,
+        "重复 id 只算一次"
+    );
+
+    let read_at = notification_row(&store, "run:r0:finished").read_at;
+    assert_eq!(
+        store
+            .mark_notifications_read(&["run:r0:finished".to_owned()])
+            .expect("幂等应成功"),
+        2,
+        "已读 id 二次标记返回值不变"
+    );
+    assert_eq!(
+        notification_row(&store, "run:r0:finished").read_at,
+        read_at,
+        "已读行 read_at 不被改写"
+    );
+
+    assert_eq!(
+        store
+            .mark_notifications_read(&["uuid-1".to_owned()])
+            .expect("反馈 id 应成功"),
+        2,
+        "反馈行不计未读"
+    );
+    assert_eq!(
+        notification_row(&store, "uuid-1").read_at,
+        None,
+        "反馈行不置已读"
+    );
+
+    let page = store.list_notifications(0, 10).expect("列表应成功");
+    assert_eq!(page.total, 3, "标记不改变事件行集");
+}
+
+/// 正向：12 条未读（超过一页）全部置已读并返回 0；边界：空库 0、已读行不被改写、
+/// 反馈行不受影响。
+#[test]
+fn mark_all_notifications_read含未加载页且幂等() {
+    let env = Env::new("notification-mark-all");
+    let store = open_global_ok(&env.db_path("global"));
+
+    assert_eq!(store.mark_all_notifications_read().expect("空库应成功"), 0);
+
+    for index in 0..12 {
+        store
+            .publish_notification(&notification_event(
+                &format!("run:r{index:02}:finished"),
+                index,
+            ))
+            .expect("落库应成功");
+    }
+    store
+        .publish_notification(&notification_feedback("uuid-1", 9))
+        .expect("落库应成功");
+
+    assert_eq!(
+        store.mark_all_notifications_read().expect("全部已读应成功"),
+        0,
+        "返回剩余未读（恒 0）"
+    );
+    let page = store.list_notifications(4, 5).expect("未加载页应成功");
+    for item in &page.items {
+        assert!(
+            notification_row(&store, &item.id).read_at.is_some(),
+            "未加载页同样置已读：{}",
+            item.id
+        );
+    }
+
+    let read_at = notification_row(&store, "run:r00:finished").read_at;
+    assert_eq!(store.mark_all_notifications_read().expect("幂等应成功"), 0);
+    assert_eq!(
+        notification_row(&store, "run:r00:finished").read_at,
+        read_at,
+        "已读行 read_at 不被改写"
+    );
+    assert_eq!(
+        notification_row(&store, "uuid-1").read_at,
+        None,
+        "反馈行不受影响"
+    );
+}
+
+/// 正向：按 run 前缀只清等待类未读；他 run / `finished` / 反馈行零变化。
+#[test]
+fn retire_run_notifications只清同run等待类未读() {
+    let env = Env::new("notification-retire");
+    let store = open_global_ok(&env.db_path("global"));
+    for id in [
+        "run:r1:confirm:archive",
+        "run:r1:ask:tool-A",
+        "run:r1:finished",
+        "run:r2:confirm:dev-design",
+    ] {
+        store
+            .publish_notification(&notification_event(id, 1))
+            .expect("落库应成功");
+    }
+    store
+        .publish_notification(&notification_feedback("uuid-1", 2))
+        .expect("落库应成功");
+
+    store.retire_run_notifications("r1").expect("清理应成功");
+
+    assert!(notification_row(&store, "run:r1:confirm:archive")
+        .read_at
+        .is_some());
+    assert!(notification_row(&store, "run:r1:ask:tool-A")
+        .read_at
+        .is_some());
+    assert_eq!(notification_row(&store, "run:r1:finished").read_at, None);
+    assert_eq!(
+        notification_row(&store, "run:r2:confirm:dev-design").read_at,
+        None
+    );
+    assert_eq!(notification_row(&store, "uuid-1").read_at, None);
+}
+
+/// 边界：miss 即零写入（幂等）、空 `run_id` 零匹配、前缀碰撞 `r1` / `r10` 互不误伤。
+#[test]
+fn retire_run_notifications边界形态与前缀碰撞() {
+    let env = Env::new("notification-retire-edges");
+    let store = open_global_ok(&env.db_path("global"));
+    for id in ["run:r1:confirm:archive", "run:r10:confirm:archive"] {
+        store
+            .publish_notification(&notification_event(id, 1))
+            .expect("落库应成功");
+    }
+
+    store
+        .retire_run_notifications("run-missing")
+        .expect("miss 应成功");
+    assert_eq!(
+        store.unread_notification_count().expect("计数应成功"),
+        2,
+        "miss 即无操作"
+    );
+
+    store
+        .retire_run_notifications("")
+        .expect("空 run_id 应成功");
+    assert_eq!(
+        store.unread_notification_count().expect("计数应成功"),
+        2,
+        "空 run_id 不误伤全部行"
+    );
+
+    store.retire_run_notifications("r1").expect("清理应成功");
+    assert!(
+        notification_row(&store, "run:r1:confirm:archive")
+            .read_at
+            .is_some(),
+        "前缀含尾冒号：只命中 r1"
+    );
+    assert_eq!(
+        notification_row(&store, "run:r10:confirm:archive").read_at,
+        None,
+        "r10 不被误伤"
+    );
+}
+
+/// 组合：事件轨写入 → 列表与计数同源一致（标记一条后未读跟随）。
+#[test]
+fn 通知列表与未读计数同源一致() {
+    let env = Env::new("notification-consistency");
+    let store = open_global_ok(&env.db_path("global"));
+    for index in 0..3 {
+        store
+            .publish_notification(&notification_event(
+                &format!("run:r{index}:finished"),
+                index,
+            ))
+            .expect("落库应成功");
+    }
+
+    let page = store.list_notifications(0, 10).expect("列表应成功");
+    assert_eq!(page.total, 3);
+    assert_eq!(store.unread_notification_count().expect("计数应成功"), 3);
+
+    store
+        .mark_notifications_read(&["run:r0:finished".to_owned()])
+        .expect("置已读应成功");
+    assert_eq!(store.unread_notification_count().expect("计数应成功"), 2);
+    assert_eq!(
+        store.list_notifications(0, 10).expect("列表应成功").total,
+        3,
+        "标记已读不改列表行集"
+    );
 }

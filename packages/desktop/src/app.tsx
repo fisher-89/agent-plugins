@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 import { HashRouter } from 'react-router';
 
 import { AppSidebar } from '@/components/app-sidebar';
+import { NotificationBell } from '@/components/notification-bell';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -42,16 +43,21 @@ function UpdateIndicator({ state }: { state: UpdateState }) {
 }
 
 /**
- * 壳态顶栏：侧栏开关 + 应用名（dev 构建带 `DEV` 徽标）+ 更新指示。徽标解决
- * 「两个 app 同跑，我看的是哪个库」——`title` 携数据根，悬停即见；prod 构建与
- * 环境未就绪（`null`）不渲染。版本号不加 `-dev` 后缀（不动版本语义，免污染 tag
- * 与 updater 比较）。
+ * 壳态顶栏：侧栏开关 + 应用名（dev 构建带 `DEV` 徽标）+ 更新指示 + 通知铃铛。
+ * 徽标解决「两个 app 同跑，我看的是哪个库」——`title` 携数据根，悬停即见；prod
+ * 构建与环境未就绪（`null`）不渲染。版本号不加 `-dev` 后缀（不动版本语义，免污染
+ * tag 与 updater 比较）。铃铛随壳态挂载（欢迎态由本件的调用方不渲染保证）：
+ * `root` / `onSelect` 直通收件箱的跨工作区跳转。
  */
 function ShellHeader({
   environment,
+  root,
+  onSelect,
   update,
 }: {
   environment: AppEnvironment | null;
+  root: string;
+  onSelect: (root: string) => void;
   update: UpdateState;
 }): React.JSX.Element {
   return (
@@ -69,6 +75,7 @@ function ShellHeader({
         </span>
       )}
       <span className="flex-1" />
+      <NotificationBell onSelect={onSelect} root={root} />
       <UpdateIndicator state={update} />
     </header>
   );
@@ -112,7 +119,12 @@ export default function App() {
               workspaces={workspaceState.workspaces}
             />
             <main className="flex-1 min-w-0 max-h-screen flex flex-col">
-              <ShellHeader environment={environment} update={update} />
+              <ShellHeader
+                environment={environment}
+                onSelect={workspaceState.select}
+                root={workspaceState.root}
+                update={update}
+              />
               <ScrollArea className="mx-auto flex min-h-0 w-full flex-1 flex-col px-4 py-4">
                 <AppRoutes root={workspaceState.root} />
               </ScrollArea>

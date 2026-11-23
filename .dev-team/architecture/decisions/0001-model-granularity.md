@@ -6,7 +6,7 @@
 
 ## 1. 结论
 
-模型的每个元素都能归属到一条覆盖判据（crate / 视图 / 视图内子域 / 共享组件 / 原语层 / 生成物中继 / 壳 / 容器），每条关系都能指到一处具体声明（`Cargo.toml` 段落或 `import` 行）。基线为 **55 元素 / 123 关系**：后端 49 条（9 + 24 + 13 + 3，拆在 `02`–`05` 四个文件）、前端 74 条（全在 `06`）。任一诊断（成环 / 依赖祖先 / 未定义引用 / 孤儿层级）非零即整图停摆，故本记录同时也是「哪些写法会立刻停摆」的清单。
+模型的每个元素都能归属到一条覆盖判据（crate / 视图 / 视图内子域 / 共享组件 / 原语层 / 生成物中继 / 壳 / 容器），每条关系都能指到一处具体声明（`Cargo.toml` 段落或 `import` 行）。基线为 **56 元素 / 127 关系**：后端 52 条（10 + 25 + 14 + 3，拆在 `02`–`05` 四个文件）、前端 75 条（全在 `06`）。任一诊断（成环 / 依赖祖先 / 未定义引用 / 孤儿层级）非零即整图停摆，故本记录同时也是「哪些写法会立刻停摆」的清单。
 
 ## 2. 三档粒度
 
@@ -33,15 +33,15 @@ barrel 不是容器的特权，而是**目录模块**（`kind = "module"` 的叶
 
 后端关系只取 `[dependencies]` 段内指向 workspace 内包的声明（`{ workspace = true }` 与 `{ path = … }` 同权），`[dev-dependencies]` 与 `[build-dependencies]` 按**段落整体**排除，而不是「挑几个明显成环的排除」。实测 4 条 dev 边：`workflow → orchestration`、`orchestration → store`、`workflow → store`、`checks-runtime → workflow`。前三者与生产边 `orchestration → workflow`、`store → workflow` 合起来即 `cycle`；只按「`workflow ⇄ orchestration`」一条举例排除，仍会漏掉 `workflow → store` 并让整张图停摆。
 
-test-only 互依的事实由 `Cargo.toml` 自身承载，模型 MUST NOT 重复表达；排除后关系总数不受影响（后端仍 49 条）。
+test-only 互依的事实由 `Cargo.toml` 自身承载，模型 MUST NOT 重复表达；排除后关系总数不受影响（后端仍 52 条）。
 
 ## 5. 反向边在案：`App.Backend.Tools.ExportBindings`
 
-`App.Backend.Tools.ExportBindings → App.Backend.Shell`（`path = "../../../"`）是模型内唯一「工具依赖壳」的倒置边，不是笔误：导出命令面 bindings 必须以壳的包为依赖。同理，`App.Backend.Shell` 出边 13 条、`App.Backend.Infra.Watch` 与 `App.Backend.Core.Agent` 出边为零，都是 `Cargo.toml` 的直读结果，不是取舍。
+`App.Backend.Tools.ExportBindings → App.Backend.Shell`（`path = "../../../"`）是模型内唯一「工具依赖壳」的倒置边，不是笔误：导出命令面 bindings 必须以壳的包为依赖。同理，`App.Backend.Shell` 出边 14 条、`App.Backend.Infra.Watch` 与 `App.Backend.Core.Agent` 出边为零，都是 `Cargo.toml` 的直读结果，不是取舍。
 
 ## 6. `gate` 全 `off`
 
-基线 55 个元素 `gate` 全部显式写 `off`（不走缺省），冷启动 ratchet：想收紧 `warn` / `strict` 的模块后续各自独立变更，一次收紧一块，`grep` 即可定位全部待收紧面。收紧的前提是先有价值——本轮只负责让模型第一次存在，不设任何门禁。
+基线 56 个元素 `gate` 全部显式写 `off`（不走缺省），冷启动 ratchet：想收紧 `warn` / `strict` 的模块后续各自独立变更，一次收紧一块，`grep` 即可定位全部待收紧面。收紧的前提是先有价值——本轮只负责让模型第一次存在，不设任何门禁。
 
 ## 7. 封闭排除面
 
@@ -70,10 +70,10 @@ test-only 互依的事实由 `Cargo.toml` 自身承载，模型 MUST NOT 重复�
 ## 9. 计数推导（可逐项复算）
 
 ```
-元素 = 01(3) + 02(8) + 03(8) + 04(1) + 05(3) + 06(32) = 55（容器 9 + 叶 46）
-关系 = 01(0) + 02(9) + 03(24) + 04(13) + 05(3) + 06(74) = 123
-     后端 49（Cargo [dependencies] 的 workspace 内声明）+ 前端 74（import 证据）
-前端 74 = 66（叶 → 叶 / 叶 → 容器）+ 8（`App.Frontend.Components.Agent` barrel 端点边）
+元素 = 01(3) + 02(9) + 03(8) + 04(1) + 05(3) + 06(32) = 56（容器 9 + 叶 47）
+关系 = 01(0) + 02(10) + 03(25) + 04(14) + 05(3) + 06(75) = 127
+     后端 52（Cargo [dependencies] 的 workspace 内声明）+ 前端 75（import 证据）
+前端 75 = 67（叶 → 叶 / 叶 → 容器）+ 8（`App.Frontend.Components.Agent` barrel 端点边）
 ```
 
 若某次落笔得到前端 66，说明 8 条 barrel 端点边被漏掉（判据自相矛盾），MUST NOT 以「容器不入边」为由删减——要回到 66 只能撤销第 3 节的目录模块入口或改第 7 节的映射规则，两者都是改本能力。

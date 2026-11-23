@@ -23,11 +23,13 @@ use crate::describe::{
     table, tables, truncate_doc, FieldKind,
 };
 use crate::envelope::entries;
+use ::notification::{NotificationKind, NotificationLevel};
+
 use crate::model::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
     AgentProviderRecord, AgentRunRecord, ChangeRecord, ChecklistItemRecord, ExploreRecord,
-    PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionConfigSnapshot,
-    SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
+    NotificationRecord, PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord,
+    SessionConfigSnapshot, SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
 };
 use crate::store::{global_models, workspace_models, DbDimension};
 use crate::QueryError;
@@ -116,7 +118,7 @@ fn raw_event(seq: u64) -> AgentEvent {
     }
 }
 
-/// 14 张表各一条真实记录（ratchet 的真 serde 键集来源）。表名与记录一一对应，
+/// 15 张表各一条真实记录（ratchet 的真 serde 键集来源）。表名与记录一一对应，
 /// 顺序即注册表登记序。
 fn sample_records() -> Vec<(&'static str, serde_json::Value)> {
     let node_entry = RunNodeEntry {
@@ -151,6 +153,20 @@ fn sample_records() -> Vec<(&'static str, serde_json::Value)> {
                 AgentEngineKind::Sdk,
                 Some(1),
             )),
+        ),
+        (
+            "notification",
+            value_of(NotificationRecord {
+                id: "run:run-ratchet:finished".to_owned(),
+                kind: NotificationKind::Event,
+                level: NotificationLevel::Success,
+                message: "变更「ratchet」已完成全部相位".to_owned(),
+                body: None,
+                root: Some("C:/ws-ratchet".to_owned()),
+                source_ref: Some("chg-ratchet".to_owned()),
+                created_at: 1000,
+                read_at: None,
+            }),
         ),
         (
             "agent_run",
@@ -243,7 +259,7 @@ fn sample_records() -> Vec<(&'static str, serde_json::Value)> {
             )),
         ),
     ];
-    assert_eq!(records.len(), entries().len(), "14 张表逐表一条样本");
+    assert_eq!(records.len(), entries().len(), "15 张表逐表一条样本");
     records
 }
 
@@ -284,7 +300,12 @@ const WORKSPACE_TABLES: [&str; 11] = [
     "run_edge",
 ];
 
-const USER_TABLES: [&str; 3] = ["workspace", "agent_provider", "agent_instance"];
+const USER_TABLES: [&str; 4] = [
+    "workspace",
+    "agent_provider",
+    "agent_instance",
+    "notification",
+];
 
 // ---------------------------------------------------------------------------
 // 表清单：两维度的行集 / 序 / 摘要 / 计数
@@ -440,14 +461,14 @@ fn 空库两维度仍全列且计数全零() {
             .iter()
             .map(|name| (*name, 0u64))
             .collect::<Vec<_>>(),
-        "user 维度空库仍列 3 行且计数全 0"
+        "user 维度空库仍列 4 行且计数全 0"
     );
 }
 
 #[test]
 fn 维度入参决定输出_模型组不匹配即db错误不panic() {
     // 内存库按 workspace 模型组打开，但以 User 维度查询：维度是注册表过滤入参
-    // （不是从库里探测出来的），故输出仍是 user 三行；而 user 三张表不在该库
+    // （不是从库里探测出来的），故输出仍是 user 四行；而 user 四张表不在该库
     // 模型组里 → 计数面显式 `QueryError::Db`（零 panic、零静默 0）。生产不可达：
     // `Store` 打开点即锁定维度与模型组，两面对齐。
     let workspace_group = workspace_db();
@@ -464,7 +485,7 @@ fn 维度入参决定输出_模型组不匹配即db错误不panic() {
                 .map(|doc| doc.table.as_str())
                 .collect::<Vec<_>>(),
             USER_TABLES.to_vec(),
-            "若库层容忍缺表，则行集仍为 user 三行（维度过滤不探测库）"
+            "若库层容忍缺表，则行集仍为 user 四行（维度过滤不探测库）"
         ),
     }
 }
@@ -819,7 +840,7 @@ fn session_event字段索引三字段与手写schema同源() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn ratchet十四表每字段说明非空且线名集与serde键集双向一致() {
+fn ratchet十五表每字段说明非空且线名集与serde键集双向一致() {
     for (table_name, value) in sample_records() {
         let dimension = crate::dimension_of(table_name).expect("样本表名在注册表内");
         let doc = table(dimension, table_name).expect("下钻应成功");
@@ -919,13 +940,13 @@ fn 候选与维度名为自纠文案单点() {
     assert_eq!(dimension_name(DbDimension::Workspace), "workspace");
     assert_eq!(
         candidates(DbDimension::User),
-        "workspace / agent_provider / agent_instance",
+        "workspace / agent_provider / agent_instance / notification",
         "本维度候选按登记序 ` / ` 分隔"
     );
     assert_eq!(
         all_candidates().matches(" / ").count(),
         entries().len() - 1,
-        "全量候选 14 名（13 个分隔符）"
+        "全量候选 15 名（14 个分隔符）"
     );
     assert!(all_candidates().starts_with("workspace"));
     assert!(all_candidates().ends_with("run_edge"));

@@ -48,6 +48,15 @@ schema = ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Foundation
 generated = "packages/desktop/src-tauri/crates/core/foundation/src/lib.i.rs"
 
 [[entry]]
+fqn = "App.Backend.Core.Notification"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
 fqn = "App.Backend.Core.Orchestration"
 status = "absent"
 types = 0

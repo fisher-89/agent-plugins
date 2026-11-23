@@ -12,6 +12,7 @@ use agent_runtime::{compose_turn, ComposedTurn, KernelWorkerPort};
 use archi_runtime::LocalArchiCheck;
 use checks_runtime::{ProcessMutation, ProcessStaticCheck, ProcessTestExecution};
 use orchestration::control::ChangeFlowControl;
+use orchestration::notify::{self, NotifyContext, RunNotifier};
 use orchestration::port::{
     ArchiveVcsPort, AskPort, RunEventSink, RunHistoryPort, ToolStepPort, WorkerAgentPort,
     WorkflowSnapshotPort,
@@ -25,6 +26,8 @@ use store::WorkspaceStores;
 use vcs_runtime::ProcessArchiveVcs;
 use workflow::state::ChangeStateStore;
 use workflow::write::{phase_table, SessionAnchors};
+
+use crate::commands::notifications::{NotificationBridge, NotificationBus};
 
 /// 归档停止点相位名（归档为独立手动执行门：run 走完全部前序路由相位（requirement
 /// 9 个 = initialize + 8、test-only 6 个 = initialize + 5）后必停等确认一次才进
@@ -49,10 +52,17 @@ fn is_blank(value: &str) -> bool {
 /// run 事件出口的注册表桥：WorkerAgent 会话事件（早于 turn 收口）据此先行
 /// 同步 run 会话槽（停止寻址）与广播总线（Channel 由订阅转发任务回流）。
 /// 复合键（workspace root, change id）随行（D10）。
+///
+/// 只承载 **Ask 面与会话槽**：`Ask` 不经 `RunEventSink`（它由引擎门面走
+/// [`AskPort::ask_started`]），而 `ConfirmWait` / `Finished` 由编排侧
+/// `RunGuard::emit` 直落旁路出口——本结构不碰事件轨，只把同一出口
+/// （`notifier`）透给 ask 面。
 struct ChangeFlowSink {
     root: String,
     change_id: String,
     control: Arc<ChangeFlowControl>,
+    /// 事件轨出口（run 级一次构造：与 `walk_run` 收到的是同一个 `Arc`）。
+    notifier: Arc<dyn RunNotifier>,
 }
 
 impl RunEventSink for ChangeFlowSink {
@@ -69,8 +79,11 @@ impl RunEventSink for ChangeFlowSink {
 /// `AskPort` 给引擎门面）——ask 的状态广播与 run 的状态广播同源。
 impl AskPort for ChangeFlowSink {
     fn ask_started(&self, ask: AskPayload) {
-        self.control
-            .publish(&self.root, &self.change_id, RunUpdate::Ask { ask });
+        // `Ask` 不经 `emit`：投影与终态清理的判定只在 `notify::deliver`（白名单
+        // 只在投影里，壳层零按变体过滤、零文案）；旁路先于广播
+        let update = RunUpdate::Ask { ask };
+        notify::deliver(&update, self.notifier.as_ref(), now_millis());
+        self.control.publish(&self.root, &self.change_id, update);
     }
 
     fn ask_resolved(&self) {
@@ -157,12 +170,27 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     let ask_registry = Arc::clone(app.state::<Arc<AskRegistry>>().inner());
     // steer 注入注册表同址取出（与 ask 成组进组合根；流程会话同走该通道）
     let steer_registry = Arc::clone(app.state::<Arc<SteerRegistry>>().inner());
+    // 通知扇出点（全局库实例，进程级单对象）：五值随 bridge 携带，投影零额外
+    // store 查询（root / change id / 变更名 / run id / 工作流类型全是本函数的
+    // 既有局部量）
+    let bus = Arc::clone(app.state::<Arc<NotificationBus>>().inner());
+    let notifier: Arc<dyn RunNotifier> = Arc::new(NotificationBridge::new(
+        NotifyContext {
+            root: root.clone(),
+            change_id: id.clone(),
+            change_name: record.name.clone(),
+            run_id: run_id.clone(),
+            workflow_type: record.workflow_type.clone(),
+        },
+        bus,
+    ));
     // sink 同一实例两 trait 视图：`RunEventSink` 给 worker、`AskPort` 给引擎门面
     // ——ask 的状态广播与 run 的状态广播同源（故构造先于组合根）
     let sink_impl = Arc::new(ChangeFlowSink {
         root: root.clone(),
         change_id: id.clone(),
         control: Arc::clone(&control),
+        notifier: Arc::clone(&notifier),
     });
     let sink: Arc<dyn RunEventSink> = Arc::clone(&sink_impl) as Arc<dyn RunEventSink>;
     let ask_port: Arc<dyn AskPort> = sink_impl;
@@ -227,7 +255,15 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     spawn_channel_forward(on_event, updates);
     tauri::async_runtime::spawn(async move {
         let _ = walk_run(
-            worker, tools, vcs, snapshot, history, control, guard, request,
+            worker,
+            tools,
+            vcs,
+            snapshot,
+            history,
+            control,
+            guard,
+            request,
+            Some(notifier),
         )
         .await;
     });

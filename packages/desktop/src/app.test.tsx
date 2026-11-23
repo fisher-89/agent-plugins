@@ -11,17 +11,39 @@ import type {
   RecordEnvelope,
   WorkspaceRecord,
 } from './types/dto';
-import type { CodeStatsReport, WorkspaceConfigReport } from './types/generated/bindings';
+import type {
+  CodeStatsReport,
+  Notification,
+  WorkspaceConfigReport,
+} from './types/generated/bindings';
 
-const { checkMock, getVersionMock, invokeMock, openMock } = vi.hoisted(() => ({
-  checkMock: vi.fn(),
-  getVersionMock: vi.fn(),
-  invokeMock: vi.fn(),
-  openMock: vi.fn(),
-}));
+const { ChannelMock, checkMock, getVersionMock, invokeMock, openMock } = vi.hoisted(() => {
+  // 与真实 `Channel` 同构的最小替身（原型 accessor + 私有字段）：壳态的收件箱
+  // 订阅会 `new Channel<Notification>()`，本文件不投递消息，只需构造不炸。
+  class ChannelMock {
+    #onmessage: ((event: unknown) => void) | null = () => {};
+    public get onmessage(): ((event: unknown) => void) | null {
+      return this.#onmessage;
+    }
+    public set onmessage(handler: ((event: unknown) => void) | null) {
+      this.#onmessage = handler;
+    }
+    public deliver(event: unknown): void {
+      if (typeof this.#onmessage === 'function') this.#onmessage(event);
+    }
+  }
+
+  return {
+    ChannelMock,
+    checkMock: vi.fn(),
+    getVersionMock: vi.fn(),
+    invokeMock: vi.fn(),
+    openMock: vi.fn(),
+  };
+});
 
 vi.mock('@tauri-apps/api/app', () => ({ getVersion: getVersionMock }));
-vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
+vi.mock('@tauri-apps/api/core', () => ({ Channel: ChannelMock, invoke: invokeMock }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: openMock }));
 // updater mock（沿用 use-updater.test.ts 语义）：启动检查判据为 `mode === 'prod'`
 // （IPC `app_environment` 单源）——默认 dev fixture 跳过启动检查，需检查路径的
@@ -176,6 +198,10 @@ let configReject: string | null = null;
 let configPending = false;
 /// 架构页取数失败注入位（`archi_graph` reject 形态）
 let archiReject: string | null = null;
+/// 收件箱订阅失败注入位（`notification_subscribe` reject 形态）
+let subscribeReject: string | null = null;
+/// 收件箱首屏 fixture（`notification_list` 返回体；抽屉打开时拉取）
+let inboxItems: Notification[] = [];
 
 /** 架构图 fixture（两元素零关系零诊断；`archi_graph` / `archi_module` 共用）。 */
 const ARCHI_ELEMENTS = [
@@ -224,6 +250,8 @@ function mockIpc() {
   configReject = null;
   configPending = false;
   archiReject = null;
+  subscribeReject = null;
+  inboxItems = [];
   environmentMode = 'dev';
   invokeMock.mockImplementation(
     (command: string, params?: { root?: string; id?: string; offset?: number; limit?: number }) => {
@@ -310,6 +338,23 @@ function mockIpc() {
         if (archiReject !== null) return Promise.reject(new Error(archiReject));
         return Promise.resolve({ elements: [...ARCHI_ELEMENTS], relations: [], diagnostics: [] });
       }
+      // 收件箱订阅（壳态壳层固定挂载一次）：初值未读 0；reject 形态由
+      // subscribeReject 控制（订阅失败静默用例）
+      if (command === 'notification_subscribe') {
+        if (subscribeReject !== null) return Promise.reject(new Error(subscribeReject));
+        return Promise.resolve(0);
+      }
+      // 收件箱首屏（抽屉打开时拉一次）：fixture 深拷贝防用例间引用残留
+      if (command === 'notification_list') {
+        return Promise.resolve({
+          items: inboxItems.map((item) => ({ ...item })),
+          total: inboxItems.length,
+        });
+      }
+      // 收件箱写命令（单条 / 全部已读）：返回剩余未读（本文件只观测调用面）
+      if (command === 'notification_mark_read' || command === 'notification_mark_all_read') {
+        return Promise.resolve(0);
+      }
       if (command === 'archi_module') {
         return Promise.resolve({
           element: ARCHI_ELEMENTS[0],
@@ -335,11 +380,16 @@ function countOf(command: string): number {
   return invokeMock.mock.calls.filter(([name]) => name === command).length;
 }
 
-/** 除壳层固有 `app_environment` 外的命令序列（环境取数次数单列断言）。 */
+/**
+ * 除壳层固有取数外的命令序列（环境取数次数单列断言）。
+ *
+ * `notification_subscribe` 属壳层固有挂载面（壳态下铃铛订阅一次，与 root 无关），
+ * 与 `app_environment` 同口径从业务序列里滤掉；两者各自的次数由 `countOf` 单列。
+ */
 function commandsExceptEnvironment(): string[] {
   return invokeMock.mock.calls
     .map(([name]) => name as string)
-    .filter((name) => name !== 'app_environment');
+    .filter((name) => name !== 'app_environment' && name !== 'notification_subscribe');
 }
 
 /** mock.calls 中某命令最近一次的入参对象（无调用即报错）。 */
@@ -1838,5 +1888,105 @@ describe('App：架构页路由（/architecture）', () => {
     ).toEqual([]);
     expect(countOf('archi_graph')).toBe(1);
     expect(countOf('archi_set_gate')).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 壳态收件箱入口（desktop-notification-hub）：铃铛随壳态挂载、欢迎态不挂、
+// 订阅失败静默（不阻断壳、零错误 toast）
+// ---------------------------------------------------------------------------
+
+describe('App：顶栏收件箱入口（desktop-notification-hub）', () => {
+  beforeEach(() => {
+    window.location.hash = '';
+    getVersionMock.mockReset();
+    getVersionMock.mockResolvedValue('0.1.0');
+    invokeMock.mockReset();
+    mockIpc();
+    toast.dismiss();
+  });
+
+  it('壳态渲染后铃铛在场且订阅恰一次（既有壳层取数次数不变）', async () => {
+    await restored();
+
+    expect(screen.getByRole('button', { name: '通知' }) !== null).toBe(true);
+    expect(countOf('notification_subscribe')).toBe(1);
+    expect(countOf('app_environment')).toBe(1);
+    expect(countOf('list_workspaces')).toBe(1);
+    expect(countOf('list_changes')).toBe(1);
+    // 既有 <Toaster /> 单点零改动：本用例全程零 toast（DOM 无 toast 节点）
+    expect(document.querySelectorAll('[data-sonner-toast]').length).toBe(0);
+  });
+
+  it('欢迎态（root 为 null）不挂铃铛且零订阅调用', async () => {
+    remaining = [];
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('添加新文件夹') !== null).toBe(true));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    expect(screen.queryByRole('button', { name: '通知' })).toBeNull();
+    expect(countOf('notification_subscribe')).toBe(0);
+  });
+
+  it('订阅失败静默：壳照常渲染、零错误 toast、零白屏', async () => {
+    subscribeReject = 'IPC 不可达';
+    await restored();
+
+    // 壳态完整：侧栏工作区选择器 + 列表视图 + 顶栏仍在
+    expect(workspaceTrigger() !== null).toBe(true);
+    expect(screen.getByText('add-feature') !== null).toBe(true);
+    expect(screen.getByRole('button', { name: '通知' }) !== null).toBe(true);
+    expect(document.querySelectorAll('[data-sonner-toast]').length).toBe(0);
+    // 订阅失败不进 error 态：徽标缺席但铃铛仍可点
+    expect(screen.queryByTestId('notification-badge')).toBeNull();
+  });
+
+  it('跨根通知行：先切根（零 workspace 动作命令）再跳 /changes/<id>，随后 list_changes 以新根取数', async () => {
+    await restored();
+
+    // 收件箱 fixture：一条归属另一工作区（root = SECOND）的事件通知
+    inboxItems = [
+      {
+        id: 'run:r9:finished',
+        kind: 'event',
+        level: 'warning',
+        message: '变更「add-feature」停在 archive 前等你确认',
+        body: null,
+        root: SECOND.root,
+        sourceRef: CHANGE_ID,
+        createdAt: 1_727_000_000_000,
+      },
+    ];
+
+    // 打开抽屉即拉首屏（权威补拉），行按后端返回序呈现
+    fireEvent.click(screen.getByRole('button', { name: '通知' }));
+    const [row] = await screen.findAllByTestId('notification-item');
+    expect(countOf('notification_list')).toBe(1);
+
+    fireEvent.click(row);
+
+    // 先切根再跳转：路由以 change id 寻址落详情
+    await waitFor(() => expect(window.location.hash).toBe(`#/changes/${CHANGE_ID}`));
+    // 切根是本地状态切换：零 workspace 动作命令
+    expect(countOf('add_workspace')).toBe(0);
+    expect(countOf('remove_workspace')).toBe(0);
+    // 跳转后的取数以新根发起（detail 面 root 段即通知的 root）
+    await waitFor(() => {
+      const lastDetail = invokeMock.mock.calls
+        .filter(([name]) => name === 'get_change_detail')
+        .at(-1);
+      expect(lastDetail).toEqual(['get_change_detail', { root: SECOND.root, id: CHANGE_ID }]);
+    });
+
+    // 随后回清单：list_changes 以新根取数（根切换对新根全链生效）
+    fireEvent.click(screen.getByTestId('nav-changes'));
+    await waitFor(() => {
+      const lastListChanges = invokeMock.mock.calls
+        .filter(([name]) => name === 'list_changes')
+        .at(-1);
+      expect(lastListChanges).toEqual(['list_changes', { root: SECOND.root }]);
+    });
   });
 });

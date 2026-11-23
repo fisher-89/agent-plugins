@@ -29,6 +29,8 @@ checks-runtime = { workspace = true }
 config = { workspace = true }
 exec = { workspace = true }
 foundation = { workspace = true }
+# 通知命令面与事件投影的装配根（Hub 装配 + 五命令的词表入参）
+notification = { workspace = true }
 orchestration = { workspace = true }
 watch = { workspace = true }
 workflow = { workspace = true }
@@ -62,6 +64,7 @@ members = [
     "crates/core/checks",
     "crates/core/config",
     "crates/core/foundation",
+    "crates/core/notification",
     "crates/core/orchestration",
     "crates/core/workflow",
     "crates/infra/agent",
@@ -99,6 +102,7 @@ globset = "0.4"
 ignore = "0.4"
 futures = "0.3"
 notify = "8"
+notification = { path = "crates/core/notification" }
 orchestration = { path = "crates/core/orchestration" }
 # TS / JS 解析面（oxc 家族**同版**收敛项：`archi` 只开 parser 所需面，不引
 # semantic / codegen；`oxc_ast` / `oxc_span` / `oxc_syntax` 是 `oxc_parser` 的

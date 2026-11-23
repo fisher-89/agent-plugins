@@ -56,9 +56,15 @@ const LIST: ChangeList = {
 /** 按命令名分发：list_changes 恒回报 LIST，delete_change 走可编程应答。 */
 let deleteAnswer: () => Promise<unknown>;
 
+/** 反馈落库失败注入位（`notification_record` reject 形态）。 */
+let recordReject = false;
+
 function dispatch(command: string): Promise<unknown> {
   if (command === 'list_changes') return Promise.resolve(LIST);
   if (command === 'delete_change') return deleteAnswer();
+  if (command === 'notification_record') {
+    return recordReject ? Promise.reject(new Error('落库失败')) : Promise.resolve(null);
+  }
   return Promise.resolve(null);
 }
 
@@ -66,6 +72,7 @@ beforeEach(() => {
   invokeMock.mockReset();
   invokeMock.mockImplementation((command: string) => dispatch(command));
   for (const fn of Object.values(toastMock)) fn.mockReset();
+  recordReject = false;
   deleteAnswer = () =>
     Promise.resolve({ name: 'add-feature', removedWorktree: true, warnings: [] });
 });
@@ -172,5 +179,91 @@ describe('useChangeList.remove：toast 轨', () => {
     expect(invokeMock.mock.calls.filter(([cmd]) => cmd === 'list_changes').length).toBe(
       listCallsBefore,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 通知门面旁路（desktop-notification-hub AC-2 校准 3）：toast 形态逐字不变 +
+// `notification_record` 一次（warning 档带副文案 / success 档无副文案）
+// ---------------------------------------------------------------------------
+
+/** `notification_record` 的落库入参序列。 */
+function recordCalls(): { level: string; message: string; body: string | null }[] {
+  return invokeMock.mock.calls
+    .filter(([name]) => name === 'notification_record')
+    .map(
+      ([, params]) =>
+        (params as { record: { level: string; message: string; body: string | null } }).record,
+    );
+}
+
+describe('useChangeList.remove：门面落库旁路', () => {
+  it('携警告 → toast.warning 带 description 且落库 warning 档 body 为该串', async () => {
+    const warning = 'worktree 目录与分支 change/add-feature 保留（未勾选清空）: C:/wt/add-feature';
+    deleteAnswer = () =>
+      Promise.resolve({ name: 'add-feature', removedWorktree: false, warnings: [warning] });
+    const { result } = renderHook(() => useChangeList('/repo'));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    await act(async () => {
+      await result.current.remove('chg-1', false);
+    });
+
+    expect(toastMock.warning).toHaveBeenCalledWith('已删除变更「新增特性（人类可读）」', {
+      description: warning,
+    });
+    expect(recordCalls()).toHaveLength(1);
+    expect(recordCalls()[0].level).toBe('warning');
+    expect(recordCalls()[0].body).toBe(warning);
+    expect(recordCalls()[0].message).toBe('已删除变更「新增特性（人类可读）」');
+  });
+
+  it('无警告 → toast.success 单参且落库 success 档 body 为 null', async () => {
+    const { result } = renderHook(() => useChangeList('/repo'));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    await act(async () => {
+      await result.current.remove('chg-1', true);
+    });
+
+    expect(toastMock.success).toHaveBeenCalledWith('已删除变更「新增特性（人类可读）」');
+    expect(recordCalls()).toHaveLength(1);
+    expect(recordCalls()[0].level).toBe('success');
+    expect(recordCalls()[0].body).toBeNull();
+  });
+
+  it('空警告集 → 走成功档（不产出空 description）', async () => {
+    deleteAnswer = () =>
+      Promise.resolve({ name: 'add-feature', removedWorktree: true, warnings: [] });
+    const { result } = renderHook(() => useChangeList('/repo'));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    await act(async () => {
+      await result.current.remove('chg-1', true);
+    });
+
+    expect(toastMock.warning).not.toHaveBeenCalled();
+    expect(toastMock.success).toHaveBeenCalledWith('已删除变更「新增特性（人类可读）」');
+    expect(toastMock.success.mock.calls[0]).toHaveLength(1);
+    expect(recordCalls()[0].body).toBeNull();
+  });
+
+  it('异常：落库 reject 时既有 toast 断言仍成立、清单刷新不变', async () => {
+    recordReject = true;
+    const { result } = renderHook(() => useChangeList('/repo'));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+    const listCallsBefore = invokeMock.mock.calls.filter(([cmd]) => cmd === 'list_changes').length;
+
+    await act(async () => {
+      await result.current.remove('chg-1', true);
+    });
+
+    expect(toastMock.success).toHaveBeenCalledWith('已删除变更「新增特性（人类可读）」');
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.filter(([cmd]) => cmd === 'list_changes').length).toBe(
+        listCallsBefore + 1,
+      ),
+    );
+    expect(recordCalls()).toHaveLength(1);
   });
 });

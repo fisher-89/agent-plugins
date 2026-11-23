@@ -177,7 +177,7 @@ fn rows(body: &Value) -> &Vec<Value> {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn db_tables无参返回十四行清单且不展开字段() {
+async fn db_tables无参返回十五行清单且不展开字段() {
     let env = Env::new("tables-list");
     env.seed_providers();
     env.seed_session("ses-db");
@@ -188,7 +188,7 @@ async fn db_tables无参返回十四行清单且不展开字段() {
     let list = body
         .as_array()
         .unwrap_or_else(|| panic!("无参形态为 JSON 数组: {body}"));
-    assert_eq!(list.len(), 14, "两库全列恰 14 行");
+    assert_eq!(list.len(), 15, "两库全列恰 15 行");
     for row in list {
         assert!(row.get("dimension").is_some(), "每行含 dimension: {row}");
         assert!(row.get("table").is_some(), "每行含 table: {row}");
@@ -261,7 +261,7 @@ async fn db_tables_scope三态收窄且下钻按维度派库() {
 
     let user = tables_of(&context, json!({"scope": "user"})).await;
     let user_rows = user.as_array().expect("数组");
-    assert_eq!(user_rows.len(), 3, "scope user → 3 行");
+    assert_eq!(user_rows.len(), 4, "scope user → 4 行");
     assert!(
         user_rows
             .iter()
@@ -282,7 +282,7 @@ async fn db_tables_scope三态收窄且下钻按维度派库() {
     let both = tables_of(&context, json!({"scope": Value::Null})).await;
     assert_eq!(
         both.as_array().expect("数组").len(),
-        14,
+        15,
         "无 scope → 两库全列"
     );
 
@@ -819,8 +819,8 @@ async fn 同一上下文两工具连续调用互不污染() {
     assert_eq!(first_query, second_query, "查询无跨调用状态");
     assert_eq!(
         first_tables.as_array().expect("数组").len(),
-        14,
-        "两库句柄皆在场（14 行）"
+        15,
+        "两库句柄皆在场（15 行）"
     );
     assert_eq!(first_query["matched"], json!(1), "workspace 句柄可读");
     assert!(

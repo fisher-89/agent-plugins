@@ -29,6 +29,9 @@ function record(root: string): WorkspaceRecord {
 /** 可变"库存"：list_workspaces 返回当前库存，add/remove 同步修改库存。 */
 let stored: WorkspaceRecord[];
 
+/** 反馈落库失败注入位（`notification_record` reject 形态）。 */
+let recordReject = false;
+
 /** 按命令名分发固定 fixture（沿用 use-change-list.test.ts 的替身模式）。 */
 function mockDispatch() {
   invokeMock.mockImplementation((command: string, params?: { root?: string }) => {
@@ -43,6 +46,9 @@ function mockDispatch() {
     if (command === 'remove_workspace') {
       stored = stored.filter((r) => r.root !== params?.root);
       return Promise.resolve(true);
+    }
+    if (command === 'notification_record') {
+      return recordReject ? Promise.reject(new Error('落库失败')) : Promise.resolve(null);
     }
     return Promise.resolve(null);
   });
@@ -62,6 +68,7 @@ describe('useWorkspaces：清单取数收口（挂载自动 load + add/remove �
     invokeMock.mockReset();
     toastErrorMock.mockReset();
     stored = [];
+    recordReject = false;
   });
 
   afterEach(() => {
@@ -294,6 +301,7 @@ describe('useWorkspaces：错误双轨（动作 toast 化）', () => {
     invokeMock.mockReset();
     toastErrorMock.mockReset();
     stored = [];
+    recordReject = false;
   });
 
   afterEach(() => {
@@ -413,6 +421,7 @@ describe('useWorkspaces：生成绑定调用面', () => {
     invokeMock.mockReset();
     toastErrorMock.mockReset();
     stored = [];
+    recordReject = false;
   });
 
   it('三命令经生成绑定入口后 invoke 命令名与参数（root 等）逐字不变，返回值透传（清单内部刷新 / root 切换 / remove 返回 true）', async () => {
@@ -492,6 +501,7 @@ describe('useWorkspaces：当前根变更才清空漂移聚合', () => {
     invokeMock.mockReset();
     toastErrorMock.mockReset();
     stored = [];
+    recordReject = false;
     resetDrift();
   });
 
@@ -634,6 +644,7 @@ describe('useWorkspaces：经 ipc 的参数面（参数错本地拒、零往返�
     invokeMock.mockReset();
     toastErrorMock.mockReset();
     stored = [];
+    recordReject = false;
     resetDrift();
   });
 
@@ -697,5 +708,117 @@ describe('useWorkspaces：经 ipc 的参数面（参数错本地拒、零往返�
     const message = toastErrorMock.mock.calls[0]?.[0] as string;
     expect(message.startsWith('移除 workspace 失败：')).toBe(true);
     expect(driftCount()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 通知门面落库旁路（desktop-notification-hub AC-2）：失败提示文案逐字不变 +
+// `notification_record` 恰一次（旁路落库不改变既有呈现）
+// ---------------------------------------------------------------------------
+
+/** `notification_record` 的落库入参序列。 */
+function recordCalls(): { level: string; message: string; body: string | null }[] {
+  return invokeMock.mock.calls
+    .filter(([name]) => name === 'notification_record')
+    .map(
+      ([, params]) =>
+        (params as { record: { level: string; message: string; body: string | null } }).record,
+    );
+}
+
+describe('useWorkspaces：失败提示的门面落库旁路', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    stored = [];
+    recordReject = false;
+  });
+
+  it('正向：add 失败原文案仍进 toast.error 且落库恰一次（error 档、无副文案）', async () => {
+    mockDispatch();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'add_workspace') return Promise.reject(new Error('canonicalize: 入库失败'));
+      if (command === 'list_workspaces') return Promise.resolve([...stored]);
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useWorkspaces());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.add('C:picked');
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    const message = toastErrorMock.mock.calls[0][0] as string;
+    expect(message.startsWith('添加 workspace 失败：')).toBe(true);
+    const records = recordCalls();
+    expect(records).toHaveLength(1);
+    expect(records[0].level).toBe('error');
+    expect(records[0].body).toBeNull();
+    expect(records[0].message).toBe(message);
+  });
+
+  it('正向：remove 失败同样落库一次，文案含 String(err) 原文', async () => {
+    mockDispatch();
+    stored = [record('C:demoalpha')];
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'remove_workspace') return Promise.reject('裸字符串失败');
+      if (command === 'list_workspaces') return Promise.resolve([...stored]);
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useWorkspaces());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.remove('C:demoalpha');
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    const message = toastErrorMock.mock.calls[0][0] as string;
+    expect(message).toBe('移除 workspace 失败：裸字符串失败');
+    expect(recordCalls()).toHaveLength(1);
+    expect(recordCalls()[0].message).toBe(message);
+  });
+
+  it('正向：add / remove 成功路径零 toast、零落库', async () => {
+    mockDispatch();
+    const { result } = renderHook(() => useWorkspaces());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.add('C:picked');
+    });
+    await act(async () => {
+      await result.current.remove('C:picked');
+    });
+
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(recordCalls()).toHaveLength(0);
+  });
+
+  it('异常：落库 reject 时既有 toast 断言仍成立且 hook 零外溢', async () => {
+    mockDispatch();
+    recordReject = true;
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'add_workspace') return Promise.reject(new Error('canonicalize: 入库失败'));
+      if (command === 'list_workspaces') return Promise.resolve([...stored]);
+      if (command === 'notification_record') return Promise.reject(new Error('落库失败'));
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useWorkspaces());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.add('C:picked');
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(recordCalls()).toHaveLength(1);
+    // 落库失败不外溢：hook 仍可继续取数（select 为本地切换，零后端调用）
+    const before = countOf('list_workspaces');
+    act(() => {
+      result.current.select('C:picked');
+    });
+    expect(countOf('list_workspaces')).toBe(before);
   });
 });
