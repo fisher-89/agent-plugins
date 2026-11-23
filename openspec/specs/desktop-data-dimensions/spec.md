@@ -10,7 +10,7 @@
 
 Desktop 后端持久化数据 SHALL 划分为两个维度，且所有落盘设计（db 文件归属、模型归属声明、文件布局）MUST 显式携带维度语义，MUST NOT 隐式混用：
 
-- **user 维度**：跨 workspace 的 app 状态，生命周期跟随用户，落盘于全局数据目录的全局库（native_db 单库，仅注册 user 维度模型）。代表：workspace 注册表（已落地，模型 `WorkspaceRecord`）；agent 管理配置（已落地，模型 `AgentProviderRecord` / `AgentInstanceRecord`，desktop-agent-management——全局 provider / agent 实例与默认标记，不关联 workspace）；未来租户：设置、窗口状态。
+- **user 维度**：跨 workspace 的 app 状态，生命周期跟随用户，落盘于全局数据目录的全局库（native_db 单库，仅注册 user 维度模型）。代表：workspace 注册表（已落地，模型 `WorkspaceRecord`）；agent 管理配置（已落地，模型 `AgentProviderRecord` / `AgentInstanceRecord`，desktop-agent-management——全局 provider / agent 实例与默认标记，不关联 workspace）；通知收件箱（已落地，模型 `NotificationRecord`，desktop-notification-hub——跨工作区单一收件箱，切换工作区不丢未读，记录自带 `root` 归属字符串）；未来租户：设置、窗口状态。
 - **workspace 维度**：单 workspace 域内数据（活动历史、绑定元数据、未来的派生缓存与索引等），生命周期跟随 workspace，落盘于全局数据目录 `workspaces/` 子树下按 workspace 分立的独立 db 文件（见「workspace 维度落盘于全局目录 per-workspace db」）。代表：agent 运行历史（已落地，模型 `AgentRunRecord` / `AgentEventRecord`——每条 run 的 cwd 恒为当前 workspace root，运行事件转录随所属 workspace 归档治理）；explore 清单（已落地，模型 `ExploreRecord`——记录自带 root 归属）；change 流程状态（已裁定 2026-10-06，模型 `ChangeRecord` / `PhaseRecord` / `ChecklistItemRecord` / `StepRecord`，见「change 流程状态归 workspace 维度」，落所属 workspace 库）；未来租户：change 缓存、change 索引、关系图谱。
 
 维度语义的载体 SHALL 为 db 文件归属（全局库 vs per-workspace 库）与模型注册分组（两组 `Models` 与库一一对应，见 desktop-workspace-store「全局库与 workspace 库双库布局」）；redb 手写表的 `user_` 前缀表命名随引擎升级（native-db-store-upgrade）退役的留痕不变。新增任何持久化数据 SHALL 在设计时声明所属维度，MUST NOT 混入非本维度库。
@@ -34,6 +34,11 @@ Desktop 后端持久化数据 SHALL 划分为两个维度，且所有落盘设�
 
 - **WHEN** 审查 `AgentProviderRecord` / `AgentInstanceRecord` 两模型的落盘位置与消费方
 - **THEN** 位于全局库（不关联 workspace，任一壳态可用），未落任何 workspace 库与 workspace repo；未来 workspace 关联 agent 引用的是其稳定 id，记录本体不随 workspace 迁移
+
+#### Scenario: 通知收件箱归 user 维度
+
+- **WHEN** 审查 `NotificationRecord` 的落盘位置与消费方
+- **THEN** 位于全局库（跨 workspace 单一收件箱：切换当前根不丢未读、别的工作区的事件同样可见），未落任何 workspace 库与 workspace repo；工作区归属由记录自带 `root` 字符串承载，MUST NOT 依赖跨库 join
 
 #### Scenario: workspace 注册表不因维度模型受影响
 
@@ -98,3 +103,11 @@ workspace 维度数据 SHALL 落盘于**数据根下按 workspace 分立的 db �
 | 未来租户归位 | 以维度声明为准 | change 缓存、change 索引、关系图谱等按维度声明落位；跨 workspace 知识网（若出现）须单独声明维度，不默认归入任一维度 |
 | workspace 维度落盘面（`crates/infra/store` 的 `workspaces/` 子树寻址） | workspace | 父目录 = 注入的数据根，子树名 `workspaces` 为唯一路径成分；MUST NOT 出现第二处根拼接、MUST NOT 感知构建模式 |
 | 数据根来源（desktop 壳 `env` 模块 → `WorkspaceStores::open`） | 注入值（模式派生） | 根的三种取值（`prod` / `dev-default` / `env`）由 desktop-build-modes 单点产出，本维度只消费注入值 |
+
+### 模型增量：通知收件箱的维度归属（backend-notification-hub）
+
+| 模块/概念 | 维度 | 关键契约 |
+|---|---|---|
+| 全局库（全局数据目录，native_db） | user | 用户维度落盘载体；本变更补 `NotificationRecord`（通知收件箱），与 `WorkspaceRecord` / `AgentProviderRecord` / `AgentInstanceRecord` 同库 |
+| `NotificationRecord` | user | 跨工作区通知历史与未读；`root` 字符串承载工作区归属（禁跨库 join）；字段面见 desktop-notification-hub，库归属见 desktop-workspace-store |
+| workspace 库（`workspaces/` 子树） | workspace | 零改动：收件箱 MUST NOT 落此维度；跨工作区可见性正是选 user 维度的理由 |
