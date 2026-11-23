@@ -5639,7 +5639,8 @@ fn 通知记录native_model_id为十八且版本一() {
 /// 边界：四 Option 字段的 None / Some("") 组合与 `created_at` 三档边界。
 #[test]
 fn 通知记录四option字段组合与时间边界原样() {
-    let option_cases: Vec<(Option<String>, Option<String>, Option<String>, Option<i64>)> = vec![
+    type OptionCase = (Option<String>, Option<String>, Option<String>, Option<i64>);
+    let option_cases: Vec<OptionCase> = vec![
         (None, None, None, None),
         (
             Some(String::new()),

@@ -825,7 +825,7 @@ fn bridge_deliver同主键二次仍一行且读状态保持() {
     let first = event("run:run-b2:confirm:archive", "第一次文案");
     bridge.deliver(&first);
     global_store(&app)
-        .mark_notifications_read(&[first.id.clone()])
+        .mark_notifications_read(std::slice::from_ref(&first.id))
         .expect("置已读应成功");
     let read_at = notification_row(&global_store(&app), &first.id)["readAt"].clone();
     assert!(!read_at.is_null(), "首条置已读后 readAt 在场");
