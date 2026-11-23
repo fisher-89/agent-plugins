@@ -1,4 +1,4 @@
-# App.Frontend.Components.Agent.AgentSessionView
+# Desktop.Components.Agent.AgentSessionView
 
 ## 职能
 
@@ -36,7 +36,7 @@ composer 插槽。以**同一渲染体**承载两种形态——自持形态（�
 
 - **`AgentSessionView` 不进 `api-op`**：形态是 `(props: AgentSessionViewProps) =>
   React.JSX.Element`——入参具名类型、返回位是 JSX 元素，两侧归一恒不等（`apiSignatureMismatch`
-  恒红），同类实测差异见 `App.Frontend.Components.Agent.AgentError` 的留白段。
+  恒红），同类实测差异见 `Desktop.Components.Agent.AgentError` 的留白段。
 - **两个导出类型都不进 `api-types`**：`AgentSessionActions` 的三个函数位引用
   `AgentSessionSendInput`（`hooks/use-agent-session`）；`AgentSessionViewProps` 更是
   `UseAgentSessionState`、`React.ReactNode`、`SessionSummary`（生成的绑定类型）与自有

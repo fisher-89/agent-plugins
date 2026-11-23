@@ -3,7 +3,7 @@
 # 契约面：目录 .dev-team/architecture/models · 生成器 archi-api 0.1.0 · 映射规则摘要 sha256:1f8f0ec14abb
 
 [[entry]]
-fqn = "App.Backend.Core.Agent"
+fqn = "Backend"
 status = "absent"
 types = 0
 ops = 0
@@ -12,7 +12,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Core.Archi"
+fqn = "Backend.Core.Agent"
 status = "absent"
 types = 0
 ops = 0
@@ -21,7 +21,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Core.Checks"
+fqn = "Backend.Core.Archi"
 status = "absent"
 types = 0
 ops = 0
@@ -30,7 +30,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Core.Config"
+fqn = "Backend.Core.Checks"
 status = "absent"
 types = 0
 ops = 0
@@ -39,16 +39,25 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Core.Foundation"
+fqn = "Backend.Core.Config"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "Backend.Core.Foundation"
 status = "declared"
 types = 0
 ops = 9
 degraded = 0
-schema = ".dev-team/architecture/models/Backend/Core/App.Backend.Core.Foundation.schema.json"
+schema = ".dev-team/architecture/models/Backend/Core/Backend.Core.Foundation.schema.json"
 generated = "packages/desktop/src-tauri/crates/core/foundation/src/lib.i.rs"
 
 [[entry]]
-fqn = "App.Backend.Core.Notification"
+fqn = "Backend.Core.Notification"
 status = "absent"
 types = 0
 ops = 0
@@ -57,7 +66,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Core.Orchestration"
+fqn = "Backend.Core.Orchestration"
 status = "absent"
 types = 0
 ops = 0
@@ -66,7 +75,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Core.Workflow"
+fqn = "Backend.Core.Workflow"
 status = "absent"
 types = 0
 ops = 0
@@ -75,7 +84,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Infra.AgentRuntime"
+fqn = "Backend.Infra.AgentRuntime"
 status = "absent"
 types = 0
 ops = 0
@@ -84,19 +93,19 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Infra.ArchiRuntime"
+fqn = "Backend.Infra.ArchiRuntime"
 status = "declared"
 types = 1
 ops = 1
 degraded = 0
-schema = ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.schema.json"
+schema = ".dev-team/architecture/models/Backend/Infra/Backend.Infra.ArchiRuntime.schema.json"
 generated = "packages/desktop/src-tauri/crates/infra/archi/src/lib.i.rs"
 
 [entry.categories]
 object = 1
 
 [[entry]]
-fqn = "App.Backend.Infra.ChecksRuntime"
+fqn = "Backend.Infra.ChecksRuntime"
 status = "absent"
 types = 0
 ops = 0
@@ -105,7 +114,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Infra.Exec"
+fqn = "Backend.Infra.Exec"
 status = "absent"
 types = 0
 ops = 0
@@ -114,7 +123,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Infra.Store"
+fqn = "Backend.Infra.Store"
 status = "absent"
 types = 0
 ops = 0
@@ -123,7 +132,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Infra.VcsRuntime"
+fqn = "Backend.Infra.VcsRuntime"
 status = "absent"
 types = 0
 ops = 0
@@ -132,7 +141,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Infra.Watch"
+fqn = "Backend.Infra.Watch"
 status = "absent"
 types = 0
 ops = 0
@@ -141,7 +150,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Shell"
+fqn = "Backend.Shell"
 status = "absent"
 types = 0
 ops = 0
@@ -150,7 +159,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Tools.ArchiApiGen"
+fqn = "Backend.Tools.ArchiApiGen"
 status = "absent"
 types = 0
 ops = 0
@@ -159,7 +168,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Backend.Tools.ExportBindings"
+fqn = "Backend.Tools.ExportBindings"
 status = "absent"
 types = 0
 ops = 0
@@ -168,79 +177,88 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Components.Agent"
+fqn = "Desktop"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "Desktop.Components.Agent"
 status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Frontend/Components/App.Frontend.Components.Agent.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Desktop.Components.Agent.schema.json"
 generated = "packages/desktop/src/components/agent/index.i.ts"
 
 [[entry]]
-fqn = "App.Frontend.Components.Agent.AgentBlocks"
+fqn = "Desktop.Components.Agent.AgentBlocks"
 status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.Components.Agent.AgentBlocks.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent/Desktop.Components.Agent.AgentBlocks.schema.json"
 generated = "packages/desktop/src/components/agent/message-cards/blocks.i.ts"
 
 [[entry]]
-fqn = "App.Frontend.Components.Agent.AgentError"
+fqn = "Desktop.Components.Agent.AgentError"
 status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.Components.Agent.AgentError.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent/Desktop.Components.Agent.AgentError.schema.json"
 generated = "packages/desktop/src/components/agent/agent-error.i.ts"
 
 [[entry]]
-fqn = "App.Frontend.Components.Agent.AgentInput"
+fqn = "Desktop.Components.Agent.AgentInput"
 status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.Components.Agent.AgentInput.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent/Desktop.Components.Agent.AgentInput.schema.json"
 generated = "packages/desktop/src/components/agent/agent-input.i.ts"
 
 [[entry]]
-fqn = "App.Frontend.Components.Agent.AgentMessages"
+fqn = "Desktop.Components.Agent.AgentMessages"
 status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.Components.Agent.AgentMessages.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent/Desktop.Components.Agent.AgentMessages.schema.json"
 generated = "packages/desktop/src/components/agent/agent-messages.i.ts"
 
 [[entry]]
-fqn = "App.Frontend.Components.Agent.AgentSessionView"
+fqn = "Desktop.Components.Agent.AgentSessionView"
 status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.Components.Agent.AgentSessionView.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent/Desktop.Components.Agent.AgentSessionView.schema.json"
 generated = "packages/desktop/src/components/agent/agent-session-view.i.ts"
 
 [[entry]]
-fqn = "App.Frontend.Components.Agent.SessionPanel"
+fqn = "Desktop.Components.Agent.SessionPanel"
 status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.Components.Agent.SessionPanel.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent/Desktop.Components.Agent.SessionPanel.schema.json"
 generated = "packages/desktop/src/components/agent/session-panel.i.ts"
 
 [[entry]]
-fqn = "App.Frontend.Components.Agent.ToolCards"
+fqn = "Desktop.Components.Agent.ToolCards"
 status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Frontend/Components/Agent/App.Frontend.Components.Agent.ToolCards.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent/Desktop.Components.Agent.ToolCards.schema.json"
 generated = "packages/desktop/src/components/agent/message-cards/tool-cards.i.ts"
 
 [[entry]]
-fqn = "App.Frontend.Components.Standard.Combobox"
+fqn = "Desktop.Components.Standard.Combobox"
 status = "absent"
 types = 0
 ops = 0
@@ -249,7 +267,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Components.Standard.Dailog"
+fqn = "Desktop.Components.Standard.Dailog"
 status = "absent"
 types = 0
 ops = 0
@@ -258,7 +276,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Components.Standard.Drawer"
+fqn = "Desktop.Components.Standard.Drawer"
 status = "absent"
 types = 0
 ops = 0
@@ -267,7 +285,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Components.Standard.Pagination"
+fqn = "Desktop.Components.Standard.Pagination"
 status = "absent"
 types = 0
 ops = 0
@@ -276,7 +294,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Components.Standard.Select"
+fqn = "Desktop.Components.Standard.Select"
 status = "absent"
 types = 0
 ops = 0
@@ -285,7 +303,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Components.Standard.Tooltip"
+fqn = "Desktop.Components.Standard.Tooltip"
 status = "absent"
 types = 0
 ops = 0
@@ -294,7 +312,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Components.Ui"
+fqn = "Desktop.Components.Ui"
 status = "absent"
 types = 0
 ops = 0
@@ -303,7 +321,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.GeneratedBindings"
+fqn = "Desktop.GeneratedBindings"
 status = "absent"
 types = 0
 ops = 0
@@ -312,7 +330,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Shell"
+fqn = "Desktop.Shell"
 status = "absent"
 types = 0
 ops = 0
@@ -321,7 +339,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Views.AgentDebug"
+fqn = "Desktop.Views.AgentDebug"
 status = "absent"
 types = 0
 ops = 0
@@ -330,7 +348,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Views.Agents"
+fqn = "Desktop.Views.Agents"
 status = "absent"
 types = 0
 ops = 0
@@ -339,7 +357,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Views.Architecture"
+fqn = "Desktop.Views.Architecture"
 status = "absent"
 types = 0
 ops = 0
@@ -348,7 +366,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Views.Changes"
+fqn = "Desktop.Views.Changes"
 status = "absent"
 types = 0
 ops = 0
@@ -357,7 +375,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Views.Changes.Agent"
+fqn = "Desktop.Views.Changes.Agent"
 status = "absent"
 types = 0
 ops = 0
@@ -366,7 +384,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Views.Changes.Flow"
+fqn = "Desktop.Views.Changes.Flow"
 status = "absent"
 types = 0
 ops = 0
@@ -375,7 +393,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Views.Changes.Renderers"
+fqn = "Desktop.Views.Changes.Renderers"
 status = "absent"
 types = 0
 ops = 0
@@ -384,7 +402,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Views.Config"
+fqn = "Desktop.Views.Config"
 status = "absent"
 types = 0
 ops = 0
@@ -393,7 +411,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Views.DbInspector"
+fqn = "Desktop.Views.DbInspector"
 status = "absent"
 types = 0
 ops = 0
@@ -402,7 +420,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Views.Explores"
+fqn = "Desktop.Views.Explores"
 status = "absent"
 types = 0
 ops = 0
@@ -411,7 +429,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Views.Info"
+fqn = "Desktop.Views.Info"
 status = "absent"
 types = 0
 ops = 0
@@ -420,7 +438,7 @@ schema = ""
 generated = ""
 
 [[entry]]
-fqn = "App.Frontend.Views.Welcome"
+fqn = "Desktop.Views.Welcome"
 status = "absent"
 types = 0
 ops = 0

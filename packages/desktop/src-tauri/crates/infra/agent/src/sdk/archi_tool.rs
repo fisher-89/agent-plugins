@@ -105,7 +105,7 @@ impl ArchiContext {
         })
     }
 
-    /// `archi_scaffold`：`kind` 可选（缺省 `domain`；值集外 `Err` 点名三值）→ 新元素
+    /// `archi_scaffold`：`kind` 可选（缺省 `domain`；值集外 `Err` 点名四值）→ 新元素
     /// TOML 草稿。只读零写盘——写盘仍走既有 `write` / `edit`。
     fn scaffold_payload(&self, input: &Value) -> Result<Value, String> {
         let kind = match input.get("kind").and_then(Value::as_str).map(str::trim) {

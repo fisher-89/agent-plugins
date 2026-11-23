@@ -458,7 +458,7 @@ fn api_root(tag: &str) -> tempfile::TempDir {
     );
     write_file(
         dir.path(),
-        ".dev-team/architecture/models/Api/App.Api.Subject.md",
+        ".dev-team/architecture/models/App/Api/App.Api.Subject.md",
         "# App.Api.Subject\n\n## 职能\n\n工具语料。\n\n## 操作\n\n### file_stem\n\n\
          ```json api-op\n{\"owner\": \"LocalApi\", \
          \"params\": [{\"name\": \"timestamp\", \"schema\": {\"type\": \"string\"}}], \

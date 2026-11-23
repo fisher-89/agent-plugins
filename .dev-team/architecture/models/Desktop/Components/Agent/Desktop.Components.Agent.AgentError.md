@@ -1,4 +1,4 @@
-# App.Frontend.Components.Agent.AgentError
+# Desktop.Components.Agent.AgentError
 
 ## 职能
 

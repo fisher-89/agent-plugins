@@ -1,4 +1,4 @@
-# App.Backend.Infra.ArchiRuntime
+# Backend.Infra.ArchiRuntime
 
 ## 职能
 

@@ -357,7 +357,7 @@ fn archi_scaffold_definition() -> ToolDefinition {
         parameters: serde_json::json!({
             "type": "object",
             "properties": {
-                "kind": { "type": "string", "enum": ElementKind::ALL.map(ElementKind::as_str), "description": "元素 kind 三值之一（省略取 domain）" }
+                "kind": { "type": "string", "enum": ElementKind::ALL.map(ElementKind::as_str), "description": "元素 kind 四值之一（省略取 domain）" }
             },
             "required": []
         }),

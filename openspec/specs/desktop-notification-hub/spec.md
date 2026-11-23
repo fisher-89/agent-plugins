@@ -177,7 +177,7 @@
 
 前端 SHALL 以**顶栏铃铛 + 抽屉**承载收件箱，且不新增路由：
 
-- **落位**：壳态 `ShellHeader` SHALL 含通知铃铛（未读徽标，展示上限 `99+`），点击打开 `StandardDrawer` 收件箱（列表 / 单条置已读 / 全部已读 / 空态）。组件 SHALL 为独立源文件 `src/components/notification-bell.tsx`，MUST NOT 内联进 `app.tsx`（页壳仅装配）；该文件 SHALL 落架构模型 `App.Frontend.Shell` 的 `path` 之内（未在 `path` 内的源文件会静默落 `unmatchedFiles` 且不产出任何边）。
+- **落位**：壳态 `ShellHeader` SHALL 含通知铃铛（未读徽标，展示上限 `99+`），点击打开 `StandardDrawer` 收件箱（列表 / 单条置已读 / 全部已读 / 空态）。组件 SHALL 为独立源文件 `src/components/notification-bell.tsx`，MUST NOT 内联进 `app.tsx`（页壳仅装配）；该文件 SHALL 落架构模型 `Desktop.Shell` 的 `path` 之内（未在 `path` 内的源文件会静默落 `unmatchedFiles` 且不产出任何边）。
 - **零新增导航**：MUST NOT 新增路由、MUST NOT 新增侧栏项；`<Toaster />` 的 App 根单点挂载与 `AppRoutes` 逐字不动。欢迎态（`root` 为 null）MUST NOT 挂载铃铛（沿壳态隔离）。
 - **通道纪律**：`Channel<Notification>` SHALL 是第三类执行流通道（沿 agent 执行流与 change run 通知先例）——`Channel` 构造与 `notification_subscribe` 调用 SHALL 各恰一处并收口在 `src/hooks/use-notifications.ts`；MUST NOT 并入 `use-file-watch-signal.ts`（该件的划界原则按驱动源切分：文件失效信号 ≠ 后端事件），MUST NOT 引入定时轮询（无 `setInterval` / 轮询型 `setTimeout`）。
 - **数据流**：挂载 SHALL 订阅一次并取初值未读；Channel 消息 SHALL 按 level 呈现（`Info` 不弹）、前插列表、未读 +1；抽屉打开 SHALL 拉首屏（`limit = 50`）并分页；标记已读 SHALL 以命令返回的剩余未读数回写徽标（MUST NOT 由前端自行推算）。
@@ -285,10 +285,10 @@
 |---|---|---|
 | `src/lib/notify.ts` | 新 | `present(level, message, body?)` / `notify(level, message, body?)`；sonner 唯一持有者（除 `Toaster`）；不传 `id`；落库静默 |
 | `src/hooks/use-notifications.ts` | 新 | 订阅 + 初值未读 + 首屏 50 + 标记已读 + 失败分流；`Channel` 与 `notification_subscribe` 各恰一处 |
-| `src/components/notification-bell.tsx` | 新 | 铃铛 + 徽标（99+）+ `StandardDrawer` 收件箱 + 跨根跳转；落 `App.Frontend.Shell` 的 `path` |
+| `src/components/notification-bell.tsx` | 新 | 铃铛 + 徽标（99+）+ `StandardDrawer` 收件箱 + 跨根跳转；落 `Desktop.Shell` 的 `path` |
 | `src/app.tsx`（`ShellHeader`） | 改 | 挂载铃铛并透传 `root` / `select`；`<Toaster />` 与路由零改动 |
 | 6 个既有调用点（`use-workspaces` / `use-agent-instances` / `use-agent-providers` / `use-change-list` / `contract-panel` / `explore-open-file`） | 改 | 12 处 sonner 直调 → 门面；文案逐字不变 |
-| `App.Frontend.Shell`（架构模型） | 改 | `path` 追加铃铛文件；新增 `Shell → Components.Standard.Drawer` 一条边 |
+| `Desktop.Shell`（架构模型） | 改 | `path` 追加铃铛文件；新增 `Shell → Components.Standard.Drawer` 一条边 |
 
 ### 零 delta 的能力交叉点（backend-notification-hub）
 

@@ -224,20 +224,21 @@ pub fn rust_module_path(element_root: &str) -> String {
     format!("crate::{}", module_name(element_root))
 }
 
-/// FQN 的**分层目录段**（父 FQN 段链去掉最外层根段）：`App.Backend.Infra.ArchiRuntime`
-/// → `["Backend", "Infra"]`；`App.Backend` → `[]`（落契约目录根）；单段 FQN → `None`。
+/// FQN 的**分层目录段**（FQN 段链去掉叶段）：`Backend.Core.Foundation` →
+/// `["Backend", "Core"]`、`Desktop.Components.Agent` → `["Desktop", "Components"]`；
+/// 单段 FQN（包根，如 `Backend`）→ `[]`（落契约目录根）；空串 → `None`。
 ///
-/// 根段（FQN 第一段，本仓恒为 `App`）不建目录：它只表达「同一个应用」，写进每条路径
-/// 会白白加深一层；因此 `Backend/Core/`、`Frontend/Components/Agent/` 直接是层次面。
-/// 目录与元素身份**解耦**：父子层级由段链镜像，元素身份仍是 FQN（文件名恒为完整 FQN），
-/// 同名段（`Core.Agent` 与 `Components.Agent`）因而落在不同层次、互不混装。
+/// 根段就是包级元素本身（`Backend` / `Desktop`），它参与目录分层（`Backend/Core/`、
+/// `Desktop/Components/Agent/`）——不再被剥掉。目录与元素身份**解耦**：父子层级由段链
+/// 镜像，元素身份仍是 FQN（文件名恒为完整 FQN），同名段（`Backend.Core.Agent` 与
+/// `Desktop.Components.Agent`）因而落在不同层次、互不混装。
 pub fn dir_segments(fqn: &str) -> Option<Vec<String>> {
     let segments: Vec<&str> = fqn.split('.').collect();
-    if segments.len() < 2 {
+    if fqn.is_empty() {
         return None;
     }
     Some(
-        segments[1..segments.len() - 1]
+        segments[..segments.len() - 1]
             .iter()
             .map(|segment| (*segment).to_owned())
             .collect(),
@@ -580,7 +581,7 @@ pub(crate) fn is_repo_relative(relative: &str) -> bool {
 
 /// FQN 形态判据：FQN 同时充当契约文件名与分层目录段的取段源，故 MUST 是「点分段
 /// 标识符」——非空、不含路径分隔符（`/` 与反斜杠）、不含盘符前缀、无空段
-/// （`App..X` / `App.` 一类会让目录段退化成空串或 `.`，即目录穿越面）。
+/// （`Backend..X` / `Backend.` 一类会让目录段退化成空串或 `.`，即目录穿越面）。
 fn is_fqn(fqn: &str) -> bool {
     if fqn.is_empty() || fqn.contains('/') || fqn.contains('\\') {
         return false;

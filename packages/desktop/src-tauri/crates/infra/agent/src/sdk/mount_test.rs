@@ -1788,7 +1788,7 @@ fn lookup提案工具近似名全none() {
 }
 
 /// 边界：`archi_scaffold` 的 `kind` enum 与 `ElementKind::ALL.map(as_str)` 逐值相等
-/// （长度 3、序一致，零第二份字面量）。
+/// （长度 4、序一致，零第二份字面量）。
 #[test]
 fn archi_scaffold定义kind词表派生() {
     let definition = lookup(ARCHI_SCAFFOLD_TOOL).expect("定义在案");
@@ -1802,7 +1802,7 @@ fn archi_scaffold定义kind词表派生() {
         .map(archi::dto::ElementKind::as_str)
         .to_vec();
     assert_eq!(enum_values, expected, "kind enum 由词表派生");
-    assert_eq!(enum_values.len(), 3, "三值封闭");
+    assert_eq!(enum_values.len(), 4, "四值封闭");
     assert_eq!(
         definition.parameters["required"],
         serde_json::json!([]),

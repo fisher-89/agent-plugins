@@ -263,8 +263,9 @@ fn normalize_root幂等() {
 // contract_path / schema_path：同目录、分层目录段
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-4）：`App.Backend.Infra.ArchiRuntime` → `<archi_models_dir>/Backend/Infra/...`；
-/// 两函数父目录逐字相等、均以 `archi_models_dir(root)` 为前缀（零行内段名）。
+/// 正向（AC-4）：`App.Backend.Infra.ArchiRuntime` → `<archi_models_dir>/App/Backend/Infra/...`
+/// （FQN 段链去掉叶段）；两函数父目录逐字相等、均以 `archi_models_dir(root)` 为前缀
+/// （零行内段名）。
 #[test]
 fn contract_path与schema_path同目录同前缀() {
     let root = Path::new("/ws");
@@ -304,11 +305,12 @@ fn contract_path与schema_path同目录同前缀() {
         contract.parent(),
         Some(
             archi_models_dir(root)
+                .join("App")
                 .join("Backend")
                 .join("Infra")
                 .as_path()
         ),
-        "目录段 = 父 FQN 去根段的段链（App.Backend.Infra → Backend/Infra）"
+        "目录段 = FQN 段链去叶段（App.Backend.Infra → App/Backend/Infra）"
     );
 }
 
@@ -326,8 +328,8 @@ fn contract_path顶层落契约目录根且零穿越() {
     assert_eq!(
         contract_path(root, "App.Backend")
             .and_then(|path| path.parent().map(|parent| parent.to_path_buf())),
-        Some(directory(root)),
-        "根的直接子元素同样落契约目录根（根段不建目录）"
+        Some(directory(root).join("App")),
+        "根段参与目录分层（只去掉叶段）"
     );
 
     for fqn in ["App.🎯.Target", "App.Core.Alpha"] {
@@ -1466,8 +1468,8 @@ fn ref_relative同目录同层与跨层() {
     );
     assert_eq!(
         ref_relative("App.Backend.Core.Archi", "App"),
-        "../../",
-        "目标在契约目录根 → 逐层上溯"
+        "../../../",
+        "目标为单段 FQN（零目录段）→ 从三层逐层上溯到契约目录根"
     );
     assert_eq!(
         ref_relative(
@@ -1503,24 +1505,31 @@ fn ref_relative撞名段与自引用() {
     );
 }
 
-/// 边界：四段 → 父段链去根段（两段）；三/两段 → 一段 / 零段；单段 / 空串 → `None`；
+/// 边界：FQN 段链去掉叶段（根段保留）；单段 → 零段（契约落目录根）；空串 → `None`；
 /// 尾点形态可判（空段由 `is_fqn` 挡在派生之外）。
 #[test]
 fn dir_segments形态() {
     assert_eq!(
         dir_segments("App.Backend.Infra.ArchiRuntime"),
-        Some(vec!["Backend".to_owned(), "Infra".to_owned()])
+        Some(vec![
+            "App".to_owned(),
+            "Backend".to_owned(),
+            "Infra".to_owned()
+        ])
     );
     assert_eq!(
         dir_segments("App.Agent"),
-        Some(Vec::new()),
-        "根的直接子元素零段"
+        Some(vec!["App".to_owned()]),
+        "两段 FQN 的目录段 = 根段"
     );
-    assert_eq!(dir_segments("App"), None, "单段无父段");
-    assert_eq!(dir_segments(""), None, "空串无父段");
-    // 尾点形态：`App.` 分两段后父段链为空（可判、不 panic）；`App..X` 的中间段为空串
-    assert_eq!(dir_segments("App."), Some(Vec::new()));
-    assert_eq!(dir_segments("App..X"), Some(vec![String::new()]));
+    assert_eq!(dir_segments("App"), Some(Vec::new()), "单段 FQN 零段");
+    assert_eq!(dir_segments(""), None, "空串无段链");
+    // 尾点形态：`App.` 的叶段为空串（可判、不 panic）；`App..X` 的中间段为空串
+    assert_eq!(dir_segments("App."), Some(vec!["App".to_owned()]));
+    assert_eq!(
+        dir_segments("App..X"),
+        Some(vec!["App".to_owned(), String::new()])
+    );
 }
 
 /// 正向（D40 正例 / 反例）：`module_name("<root>")` 是透传 `<name>` 的唯一产出点——
@@ -1789,14 +1798,14 @@ fn directory零行内段名字面量() {
         contract_path(root, "App.Core.Alpha")
             .expect("合法 FQN")
             .parent(),
-        Some(directory(root).join("Core").as_path()),
+        Some(directory(root).join("App").join("Core").as_path()),
         "契约在 directory(root)/<分层目录…>/ 下一层"
     );
     assert_eq!(
         schema_path(root, "App.Core.Alpha")
             .expect("合法 FQN")
             .parent(),
-        Some(directory(root).join("Core").as_path()),
+        Some(directory(root).join("App").join("Core").as_path()),
         "schema 与契约同层"
     );
 }
@@ -2660,8 +2669,8 @@ fn contract_path超长与特殊字符fqn放行() {
     let path = contract_path(root, &long).unwrap_or_else(|| panic!("超长合法 FQN 应可派生"));
     assert_eq!(
         path.parent(),
-        Some(directory(root).as_path()),
-        "父目录 = 契约目录根（`App.<末段>` 的父段链去根段后为空）"
+        Some(directory(root).join("App").as_path()),
+        "父目录 = `models/App`（`App.<末段>` 去掉叶段后只剩根段）"
     );
     assert!(schema_path(root, &long).is_some(), "schema 路径同步放行");
 

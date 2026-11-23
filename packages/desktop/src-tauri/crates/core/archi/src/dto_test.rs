@@ -738,11 +738,12 @@ fn search_scope_parse非法值列出合法值() {
 /// 边界：逐枚举线值（lowercase / camelCase）与非法值反序列化 `Err`（每枚举 N+1）。
 #[test]
 fn 词汇serde线形逐值() {
-    // ElementKind（3）
+    // ElementKind（4）
     for (value, line) in [
         (ElementKind::Package, "package"),
         (ElementKind::Domain, "domain"),
         (ElementKind::Module, "module"),
+        (ElementKind::Composite, "composite"),
     ] {
         assert_eq!(value.as_str(), line);
         assert_eq!(
@@ -881,12 +882,11 @@ fn 缺省与可选字段显式线形() {
 }
 
 // ---------------------------------------------------------------------------
-// 结构诊断全量常量 `DiagnosticKind::ALL`（知识文本 / 语料对拍的唯一派生源）
+// 结构诊断全量常量 `DiagnosticKind::ALL`（语料对拍的唯一派生源）
 //
-// 口径：`ALL` 是知识文本与语料对拍的单点派生源——序即 `as_str` 分支序，长度即
-// 红灯（新增变体忘补 `ALL` 时本组断言与编译面双红）。词汇文本一侧的「逐值在场」
-// 断言住 `crates/infra/agent/src/archi_knowledge_test.rs`（`archi` 不得反向依赖
-// `agent-runtime`，见 test-design「不可测试项」）。
+// 口径：`ALL` 是语料对拍的单点派生源——序即 `as_str` 分支序，长度即红灯（新增
+// 变体忘补 `ALL` 时本组断言与编译面双红）。知识文本不再列诊断全量词（工具按需
+// 返回注解与修复手段），故本组不涉及 `archi_knowledge_test.rs`。
 // ---------------------------------------------------------------------------
 
 /// 结构诊断九词的期望线格式（`as_str` 分支序 = `ALL` 声明序，D6）。
@@ -987,13 +987,15 @@ fn 诊断all序与as_str同源逐位() {
     }
 }
 
-/// 回归：既有全量常量复用面——`ElementKind::ALL` 三值 / `GateTier::ALL` 三值逐值
-/// `as_str`；`GateTier::default() == Off`（知识文本 `gate` 段与缺省锚依赖此面，
-/// 既有断言不改）。
+/// 回归：全量常量复用面——`ElementKind::ALL` 四值 / `GateTier::ALL` 三值逐值
+/// `as_str`；`GateTier::default() == Off`（知识文本 `gate` 段与缺省锚依赖此面）。
 #[test]
 fn 既有全量常量复用面零回归() {
-    assert_eq!(ElementKind::ALL.len(), 3, "元素 kind 封闭三值");
-    for (index, word) in ["package", "domain", "module"].iter().enumerate() {
+    assert_eq!(ElementKind::ALL.len(), 4, "元素 kind 封闭四值");
+    for (index, word) in ["package", "domain", "module", "composite"]
+        .iter()
+        .enumerate()
+    {
         assert_eq!(
             ElementKind::ALL[index].as_str(),
             *word,
@@ -1307,7 +1309,7 @@ fn 既有字段面零变化() {
 // `ApiStatus` 二值封闭与 `ArchiApiRef` 字符串边界（`module-api-contract-format` /
 // AC-10 / AC-8 / D22）
 //
-// `ApiStatus::ALL` 是知识文本与语料对拍的唯一派生源：长度即红灯（新增变体忘补
+// `ApiStatus::ALL` 是 md `api` 字段行与语料对拍的单点源：长度即红灯（新增变体忘补
 // `ALL` 时本组断言与编译面双红）。路径是字符串，投影与我们都不做归一。
 // ===========================================================================
 
@@ -1937,7 +1939,7 @@ fn line_words<T: serde::Serialize + Copy>(values: Vec<T>) -> Vec<String> {
 #[test]
 fn 既有词汇与出线类型零变化() {
     // 九组既有封闭词汇：有 `ALL` 常量的取长度，其余取 serde 线值——两份都钉死尺寸
-    assert_eq!(ElementKind::ALL.len(), 3, "ElementKind 仍三值");
+    assert_eq!(ElementKind::ALL.len(), 4, "ElementKind 四值（+composite）");
     assert_eq!(GateTier::ALL.len(), 3, "GateTier 仍三档");
     assert_eq!(DiagnosticKind::ALL.len(), 9, "DiagnosticKind 仍九值");
     assert_eq!(ApiStatus::ALL.len(), 2, "ApiStatus 仍二值");
@@ -2969,7 +2971,7 @@ fn dto词面零docs且三处doc声明() {
 // ===========================================================================
 
 /// 薄概览的 `hasPath` 三形态：声明 `path` → `true`；`path = []` → `false` 且键在场
-/// （不省略、不落 `null`）；容器元素恒空。条目序仍为 FQN 字典序。
+/// （不省略、不落 `null`）；无 `path` 元素 `has_path = false`。条目序仍为 FQN 字典序。
 #[test]
 fn module_overview的has_path逐条投影() {
     let temp = TempDir::new("has-path");
@@ -3004,7 +3006,7 @@ fn module_overview的has_path逐条投影() {
     };
     assert!(by_fqn("App.Auth").has_path, "声明 path 即 true");
     assert!(!by_fqn("App.Billing").has_path, "空数组即 false");
-    assert!(!by_fqn("App").has_path, "容器元素恒空即 false");
+    assert!(!by_fqn("App").has_path, "无 `path` 元素即 false");
 
     let value = serde_json::to_value(&briefs).expect("序列化成功");
     for item in value.as_array().expect("数组形态") {

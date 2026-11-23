@@ -1,4 +1,4 @@
-# App.Frontend.Components.Agent.ToolCards
+# Desktop.Components.Agent.ToolCards
 
 ## 职能
 

@@ -1227,7 +1227,7 @@ export const DirNodeSchema = z.strictObject({
 
 export const EdgeMarkSchema = z.union([z.literal("none"), z.literal("unfulfilled"), z.literal("crossKind"), z.literal("exempt")]);
 
-export const ElementKindSchema = z.union([z.literal("package"), z.literal("domain"), z.literal("module")]);
+export const ElementKindSchema = z.union([z.literal("package"), z.literal("domain"), z.literal("module"), z.literal("composite")]);
 
 export const EntryViaSchema = z.union([z.literal("explicit"), z.literal("convention")]);
 

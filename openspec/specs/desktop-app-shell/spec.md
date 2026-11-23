@@ -537,7 +537,7 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | `packages/desktop/src-tauri/src/commands/notifications/`（新轨道） | 通知命令面（读写同组） | `notification_subscribe`（`Channel<Notification>` 形参；先订阅后读未读计数）/ `notification_list` / `notification_mark_read` / `notification_mark_all_read` / `notification_record`；`Result<T, String>`；命令体三件事；语义与过滤口径归 desktop-notification-hub |
 | `packages/desktop/src-tauri/src/commands/mod.rs` | 命令登记面 | `pub mod notifications;` + `all_commands!` 尾部按登记序追加五条（既有条目零位移） |
 | `packages/desktop/src/app.tsx`（`ShellHeader`） | 页壳顶栏 | 终态 = 折叠钮 + 标题 + 版本/更新指示 + 通知铃铛；欢迎态不渲染 header（`root === null` 走 `WelcomeView`）；`<Toaster />` 与 `AppRoutes` 零改动 |
-| `packages/desktop/src/components/notification-bell.tsx`（新） | 顶栏铃铛 + 抽屉收件箱 | 未读徽标（99+）+ `StandardDrawer` 列表；文件落 `App.Frontend.Shell` 的 `path` 之内；跨根点击先 `select` 再 navigate |
+| `packages/desktop/src/components/notification-bell.tsx`（新） | 顶栏铃铛 + 抽屉收件箱 | 未读徽标（99+）+ `StandardDrawer` 列表；文件落 `Desktop.Shell` 的 `path` 之内；跨根点击先 `select` 再 navigate |
 | `packages/desktop/src/hooks/use-notifications.ts`（新） | 通知订阅与收件箱取数 | `Channel<Notification>` 构造 1 处 + `notification_subscribe` 调用 1 处；`Info` 不弹 toast；订阅失败静默、列表失败 inline |
 
 ### 零 delta 的陈述面（backend-notification-hub）

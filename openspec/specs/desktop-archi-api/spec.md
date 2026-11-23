@@ -8,7 +8,7 @@
 
 ### Requirement: 契约资产形态与唯一手写真相
 
-模块公共 API 契约 SHALL 以**手写 markdown 为唯一真相**，落位 `<archi_models_dir>/<分层目录…>/<FQN>.md`（`<archi_dir>` 经 `foundation::layout::archi_dir`、契约目录取既有 `foundation::layout::archi_models_dir` —— `api` 段与 `archi_api_dir` 族已退役，MUST NOT 行内字面量、MUST NOT 新增第二个目录派生函数）。`<分层目录…>` SHALL 是元素 FQN 的**祖先链镜像**：取 FQN 段链去掉**最外层根段**与**叶段**后的逐段路径（`App.Backend.Infra.ArchiRuntime` → `Backend/Infra/`、`App.Frontend.Components.Agent.AgentInput` → `Frontend/Components/Agent/`、`App.Backend` 与单段 `App` → 契约目录根零段），元素身份仍是 FQN（文件名恒为完整 FQN）、目录只是布局——同一末段的不同元素（`Backend.Core.Agent` 与 `Frontend.Components.Agent`）因祖先链不同而落在不同层次，不再混装同一目录。
+模块公共 API 契约 SHALL 以**手写 markdown 为唯一真相**，落位 `<archi_models_dir>/<分层目录…>/<FQN>.md`（`<archi_dir>` 经 `foundation::layout::archi_dir`、契约目录取既有 `foundation::layout::archi_models_dir` —— `api` 段与 `archi_api_dir` 族已退役，MUST NOT 行内字面量、MUST NOT 新增第二个目录派生函数）。`<分层目录…>` SHALL 是元素 FQN 的**祖先链镜像**：取 FQN 段链去掉**叶段**后的逐段路径（`Backend.Infra.ArchiRuntime` → `Backend/Infra/`、`Desktop.Components.Agent.AgentInput` → `Desktop/Components/Agent/`、单段包根 `Backend` → 契约目录根零段），元素身份仍是 FQN（文件名恒为完整 FQN）、目录只是布局——同一末段的不同元素（`Backend.Core.Agent` 与 `Desktop.Components.Agent`）因祖先链不同而落在不同层次，不再混装同一目录。
 
 契约文件的章节位置语义 SHALL 封闭为五类：
 
@@ -28,7 +28,7 @@
   2. **前置（留白豁免）**：契约非留白，即 `ops` / `types` / `reexports` 三项**任一非空**（取手写真假，MUST NOT 取生成的 `$defs`；只写透传的契约同样持有名字，故 `reexports` 与另两项同权）。三项全空即「契约面留白」，该元素的散文表格原样合法——这一支是前端 8 个组件元素当前形态的唯一合法通道，且属**临时债**（见下条）。
   3. **断言**：抽取集 ∩ 契约名字集（`api-op` 的 op id ∪ `api-types` 键 ∪ `api-reexport` 键）= **∅**。MUST NOT 写成「集合相等 / 散文必须镜像契约」——闸判的是「同一名字不得两处持有」；散文的职能 / 边界 / 不变量 / 承载理由仍是人审面，本闸**只判点名、不判语义**。
   违反即 `ApiError::Contract`（`load_contracts` 中止，零新增 finding kind、不进 `apiFindings`、不动十三值词汇 / 生成物 / 金样），文案 SHALL 点名文件与被复述的名字并给出路句（「名字归 fence，散文只留语义」）；行号不作承诺（与既有两条 gate 同档——段落正文未保留行号）。闸作用域为**全部 `##` 散文段**，MUST NOT 引入段名白名单或豁免清单（`## 公共面` 是临时形态，冻结成机器约定会把留白债写成结构）。
-- **前端组件契约的留白是临时状态，退役由第四条 gate 机械强制**：8 个前端元素（`App.Frontend.Components.Agent` 与其 7 个子元素）的契约三项当前全空、散文「公共面」表共 27 条数据行 ⇒ 前置不成立、闸不生效、表格**原样合法**。它们的名字清单将来由组件契约变更迁入 `$defs` / `api-op`（须先解 `$ref` 归一对称 / 组件与 JSX 元素的契约词汇 / `.i.ts` 末尾空行三处缺口，属另起变更）；一旦某元素契约非留白而同一提交未清表格，装载期即失败——**退役不是纪律要求，是闸的机械后果**。MUST NOT 提前删表（27 条人读语义无处安放），也 MUST NOT 以 `apiUndeclared` 抬档代偿（留白期抬档会把临时债读成判据面债务）。
+- **前端组件契约的留白是临时状态，退役由第四条 gate 机械强制**：8 个前端元素（`Desktop.Components.Agent` 与其 7 个子元素）的契约三项当前全空、散文「公共面」表共 27 条数据行 ⇒ 前置不成立、闸不生效、表格**原样合法**。它们的名字清单将来由组件契约变更迁入 `$defs` / `api-op`（须先解 `$ref` 归一对称 / 组件与 JSX 元素的契约词汇 / `.i.ts` 末尾空行三处缺口，属另起变更）；一旦某元素契约非留白而同一提交未清表格，装载期即失败——**退役不是纪律要求，是闸的机械后果**。MUST NOT 提前删表（27 条人读语义无处安放），也 MUST NOT 以 `apiUndeclared` 抬档代偿（留白期抬档会把临时债读成判据面债务）。
 - **统一目录（不跟代码走）**：契约 MUST NOT 落元素主目录。审计型问题（「这批改动动了哪些模块的契约」）只有统一目录能答（`git diff --stat <archi>/models/<分层目录…>/` 即列出），且无替代物；伴随型问题（「我改的这行契约同步了吗」）由门禁机械回答，不需要文件相邻。代价 SHALL 显式留痕：在 crate 里读代码时看不到契约，只能经画布 / `archi_module` / 门禁失败提示 / 全局搜索四条路之一。
 - **与模型分目录（模型声明在 `graph/model/`，契约资产在 `models/`）**：`<archi_models_dir>` SHALL 只容纳契约资产——**`<分层目录…>/` 子目录**内的 `<FQN>.md`（手写真相）+ `<FQN>.schema.json`（生成物）；模型声明（恰六个 `NN-<域>.toml`，见 `repo-archi-model`「基线落位与模型文件划分」）在另一目录 `<archi_graph_model_dir>`（`<archi_graph_dir>/model`）。两面的分离判据是**目录**：模型解析的收面只扫 `graph/model/` 一级，MUST NOT 因 `models/` 出现 md / schema / `.toml` 而改变；反向，契约面的收面 MUST NOT 把 `graph/model/*.toml` 当契约或启用证据。MUST NOT 引入目录级豁免清单（目录分家本身就是判据）。
 - **契约 md = declared 元素的入口文档（把「落点唯一」变成结构性事实）**：`api = declared`（含缺省）元素的**入口文档就是这个派生落点**，故——
@@ -71,7 +71,7 @@
 
 #### Scenario: 契约与模型分目录互不干扰
 
-- **WHEN** 在 `<archi_dir>/graph/model/` 放六个 `NN-<域>.toml`，同时在 `<archi_dir>/models/` 的 `Backend/Core/`、`Frontend/Components/Agent/` 三级分层目录下各放 `<FQN>.md` 与 `<FQN>.schema.json`，随后跑一次模型解析与一次契约装载
+- **WHEN** 在 `<archi_dir>/graph/model/` 放六个 `NN-<域>.toml`，同时在 `<archi_dir>/models/` 的 `Backend/Core/`、`Desktop/Components/Agent/` 三级分层目录下各放 `<FQN>.md` 与 `<FQN>.schema.json`，随后跑一次模型解析与一次契约装载
 - **THEN** 模型解析结果与只放六个 toml 时逐字相同（`diagnostics` 空、元素 / 关系计数不变——收面判据是「`graph/model/` 一级 + `.toml` 后缀」）；契约装载恰好读到那份 md；任一方向 MUST NOT 因两目录并存产生诊断或判据；反向在 `models/` 一级放一份合法 `.toml` MUST NOT 进模型收面
 
 #### Scenario: declared 元素写 doc 即两事实矛盾
@@ -154,7 +154,7 @@
 - 规则 5 的理由：仓库实测 17 组「字段类型序列完全相同」的类型，其中 `ArchiDependsOn` / `ArchiDependedBy` 是**出入边、语义相反**，`Diagnostic` / `ArchiDiagnostic` 是进程内 vs 线面。合并等于把两个语义变成同一个类型；身份靠名字、去重靠名字。
 - **公共面** SHALL 定义为「第一层 `properties` + 第一层经 `$ref` 可达的闭包」，该约定自动排除不出现在任何签名里的纯内部类型。
 - **位置语义**：第一层 `properties` 为模块导出成员（`x-function` 操作 / `$ref` 到具名类型）；`$defs` 为本模块自有类型与透传纯 `$ref` alias。
-- **跨模块 `$ref` SHALL 用相对文件路径**（同目录 `./<FQN>.schema.json#/$defs/<name>`；跨目录的前缀由两侧分层目录逐段求出——先上溯到公共祖先（每层 `../`）再逐段下行（`./<段>/`），因此既有 `../Infra/` 形态（同层跨子树）与 `../../Frontend/Components/`（跨层）由同一函数给出），路径由**单点函数**产出，MUST NOT 手算、MUST NOT 用自定义 URI scheme（实测 ajv 对 `module://X#/$defs/Y` 报 `can't resolve reference`，只认标准 URI）。
+- **跨模块 `$ref` SHALL 用相对文件路径**（同目录 `./<FQN>.schema.json#/$defs/<name>`；跨目录的前缀由两侧分层目录逐段求出——先上溯到公共祖先（每层 `../`）再逐段下行（`./<段>/`），因此既有 `../Infra/` 形态（同层跨子树）与 `../../Desktop/Components/`（跨层）由同一函数给出），路径由**单点函数**产出，MUST NOT 手算、MUST NOT 用自定义 URI scheme（实测 ajv 对 `module://X#/$defs/Y` 报 `can't resolve reference`，只认标准 URI）。
 
 #### Scenario: 嵌套提升原名保留且碰撞报错
 
@@ -299,8 +299,8 @@
 
   `<root>` SHALL 为 `path.first()` 经 `normalize_root` 归一的形态（`\` → `/`、剥 `./`、去尾 `/`，**MUST NOT 去扩展名**——文件型根的扩展名正是「根即入口」的判据）。**③ 不做语言判定**：目录型根没有扩展名（`language_of` 对它是 `Unknown`），故四种约定形态一律列出、按序取首个落盘者——四种形态互不相交（同一目录不可能既是 crate 又是视图），因此「按序」不构成语言猜测，也**不**退化成 R2 的列目录规则（R2 已明确否决：新增一个源文件就换默认入口，正是本变更要消灭的漂移源）。`<dir>/lib.rs` MUST NOT 在候选列内（crate 的 `lib.rs` 恒在 `src/` 下）；`<dir>.rs` / `<dir>.ts` / `<dir>.tsx` 三条 MUST NOT 在列（对目录型根它们只能指到 `path` 之外的兄弟文件，必违落位判据）。
 - **`entry` 的四条判据**（字段定义见 `desktop-archi-model`「架构模型文件格式与字段封闭」）：**基准** repo 相对 POSIX 路径（与 `path` 同口径，`./` 前缀不参与身份）；**落位** MUST 等于某条 `path` 条目或落在某条**目录型** `path` 之内（单文件根元素声明「同目录的另一个文件」也判 `OutsidePath`）；**存在** 声明或默认命中的文件 MUST 在盘上；**跨元素** 任何两个元素 MUST NOT 解析到同一入口文件。四条违反一律走 `EntryState::Invalid`，由 `apiEntryMissing` 报出（语义见 `desktop-archi-api-check`），MUST NOT 进结构化诊断（九类诊断会让整图停摆，过重）。
-- **「无入口」是合法终态**：`Absent` 即该元素不参与契约面（`apiEntryMissing` 的语义：**未声明且无约定默认**）。本仓现基线**恰一例**（本变更新增的生成物中继元素 `App.Frontend.GeneratedBindings`：`path` 指向生成目录，目录内是三个叶子文件、没有 `index.ts(x)`，且它 `api = none` 已退出入口判据 ⇒ **零 `apiEntryMissing`**）；其余元素由 ①②③ 命中。该状态仍然合法（新加目录元素在其入口落地前就会落此态），MUST NOT 用 `api = none` 冒充——两者是不同的事实（「没有门」vs「明说无公共 API」）；反向也 MUST NOT 为消一个 `Absent` 而给生成目录造 `index.ts`（生成目录不是模块入口，造了即造假入口）。
-- **`<name>` 的旧口径只剩透传命名面**：`module_name(<root>)`（路径末段）SHALL 继续只服务 Rust / TS 透传命名（D40），MUST NOT 参与生成物文件名——两者的判据不同（`App.Backend.Infra.ArchiRuntime` 的 FQN 末段是 `ArchiRuntime`、路径末段是 `archi`、入口主干是 `lib`）。
+- **「无入口」是合法终态**：`Absent` 即该元素不参与契约面（`apiEntryMissing` 的语义：**未声明且无约定默认**）。本仓现基线**恰一例**（本变更新增的生成物中继元素 `Desktop.GeneratedBindings`：`path` 指向生成目录，目录内是三个叶子文件、没有 `index.ts(x)`，且它 `api = none` 已退出入口判据 ⇒ **零 `apiEntryMissing`**）；其余元素由 ①②③ 命中。该状态仍然合法（新加目录元素在其入口落地前就会落此态），MUST NOT 用 `api = none` 冒充——两者是不同的事实（「没有门」vs「明说无公共 API」）；反向也 MUST NOT 为消一个 `Absent` 而给生成目录造 `index.ts`（生成目录不是模块入口，造了即造假入口）。
+- **`<name>` 的旧口径只剩透传命名面**：`module_name(<root>)`（路径末段）SHALL 继续只服务 Rust / TS 透传命名（D40），MUST NOT 参与生成物文件名——两者的判据不同（`Backend.Infra.ArchiRuntime` 的 FQN 末段是 `ArchiRuntime`、路径末段是 `archi`、入口主干是 `lib`）。
 - **不强制模块成目录，也不禁止目录成模块**：前端 14 个单文件根元素零模型改动——② 让「根文件自身」成为入口；目录型根的门由约定默认（③）或显式 `entry` 给出。反向同理：目录型根补一个 `index.ts(x)` 即由 ③ 命中，**无需**声明 `entry`（本仓 12 个目录模块入口即此形态，见 `repo-archi-model`「基线落位与模型文件划分」）；本能力 MUST NOT 因「目录型根没有入口」要求新增字段或解析分支。
 - **入口编排 SHALL 固定为**：入口文件顶部 `#[path = "<文件名>"] mod api_gen; pub use api_gen::*;`，既有 `pub mod` 声明原样不动。生成类型经 `pub use` 对外可引用；与既有同名类型冲突时编译器直接报 E0255，**不会静默覆盖**。
 - `#[path]` 的值 SHALL 为**字面量**，且 SHALL 恒为**入口同级的生成物文件名**——生成物与入口同目录，故值里零 `../`、零目录段：
@@ -364,7 +364,7 @@
 #### Scenario: 本仓入口面实测 46 / 45 / 1 / 0
 
 - **WHEN** 对本仓 46 个 `path` 非空元素跑 `entry_state`
-- **THEN** `Resolved` **45** 条：14 个自研 crate 由 ③ 命中 `src/lib.rs` + 多文件根 `App.Frontend.Shell` 由 ② 命中 `app.tsx` + **14** 个前端单文件根由 ② 命中自身（7 个 `components/agent/*.tsx` + 6 个 `standard/*.tsx`（含 `combobox.tsx`）+ `views/welcome-view.tsx`）——其中目录模块 `App.Frontend.Components.Agent` 改由 ③ 命中 `components/agent/index.tsx` + **12** 个目录模块根由 ③ 命中 `index.ts(x)` + 壳 `App.Backend.Shell` 与两个工具 crate 由 ① 命中显式 `entry` = **45**；`Absent` **1** 条（`App.Frontend.GeneratedBindings`：`path` 为生成目录、目录内无 `index.ts(x)`，且它 `api = none` ⇒ **零 `apiEntryMissing`**）、`Invalid` **0** 条。三处显式 `entry` 仍是本节 ① 在本仓的**唯一实例**（12 个目录模块入口走 ③，MUST NOT 为其补 `entry` 行；生成物中继元素也 MUST NOT 为它补 `entry`——生成目录的叶子文件不是模块入口）；反向判据：删掉任一目录的 `index.ts` 即该元素回落 `Absent` 并产一条 `apiEntryMissing`，说明「入口面清零」是**文件在盘**的结果而不是判据放宽
+- **THEN** `Resolved` **45** 条：14 个自研 crate 由 ③ 命中 `src/lib.rs` + 多文件根 `Desktop.Shell` 由 ② 命中 `app.tsx` + **14** 个前端单文件根由 ② 命中自身（7 个 `components/agent/*.tsx` + 6 个 `standard/*.tsx`（含 `combobox.tsx`）+ `views/welcome-view.tsx`）——其中目录模块 `Desktop.Components.Agent` 改由 ③ 命中 `components/agent/index.tsx` + **12** 个目录模块根由 ③ 命中 `index.ts(x)` + 壳 `Backend.Shell` 与两个工具 crate 由 ① 命中显式 `entry` = **45**；`Absent` **1** 条（`Desktop.GeneratedBindings`：`path` 为生成目录、目录内无 `index.ts(x)`，且它 `api = none` ⇒ **零 `apiEntryMissing`**）、`Invalid` **0** 条。三处显式 `entry` 仍是本节 ① 在本仓的**唯一实例**（12 个目录模块入口走 ③，MUST NOT 为其补 `entry` 行；生成物中继元素也 MUST NOT 为它补 `entry`——生成目录的叶子文件不是模块入口）；反向判据：删掉任一目录的 `index.ts` 即该元素回落 `Absent` 并产一条 `apiEntryMissing`，说明「入口面清零」是**文件在盘**的结果而不是判据放宽
 
 #### Scenario: 生成物中继元素的 Absent 不是债
 
@@ -510,7 +510,7 @@
 - **bootstrap SHALL 走 AST，MUST NOT 正则抽签名**：Rust 侧实测多行签名占 `pub fn` 的 30–62%（`core/checks` 13/21、`core/archi` 16/27），`grep` 单行抽取会截半签名。TS 侧只需判定 `export function`——实测 `export const` 里零个箭头函数（0/132），故 MUST NOT 为「从初始化表达式推断函数」造启发式。
 - **`visibility` SHALL 为封闭四值**（bootstrap 剪枝的机械判据）：`external`（跨元素可达，真承诺保留）/ `crateOnly`（仅同 crate 或同元素目录内可达，内部契约保留但降格）/ `unused`（全仓无引用者，**伪公共首选删除对象**）/ `testOnly`（仅测试树内引用，不进 API）。**词表封闭 ≠ 两语言都判得出四值，更 ≠ 本期生产面都产得出**：本期可控值域 SHALL 按语言分列——Rust 侧四值可判（`pub mod` 链或 `pub use` 白名单 / `pub(crate)` / 私有 `mod` 内的 `pub` / `#[cfg(test)]` 树）；TS 侧**本期生产面只产 `external`**（有 `export`），`unused` 的降级接口 `apply_knip_report` 已实现但**产品路径零调用者**、`archi-api-gen` 与 `api::bootstrap` 均不读 `knip` ⇒ `Visibility::Unused` 在**本期生产面不可达**，这是**显式留白**而非疏漏（MUST NOT 用「已实现」掩盖；接线是独立变更）；`crateOnly` / `testOnly` **本期留白**（判据需跨文件 import 反向事实，取数器只吃单文件 AST）。留白项 MUST NOT 以「文件是否在元素目录内」或「文件名含 `.test.`」充当 proxy（`.spec.*` / `__tests__/**` / `fixtures/**` 均不作 proxy）。
 - **MUST NOT 为 TS 造第二套死代码扫描**：本期 SHALL NOT 读 `knip` 报告（`apply_knip_report` 产品路径零调用者，`archi-api-gen` 与 `api::bootstrap` 对 `knip` 零命中）⇒ `unused` 降级在本期生产面不可达，属显式留白；接线时 `unused` 判据 SHALL 取自 `knip` 报告（`client:check` 已含），且 `knip.json` 的 `ignore` 面与 archi 模型排除面高度一致，直接沿用其判定，MUST NOT 另造一套死代码扫描。
-- **试点先行**：bootstrap 的首次落地 SHALL 只做**一个**元素（`App.Backend.Infra.ArchiRuntime`，14 个 crate 元素里公开面最小的 2 项），由人工或 agent 删除伪公共面形成初版契约；其余元素的契约 SHALL 按后续变更逐个追加（MUST NOT 一次性铺开）。
+- **试点先行**：bootstrap 的首次落地 SHALL 只做**一个**元素（`Backend.Infra.ArchiRuntime`，14 个 crate 元素里公开面最小的 2 项），由人工或 agent 删除伪公共面形成初版契约；其余元素的契约 SHALL 按后续变更逐个追加（MUST NOT 一次性铺开）。
 - **bootstrap 的近似误差 SHALL 如实留痕**：glob 导入（`use a::*`）、同名符号、宏生成引用都会让「有引用者」判定偏宽——这些是 bootstrap 的已知近似，MUST NOT 被伪装成精确结果。
 
 #### Scenario: verify 三件套闭环
@@ -562,14 +562,14 @@
 两条推论：
 
 - **递归透传 MUST NOT 展开**：若 A ⊃ B ⊃ C，A 只声明透传 B；B 内部已透传 C 则自动带出。
-- **透传是选择性的**（实测非假设）：`App.Frontend.Components.Agent` 有 **7** 个子元素，其 barrel（`components/agent/index.tsx`，即该元素的文件型 `path`）经 `export … from` 只重导出其中 **4** 个子元素的导出——`AgentInput`（`Agent.AgentInput`）、`AskAnswerActions`（`Agent.AgentMessages`）、`AgentSessionView` / `AgentSessionActions` / `AgentSessionViewProps`（`Agent.AgentSessionView`）、`SessionPanel` / `SessionPanelState`（`Agent.AgentSessionPanel`，该文件已是元素）；`AgentBlocks` / `AgentError` / `ToolCards` 三个子元素不出现。故「子元素存在」≠「父元素透传它」，父契约仍是「透传自子元素 / 自有 / 子元素但不导出」三类混合（本元素现态无自有导出），MUST NOT 自动推导——代码侧可达面由 `desktop-archi-api`「TS 导出闭包的取数面」给出，它**不构成**父契约可以自动生成的许可。
+- **透传是选择性的**（实测非假设）：`Desktop.Components.Agent` 有 **7** 个子元素，其 barrel（`components/agent/index.tsx`，即该元素的文件型 `path`）经 `export … from` 只重导出其中 **4** 个子元素的导出——`AgentInput`（`Agent.AgentInput`）、`AskAnswerActions`（`Agent.AgentMessages`）、`AgentSessionView` / `AgentSessionActions` / `AgentSessionViewProps`（`Agent.AgentSessionView`）、`SessionPanel` / `SessionPanelState`（`Agent.AgentSessionPanel`，该文件已是元素）；`AgentBlocks` / `AgentError` / `ToolCards` 三个子元素不出现。故「子元素存在」≠「父元素透传它」，父契约仍是「透传自子元素 / 自有 / 子元素但不导出」三类混合（本元素现态无自有导出），MUST NOT 自动推导——代码侧可达面由 `desktop-archi-api`「TS 导出闭包的取数面」给出，它**不构成**父契约可以自动生成的许可。
 - **环依赖从此不可能**：跨元素 `$ref` 只剩「父→子」与「兄弟→兄弟」两类边，必然可拓扑排序。禁断子→父的最大价值不是禁断本身，而是让「把子目录提升为元素」变成一次真实的解耦决策（`infra/agent` 要把 `sdk/` 提升为元素，先得把 3 个类型从 `lib.rs` 挪出来）。
 - **MUST NOT 新增契约层依赖判据**：契约不是依赖事实源，事实链是「契约 → 生成物 → 代码 import → `scan` 取数 → `OwnerIndex` 归属 → `drift::check` 对账既有 `UndeclaredDependency`」。判据建在事实源（代码）上，不在投影（契约）上；新增判据只在「契约自身内部矛盾」时成立。
 - **契约记录「提供什么」，不记录「实现了什么」**：MUST NOT 在 `$defs` 条目上记 `implements` 注记（重复表达 model relation、污染契约语义、判据已被编译器与 `UndeclaredDependency` 双重覆盖）。推论：三个 runner 的契约面就是 `new()`——该薄面是代码形状的事实，处置是改代码（暴露已存在的私有纯函数）而非放宽格式。
 
 #### Scenario: 父契约逐项声明而不自动推导
 
-- **WHEN** 为 `App.Frontend.Components.Agent` 写契约：`api-reexport` 只声明 barrel 实际重导出的 7 个名字中的 2 个（`AgentInput` / `AgentSessionView`），其余重导出项（`AskAnswerActions` / `AgentSessionActions` / `AgentSessionViewProps` / `SessionPanel` / `SessionPanelState`）后续逐条追加，`AgentBlocks` / `AgentError` / `ToolCards` 三个子元素不出现
+- **WHEN** 为 `Desktop.Components.Agent` 写契约：`api-reexport` 只声明 barrel 实际重导出的 7 个名字中的 2 个（`AgentInput` / `AgentSessionView`），其余重导出项（`AskAnswerActions` / `AgentSessionActions` / `AgentSessionViewProps` / `SessionPanel` / `SessionPanelState`）后续逐条追加，`AgentBlocks` / `AgentError` / `ToolCards` 三个子元素不出现
 - **THEN** `api-reexport` fence 恰 2 条、`$defs` 恰 2 条纯 `$ref` 条目、本次零本地定义（该元素现态无自有导出）；三个未导出子元素零出现；生成的 `.i.ts` 为 `export { AgentInput } from …` / `export { AgentSessionView } from …`；代码侧闭包可达 7 名**不构成**「契约应自动含 7 条」的判据——父契约逐项手写（MUST NOT 自动推导）
 
 #### Scenario: 透传条目带结构关键字即错
@@ -618,7 +618,7 @@
 
 #### Scenario: 自洽契约零误伤
 
-- **WHEN** 对现网唯一契约（`App.Backend.Infra.ArchiRuntime`，`properties` 为空对象且零 `required`）与任意 `required ⊆ properties` 的契约执行装载
+- **WHEN** 对现网唯一契约（`Backend.Infra.ArchiRuntime`，`properties` 为空对象且零 `required`）与任意 `required ⊆ properties` 的契约执行装载
 - **THEN** 两者均通过；装载产物与改动前逐字相同
 
 ### Requirement: 降级词表与真实债表
@@ -639,7 +639,7 @@
 - **计数口径 = 标记出现次数**：`INDEX.toml` 每元素的 `degraded` SHALL 等于该元素 `schema.json` 内 `x-common.degraded` 标记的**出现次数**，扫描面为**全深度**（`$defs` 条目自身、条目第一层 `properties` 的值、`properties` 里的 `x-function.params[].schema`，以及更深层的对象 / 数组）。口径由「`$defs` 条目数」改为「标记数」：真实降级落点在属性位（演练草案的 `session` / `sessions.items` / `send.input` 三处都在 `properties` 值上），条目级计数看不见它们。
 - **单点扫描**：计数与取值校验 SHALL 共用同一个全深度扫描函数（`degraded_marks(schema) -> Vec<(pointer, value)>`），MUST NOT 存在第二套遍历——`verify_defs`（校验）与 `index_entries`（计数）各调一次，一处改口径两处随动。
 - **显式留白**：把「必须写 `degraded`」**机械强制**（判「不可达却未写标记」）不在本期——它需要跨元素可达性知识（`$ref` 目标是否直接子元素 / 契约是否在案），属 `check` 面（见 `desktop-archi-api-check`）；本 requirement 只给词表、取值校验与计数。留白 MUST NOT 被伪装成已实现。
-- **零影响**：现网唯一契约（`App.Backend.Infra.ArchiRuntime`）零 `degraded` 标记 ⇒ 现网计数仍为 `0`、`INDEX.toml` 逐字不变。
+- **零影响**：现网唯一契约（`Backend.Infra.ArchiRuntime`）零 `degraded` 标记 ⇒ 现网计数仍为 `0`、`INDEX.toml` 逐字不变。
 
 #### Scenario: 词表外值与非字符串值在装载期被拒
 
@@ -701,12 +701,12 @@
 
 #### Scenario: 本仓 Components.Agent 取数面恰七名
 
-- **WHEN** 以本仓根对 `App.Frontend.Components.Agent`（`path = ./packages/desktop/src/components/agent/`，目录型；入口由 ③ 命中目录内 `index.tsx`）取数
+- **WHEN** 以本仓根对 `Desktop.Components.Agent`（`path = ./packages/desktop/src/components/agent/`，目录型；入口由 ③ 命中目录内 `index.tsx`）取数
 - **THEN** 导出集恰 7 个名字 `AgentInput` / `AskAnswerActions` / `AgentSessionView` / `AgentSessionActions` / `AgentSessionViewProps` / `SessionPanel` / `SessionPanelState`（3 个 `Function` + 4 个 `Type`）；`AgentInputProps` / `AgentMessagesProps` / `isToolPart` 零命中（未被 barrel 导出 ⇒ 具名名单不入集）；同一次取数在 `bootstrap` 草稿里表现为非空骨架。**路径形态翻转前后取数结果逐字相同**——入口仍是同一份 `index.tsx`，翻转只改 `kind` 与 `path` 的用法
 
 #### Scenario: 本仓目录模块入口的取数面
 
-- **WHEN** 分别对 `App.Frontend.Views.Changes`（入口 `views/changes/index.ts`）与 `App.Frontend.Views.Changes.Renderers`（入口 `views/changes/renderers/index.ts`）取数
+- **WHEN** 分别对 `Desktop.Views.Changes`（入口 `views/changes/index.ts`）与 `Desktop.Views.Changes.Renderers`（入口 `views/changes/renderers/index.ts`）取数
 - **THEN** 前者导出集恰 `ChangeDetailView` / `ChangeListView` 两名，后者恰 `ArtifactTabs` / `MarkdownDocRenderer` 两名；两元素的目录内其余公开符号（如 `renderers/registry.ts` 的成员、`changes/hooks/**`）**零命中**（未被入口聚合 ⇒ 不在公共面）；`Components.Ui` 的导出面按 39 条 `export *` 取全量（其「目录 = 模块」语义由 `desktop-frontend-module-entry` 定义）
 
 #### Scenario: 留白形态零产出
@@ -716,7 +716,7 @@
 
 #### Scenario: 注记行指向真实定义文件
 
-- **WHEN** 对本仓 `App.Frontend.Components.Agent` 起草（`bootstrap`）
+- **WHEN** 对本仓 `Desktop.Components.Agent` 起草（`bootstrap`）
 - **THEN** 每个符号的注记指向其真实定义文件与行（`AgentInput` → `packages/desktop/src/components/agent/agent-input.tsx:152`、`SessionPanel` → `…/session-panel.tsx:230`、`AskAnswerActions` → `…/agent-messages.tsx:33`），MUST NOT 出现把入口 `index.tsx` 与目标文件行号拼在一起的形态；Rust 侧同一条纪律（子模块 `pub fn` 的注记指向子模块文件）
 
 #### Scenario: 解析失败静默跳过
@@ -803,7 +803,7 @@
 | `crates/core/archi/src/api/contract.rs` | 契约解析 | 五类位置语义、双向 gate、`$defs` 规则、落点闸逐字不变；仅 `FENCE_OP` / `FENCE_TYPES` 提 `pub(crate)` 供启用判据与 `apiDocMissing` 复用 |
 | `crates/core/archi/src/api/{schema,render,emit,extract,diff}.rs` | 生成与取数 | 逐字不变（`doc` 不是生成物；`.i.*` 落点仍是入口的函数） |
 | `crates/core/archi/src/dto.rs::ArchiApiRef` | 契约状态投影 | 四字段（`status` / `contractPath` / `schemaPath` / `generatedPath`）零改动；`declared` 元素的 `contractPath` 同时是它的**入口文档**路径（前端据此渲「契约」行，不得再渲第二条入口文档） |
-| `.dev-team/architecture/models/**`（仓内资产） | 试点契约 | `.dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md` 与 `.schema.json` 逐字不变（它是启用判据的唯一在案证据） |
+| `.dev-team/architecture/models/**`（仓内资产） | 试点契约 | `.dev-team/architecture/models/Infra/Backend.Infra.ArchiRuntime.md` 与 `.schema.json` 逐字不变（它是启用判据的唯一在案证据） |
 
 ### 模块增量：装载期名字清单闸（archi-doc-api-surface-unification）
 

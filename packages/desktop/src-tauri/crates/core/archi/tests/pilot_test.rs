@@ -2,7 +2,7 @@
 //!
 //! 单测里 `contract::parse` / `schema::build_schema` / `emit::*` 的夹具都是**手写源文**，
 //! 只能证明「给定源文时函数行为正确」；本文件补的是**在盘事实**：试点元素
-//! `App.Backend.Infra.ArchiRuntime` 的 `.md` / `.schema.json` / `.i.rs` / `INDEX.toml`
+//! `Backend.Infra.ArchiRuntime` 的 `.md` / `.schema.json` / `.i.rs` / `INDEX.toml`
 //! 与手写 `impl` 是否逐项对齐（AC-13 / AC-2 / AC-10 / AC-17）。
 //!
 //! 零 mock：真实读盘（仓库内资产）+ 真实 `parse` / `build_schema` / `emit::rust::render`
@@ -26,7 +26,7 @@ use foundation::layout::archi_models_dir;
 use serde_json::Value;
 
 /// 试点元素 FQN。
-const FQN: &str = "App.Backend.Infra.ArchiRuntime";
+const FQN: &str = "Backend.Infra.ArchiRuntime";
 
 /// 试点元素根（`path[0]` 的归一形态）。
 const ELEMENT_ROOT: &str = "packages/desktop/src-tauri/crates/infra/archi";
@@ -426,7 +426,7 @@ fn 索引零语言词且计数与真实源文同源() {
         generated_rel: Some(generated_rel()),
     };
     let absent = IndexEntry {
-        fqn: "App.Backend.Infra.Absent".to_owned(),
+        fqn: "Backend.Infra.Absent".to_owned(),
         status: ApiFormStatus::Absent,
         types: 0,
         ops: 0,
@@ -615,7 +615,7 @@ fn 投影对容器元素与未声明fqn可辨() {
         "空串元素根与空 `path` 同形（都无生成物）"
     );
 
-    let undeclared_element = pilot_element("App.Backend.Infra.NotExists", &[ELEMENT_ROOT]);
+    let undeclared_element = pilot_element("Backend.Infra.NotExists", &[ELEMENT_ROOT]);
     let undeclared = api_ref_of(
         &root,
         std::slice::from_ref(&undeclared_element),
@@ -751,16 +751,13 @@ fn 契约目录全量装载全线通过且两档各有通过项() {
     );
 }
 
-/// 正向（组合链路 · 后端两份）：`App.Backend.Core.Foundation` /
-/// `App.Backend.Infra.ArchiRuntime` 落在通过集内，且各自散文零表格行 ⇒ 通过（AC-1 反向
+/// 正向（组合链路 · 后端两份）：`Backend.Core.Foundation` /
+/// `Backend.Infra.ArchiRuntime` 落在通过集内，且各自散文零表格行 ⇒ 通过（AC-1 反向
 /// 判据：其散文列表项含留白 op 名，零抽取、不误伤）。
 #[test]
 fn 组合链路后端两份散文零表格行() {
     let loaded = load_all_contracts();
-    for fqn in [
-        "App.Backend.Core.Foundation",
-        "App.Backend.Infra.ArchiRuntime",
-    ] {
+    for fqn in ["Backend.Core.Foundation", "Backend.Infra.ArchiRuntime"] {
         let item = loaded
             .iter()
             .find(|item| item.fqn == fqn)
@@ -781,7 +778,7 @@ fn 组合链路后端两份散文零表格行() {
     }
 }
 
-/// 正向（组合链路 · 前端留白契约）：`Frontend/` 下的契约（`api-types` 全 `{}`、零 `api-op`、
+/// 正向（组合链路 · 前端留白契约）：`Desktop/` 下的契约（`api-types` 全 `{}`、零 `api-op`、
 /// 零 `api-reexport`、散文多行表格）落在通过集内且全判留白 ⇒ 通过——AC-3 留白豁免的行为
 /// 证据：表格仍在盘而装载零错误，MUST NOT 把它们读成回归；份数不钉死，按在盘份数逐份断。
 #[test]
@@ -791,7 +788,7 @@ fn 组合链路前端留白契约全量通过() {
         .iter()
         .filter(|item| {
             item.rel
-                .starts_with(".dev-team/architecture/models/Frontend/")
+                .starts_with(".dev-team/architecture/models/Desktop/")
         })
         .collect();
     assert!(!frontend.is_empty(), "前端组件契约应在收面内（当前 8 份）");
@@ -816,10 +813,10 @@ fn 组合链路前端留白契约全量通过() {
 /// MUST NOT 落成「静默跳过」。
 #[test]
 fn 组合链路失败可见且不静默跳过() {
-    let rel = ".dev-team/architecture/models/Backend/Core/App.Demo.Broken.md";
-    let source = "# App.Demo.Broken\n\n## 公共面\n\n| `is_set` | 判定 |\n\n### is_set\n\n\
+    let rel = ".dev-team/architecture/models/Backend/Core/Backend.Demo.Broken.md";
+    let source = "# Backend.Demo.Broken\n\n## 公共面\n\n| `is_set` | 判定 |\n\n### is_set\n\n\
                   ```json api-op\n{\"params\": []}\n```\n";
-    let message = load_contract(rel, "App.Demo.Broken", source)
+    let message = load_contract(rel, "Backend.Demo.Broken", source)
         .expect_err("非留白契约的散文表格复述契约名 ⇒ 应报装载期错误");
     assert!(message.contains(rel), "消息含 repo 相对路径串：{message}");
     assert!(
@@ -827,8 +824,12 @@ fn 组合链路失败可见且不静默跳过() {
         "消息含第四闸的错误文案：{message}"
     );
 
-    let broken_h1 = load_contract(rel, "App.Demo.Broken", "# App.Demo.Other\n\n正文。\n")
-        .expect_err("H1 与文件名不一致 ⇒ 解析期错误");
+    let broken_h1 = load_contract(
+        rel,
+        "Backend.Demo.Broken",
+        "# Backend.Demo.Other\n\n正文。\n",
+    )
+    .expect_err("H1 与文件名不一致 ⇒ 解析期错误");
     assert!(
         broken_h1.contains(rel) && broken_h1.contains("解析失败"),
         "解析期失败同样点名路径：{broken_h1}"

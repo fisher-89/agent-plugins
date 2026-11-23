@@ -1,4 +1,4 @@
-# App.Backend.Core.Foundation
+# Backend.Core.Foundation
 
 ## 职能
 

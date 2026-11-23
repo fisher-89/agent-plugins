@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义架构模型的格式与解析契约：`<archi_dir>/graph/model/*.toml` 的「一元素一表头」格式与字段封闭（含 `doc` 单值入口文档指针）、多文件聚合与声明位置回填、结构诊断九类分工（parser 免费组 / archi 自实现组）、`ModelGraph` 单点构建与三消费面裁剪型投影、消费面词汇集对拍（四面，含架构会话知识文本）、gate 写回纯函数、模型结构 diff 与九命令（含两条契约面命令）IPC 契约。
+定义架构模型的格式与解析契约：`<archi_dir>/graph/model/*.toml` 的「一元素一表头」格式与字段封闭（含 `doc` 单值入口文档指针）、多文件聚合与声明位置回填、结构诊断九类分工（parser 免费组 / archi 自实现组）、`ModelGraph` 单点构建与三消费面裁剪型投影、消费面词汇集对拍（三面：进程内诊断 / 工具响应 / IPC DTO）、gate 写回纯函数、模型结构 diff 与九命令（含两条契约面命令）IPC 契约。
 
 ## Requirements
 
@@ -11,47 +11,49 @@
 架构模型 SHALL 落位 `<archi_dir>/graph/model/*.toml`（模型声明目录经 `foundation::layout::archi_graph_model_dir` 派生，MUST NOT 行内字面量），格式 SHALL 为 TOML「一元素一表头」：
 
 ```toml
-[element."App"]
+[element."Backend"]
 kind = "package"
+path = ["./packages/desktop/src-tauri/"]
 
-[element."App.Auth"]
+[element."Backend.Core.Auth"]
 kind = "domain"
 path = ["./src/auth/", "./src/auth-legacy/"]
 gate = "strict"
 summary = "认证与令牌签发"
 metadata = { owner = "platform" }
 
-[element."App.Backend"]
-kind = "domain"
+[element."Backend.Core.Auth.Store"]
+kind = "module"
+path = ["./src/auth/store/"]
 
 # 目录型壳的约定默认拼成 .../src-tauri/src/src/lib.rs（指不到），故此处显式 entry 是正当用法
 # （本仓三处显式 entry 在案的实例，与本示例同形；数据纪律见 repo-archi-model）
-[element."App.Backend.Shell"]
+[element."Backend.Shell"]
 kind = "module"
 path = ["./packages/desktop/src-tauri/src/"]
 entry = "./packages/desktop/src-tauri/src/lib.rs"
 
 # 无公共 API 的元素用 doc 声明入口文档（declared 元素 MUST NOT 写 doc）
-[element."App.Backend.Tools.ExportBindings"]
-kind = "module"
+[element."Backend.Tools.ExportBindings"]
+kind = "package"
 path = ["./packages/desktop/src-tauri/crates/tools/export-bindings/"]
 api = "none"
 doc = "./packages/desktop/src-tauri/crates/tools/export-bindings/README.md"
 
 [[relation]]
-from = "App.Auth"
-to   = "App.Shared"
+from = "Backend.Core.Auth.Store"
+to   = "Backend.Core.Auth"
 desc = "复用错误类型"
 apis = ["ErrorCode"]        # 选填：这条依赖实际用到 `to` 元素的哪几个代码导出名
 ```
 
-- **键形裁决**：`element` 表的键 SHALL 为**带引号的完整 FQN 单键**（`[element."App.Auth"]`），MUST NOT 用未引号点分形式（`[element.App.Auth]`）声明层级——两种写法并存会使同一层级存在两种拼法、歧义不可判。层级 SHALL 由 **FQN 最长前缀**推导（`App.Auth.Token` 的父亲是 `App.Auth`），MUST NOT 由 TOML 表嵌套推导。
+- **键形裁决**：`element` 表的键 SHALL 为**带引号的完整 FQN 单键**（`[element."Backend.Core.Auth"]`），MUST NOT 用未引号点分形式（`[element.Backend.Core.Auth]`）声明层级——两种写法并存会使同一层级存在两种拼法、歧义不可判。层级 SHALL 由 **FQN 最长前缀**推导（`Backend.Core.Auth.Store` 的父亲是 `Backend.Core.Auth`），MUST NOT 由 TOML 表嵌套推导。
 - **字段面封闭**：元素字段 SHALL 为标量 / 数组 / **内联表**三形态；`metadata` MUST NOT 用子表（`[element."X".metadata]`）表达——子表与「子元素表头」同构，会被读成元素 `X.metadata`。
 - **关系条目字段面（本变更新增第四键）**：每条 `[[relation]]` SHALL 为四键——`from` / `to` 必填，`desc` / **`apis`** 可选；`apis` SHALL 为**字符串数组**（缺省空 = 不声明 API 粒度）。`deny_unknown_fields` 语义不变：`api = ["X"]`（单数拼错）报 `unknownField`，与元素表的 `api` 字段互不干扰。
 - **`apis` 的值面四条（只许名字）**：① **只许名字**——逐项 MUST NOT 含空白、MUST NOT 含 `::`、MUST NOT 表达签名 / 参数 / 类型形状，即不得是「`config_path() -> PathBuf`」或「`scan::ImportFact`」一类形态；② **非空**——逐项 MUST NOT 为空串；③ **不重复**——同一关系的 `apis` 内同名重复即拒收（MUST NOT 静默去重，静默去重会让「写重了」与「写对了」不可辨）；④ **空数组拒收**——`apis = []` 与省略同义，显式空数组报 `invalidValue`（同 `doc = [..]` / `entry = [..]` 的「显式错形态直接拒收」先例）。四条违反一律 `invalidValue` + 位置，模型整体停摆。
 - **`apis` 的取值域 = `to` 元素的代码导出名**：与扫描事实（`ImportFact.names` / `DependencyEdge.names`）同一名字空间，比对 SHALL **逐字符**（MUST NOT 大小写折叠、MUST NOT 驼峰归一——否则判定侧常驻第二处映射规则）。取值域 MUST NOT 收窄为「契约 fence 声明的 op / `$defs` 名」：契约声明面是留白面（前端契约 `props = 0`），收窄即不可用；也 MUST NOT 放宽为「协议正文」（见下条）。
 - **`apis` 是开放值集，不进封闭词汇对拍**：与 `doc` / `entry` 同列——它的值域是任意代码标识符（开放集），不是封闭词汇；因此四组派生 `ALL` 常量与「消费面词汇集一致性对拍」的词表 MUST NOT 因本字段扩张，知识文本也只给纪律句、不给词表。
-- **值域封闭**：`kind` 必填且 SHALL 为 `package` / `domain` / `module` 三值之一；`gate` 可选且 SHALL 为 `off` / `warn` / `strict` 三值之一（缺省 `off`）；**`api`** 可选且 SHALL 为 `declared` / `none` 二值之一（缺省 `declared`）；**`entry`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「一个入口只属于一个模块」这条约束不可表达）；`path` SHALL 为字符串数组（缺省空）；**`doc`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「入口文档唯一」不可表达）；`summary` 可选字符串；`metadata` SHALL 为字符串→字符串的自由表（未知键忽略，非字符串值即 `invalidValue`）。**`docs` 已退役**：字段面 MUST NOT 含 `docs`，写了即 `unknownField`。
+- **值域封闭**：`kind` 必填且 SHALL 为 `package` / `domain` / `module` / `composite` 四值之一（类型层级从大到小：包 > 领域 > 模块，`domain` 层可省略；`composite` 无实际层级，仅把过多的同级元素分类，可嵌套在任意类型之上）；`gate` 可选且 SHALL 为 `off` / `warn` / `strict` 三值之一（缺省 `off`）；**`api`** 可选且 SHALL 为 `declared` / `none` 二值之一（缺省 `declared`）；**`entry`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「一个入口只属于一个模块」这条约束不可表达）；`path` SHALL 为字符串数组（缺省空）；**`doc`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「入口文档唯一」不可表达）；`summary` 可选字符串；`metadata` SHALL 为字符串→字符串的自由表（未知键忽略，非字符串值即 `invalidValue`）。**`docs` 已退役**：字段面 MUST NOT 含 `docs`，写了即 `unknownField`。
 - **未知字段拒绝**：元素表内出现未列出的字段（如 `gatte` / `docs`）SHALL 由 `deny_unknown_fields` 拒绝（`unknownField`）。
 - **属性与语义分离**：`gate` 档位 SHALL 是模型属性（本能力定义其值域与缺省）；档位的**语义消费**（参与归属、违例定级、门禁结论）归 `desktop-archi-drift` 与 `desktop-archi-gate`，本能力 MUST NOT 定义任何定级规则。
 - **`api` 状态指针（显式字段，非 `metadata`）**：元素 SHALL 有封闭二值的 `api` 字段（`declared` 缺省 / `none`，附 `ApiStatus::ALL`），语义为「本模块是否有公共 API 契约」的状态指针，并新增一层角色：**它是入口文档载体的开关**——`declared` ⇒ 入口文档 = 派生落点 `<models>/<分层目录…>/<FQN>.md`（= `contract_path`，`doc` MUST NOT 再声明第二个事实）；`none` ⇒ 入口文档 = `doc` 声明（可选）。该字段 MUST NOT 承载任何协议正文（签名 / 符号 / 接口 / 规范全文）。走显式字段而非 `metadata` 自由键的理由是可获得 `deny_unknown_fields` 的拼写校验：`api = "non"` 报 `invalidValue` 并列全合法值，而 `metadata = { api = "non" }` 会静默变成「未声明」。完备性判据（每个 `path` 非空元素 ∈ {`none`} ∪ {载体在案}）归 `desktop-archi-api-check`。
@@ -62,25 +64,25 @@ apis = ["ErrorCode"]        # 选填：这条依赖实际用到 `to` 元素的�
 - **关系 `apis` 不属协议正文（本变更的边界区分，防被当作破例）**：上条禁令的对象是**元素**上的正文，理由是「存一份正文必然漂移」。`relation.apis` 在四个维度上都与之可分——① **位置**：在关系上（**消费方**的依赖选择），不是元素上（提供方的自我描述）；② **内容**：只有名字，没有签名 / 类型形状 / 接口定义；③ **权威**：名字的权威仍在代码导出集与契约 fence，模型只回答「这条依赖选了哪几个」；④ **抗漂移**：每次检查与扫描事实机械对差（两桶见 `desktop-archi-drift`），错名不会静默。因此**元素**上的正文禁令逐字保留，关系上的**名字清单**被本条显式授权；把签名 / 类型形状 / `::` 限定路径写进 `apis` 仍按上条拒收。
 - 新元素缺省 `gate = "off"`（ratchet：存量全 `off`，想收紧的模块逐个改 `strict`，一个 change 收紧一块）。
 
-#### Scenario: 三值 kind 与三值 gate 解析成功
+#### Scenario: 四值 kind 与三值 gate 解析成功
 
-- **WHEN** 以合法模型（含 `package` / `domain` / `module` 三类元素与 `off` / `warn` / `strict` 三档 `gate`，其中至少一个元素省略 `gate`）
+- **WHEN** 以合法模型（含 `package` / `domain` / `module` / `composite` 四类元素与 `off` / `warn` / `strict` 三档 `gate`，其中至少一个元素省略 `gate`）
 - **THEN** 解析成功；省略 `gate` 的元素取 `off`；每个元素的 `path` 缺省为空数组、`metadata` 缺省为空表、`entry` 与 `doc` 缺省为 `null`
 
 #### Scenario: 非法 kind 与非法 gate 被拒并列全合法值
 
 - **WHEN** 模型写 `kind = "pakage"` 或 `gate = "stirct"`
-- **THEN** 解析返回 `invalidValue` 诊断，`message` 含 parser 原文（`line` / `column` / 源码片段 / `^^^^` 指示）并**列出全部合法值**（`package` / `domain` / `module` 或 `off` / `warn` / `strict`），模型整体判定为停摆态
+- **THEN** 解析返回 `invalidValue` 诊断，`message` 含 parser 原文（`line` / `column` / 源码片段 / `^^^^` 指示）并**列出全部合法值**（`package` / `domain` / `module` / `composite` 或 `off` / `warn` / `strict`），模型整体判定为停摆态
 
 #### Scenario: 内联 metadata 与非内联形态
 
-- **WHEN** 分别以 `metadata = { owner = "platform", tier = "core" }` 与 `[element."App.Auth".metadata]` 子表形态写 metadata
-- **THEN** 内联形态解析成功且未知键被接受；子表形态不产生 `App.Auth` 的 `metadata`（该表被读成另一个元素 FQN），并因该元素缺 `kind` 报 `missingField`
+- **WHEN** 分别以 `metadata = { owner = "platform", tier = "core" }` 与 `[element."Backend.Core.Auth".metadata]` 子表形态写 metadata
+- **THEN** 内联形态解析成功且未知键被接受；子表形态不产生 `Backend.Core.Auth` 的 `metadata`（该表被读成另一个元素 FQN），并因该元素缺 `kind` 报 `missingField`
 
 #### Scenario: 未引号点分形式被拒
 
-- **WHEN** 模型以 `[element.App.Auth]`（未引号点分）声明层级
-- **THEN** 该写法不被承认为合法元素表头（FQN 键形不符）：模型按「无元素 / 缺字段」处置并给出诊断，MUST NOT 与 `[element."App.Auth"]` 合并为同一元素
+- **WHEN** 模型以 `[element.Backend.Core.Auth]`（未引号点分）声明层级
+- **THEN** 该写法不被承认为合法元素表头（FQN 键形不符）：模型按「无元素 / 缺字段」处置并给出诊断，MUST NOT 与 `[element."Backend.Core.Auth"]` 合并为同一元素
 
 #### Scenario: 未知字段与元数据未知键的两侧口径
 
@@ -104,7 +106,7 @@ apis = ["ErrorCode"]        # 选填：这条依赖实际用到 `to` 元素的�
 
 #### Scenario: entry 单值可解析且缺省为 null
 
-- **WHEN** 解析三份模型：一份省略 `entry`、一份对目录型壳 `App.Backend.Shell`（`path = ["./packages/desktop/src-tauri/src/"]`）写 `entry = "./packages/desktop/src-tauri/src/lib.rs"`、一份写 `entry = ["./a.rs", "./b.rs"]`
+- **WHEN** 解析三份模型：一份省略 `entry`、一份对目录型壳 `Backend.Shell`（`path = ["./packages/desktop/src-tauri/src/"]`）写 `entry = "./packages/desktop/src-tauri/src/lib.rs"`、一份写 `entry = ["./a.rs", "./b.rs"]`
 - **THEN** 前者投影出 `entry = null`（字段不省略）；中者逐字读出该字符串（`./` 由归一剥除后参与判据；目录型壳的约定默认指不到，显式值正是本字段的正当用法——14 个 `src/lib.rs` 命中的 crate 与单文件根元素 MUST NOT 声明 `entry`，基线数据纪律见 `repo-archi-model`）；后者报 `invalidValue`（`entry` 是单值，数组形态直接拒收，MUST NOT 静默取首条）
 
 #### Scenario: 关系四键解析与缺省
@@ -155,12 +157,12 @@ apis = ["ErrorCode"]        # 选填：这条依赖实际用到 `to` 元素的�
 
 #### Scenario: 跨文件重复 FQN 被拒
 
-- **WHEN** `01-core.toml` 与 `03-billing.toml` 都声明 `[element."App.Auth"]`
+- **WHEN** `01-core.toml` 与 `03-billing.toml` 都声明 `[element."Backend.Core.Auth"]`
 - **THEN** 聚合返回 `duplicateElement` 诊断，`file` 为字典序靠后的那个文件、`line` 为其中的声明行；模型判定为停摆态，MUST NOT 静默保留任一份
 
 #### Scenario: 同文件重复 key 由 parser 拒绝
 
-- **WHEN** 单文件内重复声明 `[element."App.Auth"]`
+- **WHEN** 单文件内重复声明 `[element."Backend.Core.Auth"]`
 - **THEN** TOML 层直接拒绝（`duplicate key` + 位置 + 指向冲突 key 的 `^^^`），诊断映射为 `duplicateElement`，无需聚合层介入
 
 #### Scenario: 空模型合法
@@ -205,17 +207,17 @@ archi 自实现（图规则）
 
 #### Scenario: 依赖祖先被检出
 
-- **WHEN** `App.Auth` 依赖自己的祖先 `App`（`from = "App.Auth"`、`to = "App"`）
+- **WHEN** `Backend.Core.Auth.Store` 依赖自己的祖先 `Backend.Core.Auth`（`from = "Backend.Core.Auth.Store"`、`to = "Backend.Core.Auth"`）
 - **THEN** 返回 `dependsOnAncestor` 诊断并指明元素与祖先
 
 #### Scenario: 未定义引用被检出
 
-- **WHEN** 模型声明 `from = "App.Auth"`、`to = "App.Shared"` 而无 `[element."App.Shared"]`
-- **THEN** 返回 `unknownReference` 诊断，指明引用方 `App.Auth` 与缺失目标 `App.Shared`
+- **WHEN** 模型声明 `from = "Backend.Core.Auth.Store"`、`to = "Backend.Core.Auth.Shared"` 而无 `[element."Backend.Core.Auth.Shared"]`
+- **THEN** 返回 `unknownReference` 诊断，指明引用方 `Backend.Core.Auth.Store` 与缺失目标 `Backend.Core.Auth.Shared`
 
 #### Scenario: 孤儿层级被检出
 
-- **WHEN** 模型只声明 `[element."App.Auth.Token"]` 而无 `App` / `App.Auth` 声明
+- **WHEN** 模型只声明 `[element."Backend.Core.Auth.Store"]` 而无 `Backend` / `Backend.Core` / `Backend.Core.Auth` 声明
 - **THEN** 返回 `orphanHierarchy` 诊断（`file` / `line` 指向该声明），MUST NOT 自动补建隐式祖先节点
 
 #### Scenario: 一次列全不短路
@@ -248,15 +250,15 @@ archi 自实现（图规则）
 
 #### Scenario: 1-hop 由邻域查询组合
 
-- **WHEN** 以 `App.Auth` 为聚焦元素请求画布数据
+- **WHEN** 以 `Backend.Core.Auth` 为聚焦元素请求画布数据
 - **THEN** 返回集中于该元素的出边、入边与直接子元素；非邻域元素不出现在图数据内（计数可机械验证），且该集合由 `ModelGraph` 邻域查询直接组合
 
 ### Requirement: 消费面词汇集一致性对拍
 
-四个消费面（进程内诊断集、`archi_module` 工具响应、IPC DTO、**架构会话知识文本**）SHALL 对同一份模型语料覆盖**相同的词汇集**。需全覆盖的封闭词汇：
+三个消费面（进程内诊断集、`archi_module` 工具响应、IPC DTO）SHALL 对同一份模型语料覆盖**相同的词汇集**。需全覆盖的封闭词汇：
 
 ```
-element kind   package / domain / module
+element kind   package / domain / module / composite
 gate 档        off / warn / strict
 api 状态       declared / none
 结构诊断       syntaxError / missingField / invalidValue / unknownField /
@@ -266,11 +268,11 @@ api 状态       declared / none
 节点标记       none / unfulfilled
 ```
 
-对拍 SHALL 以一份**含全部词汇**的模型语料驱动四面投影，断言四面的词汇集相等；新增或删除任一词汇而语料 / 投影未同步时对拍 MUST 变红（防「新增一个诊断类型、UI 静默不显示」）。对拍 SHALL 为机械测试（形态沿用 `src/views/changes/flow/run-state.test.ts` 的全词汇出图先例：一份语料走全投影、逐词汇断言在场）。
+对拍 SHALL 以一份**含全部词汇**的模型语料驱动三面投影，断言三面的词汇集相等；新增或删除任一词汇而语料 / 投影未同步时对拍 MUST 变红（防「新增一个诊断类型、UI 静默不显示」）。对拍 SHALL 为机械测试（形态沿用 `src/views/changes/flow/run-state.test.ts` 的全词汇出图先例：一份语料走全投影、逐词汇断言在场）。
 
 - **「文档诊断 `docNotFound`」一行已从本词汇集删除**：它原属 `WarningKind`（`ArchiModuleDetail.warnings` 的载体），随 `docs` 三源退役而整组消失——**词汇组数由七组减为六组**。谓词不同源：契约判据面另有 `ArchiApiFindingKind`（**十三值**，含新的 `docNotFound`）与 `ArchiApiFinding.category`（开放值集），其词汇对拍归 `desktop-archi-api-check`，MUST NOT 与模型面五组混装进本对拍（前者是「契约 vs 代码」，后者是「模型 vs 代码」）。
-- **`ALL` 全量常量为唯一派生源**：`element kind` / `gate` 档 / **`api` 状态** / 结构诊断四类封闭词汇 SHALL 各自提供全量常量（`ElementKind::ALL` / `GateTier::ALL` / **`ApiStatus::ALL`** / `DiagnosticKind::ALL`；其中 `DiagnosticKind::ALL` 为九值），且 SHALL 与各自的线格式词函数（`as_str`）逐值对拍。派生型消费者（当前唯一 = 架构会话知识文本，见 `desktop-archi-agent`「架构会话的系统知识注入」）MUST 从这些常量取词，MUST NOT 在产品源码或静态文本里手抄一份词表。
-- **知识文本纳入射程**：架构会话知识文本出现在四面之列——它必须含全部 `kind` / `gate` / `api` 状态 / 结构诊断词；新增词汇而知识文本未同步（因为绕过了 `ALL`）MUST 由对拍或 `ALL` 对拍变红。
+- **`ALL` 全量常量为唯一派生源**：`element kind` / `gate` 档 / **`api` 状态** / 结构诊断四类封闭词汇 SHALL 各自提供全量常量（`ElementKind::ALL`（四值）/ `GateTier::ALL` / **`ApiStatus::ALL`** / `DiagnosticKind::ALL`；其中 `DiagnosticKind::ALL` 为九值），且 SHALL 与各自的线格式词函数（`as_str`）逐值对拍。上述常量是**对拍源**：架构会话知识文本（见 `desktop-archi-agent`「架构会话的系统知识注入」）的呈现源是 `archi-knowledge.md`——`kind` 由「元素类型」语义 bullet 承载，`gate` / `api` 由「字段纪律」各一行承载，测试遍历 `ALL` / `default()` 与 md **同序相等**对拍；结构诊断全量词表不进知识文本（工具按需返回注解与修复手段）。产品源码 MUST NOT 另手抄词表（md 是唯一静态呈现面，由测试机械守护）。
+- **知识文本的收窄射程**：架构会话知识文本只对 `kind` / `gate` / `api` 承担呈现（值 + 语义 + 缺省档），**不是**结构诊断词的词汇消费面；新增 `gate` / `api` 值而 md 未同步、或 md 多出 `ALL` 之外的值 / 改序时，md ↔ `ALL` 对拍 MUST 变红。
 - **`doc` / `entry` 不进词汇对拍**：两者的值域是任意 repo 相对路径（开放集），不是封闭词汇；知识文本只给纪律句，不给词表。
 
 可选字段的**线形态**（缺字段 vs `null`）不在本对拍射程内；本对拍只锚定词汇集。
@@ -278,7 +280,7 @@ api 状态       declared / none
 #### Scenario: 语料含全词汇
 
 - **WHEN** 检查对拍语料
-- **THEN** 上述每一词汇至少各一条在场（`kind` 三类元素、`gate` 三档、`api` 状态两值、九类结构诊断各一坏点、边标记四值、节点标记两值）；语料 MUST NOT 再含「文档诊断」条目（该行已出射程）
+- **THEN** 上述每一词汇至少各一条在场（`kind` 四类元素、`gate` 三档、`api` 状态两值、九类结构诊断各一坏点、边标记四值、节点标记两值）；语料 MUST NOT 再含「文档诊断」条目（该行已出射程）
 
 #### Scenario: 三面（诊断 / 工具 / IPC）词汇集相等
 
@@ -290,25 +292,25 @@ api 状态       declared / none
 - **WHEN** 代码新增一个诊断类型或标记值而语料 / 对拍未同步
 - **THEN** 对拍失败（词汇集不等），MUST NOT 静默通过
 
-#### Scenario: 知识文本与三面同词汇集
+#### Scenario: 知识文本只承载字段值域与可执行词
 
-- **WHEN** 取架构会话知识文本（`source = "archi"` 的 `preamble` 内容）并枚举其词汇
-- **THEN** 其中含 `kind` 三值、`gate` 三值（含缺省 `off`）、`api` 状态两值（`declared` / `none`）、结构诊断九词，与另三面词汇集相等；把某个词从 `ALL` 删掉而知识侧仍能拼出该词（手抄）时测试红
+- **WHEN** 取架构会话知识文本（`source = "archi"` 的 `preamble` 内容）并检查其中的封闭词汇
+- **THEN** 含 `kind` 四值语义（bullet 逐值）、`gate` 三值与缺省档、`api` 两值与缺省档；结构诊断全量词表**不得出现**（`syntaxError` / `missingField` / `invalidValue` / `unknownField` / `duplicateElement` / `cycle` / `unknownReference` 零命中），只允许 `orphanHierarchy` / `dependsOnAncestor` 两个可执行词在散文里；知识文本不属于 `DiagnosticKind::ALL` 的词汇消费面
 
 #### Scenario: ALL 与线格式词逐值对拍
 
 - **WHEN** 遍历 `ElementKind::ALL` / `GateTier::ALL` / `ApiStatus::ALL` / `DiagnosticKind::ALL`
 - **THEN** 每一项的 `as_str` 产出唯一且与语料词一致；新增变体未补入对应 `ALL`（长度断言）时测试红
 
-#### Scenario: api 状态词汇四面在场
+#### Scenario: api 状态词汇三面在场
 
-- **WHEN** 检查对拍语料与四面投影（进程内诊断集 / `archi_module` 响应 / IPC DTO / 知识文本）
-- **THEN** 四面均含 `declared` 与 `none` 两词（语料含一个 `api = declared` 元素与一个 `api = none` 元素）；删掉 `ApiStatus::ALL` 的一项而知识侧仍能拼出该词时测试红
+- **WHEN** 检查对拍语料与三面投影（进程内诊断集 / `archi_module` 响应 / IPC DTO）
+- **THEN** 三面均含 `declared` 与 `none` 两词（语料含一个 `api = declared` 元素与一个 `api = none` 元素）；删掉 `ApiStatus::ALL` 的一项而 md 仍写该词时，md ↔ `ALL` 对拍红
 
 #### Scenario: 五组词汇与契约判据词汇互不混装
 
 - **WHEN** 审查模型面五组词汇与契约判据面词汇（`ArchiApiFindingKind` 十三值 / `category` 七值）的对拍落点
-- **THEN** 前者在 `desktop-archi-model` 的四面词汇对拍内（`vocabulary_test.rs`），后者在 `desktop-archi-api-check` 的词汇对拍内；两处 MUST NOT 互相引用对方的 `ALL`，`WarningKind` 在两处都不出现
+- **THEN** 前者在 `desktop-archi-model` 的三面词汇对拍内（`vocabulary_test.rs`），后者在 `desktop-archi-api-check` 的词汇对拍内；两处 MUST NOT 互相引用对方的 `ALL`，`WarningKind` 在两处都不出现
 
 ### Requirement: gate 档写回纯函数
 
@@ -321,7 +323,7 @@ api 状态       declared / none
 
 #### Scenario: 改档保留注释与其余内容
 
-- **WHEN** 对含注释、空行与多个元素的源文本把 `App.Billing` 的 `gate` 由 `off` 改为 `strict`
+- **WHEN** 对含注释、空行与多个元素的源文本把 `Backend.Core.Billing` 的 `gate` 由 `off` 改为 `strict`
 - **THEN** 返回文本中该元素 `gate = "strict"`，其余元素、注释、空行与键序逐字保留；再解析该文本得到新档位且零诊断
 
 #### Scenario: 元素缺席与非法值显式拒绝
@@ -342,8 +344,8 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 
 #### Scenario: 增删与改档计数
 
-- **WHEN** 对基线与新模型（新增 `App.Billing` / `App.Billing.Invoice`、删除 `App.Legacy`、关系 +3 −1、`App.Billing` 的 `gate` 由 `off` 改为 `strict`）求 diff
-- **THEN** 输出元素 +2 / −1（含 FQN 清单）、关系 +3 / −1、`gate` 变更一条（`App.Billing`：`off` → `strict`）
+- **WHEN** 对基线与新模型（新增 `Backend.Core.Billing` / `Backend.Core.Billing.Invoice`、删除 `Backend.Core.Legacy`、关系 +3 −1、`Backend.Core.Billing` 的 `gate` 由 `off` 改为 `strict`）求 diff
+- **THEN** 输出元素 +2 / −1（含 FQN 清单）、关系 +3 / −1、`gate` 变更一条（`Backend.Core.Billing`：`off` → `strict`）
 
 #### Scenario: 等价模型零差异
 
@@ -405,7 +407,7 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 
 #### Scenario: archi_module 出参带 api 并列字段
 
-- **WHEN** 调用 `archi_module(root, element = "App.Backend.Infra.ArchiRuntime")`（该元素契约在案）与另一无契约元素
+- **WHEN** 调用 `archi_module(root, element = "Backend.Infra.ArchiRuntime")`（该元素契约在案）与另一无契约元素
 - **THEN** 前者 `api.status = "declared"` 且 `contractPath` / `schemaPath` 指向 `<archi_models_dir>/Infra/` 下的实际文件；后者 `api.status = "none"` 且三个路径字段为 `null`；两者其余字段（元素 / 邻接 / 子元素 / `doc`）语义零变化，命令总数仍为九个
 
 #### Scenario: 九命令在册且恰两个写面

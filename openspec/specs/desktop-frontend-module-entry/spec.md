@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义前端「**目录 = 模块**」的机械载体：12 个目录元素各持一个 `index.ts(x)` 入口（barrel），入口的导出面**恰等于跨元素被 import 的名字**，调用点一律经入口收窄，`components/ui` 是唯一「建入口但调用点直引」的例外，`App.Frontend.Components.Agent` 由「容器 `path` 唯一例外」翻转为目录型 `module`。本能力只管**前端源码结构的入口面**：入口的解析链、生成物落点与取数面归 `desktop-archi-api`，元素粒度与关系证据归 `repo-archi-model`，判据读数归 `desktop-archi-api-check`。
+定义前端「**目录 = 模块**」的机械载体：12 个目录元素各持一个 `index.ts(x)` 入口（barrel），入口的导出面**恰等于跨元素被 import 的名字**，调用点一律经入口收窄，`components/ui` 是唯一「建入口但调用点直引」的例外，`Desktop.Components.Agent` 由「容器 `path` 唯一例外」翻转为目录型 `module`。本能力只管**前端源码结构的入口面**：入口的解析链、生成物落点与取数面归 `desktop-archi-api`，元素粒度与关系证据归 `repo-archi-model`，判据读数归 `desktop-archi-api-check`。
 
 ## Requirements
 
@@ -124,9 +124,9 @@
 - **WHEN** 审查 `components/ui/index.ts` 的调用面
 - **THEN** 全仓零 import 指向 `@/components/ui`（132 处调用点均直引模块名），而该文件首行注释说明这是刻意选择；MUST NOT 因「零调用者」删该文件——它是 `Components.Ui` 的入口（`apiEntryMissing` 退场的前提）与契约落点
 
-### Requirement: `App.Frontend.Components.Agent` 由容器翻转为目录模块
+### Requirement: `Desktop.Components.Agent` 由容器翻转为目录模块
 
-`App.Frontend.Components.Agent` SHALL 由 `kind = "domain"` + 文件型 `path`（`./packages/desktop/src/components/agent/index.tsx`）翻转为 `kind = "module"` + 目录型 `path`（`./packages/desktop/src/components/agent/`），其入口由入口解析链的 ③ 命中 `<root>/index.tsx`。MUST NOT 为其追加显式 `entry` 字段。
+`Desktop.Components.Agent` SHALL 由 `kind = "domain"` + 文件型 `path`（`./packages/desktop/src/components/agent/index.tsx`）翻转为 `kind = "module"` + 目录型 `path`（`./packages/desktop/src/components/agent/`），其入口由入口解析链的 ③ 命中 `<root>/index.tsx`。MUST NOT 为其追加显式 `entry` 字段。
 
 ```text
 before : kind = "domain" · path = ["./packages/desktop/src/components/agent/index.tsx"]
@@ -140,12 +140,12 @@ after  : kind = "module" · path = ["./packages/desktop/src/components/agent/"]
 
 #### Scenario: 翻转后入口由约定默认命中
 
-- **WHEN** 对翻转后的 `App.Frontend.Components.Agent` 跑 `paths::entry_state`
+- **WHEN** 对翻转后的 `Desktop.Components.Agent` 跑 `paths::entry_state`
 - **THEN** `Resolved`、入口 = `packages/desktop/src/components/agent/index.tsx`（③ 的第四候选）；模型内该元素零 `entry` 行；`grep -c "^entry"` 于 `graph/model/` 仍为 **3**
 
 #### Scenario: 7 条端点边逐条不变
 
-- **WHEN** 统计翻转前后以 `App.Frontend.Components.Agent` 为任一端点的前端关系
+- **WHEN** 统计翻转前后以 `Desktop.Components.Agent` 为任一端点的前端关系
 - **THEN** 两次均恰 **7** 条：出边 `…AgentInput` / `…AgentSessionView` / `…SessionPanel`，入边 `Views.AgentDebug` / `Views.Changes.Agent` / `Views.Changes.Flow` / `Views.Explores`；前端关系总数 71 不变，`71 = 64 + 7` 的恒等式仍成立
 
 #### Scenario: 计数换段无溢出
@@ -169,7 +169,7 @@ after  : kind = "module" · path = ["./packages/desktop/src/components/agent/"]
 | `packages/desktop/src/views/changes/renderers/index.ts` | 产物渲染子域入口 | `ArtifactTabs` / `MarkdownDocRenderer` |
 | `packages/desktop/src/views/explores/index.ts` | 探索页目录入口 | `ExploreDetailView` / `ExploreLayout` / `ExploreListView`（`ExploreDetailPane` / `ExploreRouteContext` / `useExploreRouteContext` 不外露） |
 | `packages/desktop/src/components/ui/index.ts` | 原语层入口（唯一例外） | **40** 条 `export *`；零 `export default`；首行外部约束注释；调用点 132 处保持直引；在 `knip` / `NO_STATIC_CHECK` ignore 内 |
-| `packages/desktop/src/components/agent/index.tsx` | 既有入口（零改动） | 6 条 re-export（7 名）；`.tsx` 扩展名保留；`components/agent/` 目录成为 `App.Frontend.Components.Agent` 的 `path` |
+| `packages/desktop/src/components/agent/index.tsx` | 既有入口（零改动） | 6 条 re-export（7 名）；`.tsx` 扩展名保留；`components/agent/` 目录成为 `Desktop.Components.Agent` 的 `path` |
 | `packages/desktop/src/routes.tsx` | 路由表（调用点收窄） | 11 条文件级 import → 8 条目录级；路由路径 / 参数 / 重定向零改动 |
 | `packages/desktop/src/module-entries.test.ts`（新增） | 入口面的机械判据 | 12 个入口的 `export … from` 行集合逐字断言（类型出口必须 `export type`）、specifier 零 `./hooks` / `./lib` / 跨子目录段、ui 恰 40 条 `export *` 且零 `export default`、零重名；纯源文本读取，零运行期 import |
 

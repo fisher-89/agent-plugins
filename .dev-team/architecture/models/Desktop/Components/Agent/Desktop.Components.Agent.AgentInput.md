@@ -1,4 +1,4 @@
-# App.Frontend.Components.Agent.AgentInput
+# Desktop.Components.Agent.AgentInput
 
 ## 职能
 
@@ -38,7 +38,7 @@
 - **`AgentInput` 不进 `api-op`**：形态是 `(props: AgentInputProps) => React.JSX.Element`——入参
   具名类型、返回位是 JSX 元素。契约侧 `$ref` 归一为 `?AgentInputProps` / `?Element`、代码侧是
   具名 `AgentInputProps` / `Element`，两侧恒不等；同类实测差异见
-  `App.Frontend.Components.Agent.AgentError` 的留白段。
+  `Desktop.Components.Agent.AgentError` 的留白段。
 - **`AgentInputProps` 不进 `api-types`**：三个字段位引用外部类型——`AgentPermissionMode`
   （`types/dto`）与两个内联函数形状（`onSend` 的 `{ text; permissionMode }` 对象参）。契约词汇
   没有跨模块具名类型位，把外部类型在本元素重抄一份即造第二个真相源（`types/dto` 改名后契约

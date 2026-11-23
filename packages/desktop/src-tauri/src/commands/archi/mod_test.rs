@@ -1831,7 +1831,7 @@ fn api_fixture(tag: &str) -> TempDir {
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
     );
     temp.write(
-        ".dev-team/architecture/models/Api/App.Api.Subject.md",
+        ".dev-team/architecture/models/App/Api/App.Api.Subject.md",
         API_CONTRACT,
     );
     temp

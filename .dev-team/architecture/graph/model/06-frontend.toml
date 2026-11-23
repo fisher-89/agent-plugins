@@ -1,191 +1,191 @@
-# 06 · 前端（32 元素 / 75 关系）
+# 06 · 前端（32 元素 / 77 关系）
 # 元素 = 页壳 1 + 视图 9 + 视图内子域 3 + 共享组件文件 13 + 原语层 1 + 目录模块 1 + 生成物中继 1，另有 3 个容器。
-# 关系只取 import 证据，目标按「最具体已声明元素」归属；指向 hooks / lib / types 的 import 不建边。
+# 关系只取 import 证据，目标按「最具体已声明元素」归属；未被叶元素认领的文件归属包根 Desktop。
 
-[element."App.Frontend.Shell"]
+[element."Desktop.Shell"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/app.tsx", "./packages/desktop/src/routes.tsx", "./packages/desktop/src/main.tsx", "./packages/desktop/src/components/app-sidebar.tsx", "./packages/desktop/src/components/notification-bell.tsx"]
 summary = "页壳：入口、路由表与侧栏装配"
 
-[element."App.Frontend.Views"]
+[element."Desktop.Views"]
 kind = "domain"
 gate = "off"
 summary = "路由挂载的页面集合"
 
-[element."App.Frontend.Views.AgentDebug"]
+[element."Desktop.Views.AgentDebug"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/views/agent/"]
 summary = "agent 调试页：运行表单、历史与实况流"
 
-[element."App.Frontend.Views.Agents"]
+[element."Desktop.Views.Agents"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/views/agents/"]
 summary = "agent 实例与供应商配置页"
 
-[element."App.Frontend.Views.Architecture"]
+[element."Desktop.Views.Architecture"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/views/architecture/"]
 summary = "架构页：文件树 / 元素树 / 契约三视图、画布与元素信息面板"
 
-[element."App.Frontend.Views.Changes"]
+[element."Desktop.Views.Changes"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/views/changes/"]
 summary = "变更页：列表、详情与编排容器"
 
-[element."App.Frontend.Views.Config"]
+[element."Desktop.Views.Config"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/views/config/"]
 summary = "工作区配置页（基本项、测试与写保护）"
 
-[element."App.Frontend.Views.DbInspector"]
+[element."Desktop.Views.DbInspector"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/views/db/"]
 summary = "本地库检视页（表与记录浏览）"
 
-[element."App.Frontend.Views.Explores"]
+[element."Desktop.Views.Explores"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/views/explores/"]
 summary = "探索页：列表、详情与对话编排"
 
-[element."App.Frontend.Views.Info"]
+[element."Desktop.Views.Info"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/views/info/"]
 summary = "基础信息页：工作区概况与代码统计"
 
-[element."App.Frontend.Views.Welcome"]
+[element."Desktop.Views.Welcome"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/views/welcome-view.tsx"]
 summary = "空工作区引导页"
 
-[element."App.Frontend.Views.Changes.Flow"]
+[element."Desktop.Views.Changes.Flow"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/views/changes/flow/"]
 summary = "变更详情流程图：节点、运行控制与产物抽屉"
 
-[element."App.Frontend.Views.Changes.Renderers"]
+[element."Desktop.Views.Changes.Renderers"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/views/changes/renderers/"]
 summary = "产物渲染器注册表与兜底呈现"
 
-[element."App.Frontend.Views.Changes.Agent"]
+[element."Desktop.Views.Changes.Agent"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/views/changes/agent/"]
 summary = "变更详情右栏的 agent 对话面板"
 
-[element."App.Frontend.Components"]
+[element."Desktop.Components"]
 kind = "domain"
 gate = "off"
 summary = "跨视图复用的组件集合"
 
-[element."App.Frontend.Components.Agent"]
+[element."Desktop.Components.Agent"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/"]
 summary = "agent 会话组件的统一出口"
 
-[element."App.Frontend.Components.Agent.AgentBlocks"]
+[element."Desktop.Components.Agent.AgentBlocks"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/message-cards/blocks.tsx"]
 summary = "消息块与工具块的呈现"
 
-[element."App.Frontend.Components.Agent.AgentError"]
+[element."Desktop.Components.Agent.AgentError"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/agent-error.ts"]
 summary = "会话错误行的呈现"
 
-[element."App.Frontend.Components.Agent.AgentInput"]
+[element."Desktop.Components.Agent.AgentInput"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/agent-input.tsx"]
 summary = "会话输入框与提交交互"
 
-[element."App.Frontend.Components.Agent.AgentMessages"]
+[element."Desktop.Components.Agent.AgentMessages"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/agent-messages.tsx"]
 summary = "消息列表组装与滚动"
 
-[element."App.Frontend.Components.Agent.AgentSessionView"]
+[element."Desktop.Components.Agent.AgentSessionView"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/agent-session-view.tsx"]
 summary = "整段会话视图（含命令面类型驱动的状态）"
 
-[element."App.Frontend.Components.Agent.SessionPanel"]
+[element."Desktop.Components.Agent.SessionPanel"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/session-panel.tsx"]
 summary = "会话面板骨架（头区动作 / 状态行 / 历史清单 / 折叠窄条，两处会话面共用）"
 
-[element."App.Frontend.Components.Agent.ToolCards"]
+[element."Desktop.Components.Agent.ToolCards"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/agent/message-cards/tool-cards.tsx"]
 summary = "工具调用卡片的专门呈现"
 
-[element."App.Frontend.Components.Standard"]
+[element."Desktop.Components.Standard"]
 kind = "domain"
 gate = "off"
 summary = "通用交互组件集合（对话框、抽屉、分页、选择、组合框）"
 
-[element."App.Frontend.Components.Standard.Dailog"]
+[element."Desktop.Components.Standard.Dailog"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/standard/dailog.tsx"]
 summary = "模态对话框外壳"
 
-[element."App.Frontend.Components.Standard.Drawer"]
+[element."Desktop.Components.Standard.Drawer"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/standard/drawer.tsx"]
 summary = "抽屉面板外壳"
 
-[element."App.Frontend.Components.Standard.Pagination"]
+[element."Desktop.Components.Standard.Pagination"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/standard/pagination.tsx"]
 summary = "分页控件"
 
-[element."App.Frontend.Components.Standard.Select"]
+[element."Desktop.Components.Standard.Select"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/standard/select.tsx"]
 summary = "下拉选择控件"
 
-[element."App.Frontend.Components.Standard.Combobox"]
+[element."Desktop.Components.Standard.Combobox"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/standard/combobox.tsx"]
 summary = "可选可填组合框（自由输入 + 建议清单）"
 
-[element."App.Frontend.Components.Standard.Tooltip"]
+[element."Desktop.Components.Standard.Tooltip"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/standard/tooltip.tsx"]
 summary = "文本气泡（原语层 Tooltip 的业务封装）"
 
-[element."App.Frontend.Components.Ui"]
+[element."Desktop.Components.Ui"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/components/ui/"]
 summary = "shadcn 原语层，恒为被依赖方"
 
-[element."App.Frontend.GeneratedBindings"]
+[element."Desktop.GeneratedBindings"]
 kind = "module"
 gate = "off"
 api = "none"
@@ -193,376 +193,386 @@ path = ["./packages/desktop/src/types/generated/"]
 summary = "IPC 命令面与出线 DTO 的 TypeScript 投影（tauri-specta 生成，勿手改）"
 
 [[relation]]
-from = "App.Frontend.Shell"
-to = "App.Frontend.Components.Standard.Drawer"
+from = "Desktop"
+to = "Desktop.Components.Ui"
+desc = "未归入子元素的共享文件（components/file 等）直接使用原语层"
+
+[[relation]]
+from = "Desktop"
+to = "Desktop.GeneratedBindings"
+desc = "共享 hooks / lib 经生成的 IPC 绑定取数与调用"
+
+[[relation]]
+from = "Desktop.Shell"
+to = "Desktop.Components.Standard.Drawer"
 desc = "收件箱抽屉复用标准抽屉"
 
 [[relation]]
-from = "App.Frontend.Shell"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Shell"
+to = "Desktop.Components.Ui"
 desc = "页壳使用按钮与滚动容器等原语"
 
 [[relation]]
-from = "App.Frontend.Shell"
-to = "App.Frontend.Views.AgentDebug"
+from = "Desktop.Shell"
+to = "Desktop.Views.AgentDebug"
 desc = "路由表挂载 agent 调试视图"
 
 [[relation]]
-from = "App.Frontend.Shell"
-to = "App.Frontend.Views.Agents"
+from = "Desktop.Shell"
+to = "Desktop.Views.Agents"
 desc = "路由表挂载 agent 配置视图"
 
 [[relation]]
-from = "App.Frontend.Shell"
-to = "App.Frontend.Views.Architecture"
+from = "Desktop.Shell"
+to = "Desktop.Views.Architecture"
 desc = "路由表挂载架构视图"
 
 [[relation]]
-from = "App.Frontend.Shell"
-to = "App.Frontend.Views.Changes"
+from = "Desktop.Shell"
+to = "Desktop.Views.Changes"
 desc = "路由表挂载变更列表与详情视图"
 
 [[relation]]
-from = "App.Frontend.Shell"
-to = "App.Frontend.Views.Config"
+from = "Desktop.Shell"
+to = "Desktop.Views.Config"
 desc = "路由表挂载配置视图"
 
 [[relation]]
-from = "App.Frontend.Shell"
-to = "App.Frontend.Views.DbInspector"
+from = "Desktop.Shell"
+to = "Desktop.Views.DbInspector"
 desc = "路由表挂载本地库检视视图"
 
 [[relation]]
-from = "App.Frontend.Shell"
-to = "App.Frontend.Views.Explores"
+from = "Desktop.Shell"
+to = "Desktop.Views.Explores"
 desc = "路由表挂载探索视图"
 
 [[relation]]
-from = "App.Frontend.Shell"
-to = "App.Frontend.Views.Info"
+from = "Desktop.Shell"
+to = "Desktop.Views.Info"
 desc = "路由表挂载信息视图"
 
 [[relation]]
-from = "App.Frontend.Shell"
-to = "App.Frontend.Views.Welcome"
+from = "Desktop.Shell"
+to = "Desktop.Views.Welcome"
 desc = "入口按工作区状态渲染引导页"
 
 [[relation]]
-from = "App.Frontend.Components.Agent"
-to = "App.Frontend.Components.Agent.AgentInput"
+from = "Desktop.Components.Agent"
+to = "Desktop.Components.Agent.AgentInput"
 desc = "统一出口重导出会话输入框"
 
 [[relation]]
-from = "App.Frontend.Components.Agent"
-to = "App.Frontend.Components.Agent.AgentSessionView"
+from = "Desktop.Components.Agent"
+to = "Desktop.Components.Agent.AgentSessionView"
 desc = "统一出口重导出整段会话视图"
 
 [[relation]]
-from = "App.Frontend.Components.Agent"
-to = "App.Frontend.Components.Agent.SessionPanel"
+from = "Desktop.Components.Agent"
+to = "Desktop.Components.Agent.SessionPanel"
 desc = "barrel 重导出面板组件与其状态类型"
 
 [[relation]]
-from = "App.Frontend.Components.Agent.AgentBlocks"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Components.Agent.AgentBlocks"
+to = "Desktop.Components.Ui"
 desc = "使用滚动容器原语承载消息块"
 
 [[relation]]
-from = "App.Frontend.Components.Agent.AgentMessages"
-to = "App.Frontend.Components.Agent.AgentBlocks"
+from = "Desktop.Components.Agent.AgentMessages"
+to = "Desktop.Components.Agent.AgentBlocks"
 desc = "逐条消息复用块呈现"
 
 [[relation]]
-from = "App.Frontend.Components.Agent.AgentMessages"
-to = "App.Frontend.Components.Agent.ToolCards"
+from = "Desktop.Components.Agent.AgentMessages"
+to = "Desktop.Components.Agent.ToolCards"
 desc = "工具调用消息交给卡片呈现"
 
 [[relation]]
-from = "App.Frontend.Components.Agent.AgentMessages"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Components.Agent.AgentMessages"
+to = "Desktop.Components.Ui"
 desc = "使用消息容器与滚动原语组装列表"
 
 [[relation]]
-from = "App.Frontend.Components.Agent.AgentSessionView"
-to = "App.Frontend.GeneratedBindings"
+from = "Desktop.Components.Agent.AgentSessionView"
+to = "Desktop.GeneratedBindings"
 desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
-from = "App.Frontend.Components.Agent.AgentSessionView"
-to = "App.Frontend.Components.Agent.AgentError"
+from = "Desktop.Components.Agent.AgentSessionView"
+to = "Desktop.Components.Agent.AgentError"
 desc = "错误行交由专门组件呈现"
 
 [[relation]]
-from = "App.Frontend.Components.Agent.AgentSessionView"
-to = "App.Frontend.Components.Agent.AgentMessages"
+from = "Desktop.Components.Agent.AgentSessionView"
+to = "Desktop.Components.Agent.AgentMessages"
 desc = "消息列表由独立组件组装"
 
 [[relation]]
-from = "App.Frontend.Components.Agent.AgentSessionView"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Components.Agent.AgentSessionView"
+to = "Desktop.Components.Ui"
 desc = "使用徽标等原语呈现会话状态"
 
 [[relation]]
-from = "App.Frontend.Components.Agent.SessionPanel"
-to = "App.Frontend.GeneratedBindings"
+from = "Desktop.Components.Agent.SessionPanel"
+to = "Desktop.GeneratedBindings"
 desc = "经生成的 IPC 绑定取会话清单"
 
 [[relation]]
-from = "App.Frontend.Components.Agent.SessionPanel"
-to = "App.Frontend.Components.Agent.AgentSessionView"
+from = "Desktop.Components.Agent.SessionPanel"
+to = "Desktop.Components.Agent.AgentSessionView"
 desc = "面板正文复用整段会话视图"
 
 [[relation]]
-from = "App.Frontend.Components.Agent.SessionPanel"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Components.Agent.SessionPanel"
+to = "Desktop.Components.Ui"
 desc = "头区按钮与可拖拽分栏使用原语层"
 
 [[relation]]
-from = "App.Frontend.Components.Agent.ToolCards"
-to = "App.Frontend.Components.Agent.AgentBlocks"
+from = "Desktop.Components.Agent.ToolCards"
+to = "Desktop.Components.Agent.AgentBlocks"
 desc = "卡片正文复用块呈现"
 
 [[relation]]
-from = "App.Frontend.Components.Standard.Dailog"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Components.Standard.Dailog"
+to = "Desktop.Components.Ui"
 desc = "以对话框与按钮原语组装模态外壳"
 
 [[relation]]
-from = "App.Frontend.Components.Standard.Drawer"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Components.Standard.Drawer"
+to = "Desktop.Components.Ui"
 desc = "以抽屉与按钮原语组装侧滑外壳"
 
 [[relation]]
-from = "App.Frontend.Components.Standard.Pagination"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Components.Standard.Pagination"
+to = "Desktop.Components.Ui"
 desc = "以分页与按钮原语组装翻页控件"
 
 [[relation]]
-from = "App.Frontend.Components.Standard.Select"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Components.Standard.Select"
+to = "Desktop.Components.Ui"
 desc = "以下拉原语组装统一选择控件"
 
 [[relation]]
-from = "App.Frontend.Components.Standard.Combobox"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Components.Standard.Combobox"
+to = "Desktop.Components.Ui"
 desc = "以组合框原语组装可选可填输入控件"
 
 [[relation]]
-from = "App.Frontend.Components.Standard.Tooltip"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Components.Standard.Tooltip"
+to = "Desktop.Components.Ui"
 desc = "以原语层气泡组合文本提示"
 
 [[relation]]
-from = "App.Frontend.Views.AgentDebug"
-to = "App.Frontend.GeneratedBindings"
+from = "Desktop.Views.AgentDebug"
+to = "Desktop.GeneratedBindings"
 desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
-from = "App.Frontend.Views.AgentDebug"
-to = "App.Frontend.Components.Agent"
+from = "Desktop.Views.AgentDebug"
+to = "Desktop.Components.Agent"
 desc = "复用会话视图与输入框呈现运行记录"
 
 [[relation]]
-from = "App.Frontend.Views.AgentDebug"
-to = "App.Frontend.Components.Standard.Drawer"
+from = "Desktop.Views.AgentDebug"
+to = "Desktop.Components.Standard.Drawer"
 desc = "运行历史以抽屉展开"
 
 [[relation]]
-from = "App.Frontend.Views.AgentDebug"
-to = "App.Frontend.Components.Standard.Pagination"
+from = "Desktop.Views.AgentDebug"
+to = "Desktop.Components.Standard.Pagination"
 desc = "历史记录分页翻页"
 
 [[relation]]
-from = "App.Frontend.Views.AgentDebug"
-to = "App.Frontend.Components.Standard.Select"
+from = "Desktop.Views.AgentDebug"
+to = "Desktop.Components.Standard.Select"
 desc = "运行表单的模型与档位选择"
 
 [[relation]]
-from = "App.Frontend.Views.AgentDebug"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Views.AgentDebug"
+to = "Desktop.Components.Ui"
 desc = "使用按钮与表单原语呈现"
 
 [[relation]]
-from = "App.Frontend.Views.Agents"
-to = "App.Frontend.GeneratedBindings"
+from = "Desktop.Views.Agents"
+to = "Desktop.GeneratedBindings"
 desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
-from = "App.Frontend.Views.Agents"
-to = "App.Frontend.Components.Standard.Select"
+from = "Desktop.Views.Agents"
+to = "Desktop.Components.Standard.Select"
 desc = "实例与供应商下拉选择"
 
 [[relation]]
-from = "App.Frontend.Views.Agents"
-to = "App.Frontend.Components.Standard.Combobox"
+from = "Desktop.Views.Agents"
+to = "Desktop.Components.Standard.Combobox"
 desc = "供应商表单的模型与思考强度可选可填输入"
 
 [[relation]]
-from = "App.Frontend.Views.Agents"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Views.Agents"
+to = "Desktop.Components.Ui"
 desc = "使用按钮与徽标原语呈现"
 
 [[relation]]
-from = "App.Frontend.Views.Architecture"
-to = "App.Frontend.GeneratedBindings"
+from = "Desktop.Views.Architecture"
+to = "Desktop.GeneratedBindings"
 desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
-from = "App.Frontend.Views.Architecture"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Views.Architecture"
+to = "Desktop.Components.Ui"
 desc = "使用按钮与面板原语呈现"
 
 [[relation]]
-from = "App.Frontend.Views.Changes"
-to = "App.Frontend.GeneratedBindings"
+from = "Desktop.Views.Changes"
+to = "Desktop.GeneratedBindings"
 desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
-from = "App.Frontend.Views.Changes"
-to = "App.Frontend.Components.Standard.Dailog"
+from = "Desktop.Views.Changes"
+to = "Desktop.Components.Standard.Dailog"
 desc = "新建变更以对话框收集输入"
 
 [[relation]]
-from = "App.Frontend.Views.Changes"
-to = "App.Frontend.Components.Standard.Tooltip"
+from = "Desktop.Views.Changes"
+to = "Desktop.Components.Standard.Tooltip"
 desc = "列表工具栏的图标按钮以气泡给出提示"
 
 [[relation]]
-from = "App.Frontend.Views.Changes"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Views.Changes"
+to = "Desktop.Components.Ui"
 desc = "使用标签页与按钮原语呈现"
 
 [[relation]]
-from = "App.Frontend.Views.Changes"
-to = "App.Frontend.Views.Architecture"
+from = "Desktop.Views.Changes"
+to = "Desktop.Views.Architecture"
 desc = "详情页复用架构画布呈现变更影响"
 
 [[relation]]
-from = "App.Frontend.Views.Changes"
-to = "App.Frontend.Views.Changes.Agent"
+from = "Desktop.Views.Changes"
+to = "Desktop.Views.Changes.Agent"
 desc = "详情页右栏挂载对话面板"
 
 [[relation]]
-from = "App.Frontend.Views.Changes"
-to = "App.Frontend.Views.Changes.Flow"
+from = "Desktop.Views.Changes"
+to = "Desktop.Views.Changes.Flow"
 desc = "详情页组装流程画布"
 
 [[relation]]
-from = "App.Frontend.Views.Changes.Agent"
-to = "App.Frontend.GeneratedBindings"
+from = "Desktop.Views.Changes.Agent"
+to = "Desktop.GeneratedBindings"
 desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
-from = "App.Frontend.Views.Changes.Agent"
-to = "App.Frontend.Components.Agent"
+from = "Desktop.Views.Changes.Agent"
+to = "Desktop.Components.Agent"
 desc = "面板复用会话视图与输入框"
 
 [[relation]]
-from = "App.Frontend.Views.Changes.Agent"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Views.Changes.Agent"
+to = "Desktop.Components.Ui"
 desc = "使用按钮原语触发会话操作"
 
 [[relation]]
-from = "App.Frontend.Views.Changes.Flow"
-to = "App.Frontend.GeneratedBindings"
+from = "Desktop.Views.Changes.Flow"
+to = "Desktop.GeneratedBindings"
 desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
-from = "App.Frontend.Views.Changes.Flow"
-to = "App.Frontend.Components.Agent"
+from = "Desktop.Views.Changes.Flow"
+to = "Desktop.Components.Agent"
 desc = "运行记录复用会话视图呈现"
 
 [[relation]]
-from = "App.Frontend.Views.Changes.Flow"
-to = "App.Frontend.Components.Standard.Drawer"
+from = "Desktop.Views.Changes.Flow"
+to = "Desktop.Components.Standard.Drawer"
 desc = "产物与详情以抽屉呈现"
 
 [[relation]]
-from = "App.Frontend.Views.Changes.Flow"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Views.Changes.Flow"
+to = "Desktop.Components.Ui"
 desc = "使用节点卡片与按钮原语呈现"
 
 [[relation]]
-from = "App.Frontend.Views.Changes.Flow"
-to = "App.Frontend.Views.Architecture"
+from = "Desktop.Views.Changes.Flow"
+to = "Desktop.Views.Architecture"
 desc = "运行控制复用架构画布呈现"
 
 [[relation]]
-from = "App.Frontend.Views.Changes.Flow"
-to = "App.Frontend.Views.Changes.Renderers"
+from = "Desktop.Views.Changes.Flow"
+to = "Desktop.Views.Changes.Renderers"
 desc = "抽屉按产物类型选用渲染器"
 
 [[relation]]
-from = "App.Frontend.Views.Changes.Renderers"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Views.Changes.Renderers"
+to = "Desktop.Components.Ui"
 desc = "使用标签页与滚动容器原语呈现"
 
 [[relation]]
-from = "App.Frontend.Views.Config"
-to = "App.Frontend.GeneratedBindings"
+from = "Desktop.Views.Config"
+to = "Desktop.GeneratedBindings"
 desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
-from = "App.Frontend.Views.Config"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Views.Config"
+to = "Desktop.Components.Ui"
 desc = "使用按钮与表单原语呈现"
 
 [[relation]]
-from = "App.Frontend.Views.Config"
-to = "App.Frontend.Components.Agent"
+from = "Desktop.Views.Config"
+to = "Desktop.Components.Agent"
 desc = "经共享面板骨架渲染常驻 config 会话面板"
 
 [[relation]]
-from = "App.Frontend.Views.DbInspector"
-to = "App.Frontend.GeneratedBindings"
+from = "Desktop.Views.DbInspector"
+to = "Desktop.GeneratedBindings"
 desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
-from = "App.Frontend.Views.DbInspector"
-to = "App.Frontend.Components.Standard.Drawer"
+from = "Desktop.Views.DbInspector"
+to = "Desktop.Components.Standard.Drawer"
 desc = "记录详情以抽屉呈现"
 
 [[relation]]
-from = "App.Frontend.Views.DbInspector"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Views.DbInspector"
+to = "Desktop.Components.Ui"
 desc = "使用表格与按钮原语呈现"
 
 [[relation]]
-from = "App.Frontend.Views.Explores"
-to = "App.Frontend.GeneratedBindings"
+from = "Desktop.Views.Explores"
+to = "Desktop.GeneratedBindings"
 desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
-from = "App.Frontend.Views.Explores"
-to = "App.Frontend.Components.Agent"
+from = "Desktop.Views.Explores"
+to = "Desktop.Components.Agent"
 desc = "对话面板复用会话视图与输入框"
 
 [[relation]]
-from = "App.Frontend.Views.Explores"
-to = "App.Frontend.Components.Standard.Tooltip"
+from = "Desktop.Views.Explores"
+to = "Desktop.Components.Standard.Tooltip"
 desc = "列表工具栏的图标按钮以气泡给出提示"
 
 [[relation]]
-from = "App.Frontend.Views.Explores"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Views.Explores"
+to = "Desktop.Components.Ui"
 desc = "使用可调整面板等原语呈现"
 
 [[relation]]
-from = "App.Frontend.Views.Explores"
-to = "App.Frontend.Views.Changes.Renderers"
+from = "Desktop.Views.Explores"
+to = "Desktop.Views.Changes.Renderers"
 desc = "复用 markdown 产物渲染"
 
 [[relation]]
-from = "App.Frontend.Views.Info"
-to = "App.Frontend.GeneratedBindings"
+from = "Desktop.Views.Info"
+to = "Desktop.GeneratedBindings"
 desc = "经生成的 IPC 绑定取数与调用"
 
 [[relation]]
-from = "App.Frontend.Views.Info"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Views.Info"
+to = "Desktop.Components.Ui"
 desc = "使用表格与进度原语呈现"
 
 [[relation]]
-from = "App.Frontend.Views.Welcome"
-to = "App.Frontend.Components.Ui"
+from = "Desktop.Views.Welcome"
+to = "Desktop.Components.Ui"
 desc = "使用按钮原语引导创建工作区"

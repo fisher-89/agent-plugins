@@ -1,4 +1,4 @@
-# App.Frontend.Components.Agent.SessionPanel
+# Desktop.Components.Agent.SessionPanel
 
 ## 职能
 
@@ -39,7 +39,7 @@
 
 - **`SessionPanel` 不进 `api-op`**：形态是 `(props: SessionPanelProps) => React.JSX.Element`
   ——入参具名类型、返回位是 JSX 元素，两侧归一恒不等，同类实测差异见
-  `App.Frontend.Components.Agent.AgentError` 的留白段。
+  `Desktop.Components.Agent.AgentError` 的留白段。
 - **`SessionPanelState` 不进 `api-types`**：十个字段位里四个引用外部类型——`UseAgentSessionState`
   （`hooks/use-agent-session`）、`SessionSummary[]`（生成的绑定类型）与三个函数位。契约词汇没有
   跨模块具名类型位；把外部类型就地重抄即造第二个真相源，故本元素 `$defs` 为空。

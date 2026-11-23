@@ -1,4 +1,4 @@
-# App.Frontend.Components.Agent.AgentMessages
+# Desktop.Components.Agent.AgentMessages
 
 ## 职能
 
@@ -39,7 +39,7 @@
 
 - **`AgentMessages` 不进 `api-op`**：形态是 `(props: AgentMessagesProps) => React.JSX.Element`
   ——入参具名类型、返回位是 JSX 元素，两侧归一恒不等（`apiSignatureMismatch` 恒红），同类实测
-  差异见 `App.Frontend.Components.Agent.AgentError` 的留白段。
+  差异见 `Desktop.Components.Agent.AgentError` 的留白段。
 - **`AskAnswerActions` 不进 `api-types`**：它本身是**能自洽表达**的类型（一个必填函数位 +
   一个可空字符串位，零外部引用），实测也通过 `apiMissing`。留白的原因是生成链：`emit::ts` 在
   文件末尾多出一个空行，`vp check` 的格式化器剥掉它之后 `api:check` 的零 diff 门即判

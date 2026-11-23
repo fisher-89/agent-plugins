@@ -1,4 +1,4 @@
-# App.Frontend.Components.Agent.AgentBlocks
+# Desktop.Components.Agent.AgentBlocks
 
 ## 职能
 

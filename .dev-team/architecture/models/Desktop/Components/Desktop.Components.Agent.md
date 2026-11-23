@@ -1,4 +1,4 @@
-# App.Frontend.Components.Agent
+# Desktop.Components.Agent
 
 ## 职能
 
@@ -44,14 +44,14 @@ re-export 透出 8 个名字（4 个组件 + 4 个类型），会话消费面（
 - **4 个组件操作不进 `api-op`**：四者形态都是 `(props: <Props>) => React.JSX.Element`——入参
   是具名 props 类型、返回位是 JSX 元素。契约侧 `$ref` 归一为 `?<名>`、代码侧是具名
   `<名>`，两侧短形恒不等（`apiSignatureMismatch` 恒红）；返回位在契约词汇里没有落点。同类
-  实测差异见 `App.Frontend.Components.Agent.AgentError` 的留白段。
+  实测差异见 `Desktop.Components.Agent.AgentError` 的留白段。
 - **4 个类型不进 `api-reexport`**：两条独立成因。① specifier：透传条目的 TS specifier 由
   `paths::ts_import_specifier` 按入口形态产出（目录形态 → `../<目标根末段>.i`），而前端真值
   ——同目录 `./<目标入口主干>.i`、目标末段含 `.tsx`——尚未接线（该函数的显式留白），此刻写进来
   必然生成指向不存在文件的 `export type … from`。② 生成链：`emit::ts` 在文件末尾多出一个
   空行，`vp check` 的格式化器剥掉它之后 `api:check` 的零 diff 门即判 `mismatched`——前端
   `.i.ts` 的「格式化不动点 ⇄ 生成物零 diff」两条判据此刻互相矛盾（实测见
-  `App.Frontend.Components.Agent.AgentBlocks` 的留白段）。两条出路都在源码/配置面，属独立的
+  `Desktop.Components.Agent.AgentBlocks` 的留白段）。两条出路都在源码/配置面，属独立的
   生成链接线变更。四个类型的归属与去向逐条登记在上表，待接线后迁入透传清单（一次一条）。
 
 ## 类型

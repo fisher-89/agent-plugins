@@ -24,7 +24,7 @@
 - **`enabled = false` 仍照跑**：契约面未启用时命令 SHALL 返回 `Ok`（而非 `Err` 或空壳），三类差异照实计算——此时应生成集只含 `INDEX.toml`，故 `missing` 通常就是那一条（其落点为 `<archi_graph_dir>/INDEX.toml`）；MUST NOT 因 `enabled = false` 返回空的结构化结果让面板无从呈现冷启动态。
 - **`enabled` 判据（本变更收紧，行为变化）**：判据 SHALL 为「**存在任一 `path` 非空元素的入口文档载体在盘且正文含 api fence 语言标**」——载体按 `api` 状态取值（`declared` → 派生契约 md、`none` → `doc` 声明），fence 语言标单点复用 `contract::FENCE_OP` / `contract::FENCE_TYPES`。三条后果必须说准：
   1. **冷启动态**不再是「递归零份 `*.md`」而是「**没有任何元素的载体带 fence**」——`graph/model/` 一级的六个 `NN-<域>.toml`、`models/notes.md`（非任何元素的载体）、`Backend/notes.md`（无 fence）三者都 MUST NOT 构成启用证据；
-  2. 本仓读数**仍为 `true`**（试点契约 `models/Infra/App.Backend.Infra.ArchiRuntime.md` 在盘且含 `api-op` / `api-types` fence），MUST NOT 被改写成「模型在即启用」；
+  2. 本仓读数**仍为 `true`**（试点契约 `models/Infra/Backend.Infra.ArchiRuntime.md` 在盘且含 `api-op` / `api-types` fence），MUST NOT 被改写成「模型在即启用」；
   3. 判据与判据面同源（同一 `doc_facts` 事实），命令层 MUST NOT 另判一套、MUST NOT 缓存。
 - **路径串口径**：三列元素 SHALL 为 repo 相对 POSIX 串（剥 `root` 前缀、`\` → `/`、去前导 `./`），经 `archi::display` 单点产出；MUST NOT 在命令层或前端另写一份归一。
 - **错误面**：空白 / 不可读 / 非目录 root、模型结构诊断非空、契约资产非法（任一契约不可解析 / 双向 gate 失败 / `$defs` 规则失败）SHALL 以 `Result<T, String>` 的 `Err` 返回且零部分结果（沿既有命令面口径；`ApiError::message()` 透传原文，MUST NOT 包装、MUST NOT 补默认值）。
@@ -237,7 +237,7 @@
 
 #### Scenario: 有契约元素的三路径
 
-- **WHEN** 聚焦契约在案的元素（如 `App.Backend.Infra.ArchiRuntime`）打开元素信息面板
+- **WHEN** 聚焦契约在案的元素（如 `Backend.Infra.ArchiRuntime`）打开元素信息面板
 - **THEN** 契约段呈 `status = declared` + 三路径行，点任一行的「查看」经 `read_file` 打开该文件；本元素判据 0 条时呈「本元素无漂移」
 
 #### Scenario: 无契约元素的空态

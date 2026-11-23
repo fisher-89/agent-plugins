@@ -190,7 +190,7 @@
 
 #### Scenario: declared 元素只有契约段一条入口文档
 
-- **WHEN** 聚焦契约在案的元素（如 `App.Backend.Infra.ArchiRuntime`）打开元素信息面板
+- **WHEN** 聚焦契约在案的元素（如 `Backend.Infra.ArchiRuntime`）打开元素信息面板
 - **THEN** 入口文档只出现在契约段的 `ContractPathRow("契约")` 一行；面板内 MUST NOT 出现第二条入口文档行（`doc` 为 `null`）；段序为「概览 → 契约 → 入口文档 → 豁免」，`declared` 与 `api = none` 未声明 `doc` 时「入口文档」段整段不渲染
 
 #### Scenario: 空态可辨

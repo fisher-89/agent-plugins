@@ -13,16 +13,18 @@ use crate::{diff, search};
 // 封闭词汇（九枚举，词汇单点）
 // ---------------------------------------------------------------------------
 
-/// 元素种类（封闭三值；线格式小写词）。
+/// 元素种类（封闭四值；线格式小写词）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum ElementKind {
-    /// 包级（顶层分组）
+    /// 包级（最小编译单元 / 独立依赖管理）
     Package,
-    /// 域级（业务域）
+    /// 域级（按业务实体边界聚合的代码）
     Domain,
-    /// 模块级（crate / 目录型模块 / 视图 / 单文件组件）
+    /// 模块级（目录型模块 / 视图 / 单文件组件）
     Module,
+    /// 组合（无实际层级，仅将过多的同级元素分类；可嵌套在任意类型之上）
+    Composite,
 }
 
 impl ElementKind {
@@ -32,14 +34,16 @@ impl ElementKind {
             ElementKind::Package => "package",
             ElementKind::Domain => "domain",
             ElementKind::Module => "module",
+            ElementKind::Composite => "composite",
         }
     }
 
     /// 全部合法值（清单单点：工具描述从同一份词表派生，不另抄一份字面量）。
-    pub const ALL: [ElementKind; 3] = [
+    pub const ALL: [ElementKind; 4] = [
         ElementKind::Package,
         ElementKind::Domain,
         ElementKind::Module,
+        ElementKind::Composite,
     ];
 }
 
@@ -98,7 +102,7 @@ impl ApiStatus {
         }
     }
 
-    /// 全部合法值（清单单点：全量常量 = 知识文本与四面词汇对拍的唯一派生源）。新增
+    /// 全部合法值（清单单点：全量常量 = 知识文本 `api` 字段行与语料对拍的唯一派生源）。新增
     /// 变体必须同补本常量（长度即红灯），MUST NOT 在消费侧手抄一份词表字面量。
     pub const ALL: [ApiStatus; 2] = [ApiStatus::Declared, ApiStatus::None];
 }
@@ -150,7 +154,8 @@ impl ArchiDiagnosticKind {
         }
     }
 
-    /// 全部合法值（清单单点：全量常量 = 知识文本与语料对拍的唯一派生源）。新增
+    /// 全部合法值（清单单点：全量常量 = 语料对拍的唯一派生源；知识文本不列
+    /// 诊断全量词）。新增
     /// 变体必须同补本常量（长度即红灯），MUST NOT 在消费侧手抄一份词表字面量。
     pub const ALL: [DiagnosticKind; 9] = [
         DiagnosticKind::SyntaxError,
@@ -217,7 +222,7 @@ impl FileEntryKind {
 ///
 /// 与画布节点标记 [`NodeMark`] **同名不同义、MUST NOT 复用**：后者归画布节点、生命
 /// 周期在漂移报告；本词表只表达归属，MUST NOT 承载漂移违例 / 门禁 / 契约状态，且
-/// MUST NOT 进「四面词汇对拍」（那四面锚定模型 / 报告词汇，另一条生命周期）。
+/// MUST NOT 进「模型面词汇对拍」（三面锚定模型词汇，另一条生命周期）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum FileTreeMark {

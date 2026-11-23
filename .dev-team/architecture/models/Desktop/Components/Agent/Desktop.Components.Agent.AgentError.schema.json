@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "App.Frontend.Components.Agent.AgentSessionView.schema.json",
-  "title": "App.Frontend.Components.Agent.AgentSessionView",
+  "$id": "Desktop.Components.Agent.AgentError.schema.json",
+  "title": "Desktop.Components.Agent.AgentError",
   "$comment": "本文件由元素的契约 markdown 生成，勿手改：手改将在下次 generate 时被覆盖，且 api:check 零 diff 门会失败",
   "$defs": {},
   "properties": {}

@@ -304,7 +304,7 @@
 
 #### Scenario: apiFindings 并列而不混装
 
-- **WHEN** 报告同时含 1 条 `warnings` 与 36 条 `apiFindings`（全部 `docMissing`，且这些元素均未写入口文档）
+- **WHEN** 报告同时含 1 条 `warnings` 与 39 条 `apiFindings`（全部 `docMissing`，且这些元素均未写入口文档）
 - **THEN** `warnings` 仍只 1 条、`status = warnings`（成因是 `warnings` 非空而非契约判据）、`passed` 不受这 36 条影响；两类条目不互相出现
 
 #### Scenario: 入口文档在案的判据按档位抬 status
@@ -314,7 +314,7 @@
 
 #### Scenario: 存量入口文档债不进状态词
 
-- **WHEN** 报告含 36 条 `docMissing`（本仓当前读数：33 条 `declared` 契约未写 + 3 条 `api = none` 未声明 `doc`）、零 `errors`、零 `warnings`
+- **WHEN** 报告含 39 条 `docMissing`（本仓当前读数：36 条 `declared` 契约未写 + 3 条 `api = none` 未声明 `doc`）、零 `errors`、零 `warnings`
 - **THEN** 纳管子集为空 ⇒ `status = clean`、`passed = true`；MUST NOT 因这 36 条把状态词抬成 `warnings`
 
 #### Scenario: 版本未递增而口径已变
