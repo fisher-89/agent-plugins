@@ -358,12 +358,12 @@ generated = ""
 
 [[entry]]
 fqn = "Desktop.Views.Architecture"
-status = "absent"
+status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ""
-generated = ""
+schema = ".dev-team/architecture/models/Desktop/Views/Desktop.Views.Architecture.schema.json"
+generated = "packages/desktop/src/views/architecture/index.i.ts"
 
 [[entry]]
 fqn = "Desktop.Views.Changes"

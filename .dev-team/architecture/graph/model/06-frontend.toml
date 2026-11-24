@@ -9,7 +9,7 @@ path = ["./packages/desktop/src/app.tsx", "./packages/desktop/src/routes.tsx", "
 summary = "页壳：入口、路由表与侧栏装配"
 
 [element."Desktop.Views"]
-kind = "domain"
+kind = "composite"
 gate = "off"
 summary = "路由挂载的页面集合"
 
@@ -86,7 +86,7 @@ path = ["./packages/desktop/src/views/changes/agent/"]
 summary = "变更详情右栏的 agent 对话面板"
 
 [element."Desktop.Components"]
-kind = "domain"
+kind = "composite"
 gate = "off"
 summary = "跨视图复用的组件集合"
 
