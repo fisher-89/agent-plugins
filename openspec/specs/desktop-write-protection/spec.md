@@ -60,7 +60,7 @@
 
 - 路径字段 SHALL 取 `path`（与工具入参字段一致）。检查点位于路径沙箱改写之后，故此处 `path` 通常是 canonical 绝对路径；判定前 SHALL 做归一（剥 Windows 扩展长度前缀 `\\?\`、`\` → `/`），MUST NOT 再次 canonicalize（判定 MUST 零 IO）。
 - 命中 SHALL 产出一条拒绝串并返回；MUST NOT 在此处发事件、写盘或产生任何副作用（`SystemNotice` / ToolResult 由 loop 侧统一合成）。
-- **射程边界**：`read` / `grep` / `glob` / `ls` 四只读工具 MUST NOT 被写入保护拦截（保护面只覆盖写，读面全开放）；专用工具 `create_explore_note` MUST NOT 被拦截（其目标目录属探索笔记，写入语义与 `write` / `edit` 不同源——一致性缺口为既定裁定的知情边界：用户若把 `openspec/explores/**` 写进保护，`edit` 被拒而该专用工具直通）。
+- **射程边界**：`read` / `grep` / `glob` / `ls` 四只读工具 MUST NOT 被写入保护拦截（保护面只覆盖写，读面全开放）；专用工具 `create_explore_note` MUST NOT 被拦截（其目标目录属探索笔记，写入语义与 `write` / `edit` 不同源——一致性缺口为既定裁定的知情边界：用户若把 `.dev-team/explores/**` 写进保护，`edit` 被拒而该专用工具直通）。
 - **入参非法 fail-open**：`path` 缺失或非字符串时 SHALL 放行（执行体自会以「入参缺失或非字符串字段」报错，保护面不抢错误归属）。
 
 #### Scenario: write 命中拒绝而读面放行
@@ -75,7 +75,7 @@
 
 #### Scenario: 专用工具不在射程
 
-- **WHEN** 用户在配置中保护 `openspec/explores/**`，模型调用 `create_explore_note`
+- **WHEN** 用户在配置中保护 `.dev-team/explores/**`，模型调用 `create_explore_note`
 - **THEN** 判定返回 `None`（该专用工具直通），同目录的 `write` / `edit` 调用仍被拒——缺口作为知情边界留痕
 
 #### Scenario: 判定零副作用

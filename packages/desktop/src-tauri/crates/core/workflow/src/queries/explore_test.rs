@@ -26,7 +26,7 @@ impl TempWs {
         Self(dir)
     }
 
-    /// 笔记目录（`<root>/openspec/explores`），按需创建。
+    /// 笔记目录（`<root>/.dev-team/explores`），按需创建。
     fn explores_dir(&self) -> PathBuf {
         let dir = resolve(&self.0).explores_root;
         fs::create_dir_all(&dir).expect("创建 explores 目录失败");

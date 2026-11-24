@@ -265,7 +265,7 @@ store SHALL 提供 explore 清单操作面：`list_explore_records(root)`（按 
 #### Scenario: 占位建档（None 入参）
 
 - **WHEN** 以 `name = None` 调用 `create_explore_record(root)`
-- **THEN** 返回记录 `name` 匹配 `draft-<毫秒串>`（kebab 合法）、`title` 为同一时间戳派生的 `<yyyy-MM-dd HH:mm:ss>-分析中`、`session_id` 已预建回写、`workflow_type = "requirement"`；库外零文件操作（`openspec/explores/` 不出现任何新文件）；以 `name = Some("api-retry")` 建档仍走既有路径（`title = "api-retry"`）
+- **THEN** 返回记录 `name` 匹配 `draft-<毫秒串>`（kebab 合法）、`title` 为同一时间戳派生的 `<yyyy-MM-dd HH:mm:ss>-分析中`、`session_id` 已预建回写、`workflow_type = "requirement"`；库外零文件操作（`.dev-team/explores/` 不出现任何新文件）；以 `name = Some("api-retry")` 建档仍走既有路径（`title = "api-retry"`）
 
 #### Scenario: 占位名撞名单调兜底
 

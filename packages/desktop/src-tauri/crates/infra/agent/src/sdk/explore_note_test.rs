@@ -141,7 +141,7 @@ async fn 占位记录两步定名_落盘与inplace改名_返回repo相对路径(
 
     // 返回 repo 相对路径（`/` 分隔，供 Edit 续用）
     assert_eq!(
-        returned, "openspec/explores/api-retry.md",
+        returned, ".dev-team/explores/api-retry.md",
         "返回 repo 相对 / 分隔路径，实际: {returned}"
     );
     // ① 落盘：content 原样
@@ -222,12 +222,12 @@ async fn 返回路径分隔符归一为正斜杠() {
         "返回值不含反斜杠（归一 `/` 分隔），实际: {returned}"
     );
     assert_eq!(
-        returned, "openspec/explores/slash-name.md",
+        returned, ".dev-team/explores/slash-name.md",
         "root 前缀已剥离（repo 相对）"
     );
 }
 
-/// 父目录缺失补建（边界）：`openspec/explores/` 目录不存在 → 补建父目录后
+/// 父目录缺失补建（边界）：`.dev-team/explores/` 目录不存在 → 补建父目录后
 /// 落盘成功。
 #[tokio::test]
 async fn explores目录缺失时补建父目录落盘() {
@@ -240,7 +240,7 @@ async fn explores目录缺失时补建父目录落盘() {
         .await
         .expect("父目录缺失应补建后落盘");
 
-    assert_eq!(returned, "openspec/explores/fresh-name.md");
+    assert_eq!(returned, ".dev-team/explores/fresh-name.md");
     assert_eq!(
         std::fs::read_to_string(env.explores_root().join("fresh-name.md")).unwrap(),
         "首篇"
@@ -268,7 +268,7 @@ async fn content边界形态原样落盘() {
             .await
             .unwrap_or_else(|e| panic!("[{label}] 定名应成功: {e}"));
 
-        assert_eq!(returned, "openspec/explores/edge-note.md", "[{label}]");
+        assert_eq!(returned, ".dev-team/explores/edge-note.md", "[{label}]");
         let on_disk = std::fs::read_to_string(env.explores_root().join("edge-note.md"))
             .unwrap_or_else(|e| panic!("[{label}] 读取落盘文件失败: {e}"));
         assert_eq!(on_disk, content, "[{label}] content 原样不改写");
@@ -376,7 +376,7 @@ async fn 目标文件已存在拒绝且错误附路径() {
         .await
         .expect_err("目标文件已存在应 Err");
     assert!(
-        error.contains("笔记文件已存在") && error.contains("openspec/explores/api-retry.md"),
+        error.contains("笔记文件已存在") && error.contains(".dev-team/explores/api-retry.md"),
         "错误文案附路径（恢复通道），实际: {error}"
     );
     // 文件内容不被覆盖、记录零改动
@@ -408,7 +408,7 @@ async fn 已定名同名孤儿补建_记录不变() {
         .await
         .expect("同名补建应成功");
 
-    assert_eq!(returned, "openspec/explores/named-topic.md");
+    assert_eq!(returned, ".dev-team/explores/named-topic.md");
     assert_eq!(
         std::fs::read_to_string(env.explores_root().join("named-topic.md")).unwrap(),
         "补建内容"
@@ -454,7 +454,7 @@ async fn 已定名异名拦截且错误附现有名与路径() {
     assert!(
         error.contains("existing-name")
             && error.contains("other-name")
-            && error.contains("openspec/explores/existing-name.md"),
+            && error.contains(".dev-team/explores/existing-name.md"),
         "错误附现有名与笔记路径（恢复通道），实际: {error}"
     );
     env.assert_record_unchanged(&record);
@@ -565,7 +565,7 @@ async fn input多余字段宽容面_幻觉path与嵌套字段不消费照常定�
         .await
         .expect("多余字段 additive 宽容不应 Err（仅取 name / content 两字段）");
 
-    assert_eq!(returned, "openspec/explores/tolerant-name.md");
+    assert_eq!(returned, ".dev-team/explores/tolerant-name.md");
     assert!(
         !env.explores_root().join("幻觉路径参数不消费").exists(),
         "path 字段不消费（无路径参数面，幻觉路径零落盘）"
@@ -596,7 +596,7 @@ async fn 目标名draft前缀按普通定名处理() {
         .await
         .expect("draft- 前缀合法 kebab 应按普通定名成功");
 
-    assert_eq!(returned, "openspec/explores/draft-999.md");
+    assert_eq!(returned, ".dev-team/explores/draft-999.md");
     assert!(
         env.explores_root().join("draft-999.md").exists(),
         "落盘于最终名"

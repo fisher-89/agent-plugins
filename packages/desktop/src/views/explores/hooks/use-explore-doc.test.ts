@@ -84,7 +84,7 @@ function sliceOf(content: string) {
 function mockIpc() {
   ChannelMock.instances.length = 0;
   docResult = doc('# 探索笔记\n初稿');
-  derivedPath = `${ROOT}\\openspec\\explores\\${NAME}.md`;
+  derivedPath = `${ROOT}\\.dev-team\\explores\\${NAME}.md`;
   subscribeResult = 7;
   invokeMock.mockImplementation((command: string) => {
     if (command === 'read_file') {
@@ -388,7 +388,7 @@ describe('useExploreDoc：参数变更竞态（取消抑制）', () => {
         return Promise.resolve(sliceOf('新文档内容'));
       }
       if (command === 'explore_doc_path') {
-        return Promise.resolve(`${ROOT}\\openspec\\explores\\${String(params?.name)}.md`);
+        return Promise.resolve(`${ROOT}\\.dev-team\\explores\\${String(params?.name)}.md`);
       }
       if (command === 'watch_subscribe') return Promise.resolve(11);
       if (command === 'watch_unsubscribe') return Promise.resolve(true);
@@ -424,7 +424,7 @@ describe('useExploreDoc：参数变更竞态（取消抑制）', () => {
         return Promise.resolve(sliceOf('新文档内容'));
       }
       if (command === 'explore_doc_path') {
-        return Promise.resolve(`${ROOT}\\openspec\\explores\\${String(params?.name)}.md`);
+        return Promise.resolve(`${ROOT}\\.dev-team\\explores\\${String(params?.name)}.md`);
       }
       if (command === 'watch_subscribe') return Promise.resolve(11);
       if (command === 'watch_unsubscribe') return Promise.resolve(true);
@@ -492,7 +492,7 @@ describe('useExploreDoc：生成绑定调用面', () => {
     expect(noSubscribe.result.current.doc).toBeNull();
 
     // 正常订阅下防抖合并：窗口内两信号合并为一次重拉（第二次信号重置计时）
-    derivedPath = `${ROOT}\\openspec\\explores\\${NAME}.md`;
+    derivedPath = `${ROOT}\\.dev-team\\explores\\${NAME}.md`;
     const { result } = await mounted();
     await flush();
     const readsBefore = readCallCount();
@@ -552,7 +552,7 @@ describe('useExploreDoc：经 ipc 的参数面 / 结果面', () => {
 
   it.each([
     ['返回 null（无文档路径）', null],
-    ['返回字符串', `${ROOT}openspecexplores\${NAME}.md`],
+    ['返回字符串', `${ROOT}\\.dev-team\\explores\\\${NAME}.md`],
   ])('exploreDocPath %s → 订阅分支与既有短路语义不变、零漂移', async (_label, path) => {
     derivedPath = path;
     await mounted();
@@ -881,7 +881,7 @@ describe('useFileWatchSignal：经消费方公开面（C1–C5）', () => {
     it('超长臂键（root + name 合计 > 1000 字符）：仍单次订阅且入参逐字不截断', async () => {
       const longRoot = `C:\\demo\\${'很长目录名'.repeat(120)}`;
       const longName = `note-${'x'.repeat(600)}`;
-      derivedPath = `${longRoot}\\openspec\\explores\\${longName}.md`;
+      derivedPath = `${longRoot}\\.dev-team\\explores\\${longName}.md`;
       expect(longRoot.length + longName.length).toBeGreaterThan(1000);
 
       await mounted(longRoot, longName);
@@ -1070,7 +1070,7 @@ describe('useExploreDoc：订阅身份与有参 ↔ 空参平移', () => {
         return Promise.resolve(sliceOf(`内容-${String(params?.path).split(/[\\/]/).at(-1)}`));
       }
       if (command === 'explore_doc_path') {
-        return Promise.resolve(`${ROOT}\\openspec\\explores\\${String(params?.name)}.md`);
+        return Promise.resolve(`${ROOT}\\.dev-team\\explores\\${String(params?.name)}.md`);
       }
       if (command === 'watch_subscribe') return Promise.resolve(11);
       if (command === 'watch_unsubscribe') return Promise.resolve(true);
@@ -1105,7 +1105,7 @@ describe('useExploreDoc：订阅身份与有参 ↔ 空参平移', () => {
       }
       if (command === 'explore_doc_path') {
         return Promise.resolve(
-          `${String(params?.root)}\\openspec\\explores\\${String(params?.name)}.md`,
+          `${String(params?.root)}\\.dev-team\\explores\\${String(params?.name)}.md`,
         );
       }
       if (command === 'watch_subscribe') {
@@ -1150,7 +1150,7 @@ describe('useExploreDoc：订阅身份与有参 ↔ 空参平移', () => {
         return Promise.resolve(sliceOf(`内容-${String(params?.path).split(/[\\/]/).at(-1)}`));
       }
       if (command === 'explore_doc_path') {
-        return Promise.resolve(`${ROOT}\\openspec\\explores\\${String(params?.name)}.md`);
+        return Promise.resolve(`${ROOT}\\.dev-team\\explores\\${String(params?.name)}.md`);
       }
       if (command === 'watch_subscribe') return Promise.resolve(11);
       if (command === 'watch_unsubscribe') return Promise.resolve(true);
@@ -1165,7 +1165,7 @@ describe('useExploreDoc：订阅身份与有参 ↔ 空参平移', () => {
     expect(readCallCount()).toBe(1);
 
     act(() => {
-      lastChannel().deliver({ path: `${ROOT}\\openspec\\explores\\old-doc.md` });
+      lastChannel().deliver({ path: `${ROOT}\\.dev-team\\explores\\old-doc.md` });
     });
     act(() => {
       vi.advanceTimersByTime(200);

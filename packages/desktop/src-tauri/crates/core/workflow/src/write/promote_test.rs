@@ -67,12 +67,12 @@ impl Env {
         )
     }
 
-    /// 主仓 explore 笔记路径（`openspec/explores/<name>.md`）。
+    /// 主仓 explore 笔记路径（`.dev-team/explores/<name>.md`）。
     fn note_path(&self, name: &str) -> PathBuf {
         resolve(&self.root).explores_root.join(format!("{name}.md"))
     }
 
-    /// 预置主仓笔记（`explores/<name>.md` 全文写入）。
+    /// 预置主仓笔记（`.dev-team/explores/<name>.md` 全文写入）。
     fn seed_note(&self, name: &str, content: &str) -> PathBuf {
         let path = self.note_path(name);
         fs::create_dir_all(path.parent().expect("笔记路径应有父目录")).expect("建笔记目录失败");
@@ -394,7 +394,7 @@ impl ChangeStateStore for PromoteStore {
 // 正向：move 全链（AC-6 写面半边）
 // ---------------------------------------------------------------------------
 
-/// promote 成功 move 全链（正向）：预置主仓 `explores/<name>.md` → promote
+/// promote 成功 move 全链（正向）：预置主仓 `.dev-team/explores/<name>.md` → promote
 /// 成功：假 store 捕获 create 建档载荷（name / goal / title）；worktree 内
 /// `changes/<name>/explore.md` 内容 == note 全文；主仓原笔记已删；
 /// `PromoteOutcome` 返回 change_id / change_name。
@@ -437,7 +437,7 @@ fn promote成功move全链_搬全文删原笔记且载荷title继承() {
     // 主仓原笔记已删
     assert!(
         !note_path.exists(),
-        "主仓 explores/api-retry.md 已删（move 语义）"
+        "主仓 .dev-team/explores/api-retry.md 已删（move 语义）"
     );
 
     // 出线

@@ -9,7 +9,8 @@ const CHANGES_DIR_NAME: &str = "changes";
 /// 已归档 change 子目录名（相对 changes 子目录锚定，物理嵌套于 changes 之内）
 const ARCHIVE_DIR_NAME: &str = "archive";
 
-/// 探索笔记子目录名（相对域根锚定）
+/// 探索笔记子目录名（相对 `.dev-team` 顶层目录锚定——`<root>/.dev-team/explores`，
+/// 与架构域 `architecture/` 同级）
 const EXPLORES_DIR_NAME: &str = "explores";
 
 /// 工作区配置文件名（相对架构域顶层目录锚定——`<root>/.dev-team/config.json`）
@@ -29,7 +30,8 @@ const BASELINE_REPORTS_DIR_NAME: &str = "baseline";
 const ARCHI_REPORTS_DIR_NAME: &str = "archi";
 
 /// 架构域顶层目录名（相对 workspace 根锚定；`.dev-team` 隐藏目录——架构资产与
-/// `openspec/` 变更语料分树；与壳层数据根 `<home>/.dev-team` 同名不同物）
+/// 探索笔记同住于此，与 `openspec/` 变更语料分树；与壳层数据根
+/// `<home>/.dev-team` 同名不同物）
 const ARCHI_ROOT_DIR_NAME: &str = ".dev-team";
 
 /// 架构域子目录名（相对架构域顶层锚定；架构域段名的唯一持有者）
@@ -64,7 +66,7 @@ pub enum ReportSlot {
     Archi,
 }
 
-/// workspace 磁盘布局：进行中 / 已归档 / 探索笔记三棵目录树。
+/// workspace 磁盘布局：进行中 / 已归档两棵变更目录树与探索笔记目录。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Layout {
     /// 进行中 change 目录树
@@ -86,7 +88,7 @@ pub fn resolve(root: &Path) -> Layout {
     Layout {
         changes_root: domain_root.join(CHANGES_DIR_NAME),
         archive_root: domain_root.join(CHANGES_DIR_NAME).join(ARCHIVE_DIR_NAME),
-        explores_root: domain_root.join(EXPLORES_DIR_NAME),
+        explores_root: root.join(ARCHI_ROOT_DIR_NAME).join(EXPLORES_DIR_NAME),
     }
 }
 

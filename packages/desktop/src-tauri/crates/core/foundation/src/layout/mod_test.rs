@@ -46,8 +46,18 @@ fn 存在的_root_返回以_root为前缀的三棵子树() {
     );
     assert_eq!(
         layout.explores_root.parent(),
+        Some(temp.0.join(ARCHI_ROOT_DIR_NAME).as_path()),
+        "explores 落架构域顶层目录（与变更语料域根分树）"
+    );
+    assert_eq!(
         layout.changes_root.parent(),
-        "explores 与 changes 同属一棵领域树"
+        Some(temp.0.join(DOMAIN_DIR_NAME).as_path()),
+        "changes 落变更语料域根"
+    );
+    assert_ne!(
+        layout.explores_root.parent(),
+        layout.changes_root.parent(),
+        "explores 与 changes 分树"
     );
 
     // 三棵子树各自指向不同目录
@@ -95,7 +105,7 @@ fn root_为空路径时返回相对形式且不_panic() {
     );
     assert_eq!(
         layout.explores_root,
-        PathBuf::from("openspec").join("explores")
+        PathBuf::from(ARCHI_ROOT_DIR_NAME).join(EXPLORES_DIR_NAME)
     );
 }
 
@@ -275,8 +285,8 @@ fn resolve_三棵子树与常量组合路径逐字相等_体内全量常量引�
     );
     assert_eq!(
         layout.explores_root,
-        domain.join(EXPLORES_DIR_NAME),
-        "explores 产物 = root/域目录/explores"
+        temp.0.join(ARCHI_ROOT_DIR_NAME).join(EXPLORES_DIR_NAME),
+        "explores 产物 = root/.dev-team/explores（与变更语料域根分树）"
     );
 }
 

@@ -33,7 +33,7 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 #### Scenario: 新话题免命名建档与 autoPrompt 导航
 
 - **WHEN** 用户点击创建触发器「创建探索」，在标为「新建探索」的对话框中以需求文本「调研 API 重试策略」提交
-- **THEN** 前端以 `name = null` invoke 建档，store 出现 `ExploreRecord`（`name` 匹配 `draft-*`、`title` 为「<时间戳>-分析中」），`openspec/explores/` 目录内 MUST NOT 出现新文件，详情页预览呈空态；对话框关闭，导航至 `/explores/<占位名>` 且路由 `state.autoPrompt` 携需求原文
+- **THEN** 前端以 `name = null` invoke 建档，store 出现 `ExploreRecord`（`name` 匹配 `draft-*`、`title` 为「<时间戳>-分析中」），`.dev-team/explores/` 目录内 MUST NOT 出现新文件，详情页预览呈空态；对话框关闭，导航至 `/explores/<占位名>` 且路由 `state.autoPrompt` 携需求原文
 - **AND** 输入空白时提交被行内拒绝（错误提示在场、零 invoke，对话框留窗；kebab 校验分支不再存在）
 
 #### Scenario: 专用工具定名即时入清单
@@ -48,7 +48,7 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 
 ### Requirement: 双栏详情与实时预览
 
-探索详情页（`/explores/:name`）SHALL 为左右双栏布局（resizable，可拖分界）：左对话区、右文档预览。详情头 SHALL 渲染 `title`。预览 SHALL 经 `explore_doc_path` 派生绝对路径 + 通用 `read_file` 读取磁盘 `explore.md` 并以既有 `MarkdownDocRenderer` 渲染（路径解析按臂单次、读取与 watch 订阅共用）；页面挂载时 SHALL 对当前 explore.md 发起 watch 订阅，收到修改信号后前端防抖再显式重读刷新（数据面无轮询）。目标文件未落盘或已被删除时预览 SHALL 呈空态（记录保留、不报错）。记录 `promoted_to` 非空时（已 promote），详情 SHALL 显示「已转变更」徽标与「查看变更」跳转（路由 `/changes/<promoted_to>`），预览区 SHALL 显示已 promote 提示而非继续读 `explores/<name>.md`（笔记已移走）。
+探索详情页（`/explores/:name`）SHALL 为左右双栏布局（resizable，可拖分界）：左对话区、右文档预览。详情头 SHALL 渲染 `title`。预览 SHALL 经 `explore_doc_path` 派生绝对路径 + 通用 `read_file` 读取磁盘 `explore.md` 并以既有 `MarkdownDocRenderer` 渲染（路径解析按臂单次、读取与 watch 订阅共用）；页面挂载时 SHALL 对当前 explore.md 发起 watch 订阅，收到修改信号后前端防抖再显式重读刷新（数据面无轮询）。目标文件未落盘或已被删除时预览 SHALL 呈空态（记录保留、不报错）。记录 `promoted_to` 非空时（已 promote），详情 SHALL 显示「已转变更」徽标与「查看变更」跳转（路由 `/changes/<promoted_to>`），预览区 SHALL 显示已 promote 提示而非继续读 `.dev-team/explores/<name>.md`（笔记已移走）。
 
 #### Scenario: 预览随磁盘刷新
 
@@ -63,7 +63,7 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 #### Scenario: promoted 态呈现
 
 - **WHEN** 记录 `promoted_to = Some(change_id)` 时打开该 explore 详情
-- **THEN** 详情头显示「已转变更」徽标与「查看变更」跳转（目标 `/changes/<change_id>`），预览区显示已 promote 提示、不再读 `explores/<name>.md`
+- **THEN** 详情头显示「已转变更」徽标与「查看变更」跳转（目标 `/changes/<change_id>`），预览区显示已 promote 提示、不再读 `.dev-team/explores/<name>.md`
 
 ### Requirement: 对话区呈现
 
@@ -136,7 +136,7 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 #### Scenario: 原子定名收敛
 
 - **WHEN** agent 首轮经 `create_explore_note(name="api-retry", …)` 定名成功且 run 转入终态
-- **THEN** 记录 `name="api-retry"`（`id` / `session_id` 不变）、磁盘出现 `openspec/explores/api-retry.md`、占位名文件不存在；URL replace 至 `/explores/api-retry`、清单刷新、预览读新名文件，title 与 workflow_type 回填照常触发
+- **THEN** 记录 `name="api-retry"`（`id` / `session_id` 不变）、磁盘出现 `.dev-team/explores/api-retry.md`、占位名文件不存在；URL replace 至 `/explores/api-retry`、清单刷新、预览读新名文件，title 与 workflow_type 回填照常触发
 
 #### Scenario: 终态前中间窗口
 

@@ -277,7 +277,7 @@ function ExploreDetailHeader({
   );
 }
 
-/** promoted 态右栏：笔记已随变更移走，不读 `explores/<name>.md`（停 read / watch） */
+/** promoted 态右栏：笔记已随变更移走，不读 `.dev-team/explores/<name>.md`（停 read / watch） */
 function PromotedPreview(): React.JSX.Element {
   return (
     <section

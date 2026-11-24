@@ -2746,14 +2746,14 @@ async fn explore轮create工具路由执行体_落盘改名真实发生且结果
     assert_eq!(results[0].0, "tu_note");
     assert!(!results[0].2, "执行成功非 is_error");
     assert_eq!(
-        results[0].1, "openspec/explores/api-retry.md",
+        results[0].1, ".dev-team/explores/api-retry.md",
         "ToolResult 承接返回路径（repo 相对 / 分隔）"
     );
 
     // 落盘与改名真实发生（真实组合不 mock）
     let note = dir
         .path()
-        .join("openspec")
+        .join(".dev-team")
         .join("explores")
         .join("api-retry.md");
     assert!(note.exists(), "笔记文件已落盘");
@@ -2864,7 +2864,7 @@ async fn explore轮create工具default档被policy拒绝且不触执行体() {
     // 不触执行体：零落盘、记录名不变
     assert!(
         !dir.path()
-            .join("openspec")
+            .join(".dev-team")
             .join("explores")
             .join("api-retry.md")
             .exists(),
@@ -2903,10 +2903,10 @@ async fn explore轮create工具bypass档放行且执行体承接() {
     let results = tool_results_of(&events);
     assert_eq!(results.len(), 1);
     assert!(!results[0].2, "放行且执行成功");
-    assert_eq!(results[0].1, "openspec/explores/layout-design.md");
+    assert_eq!(results[0].1, ".dev-team/explores/layout-design.md");
     assert!(
         dir.path()
-            .join("openspec")
+            .join(".dev-team")
             .join("explores")
             .join("layout-design.md")
             .exists(),
@@ -3487,7 +3487,7 @@ async fn 写入保护闸_explore专用工具直通_规则覆盖亦不拦() {
     assert_eq!(results.len(), 1);
     assert!(!results[0].2, "专用工具执行面形态与既有用例一致");
     assert!(
-        results[0].1.contains(foundation::layout::domain_dir_name()),
+        results[0].1.starts_with(".dev-team/explores/"),
         "返回 repo 相对路径，实际: {}",
         results[0].1
     );

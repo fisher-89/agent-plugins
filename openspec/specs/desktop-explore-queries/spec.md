@@ -79,7 +79,7 @@ queries SHALL 新增目录扫描（`scan_explores(layout)` 或等价 API）：�
 1. **占位前缀门禁**：记录名以 `draft-` 前缀（免命名建档的未定名态，见 desktop-workspace-store「ExploreRecord 模型与 explore 清单操作面」）→ 显式 `Err`（引导先在会话中完成定名再启动变更）；该校验 SHALL 先于笔记读取——占位名从未落盘，「笔记未落盘」错误形态对该态不足以引导；
 2. 读主仓笔记全文（`queries::read_explore` 命中且内容非空白，否则显式 `Err` 引导先完成探索）；
 3. 读 `ExploreRecord`（存在且 `promoted_to` 为空，否则显式 `Err`）；
-4. 调 workflow 写面 `promote_explore`（复用 change `create`：`name = explore.name`、`goal = 笔记全文`、`title = explore.title`、`workflow_type = 入参`，成功后删主仓 `explores/<name>.md`）；
+4. 调 workflow 写面 `promote_explore`（复用 change `create`：`name = explore.name`、`goal = 笔记全文`、`title = explore.title`、`workflow_type = 入参`，成功后删主仓 `.dev-team/explores/<name>.md`）；
 5. 写面成功后调 store `mark_explore_promoted(root, name, change_id)` 打标（会话链保留，MUST NOT 删 explore 记录）。
 
 命令 SHALL 返回 `PromoteOutcome`（`change_id` / `change_name`）。磁盘笔记删除 SHALL 仅经 workflow 写面完成，命令层 MUST NOT 直接 `remove_file`。写面 `promote_explore` SHALL 为 sync、零 Tauri、零 tokio（沿写面纪律），经 `Layout` 取全部磁盘路径（MUST NOT 自拼 `openspec` 字面量），并把 `workflow_type` 透传 `create`。
@@ -87,7 +87,7 @@ queries SHALL 新增目录扫描（`scan_explores(layout)` 或等价 API）：�
 #### Scenario: promote move 成功
 
 - **WHEN** 对已落盘且非空白的 kebab explore（`api-retry`，笔记首行 `# API 重试调研`，类型选择 requirement）调用 `promote_explore`
-- **THEN** 返回 `PromoteOutcome`（change_id / change_name=api-retry）；worktree 内 `changes/api-retry/explore.md` 内容为笔记全文；主仓 `explores/api-retry.md` 已删；store 记录 `promoted_to = change_id` 且会话链保留；铸出 change `workflow_type = "requirement"`
+- **THEN** 返回 `PromoteOutcome`（change_id / change_name=api-retry）；worktree 内 `changes/api-retry/explore.md` 内容为笔记全文；主仓 `.dev-team/explores/api-retry.md` 已删；store 记录 `promoted_to = change_id` 且会话链保留；铸出 change `workflow_type = "requirement"`
 
 #### Scenario: test-only 类型透传
 

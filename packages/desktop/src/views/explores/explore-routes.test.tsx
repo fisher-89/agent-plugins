@@ -82,7 +82,7 @@ function ipc(command: string): Promise<unknown> {
   if (command === 'list_explore_records') return Promise.resolve(records);
   if (command === 'read_file') return Promise.resolve(null);
   if (command === 'explore_doc_path')
-    return Promise.resolve('C:\\demo\\alpha\\openspec\\explores\\x.md');
+    return Promise.resolve('C:\\demo\\alpha\\.dev-team\\explores\\x.md');
   if (command === 'watch_subscribe') return Promise.resolve(1);
   if (command === 'watch_unsubscribe') return Promise.resolve(null);
   if (command === 'session_detail') return Promise.resolve(null);
@@ -332,7 +332,7 @@ describe('Explore 路由：onCreated 导航链（清单页 → 详情页首轮�
     const prompt = String(params.prompt);
     expect(prompt).toContain('调研重试策略的失效边界');
     expect(prompt).toContain('## 笔记定名与落盘');
-    expect(prompt).not.toContain('openspec/explores');
+    expect(prompt).not.toContain('.dev-team/explores');
     // 无 MissingRecord 闪现
     expect(screen.queryByTestId('explore-detail-missing')).toBeNull();
   });

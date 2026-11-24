@@ -871,7 +871,10 @@ async fn promote_explore四步成功_笔记移走记录保留打标() {
     .expect("promote 应成功");
 
     // ① 主仓笔记已删（move 半边）
-    assert!(!note_path.exists(), "主仓 explores/api-retry.md 已删");
+    assert!(
+        !note_path.exists(),
+        "主仓 .dev-team/explores/api-retry.md 已删"
+    );
     // ② worktree 内 change explore.md = 笔记全文
     let worktree = worktree_anchor(&env).join("api-retry");
     let landed = foundation::layout::resolve(&worktree)
@@ -1453,7 +1456,7 @@ fn assert_command_placeholder_shape(name: &str) {
 
 /// create(None) 占位建档（正向，AC-2）：返回 `name` 匹配 `draft-<毫秒>`、
 /// `title` 为 `<yyyy-MM-dd HH:mm:ss>-分析中`、`session_id` 回写；
-/// `openspec/explores/`（layout 真实派生）下无占位名文件——占位名从未落盘。
+/// `.dev-team/explores/`（layout 真实派生）下无占位名文件——占位名从未落盘。
 #[test]
 fn create_none占位建档_draft名与临时标题且零文件落盘() {
     let env = Env::new("create-none");
@@ -1492,7 +1495,7 @@ fn create_none占位建档_draft名与临时标题且零文件落盘() {
             .is_some(),
         "预建空会话同事务在库"
     );
-    // openspec/explores/（layout 真实派生）下无占位名文件
+    // .dev-team/explores/（layout 真实派生）下无占位名文件
     let explores_root = foundation::layout::resolve(env.ws_root.path()).explores_root;
     let leftovers: Vec<_> = match fs::read_dir(&explores_root) {
         Ok(entries) => entries

@@ -12,12 +12,12 @@ desktop SHALL 新增通用「watch 文件变化」推送通道：订阅目标是
 
 #### Scenario: 修改信号到达
 
-- **WHEN** 订阅 `openspec/explores/foo.md` 后该文件被外部进程修改保存
+- **WHEN** 订阅 `.dev-team/explores/foo.md` 后该文件被外部进程修改保存
 - **THEN** 前端经 Channel 收到该文件的修改信号（编辑器 rename-replace 原子保存形态下不丢事件）
 
 #### Scenario: 目标缺失不报错
 
-- **WHEN** 对尚未落盘的 `explore.md`（其父目录 `openspec/explores/` 已存在）发起 `watch_subscribe`
+- **WHEN** 对尚未落盘的 `explore.md`（其父目录 `.dev-team/explores/` 已存在）发起 `watch_subscribe`
 - **THEN** 订阅成功无错误；文件随后被创建时修改信号正常到达
 
 #### Scenario: 父目录缺失显式失败不返回空订阅
@@ -136,7 +136,7 @@ watch crate SHALL 区分两种「目标不可达」形态，MUST NOT 合并为�
 消费侧的处置责任 SHALL 落在调用方，watch crate MUST NOT 替其决定（MUST NOT 内建轮询兜底）。两处消费方的落地口径 SHALL 为：
 
 - **change 详情 exec 输出面板**：订阅经共享消费件（第 5 条「订阅失败不阻断数据面」——reject 静默、不冒泡为消费方错误态，本变更 MUST NOT 为此改共享件参数面）。其内容面因此**从不依赖 watch 是否存活**：装载首拍与终态整读各取一次全量，watch 只负责运行中的增量跟随；`ParentUnavailable` 在本消费点由「顺序不变量」消除（订阅时父目录必然已在），失败仅作后人破坏顺序时的可观测信号（后端错误 + 前端静默降级为「只在装载 / 收口时看到输出」）。
-- **explore 详情页**：父目录 `openspec/explores/` 恒存在，该失败分支实际零触发；其订阅链语义零改动。
+- **explore 详情页**：父目录 `.dev-team/explores/` 恒存在，该失败分支实际零触发；其订阅链语义零改动。
 
 #### Scenario: 两形态可分辨
 

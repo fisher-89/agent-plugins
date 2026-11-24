@@ -45,7 +45,7 @@ ${commonNoteRules()}`;
 /** 笔记定位形「笔记」段（已定名记录）：插值记录名与笔记路径，指引 edit 修改、缺失同名补建 */
 function locatingStance(recordName: string): string {
   return `## 笔记定位（本次探索已定名）
-- 本次探索的笔记在 openspec/explores/${recordName}.md（记录名 = ${recordName}）：修改笔记用 \`edit\` 编辑该文件
+- 本次探索的笔记在 .dev-team/explores/${recordName}.md（记录名 = ${recordName}）：修改笔记用 \`edit\` 编辑该文件
 - 文件缺失（如被会话外删除）时，先以 \`create_explore_note(name="${recordName}", content=…)\` 同名补建，再继续用 \`edit\`
 ${commonNoteRules()}`;
 }

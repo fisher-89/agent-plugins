@@ -89,7 +89,7 @@ fn 目标不存在时订阅返回ok且文件后出现再修改信号生效送达
 fn 信号序列化形态仅含path键无任何内容字节键() {
     // AC-7 通知无内容：serde 输出恰为 { "path": ... }，无 content / bytes 类键
     let signal = FileWatchSignal {
-        path: "C:\\ws\\openspec\\explores\\foo.md".to_owned(),
+        path: "C:\\ws\\.dev-team\\explores\\foo.md".to_owned(),
     };
 
     let value = serde_json::to_value(&signal).expect("序列化应成功");
@@ -101,7 +101,7 @@ fn 信号序列化形态仅含path键无任何内容字节键() {
         vec!["path"],
         "信号结构仅含 path 字段，实际: {object:?}"
     );
-    assert_eq!(object["path"], "C:\\ws\\openspec\\explores\\foo.md");
+    assert_eq!(object["path"], "C:\\ws\\.dev-team\\explores\\foo.md");
 }
 
 #[test]

@@ -407,7 +407,7 @@ SDK 引擎的系统提示词 SHALL 来自会话级注入位 `SessionInjections.p
 #### Scenario: create 原子定名
 
 - **WHEN** 占位记录（`draft-1760000000000`）会话中模型调用 `create_explore_note(name="api-retry", content=<初稿>)`
-- **THEN** 磁盘出现 `openspec/explores/api-retry.md`（内容 = content），store 记录 `name="api-retry"`（`id` / `session_id` 不变），返回文本含笔记路径；占位名文件全程不存在
+- **THEN** 磁盘出现 `.dev-team/explores/api-retry.md`（内容 = content），store 记录 `name="api-retry"`（`id` / `session_id` 不变），返回文本含笔记路径；占位名文件全程不存在
 
 #### Scenario: create 拒绝面零半边残留
 

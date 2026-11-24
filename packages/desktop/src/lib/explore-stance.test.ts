@@ -63,20 +63,20 @@ describe('buildExplorePrompt：命名指令形（draft- 占位记录）', () => 
     expect(output).toContain('优先使用 `create_explore_note` 而非 bash 造文件');
   });
 
-  it('命名指令形：MUST NOT 出现任何文件路径插值（openspec/explores 零出现）', () => {
+  it('命名指令形：MUST NOT 出现任何文件路径插值（.dev-team/explores 零出现）', () => {
     const output = buildExplorePrompt('继续调研', 'draft-1758123456789');
 
-    expect(output).not.toContain('openspec/explores');
+    expect(output).not.toContain('.dev-team/explores');
     expect(output).not.toContain('.md');
   });
 });
 
 describe('buildExplorePrompt：笔记定位形（已定名记录）', () => {
-  it('已定名输入：插值记录名与笔记路径 openspec/explores/api-retry.md', () => {
+  it('已定名输入：插值记录名与笔记路径 .dev-team/explores/api-retry.md', () => {
     const output = buildExplorePrompt('继续追这条线索', 'api-retry');
 
     expect(output).toContain('## 笔记定位');
-    expect(output).toContain('openspec/explores/api-retry.md');
+    expect(output).toContain('.dev-team/explores/api-retry.md');
     expect(output).toContain('记录名 = api-retry');
   });
 
@@ -126,14 +126,14 @@ describe('buildExplorePrompt：前缀判别精确性', () => {
 
     expect(output).toContain('## 笔记定位');
     expect(output).not.toContain('## 笔记定名与落盘');
-    expect(output).toContain('openspec/explores/my-draft-thing.md');
+    expect(output).toContain('.dev-team/explores/my-draft-thing.md');
   });
 
   it('恰前缀空尾（draft-）→ 命名指令形（startsWith 判别的边界形态）', () => {
     const output = buildExplorePrompt('输入', DRAFT_NAME_PREFIX);
 
     expect(output).toContain('## 笔记定名与落盘');
-    expect(output).not.toContain('openspec/explores');
+    expect(output).not.toContain('.dev-team/explores');
   });
 
   it('占位前缀锚点：draft-<毫秒> 命名形态命中命名指令形（与后端 EXPLORE_PLACEHOLDER_PREFIX 双源互链）', () => {
@@ -208,7 +208,7 @@ describe('buildExplorePrompt：非法形态记录名判别', () => {
       expect(() => buildExplorePrompt('输入', name)).not.toThrow();
       const output = buildExplorePrompt('输入', name);
       expect(output).toContain('## 笔记定位');
-      expect(output).toContain(`openspec/explores/${name}.md`);
+      expect(output).toContain(`.dev-team/explores/${name}.md`);
       expect(output.endsWith('输入')).toBe(true);
     }
   });
@@ -221,7 +221,7 @@ describe('buildExplorePrompt：非法形态记录名判别', () => {
     // 小写 draft- 前缀但非法 kebab（下划线段）仍命中命名指令形
     const lower = buildExplorePrompt('输入', 'draft-_bad');
     expect(lower).toContain('## 笔记定名与落盘');
-    expect(lower).not.toContain('openspec/explores');
+    expect(lower).not.toContain('.dev-team/explores');
   });
 
   it('空 recordName：定位形、插值空名、不抛错（生产不可达防御面留痕）', () => {
@@ -229,7 +229,7 @@ describe('buildExplorePrompt：非法形态记录名判别', () => {
     const output = buildExplorePrompt('输入', '');
 
     expect(output).toContain('## 笔记定位');
-    expect(output).toContain('openspec/explores/.md');
+    expect(output).toContain('.dev-team/explores/.md');
     expect(output.endsWith('输入')).toBe(true);
   });
 });

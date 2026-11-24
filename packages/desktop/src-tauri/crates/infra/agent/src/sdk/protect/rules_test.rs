@@ -493,23 +493,23 @@ fn 批量还原glob命中面与窄面呈子集关系() {
             .to_string_lossy(),
     );
     let in_changes = format!("/root/{}/x/proposal.md", changes);
-    let in_explores = format!("/root/{}/explores/a.md", domain);
+    let in_domain_other = format!("/root/{}/other/a.md", domain);
 
     assert!(
         match_glob(&in_changes, &globs.changes),
         "changes glob 命中 change 产物"
     );
     assert!(
-        !match_glob(&in_explores, &globs.changes),
-        "changes glob 不命中探索笔记"
+        !match_glob(&in_domain_other, &globs.changes),
+        "changes glob 不命中域内非 changes 产物"
     );
     assert!(
         match_glob(&in_changes, &globs.artifacts),
         "域树命中 changes"
     );
     assert!(
-        match_glob(&in_explores, &globs.artifacts),
-        "域树命中 explores（changes 命中集 ⊆ artifacts 命中集）"
+        match_glob(&in_domain_other, &globs.artifacts),
+        "域树命中 changes 之外的产物（changes 命中集 ⊆ artifacts 命中集）"
     );
 }
 

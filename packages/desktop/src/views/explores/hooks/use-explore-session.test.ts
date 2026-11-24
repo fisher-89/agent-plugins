@@ -620,7 +620,7 @@ describe('useExploreSession：send 注入 record.name（AC-4 组装半边）', (
     expect(args.prompt).toBe(buildExplorePrompt(SEND_INPUT.prompt, 'api-retry'));
     expect(String(args.prompt)).toContain('api-retry');
     // 已定名记录 → 笔记定位形（插值笔记路径，AC-8 stance 分形）
-    expect(String(args.prompt)).toContain('openspec/explores/api-retry.md');
+    expect(String(args.prompt)).toContain('.dev-team/explores/api-retry.md');
   });
 
   it('正向：既有会话续话裸发送（不携带 stance / name）；换记录（sessionId 空缺）经 ensure 归位后首轮随新 name 注入', async () => {
@@ -993,10 +993,10 @@ describe('useExploreSession：auto-send stance 分形（AC-1 / AC-8）', () => {
     const prompt = String(startCallArgs().prompt);
     expect(prompt).toBe(buildExplorePrompt(AUTO_PROMPT, DRAFT_NAME));
     expect(prompt).toContain('## 笔记定名与落盘');
-    expect(prompt).not.toContain('openspec/explores');
+    expect(prompt).not.toContain('.dev-team/explores');
   });
 
-  it('已定名记录：send prompt 为笔记定位形（插值 record.name 与 openspec/explores/<name>.md）', async () => {
+  it('已定名记录：send prompt 为笔记定位形（插值 record.name 与 .dev-team/explores/<name>.md）', async () => {
     mockEmptySession();
     await mountedWithAutoPrompt();
 
@@ -1004,7 +1004,7 @@ describe('useExploreSession：auto-send stance 分形（AC-1 / AC-8）', () => {
     const prompt = String(startCallArgs().prompt);
     expect(prompt).toBe(buildExplorePrompt(AUTO_PROMPT, 'api-retry'));
     expect(prompt).toContain('## 笔记定位');
-    expect(prompt).toContain('openspec/explores/api-retry.md');
+    expect(prompt).toContain('.dev-team/explores/api-retry.md');
   });
 });
 
