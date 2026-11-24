@@ -25,7 +25,7 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_module`（不在七通用工具
 - 响应 SHALL 经 `archi::dto` 单点投影产出（MUST NOT 在工具执行体内另拼一份 JSON）。
 - **`api` 并列字段**：单元素响应 SHALL 并出 `api` 对象（`status`（`declared` / `none`）/ `contractPath` / `schemaPath` / `generatedPath`），定位 SHALL 按 `<archi_models_dir>/<分层目录…>/<FQN>.md` 与相应的 `.schema.json` / 生成物路径**派生**（全经 `foundation::layout` 的派生族与 `api::paths` 单点，MUST NOT 行内拼路径；`api` 段已退役，契约资产落在契约资产目录 `models/` 的 `<分层目录…>/` 子目录内）；文件不存在即 `status = none` 且三个路径字段为 `null`（零配置，「有契约 / 无契约」成为可枚举事实）。该字段 MUST NOT 承载协议正文（正文由 agent 用 `read` 按路径自取），MUST NOT 成为独立工具、MUST NOT 改变本工具的只读属性与注入矩阵。
 - **`doc` 并列字段**：`doc` SHALL 为 repo 相对 POSIX 路径**单值**或 `null`（无 `title` / `kind` / `source` 四字段形态）。只有 `api = none` 的元素会填；`api = declared` 元素的入口文档走既有 `api.contractPath`，MUST NOT 在 `doc` 里重复出线。`doc` 指向的文件不存在时该元素的判据面报 `docNotFound`（`error` 档）——工具响应本身 MUST NOT 为此降级或补默认值。
-- **描述面（`mount.rs`）**：`archi_module` 的工具描述 SHALL 含「缺 `path` 的元素可由 `hasPath` 一次判出」「`resolvedEntry` 给入口解析结果（显式 / 约定默认 / 不可用成因）」「新元素字段形态用 `archi_scaffold` 取模板」三句，且 MUST NOT 复制字段语法长表（字段序 / 内联 `metadata` 的形态知识归模板工具）——MUST NOT 残留 `docs` 词汇或警告语义。
+- **描述面（`mount.rs`）**：`archi_module` 的工具描述 SHALL 含四句——「缺 `path` 的元素可由 `hasPath` 一次判出」「`resolvedEntry` 给入口解析结果（显式 / 约定默认 / 不可用成因）」「新元素字段形态用 `archi_scaffold` 取模板」「`api.schemaPath` / `api.generatedPath` 给另两条生成物路径（`contractPath` 已指手写真相）」；且 MUST NOT 复制字段语法长表（字段序 / 内联 `metadata` 的形态知识归模板工具）——MUST NOT 残留 `docs` 词汇或警告语义。
 
 #### Scenario: 定位单元素
 
@@ -120,7 +120,7 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_search`，语义为**发现**�
 
 ### Requirement: archi_api 只读工具的自检与草稿契约
 
-SDK 引擎 SHALL 提供专用**只读**工具 `archi_api`（不在七通用工具 `TOOL_NAMES` 封闭集内，经注入面的工具名字清单受控下发，且经 `mount::lookup` 成员校验），语义为**契约面自检**：
+SDK 引擎 SHALL 提供专用**只读**工具 `archi_api`（不在七通用工具 `TOOL_NAMES` 封闭集内，经注入面的工具名字清单受控下发，且经 `mount::lookup` 成员校验），语义为**契约面自检与草稿**（与本 requirement 标题同口径：`check` 自检、`bootstrap` 起草）：
 
 ```json
 { "name": "archi_api",
@@ -129,13 +129,14 @@ SDK 引擎 SHALL 提供专用**只读**工具 `archi_api`（不在七通用工�
 
 - **两动作封闭**：`action` SHALL 只接受 `check` / `bootstrap` 两值（封闭值集；词汇外值以 `is_error` 回灌并点名合法值，MUST NOT 静默退化）。
 - **`check` = 两轴结构化结果**：返回「生成物新鲜度」与「契约 vs 代码」两轴的并列内容——① 三类差异（`mismatched` / `orphaned` / `missing`，repo 相对串，取自与 IPC / CLI 同一份比对实现）；② 契约判据摘要（按 `category` 计数的映射 + 逐条 `{ kind, category, element, target, message }`）。响应 SHALL 复用既有出线形状（`ArchiApiCheck` 的字段与 `ArchiApiFinding` 的条目），MUST NOT 在工具执行体内另拼一份投影；MUST NOT 各自实现在第二处（判定单源）。
-- **`bootstrap` = 草稿文本**：`element` 必填，返回与 CLI `bootstrap` 同一份草稿文本（契约 md 骨架，只出 stdout 语义）；`element` 缺失 / 元素不存在 / 无实现入口 ⇒ `is_error` 并透传 `ApiError` 文案。
+- **`bootstrap` = 草稿文本（起草第一步）**：`element` 必填，返回与 CLI `bootstrap` 同一份草稿文本（契约 md 骨架，只出 stdout 语义）；该动作是新建 / 补契约的**第一步**，描述面 SHALL 说出这句指路（否则 agent 只知它能出草稿、不知该先用它）。草稿形态（六段骨架 + 尾部惰性作者注）归 `desktop-archi-api`「bootstrap 草稿的六段骨架与惰性作者注」，本能力 MUST NOT 另立第二份形态判据。`element` 缺失 / 元素不存在 / 无实现入口 ⇒ `is_error` 并透传 `ApiError` 文案。
 - **零写盘**：两动作 MUST NOT 创建 / 覆盖 / 删除任何文件——生成仍由会话经既有 `bash` 工具执行本仓的生成命令（命令名归属本仓文档面，产品 MUST NOT 内建具体命令名）。MUST NOT 存在「写生成物」的专用工具（`archi-runtime` 对 agent 面不可达，见 `desktop-crate-layout`）。
 - **结构错以 `is_error` 回灌**：模型含任一结构诊断时两动作 SHALL 返回 `is_error` ToolResult（诊断清单带 `file:line`），MUST NOT 返回部分结果、MUST NOT 抛 panic。
 - **体量受上限约束**：响应 SHALL 经 `tools::cap_result` 的既有 L1 上限单点（MUST NOT 为本工具新增截断逻辑）；超限时摘要（按 `category` 计数）优先保留。
 - **上下文路由沿用**：执行体 SHALL 经 `LoopTurn` 的 per-turn `ArchiContext` 路由（root + 模型读面），MUST NOT 新增 `ToolExec` 变体、MUST NOT 把 store 句柄塞进七通用工具的 `execute` 签名。
 - **无路径参数**：本工具不带 `path` 参数 ⇒ 路径沙箱对它恒原样返回（MUST NOT 因缺字段报错），写入保护对它零射程（读面全开放）。
 - **提示面**：被下发本工具的相位 prompt SHALL 有一行说明（沿既有「额外可用只读工具」写法，当前为 `implementation-generator.md`），内容限于「改完代码可自查生成物新鲜度与契约判据；生成物过期用既有命令重生成，MUST NOT 手改生成物」。
+- **描述面（`mount.rs`）**：`archi_api` 的工具描述 SHALL 含三句，且 MUST NOT 复制契约 md 的段形态长表（形态归 `desktop-archi-api`）、MUST NOT 内建本仓专用命令名（生成命令归属各仓文档面）——① `bootstrap` 是新建 / 补契约的第一步；② 四类生成物的点名（契约 md 同目录 `<FQN>.schema.json`、架构域 `INDEX.toml`、入口同级 `.i.rs` / `.i.ts`）连同「MUST NOT 手改生成物」；③ 冷启动口径「`artifacts.enabled = false` 即契约面未启用，此时 `findings` 恒空且**不等于**零问题」。
 
 #### Scenario: check 返回两轴且零写盘
 
@@ -145,7 +146,7 @@ SDK 引擎 SHALL 提供专用**只读**工具 `archi_api`（不在七通用工�
 #### Scenario: bootstrap 只出草稿
 
 - **WHEN** 调用 `archi_api(action = "bootstrap", element = "App.Auth")`
-- **THEN** 返回契约 md 草稿文本（H1 + 职能 / 不变量 / 操作 / 类型段），磁盘零变化；缺 `element` 或元素不存在 ⇒ `is_error` 且文案点名成因
+- **THEN** 返回契约 md 草稿文本（H1 + 六段：职能 / 不变量 / 操作 / 类型 / 边界 / 承载理由，末尾带惰性作者注——形态归 `desktop-archi-api`），磁盘零变化；缺 `element` 或元素不存在 ⇒ `is_error` 且文案点名成因
 
 #### Scenario: 词汇外动作被拒
 
@@ -705,3 +706,31 @@ archi 会话（装配层在 `SessionInjections.before_done` 置位 `ArchiPreclos
 |---|---|---|
 | `archi_knowledge::knowledge()` 装配 | 零改动 | 骨架 + 两处派生目录段的拼装、失败降级 `None` 与 `SessionInjections.preamble` 合并路径不变 |
 | 前端组件 | 零改动 | 无 IPC / DTO / UI 变化 |
+
+### 模块增量：契约起草引导与描述补位（archi-contract-authoring-guidance）
+
+主基线既有行逐字沿用；本变更只补工具**描述面**与一处草稿场景口径（`action` 值集、响应形状、`cap_result` 截断单点、只读档位、注入矩阵与零写盘纪律逐字不变），受影响模块如下：
+
+| 模块 | 职责 | 关键契约 |
+|------|------|----------|
+| `crates/infra/agent/src/sdk/mount.rs` | 工具定义面（本变更改两个描述函数） | `archi_api_definition()` 描述补三句：① `bootstrap` 指路（新建 / 补契约第一步取草稿）；② 四类生成物点名（同目录 `.schema.json` / 架构域 `INDEX.toml` / 入口同级 `.i.rs` · `.i.ts`，保留「MUST NOT 手改生成物」原句）；③ 冷启动口径（`artifacts.enabled = false` ⇒ 契约面未启用，`findings` 恒空不等于零问题）。`archi_module_definition()` 描述补第四句：`api.schemaPath` / `api.generatedPath` 给另两条生成物路径。两处参数 schema、工具名常量、`ToolTier::Read` / `ToolExec::Archi` 归属与 `build_registry` 项数零变化 |
+| `crates/infra/agent/src/sdk/mount_test.rs` | 描述断言面 | `archi_api定义描述与参数形状` 的 needle 扩到 `第一步` / `.schema.json` / `INDEX.toml` / `.i.` / `enabled` / `findings`（`bootstrap` 一词既有描述已有，不作新针；既有 `MUST NOT` / `手改生成物` / `重生成` 三条仍须绿）；`archi_module描述补三句指路` 的 needle 扩到 `schemaPath` / `generatedPath`；两条既有边界（`工具描述零项目专用命令`、`archi_module描述零字段形态教学` 的零代码围栏）保持绿 |
+| `crates/infra/agent/src/sdk/archi_tool.rs` | 工具执行体（零改动） | `check` 仍回 `{ artifacts, findings: { total, byCategory, items } }`，`bootstrap` 仍回 `{ draft }`；`artifacts.enabled` 的出处（`api::artifact_check`）与判据语义不变——本变更只把「怎么读这个字段」写进描述 |
+| `crates/infra/agent/src/archi-knowledge.md` / `archi_knowledge.rs` | 注入知识（零改动） | 骨架与派生段逐字不变（2596 B / 2739 B 冻结锚）；四条描述补位 MUST NOT 进 preamble |
+| `crates/core/workflow/src/prompts/*.md` | 相位 prompt（零改动） | 14 份（6 executor + 8 evaluator）逐字不变（含 `implementation-generator.md` 的 `archi_api` 一行）——描述面已足够，不进 prompt |
+
+### Function: `crates/infra/agent/src/sdk/mount.rs`
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `archi_api_definition()` | 改（描述文本） | 在既有描述内加三句（指路 / 生成物点名 / 冷启动口径）；`parameters` 的 `action` 二值 enum 与 `element` 字段零变化 |
+| `archi_module_definition()` | 改（描述文本） | 加一句（两条生成物路径）；其余句子与零代码围栏纪律逐字保留 |
+| `lookup` / `build_registry` | 零改动 | 成员校验、档位与挂载清单项数不变 |
+
+### API: `archi_api` / `archi_module`
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `archi_api` 响应形状 | 零改动 | `check` 两轴并列内容、`bootstrap` 的 `{ draft }`、`is_error` 回灌与 `cap_result` 截断单点逐字不变 |
+| `archi_module` 响应形状 | 零改动 | `api` 三路径 / `doc` / `resolvedEntry` / `hasPath` 的投影与 DTO 零变化——本变更只让描述说明这些字段怎么用 |
+| 注入矩阵 | 零改动 | `archi_api` 仍只落 `(implement, executor)` 与 `source = "archi"` 两处；不在本变更扩面 |
