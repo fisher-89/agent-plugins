@@ -57,8 +57,7 @@ pub(crate) const ARCHI_API_TOOL: &str = "archi_api";
 pub(crate) const ARCHI_DRIFT_TOOL: &str = "archi_drift";
 
 /// `archi_scaffold` 专用只读工具名（新元素 TOML 草稿 = 字段词典：逐字段一行纪律与值域
-/// + 关系四键模板）。执行体同上；**只读零写盘**——写面仍是既有 `write` / `edit`，故本
-/// 工具不在「专用写工具」之列。
+/// + 关系四键模板）。执行体同上**只读零写盘**——写面仍是既有 `write` / `edit`，故本工具不在「专用写工具」之列。
 pub(crate) const ARCHI_SCAFFOLD_TOOL: &str = "archi_scaffold";
 
 /// `propose_config` 专用工具名（config 会话唯一提案出口）：常量本体驻执行体模块

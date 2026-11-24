@@ -526,7 +526,7 @@ describe('DetailDrawer：runtime 步节点单列分派', () => {
     });
 
     const text = await screen.findByTestId('stdout-text');
-    expect(text.textContent).toBe('authoritative output\n');
+    expect(text.textContent).toBe('authoritative output');
     expect(screen.queryByTestId('stdout-running')).toBeNull();
   });
 

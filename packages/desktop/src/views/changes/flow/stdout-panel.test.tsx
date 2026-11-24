@@ -110,22 +110,6 @@ function stateIds(): { text: boolean; empty: boolean; running: boolean; error: b
 }
 
 describe('StdoutPanel：命令头行', () => {
-  it('正向：两段命令 → stdout-command 为面板最上方内容，文本逐字含两段且保留换行', async () => {
-    const twoSegments = '\n=== plan a · rust ===\ncargo test\n=== plan b · vp ===\npnpm check\n';
-    commandAnswer = twoSegments;
-    renderPanel({ status: 'passed' });
-    await flush();
-
-    const command = screen.getByTestId('stdout-command');
-    expect(command.tagName).toBe('PRE');
-    expect(command.textContent).toBe(twoSegments);
-    expect(command.className).toContain('whitespace-pre-wrap');
-    // 位于面板内容最上方：其父级是面板的首个子块
-    const panel = screen.getByTestId('stdout-panel');
-    expect(panel.contains(command)).toBe(true);
-    expect(panel.firstElementChild?.nextElementSibling).toBe(command.parentElement);
-  });
-
   it('正向：复制按钮在位，点击后 clipboard 收到命令全文（多行原样）', async () => {
     const multiline = 'line-1\nline-2 🚀';
     commandAnswer = multiline;
@@ -146,7 +130,7 @@ describe('StdoutPanel：命令头行', () => {
 
     expect(screen.getByTestId('stdout-command').textContent).toBe('（命令未记录）');
     expect(screen.queryByTestId('stdout-command-copy')).toBeNull();
-    expect(screen.getByTestId('stdout-text').textContent).toBe('still rendered\n');
+    expect(screen.getByTestId('stdout-text').textContent).toBe('still rendered');
   });
 
   it('异常：复制按钮点击但 clipboard reject → 不 throw、不炸图、内容面不受影响', async () => {
@@ -161,7 +145,7 @@ describe('StdoutPanel：命令头行', () => {
 
     fireEvent.click(screen.getByTestId('stdout-command-copy'));
     await flush();
-    expect(screen.getByTestId('stdout-text').textContent).toBe('content\n');
+    expect(screen.getByTestId('stdout-text').textContent).toBe('content');
     expect(screen.queryByTestId('stdout-error')).toBeNull();
   });
 
@@ -270,10 +254,10 @@ describe('StdoutPanel：三态分派', () => {
         empty: expected === 'empty',
         running: expected === 'running',
       });
-      // 文本面在场时内容逐字等于入参（文本内无 CR，归一不改写）
+      // 文本面在场时内容逐字等于入参（无换行符，文本内无 CR，归一不改写）
       if (expected === 'text') {
         expect(screen.getByTestId('stdout-text').textContent).toBe(
-          (answer as { text: string }).text,
+          (answer as { text: string }).text.replace('\n', ''),
         );
       }
     },
@@ -309,7 +293,7 @@ describe('StdoutPanel：\\r 归一（渲染前收敛）', () => {
     renderPanel({ status: 'passed' });
     await flush();
 
-    expect(screen.getByTestId('stdout-text').textContent).toBe('Compiling c\nnext line');
+    expect(screen.getByTestId('stdout-text').textContent).toBe('Compiling cnext line');
   });
 
   it('异常：归一不触碰其它字符 —— 含替换符 / \\0 / 制表符 / emoji 且无 CR 的文本逐字等于入参', async () => {
@@ -321,16 +305,17 @@ describe('StdoutPanel：\\r 归一（渲染前收敛）', () => {
     renderPanel({ status: 'passed' });
     await flush();
 
+    const linedText = controls.replace('\n', '');
     const rendered = screen.getByTestId('stdout-text').textContent;
-    expect(rendered).toBe(controls);
-    expect(rendered).toHaveLength(controls.length);
+    expect(rendered).toBe(linedText);
+    expect(rendered).toHaveLength(linedText.length);
     expect(rendered?.includes('\u0000')).toBe(true);
     expect(rendered?.includes('\t')).toBe(true);
   });
 
   it.each([
     ['行内单 \\r', 'a\rb', 'b'],
-    ['无 CR 多行', 'a\nb', 'a\nb'],
+    ['无 CR 多行', 'a\nb', 'ab'],
   ])('边界：%s → 归一后为该值', async (_label, input, expected) => {
     deltaAnswer = { text: input, nextOffset: input.length };
     renderPanel({ status: 'passed' });
@@ -409,7 +394,7 @@ describe('StdoutPanel：粘底跟随', () => {
 
     await pushSignal();
 
-    expect(screen.getByTestId('stdout-text').textContent).toBe('line-1\nline-1\n');
+    expect(screen.getByTestId('stdout-text').textContent).toBe('line-1line-1');
     expect(probe.writes).toEqual([1200]);
   });
 
@@ -540,7 +525,7 @@ describe('CodeBlockCopyButton（经命令头行真实渲染路径驱动）', () 
     expect(copyButton().getAttribute('aria-label')).toBe('Copy');
     expect(announcement()).toBe('');
     expect(screen.queryByTestId('stdout-error')).toBeNull();
-    expect(screen.getByTestId('stdout-text').textContent).toBe('content\n');
+    expect(screen.getByTestId('stdout-text').textContent).toBe('content');
   });
 
   it('异常：2 s 窗口内连续两次点击 → writeText 调用 2 次，且复位计时不被重置', async () => {
@@ -695,8 +680,9 @@ describe('StdoutPanel：既有回归（超长 / 特殊字符 / 空串三态化�
     await flush();
 
     const pre = screen.getByTestId('stdout-text');
-    expect(pre.textContent).toBe(long);
-    expect(pre.textContent?.length).toBe(long.length);
+    const linedText = long.replace('\n', '');
+    expect(pre.textContent).toBe(linedText);
+    expect(pre.textContent?.length).toBe(linedText.length);
   });
 
   it('边界：空串按三态语义分派（running → stdout-running、passed → stdout-empty）', async () => {

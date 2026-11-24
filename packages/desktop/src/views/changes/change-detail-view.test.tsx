@@ -1884,7 +1884,7 @@ describe('ChangeDetailView：stdout 面板按 detail.name 取数（AC-5 / D6）'
       ),
     );
     await waitFor(() =>
-      expect(screen.getByTestId('stdout-text').textContent).toBe('mutant 1/10 caught\n'),
+      expect(screen.getByTestId('stdout-text').textContent).toBe('mutant 1/10 caught'),
     );
     // 运行中 ⇒ watch 订阅在位（增量跟随）
     await waitFor(() => expect(ChannelMock.instances.length).toBeGreaterThan(0));
@@ -1965,7 +1965,7 @@ describe('ChangeDetailView：stdout 面板按 detail.name 取数（AC-5 / D6）'
     await waitFor(() =>
       expect(screen.getByTestId('stdout-command').textContent).toBe('pnpm run check 2>&1'),
     );
-    await waitFor(() => expect(screen.getByTestId('stdout-text').textContent).toBe('line-1\n'));
+    await waitFor(() => expect(screen.getByTestId('stdout-text').textContent).toBe('line-1'));
 
     // 运行中 ⇒ watch 订阅在位（armKey 非 null）
     await waitFor(() => expect(ChannelMock.instances.length).toBeGreaterThan(0));
@@ -1977,9 +1977,7 @@ describe('ChangeDetailView：stdout 面板按 detail.name 取数（AC-5 / D6）'
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 600));
     });
-    await waitFor(() =>
-      expect(screen.getByTestId('stdout-text').textContent).toBe('line-1\nline-2\n'),
-    );
+    await waitFor(() => expect(screen.getByTestId('stdout-text').textContent).toBe('line-1line-2'));
 
     const deltaCalls = invokeMock.mock.calls.filter(([name]) => name === 'read_exec_output_delta');
     expect(deltaCalls.map((call) => (call[1] as { fromOffset: number }).fromOffset)).toEqual([

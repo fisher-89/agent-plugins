@@ -20,6 +20,7 @@ import {
   CodeBlockHeader,
   CodeBlockLine,
 } from '@/components/ui/code-block';
+import { useHighlightedCode } from '@/components/ui/hooks/use-highlighted-code';
 import {
   Questionnaire,
   QuestionnaireActions,
@@ -43,7 +44,6 @@ import {
   TraceLine,
   TraceTitle,
 } from '@/components/ui/trace';
-import { useHighlightedCode } from '@/hooks/use-highlighted-code';
 import type { AgentToolOutput } from '@/lib/agent-adapter';
 import { ipc } from '@/lib/ipc';
 import { asRecord, numberOf, textOf } from '@/lib/parse';

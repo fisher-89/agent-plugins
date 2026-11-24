@@ -1,6 +1,18 @@
 import { useEffect, useRef } from 'react';
 
-import { CodeBlockCopyButton } from '@/components/ui/code-block';
+import {
+  Alert,
+  CodeBlock,
+  CodeBlockActions,
+  CodeBlockContent,
+  CodeBlockCopyButton,
+  CodeBlockHeader,
+  CodeBlockLine,
+  CodeBlockTitle,
+  Empty,
+  EmptyContent,
+  useHighlightedCode,
+} from '@/components/ui';
 
 import type { ChangeStepStatus } from '../../../types/dto';
 import { useExecOutput } from '../hooks/use-exec-output';
@@ -33,6 +45,7 @@ export function StdoutPanel({
   const scrollRef = useRef<HTMLPreElement | null>(null);
   /** 粘底标志：初值 true（打开即跟随）；上滑即 false，回底恢复 true */
   const stickRef = useRef(true);
+  const lines = useHighlightedCode(rendered ?? '', 'ansi');
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -41,22 +54,25 @@ export function StdoutPanel({
 
   return (
     <section className="flex h-full min-h-0 flex-col" data-testid="stdout-panel">
-      <h3 className="m-0 mb-2 shrink-0 text-[13px] text-muted-foreground">执行输出</h3>
-      <div className="mb-2 flex shrink-0 items-start gap-2">
-        <pre
-          className="m-0 min-w-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-muted/40 p-2 text-[12px]"
-          data-testid="stdout-command"
-        >
-          {command ?? '（命令未记录）'}
-        </pre>
-        {command !== null && (
-          <CodeBlockCopyButton value={command} data-testid="stdout-command-copy" />
-        )}
-      </div>
+      {command !== null ? (
+        <CodeBlock className="mb-2 shrink-0">
+          <CodeBlockActions>
+            <CodeBlockCopyButton value={command} data-testid="stdout-command-copy" />
+          </CodeBlockActions>
+          <CodeBlockContent className="max-h-40 scroll-fade-y" data-testid="stdout-command" wrap>
+            {command}
+          </CodeBlockContent>
+        </CodeBlock>
+      ) : (
+        <Empty>
+          <EmptyContent data-testid="stdout-command">（命令未记录）</EmptyContent>
+        </Empty>
+      )}
+
       {error !== null ? (
-        <div className="mb-2 shrink-0 break-all text-[13px] text-fail" data-testid="stdout-error">
+        <Alert variant="destructive" className="mb-2 break-all" data-testid="stdout-error">
           {error}
-        </div>
+        </Alert>
       ) : running && empty ? (
         <div className="shrink-0 text-[13px] text-muted-foreground" data-testid="stdout-running">
           运行中，等待输出…
@@ -66,16 +82,27 @@ export function StdoutPanel({
           （无输出记录）
         </div>
       ) : (
-        <pre
-          ref={scrollRef}
-          className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-2 text-[12px]"
-          data-testid="stdout-text"
-          onScroll={(event) => {
-            stickRef.current = isStuckToBottom(event.currentTarget);
-          }}
-        >
-          {rendered}
-        </pre>
+        <CodeBlock className="min-h-0 flex-1">
+          <CodeBlockHeader>
+            <CodeBlockTitle>日志</CodeBlockTitle>
+            <CodeBlockActions>
+              <CodeBlockCopyButton value={rendered ?? ''} />
+            </CodeBlockActions>
+          </CodeBlockHeader>
+          <CodeBlockContent
+            ref={scrollRef}
+            className="h-full"
+            data-testid="stdout-text"
+            onScroll={(event) => {
+              stickRef.current = isStuckToBottom(event.currentTarget);
+            }}
+            wrap
+          >
+            {lines.map((line, index) => (
+              <CodeBlockLine key={index}>{line}</CodeBlockLine>
+            ))}
+          </CodeBlockContent>
+        </CodeBlock>
       )}
     </section>
   );

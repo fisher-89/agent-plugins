@@ -11,7 +11,7 @@ import { ConfigApplyScope } from './config-apply-scope';
 import { BUILD_IN_TOOL_CARDS } from './tool-cards';
 
 // ---------------------------------------------------------------------------
-// 进程边界 Mock：`@/lib/highlighter`（shiki 语法包的动态 import 与重型 grammar
+// 进程边界 Mock：`@/components/ui/lib/highlighter`（shiki 语法包的动态 import 与重型 grammar
 // 装载）以替身注入——替身产出可断言行，并记录**语言实参**（`languageOf` 的
 // 唯一可观测面）。注册表 / 四张内建卡 / `lib/parse` / `Trace*` / `CodeBlock`
 // 真实组合，不为测试新增导出（私有原语经卡渲染间接驱动）。
@@ -19,7 +19,7 @@ import { BUILD_IN_TOOL_CARDS } from './tool-cards';
 
 const { loadHighlighterMock } = vi.hoisted(() => ({ loadHighlighterMock: vi.fn() }));
 
-vi.mock('@/lib/highlighter', () => ({ loadHighlighter: loadHighlighterMock }));
+vi.mock('@/components/ui/lib/highlighter', () => ({ loadHighlighter: loadHighlighterMock }));
 
 /** 高亮替身：每行产出可断言文本（`<h|原文>`），state 串接输入。 */
 function fakeHighlighter() {
