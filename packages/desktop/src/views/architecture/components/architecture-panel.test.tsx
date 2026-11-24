@@ -15,10 +15,10 @@ import type {
   ArchiRelation,
   ArchiRelationDetail,
 } from '../../../types/generated/bindings';
-import { ArchitectureCanvas } from './architecture-canvas';
+import { ArchitecturePanel } from './architecture-panel';
 
 /**
- * `ArchitectureCanvas` 单测（AC-4 / AC-18 / D9 / D21）：全或无停摆、正常态两栏
+ * `ArchitecturePanel` 单测（AC-4 / AC-18 / D9 / D21）：全或无停摆、正常态两栏
  * 布局、缺省 1-hop 聚焦、聚焦切换零取数、空模型与取数失败两态、`mode` 透传、
  * 改档后刷新的三触发纪律。
  *
@@ -31,7 +31,8 @@ import { ArchitectureCanvas } from './architecture-canvas';
  * 经**观测垫片**取 `ReactFlow` 的入参（非语义替身：真实 `ReactFlow` 照常渲染，
  * 垫片只在渲染前记录入参）；边另有一条**真实 DOM** 断言（`.react-flow__edge`）——
  * xyflow 只在节点挂 Handle 后才为边求位置，堵「props 有边、DOM 无边」的回归盲区。
- * 节点集合 / 坐标 / 文案一律从 jsdom 真实 DOM 断言。
+ * 节点集合 / 坐标 / 文案一律从 jsdom 真实 DOM 断言。图面用例先经 `openGraph()`
+ * 切到右栏「关系图」分段（该分段缺省不挂载，首屏零 ReactFlow）。
  *
  * 进程边界 mock：`@tauri-apps/api/core` 的 `invoke`（按命令名分发 `archi_graph` /
  * `archi_module` / `archi_set_gate` / `archi_drift` / `archi_file_tree` / 契约两命令）。
@@ -353,6 +354,12 @@ function switchTo(label: '文件' | '元素' | '契约'): void {
   fireEvent.click(within(screen.getByTestId('archi-tree-mode')).getByRole('tab', { name: label }));
 }
 
+/** 等右栏面板就绪并切到「关系图」分段（xyflow 画布仅在该分段挂载）。 */
+async function openGraph(): Promise<void> {
+  await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+  fireEvent.click(screen.getByRole('tab', { name: '关系图' }));
+}
+
 /** 画布内渲染出的节点 id 清单（jsdom 真实 DOM，`rf__node-<id>`）。 */
 function renderedNodeIds(): string[] {
   return screen.queryAllByTestId(/^rf__node-/).map((node) => node.getAttribute('data-id') ?? '');
@@ -432,7 +439,7 @@ describe('停摆态（全或无）', () => {
         },
       ],
     });
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-error-panel')).toBeTruthy());
     expect(screen.getByTestId('archi-error-panel').textContent).toContain('cycle');
     expect(screen.getByTestId('archi-canvas')).toBeTruthy();
@@ -447,7 +454,7 @@ describe('停摆态（全或无）', () => {
 
 describe('正常态：缺省 1-hop 渲染面', () => {
   it('应渲染三段布局并以首个顶层元素为聚焦（左栏缺省为元素树）', async () => {
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
     // 正锚：左栏缺省分支是元素树（缺省视图判据 MUST NOT 只由否定断言承担）
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     expect(screen.getAllByTestId('archi-tree-node').length).toBeGreaterThan(0);
@@ -459,14 +466,15 @@ describe('正常态：缺省 1-hop 渲染面', () => {
     expect(screen.queryByTestId('archi-file-tree')).toBeNull();
     expect(screen.queryByTestId('archi-file-tree-loading')).toBeNull();
 
-    await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
+    // 面板与文档分段各取一次元素详情（右栏两处消费同一 hook）
+    await waitFor(() => expect(callsOf('archi_module')).toHaveLength(2));
     expect(callsOf('archi_module')[0]).toEqual({ root: 'C:\\demo\\alpha', element: 'App' });
     expect(screen.getByTestId('archi-drawer-fqn').textContent).toBe('App');
     expect(callsOf('archi_graph')).toHaveLength(1);
   });
 
   it('应在点「文件」后恰取数一次（载荷逐字）且切回元素态零新增取数', async () => {
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     const baseline = {
       graph: callsOf('archi_graph').length,
@@ -494,7 +502,8 @@ describe('正常态：缺省 1-hop 渲染面', () => {
 
   it('应只把聚焦元素的 1-hop 成员画成节点（出边 / 入边 / 直接子元素，孙元素与点前缀兄弟不入图）', async () => {
     serveGraph(hubGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
 
     // 成员集 = 聚焦 + 出边（Dst1 / Dst2 / 悬空 Ghost 无元素体⇒跳过）+ 入边（Src1..3）+ 直接子元素（Svc.A / Svc.B）
@@ -519,7 +528,8 @@ describe('正常态：缺省 1-hop 渲染面', () => {
 
   it('应按纯拓扑网格给出节点坐标（子元素在分组内容区内，出边列避让分组右缘）', async () => {
     serveGraph(hubGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
 
     expect(nodeTransform('Svc')).toBe('translate(0px,0px)');
@@ -548,7 +558,8 @@ describe('正常态：缺省 1-hop 渲染面', () => {
 
   it('应把直接子元素挂到聚焦分组节点下（parentId / extent，尺寸随内容）', async () => {
     serveGraph(hubGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
 
     const byId = new Map(flow().nodes.map((node) => [node.id, node]));
@@ -588,7 +599,8 @@ describe('正常态：缺省 1-hop 渲染面', () => {
 
   it('应以虚线分区框住入边列（dependedBy），分区不入节点集', async () => {
     serveGraph(hubGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
     await waitFor(() => expect(screen.getByTestId('archi-canvas-zone')).toBeTruthy());
 
@@ -609,14 +621,16 @@ describe('正常态：缺省 1-hop 渲染面', () => {
       relations: [relation('Solo', 'Peer', null)],
       diagnostics: [],
     });
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-Solo')).toBeTruthy());
     expect(screen.queryByTestId('archi-canvas-zone')).toBeNull();
   });
 
   it('应按短名渲染节点文案（末段短名，节点不呈标记点）', async () => {
     serveGraph(hubGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
 
     expect(nodeText('Svc')).toBe('Svc');
@@ -639,7 +653,8 @@ describe('正常态：缺省 1-hop 渲染面', () => {
 
   it('应只画与聚焦相连的边（id / 端点 / style 逐值），无关边零出现', async () => {
     serveGraph(hubGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
 
     const edges = flow().edges;
@@ -674,7 +689,8 @@ describe('正常态：缺省 1-hop 渲染面', () => {
 
   it('应在真实 DOM 渲染连线（隐形把手就位、悬空关系无节点不入图）', async () => {
     serveGraph(hubGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
 
     // 每节点一对隐形把手：出边右、入边左（xyflow 据此求边坐标）
@@ -706,7 +722,8 @@ describe('正常态：缺省 1-hop 渲染面', () => {
 
   it('应以只读交互选项装配 ReactFlow（禁拖 / 禁连 / 禁缩放 / 初视口适配全图）', async () => {
     serveGraph(hubGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
 
     const props = flow();
@@ -729,7 +746,8 @@ describe('缺省聚焦与 1-hop 边界', () => {
       relations: [],
       diagnostics: [],
     });
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     // 首个元素 `A.B` 带 `.` ⇒ 不是顶层；`A` 才是缺省聚焦
     // 节点 DOM 在测量回调之后才挂载，候等条件须覆盖节点集（只等抽屉文案会读到空集）
     await waitFor(() => {
@@ -748,7 +766,8 @@ describe('缺省聚焦与 1-hop 边界', () => {
       relations: [],
       diagnostics: [],
     });
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => {
       expect(screen.getByTestId('archi-drawer-fqn').textContent).toBe('A.B');
       expect(renderedNodeIds()).toEqual(['A.B']);
@@ -757,9 +776,10 @@ describe('缺省聚焦与 1-hop 边界', () => {
 
   it('应在元素树点击后按新邻域重算且零取数（archi_graph 计数不变）', async () => {
     serveGraph(hubGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
     // 缺省即元素树：无需切换即可点击
     await waitFor(() => expect(screen.getAllByTestId('archi-tree-node').length).toBeGreaterThan(0));
+    await openGraph();
     const graphCalls = callsOf('archi_graph').length;
 
     const src1Node = screen
@@ -784,7 +804,8 @@ describe('缺省聚焦与 1-hop 边界', () => {
 
   it('应在画布节点点击时切换聚焦（节点 id 即 FQN，零取数）', async () => {
     serveGraph(hubGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-Dst1')).toBeTruthy());
     const graphCalls = callsOf('archi_graph').length;
 
@@ -811,7 +832,8 @@ describe('漂移面接线（AC-19）', () => {
         ],
       }),
     );
-    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
 
     // 节点：不呈标记点，只呈短名（节点标记不呈现）
@@ -845,7 +867,8 @@ describe('漂移面接线（AC-19）', () => {
         ],
       }),
     );
-    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
     expect(screen.queryAllByTestId('archi-node-mark')).toHaveLength(0);
 
@@ -862,7 +885,8 @@ describe('漂移面接线（AC-19）', () => {
 
   it('应在漂移取数失败时照常渲染零标记图并呈现行内提示', async () => {
     serveGraphAndDrift(healthyGraph(), new Error('archi_drift 不可用'));
-    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('archi-drift-error')).toBeTruthy());
     expect(screen.getByTestId('archi-drift-error').textContent).toContain('漂移取数失败');
     expect(screen.queryByTestId('archi-canvas-error')).toBeNull();
@@ -878,7 +902,8 @@ describe('漂移面接线（AC-19）', () => {
 
     // 基线：干净报告的节点 / 边数（三态逐值对照「与无漂移时相等」）
     serveGraphAndDrift(healthyGraph(), driftReport({ status: 'clean' }));
-    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
     await measureNodes();
     const baselineNodes = renderedNodeIds().length;
@@ -889,7 +914,8 @@ describe('漂移面接线（AC-19）', () => {
 
     for (const status of ['clean', 'skipped', 'noChanges'] as const) {
       serveGraphAndDrift(healthyGraph(), driftReport({ status }));
-      render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+      render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
+      await openGraph();
       await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
       await measureNodes();
 
@@ -913,7 +939,7 @@ describe('漂移面接线（AC-19）', () => {
       if (command === 'archi_module') return Promise.resolve(detailOf('App'));
       return Promise.resolve(null);
     });
-    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
 
     // 图错误面接管：既有的错误面板在场且载图失败文案
     await waitFor(() => expect(screen.getByTestId('archi-canvas-error')).toBeTruthy());
@@ -928,7 +954,7 @@ describe('漂移面接线（AC-19）', () => {
     for (const mode of ['full', 'incremental'] as const) {
       invokeMock.mockClear();
       serveGraphAndDrift(healthyGraph(), driftReport());
-      render(<ArchitectureCanvas root={'C:demoalpha'} mode={mode} />);
+      render(<ArchitecturePanel root={'C:demoalpha'} mode={mode} />);
       await waitFor(() => expect(callsOf('archi_drift').length).toBeGreaterThan(0));
       expect(callsOf('archi_drift').at(-1)).toEqual({ root: 'C:demoalpha', mode });
       cleanup();
@@ -937,7 +963,8 @@ describe('漂移面接线（AC-19）', () => {
 
   it('应在聚焦切换后保持 archi_drift 调用次数不变（三触发纪律）', async () => {
     serveGraphAndDrift(healthyGraph(), driftReport());
-    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-App.Auth')).toBeTruthy());
     const before = callsOf('archi_drift').length;
     expect(before).toBeGreaterThan(0);
@@ -969,7 +996,7 @@ describe('漂移面接线（AC-19）', () => {
 describe('空态 / 加载态 / 取数失败 / 无根', () => {
   it('应在空模型（三数组皆空且零诊断）时呈现空态而非停摆面板', async () => {
     serveGraph({ elements: [], relations: [], diagnostics: [] });
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-canvas-empty')).toBeTruthy());
     expect(screen.queryByTestId('archi-error-panel')).toBeNull();
     expect(screen.getByTestId('archi-canvas-empty').textContent).toContain('模型为空');
@@ -986,7 +1013,7 @@ describe('空态 / 加载态 / 取数失败 / 无根', () => {
         resolveGraph = resolve;
       });
     });
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-canvas-loading')).toBeTruthy());
     expect(screen.getByTestId('archi-canvas-loading').textContent).toContain('解析中');
     expect(screen.queryByTestId('archi-canvas-empty')).toBeNull();
@@ -1000,7 +1027,7 @@ describe('空态 / 加载态 / 取数失败 / 无根', () => {
   });
 
   it('应在 root 为 null 时不发 invoke 并呈现无根空态', async () => {
-    render(<ArchitectureCanvas root={null} mode="full" />);
+    render(<ArchitecturePanel root={null} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-canvas-empty')).toBeTruthy());
     expect(screen.getByTestId('archi-canvas-empty').textContent).toContain('无工作区根');
     expect(callsOf('archi_graph')).toHaveLength(0);
@@ -1008,21 +1035,21 @@ describe('空态 / 加载态 / 取数失败 / 无根', () => {
 
   it('应在 archi_graph reject 时呈现错误面板（零节点零边）并在 root 变化后恢复', async () => {
     invokeMock.mockImplementationOnce(() => Promise.reject(new Error('root 无效（C:）')));
-    const { rerender } = render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    const { rerender } = render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-canvas-error')).toBeTruthy());
     expect(screen.getByTestId('archi-canvas-error').textContent).toContain('root 无效');
     expect(screen.queryAllByTestId('archi-tree-node')).toHaveLength(0);
     expect(screen.queryAllByTestId('archi-file-node')).toHaveLength(0);
     expect(screen.queryAllByTestId(/^rf__node-/)).toHaveLength(0);
 
-    rerender(<ArchitectureCanvas root={'C:\\demo\\beta'} mode="full" />);
+    rerender(<ArchitecturePanel root={'C:\\demo\\beta'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
   });
 
   it('应在 root 由 A 换到 B 时重新取数（新根新图）', async () => {
-    const { rerender } = render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    const { rerender } = render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(callsOf('archi_graph')).toHaveLength(1));
-    rerender(<ArchitectureCanvas root={'C:\\demo\\beta'} mode="full" />);
+    rerender(<ArchitecturePanel root={'C:\\demo\\beta'} mode="full" />);
     await waitFor(() => expect(callsOf('archi_graph')).toHaveLength(2));
     expect(callsOf('archi_graph')[1]).toEqual({ root: 'C:\\demo\\beta' });
   });
@@ -1030,13 +1057,13 @@ describe('空态 / 加载态 / 取数失败 / 无根', () => {
 
 describe('mode 差异与改档刷新', () => {
   it('应在 full 模式下抽屉零 gate 控件', async () => {
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-gate-readonly')).toBeTruthy());
     expect(screen.queryByTestId('archi-gate-select')).toBeNull();
   });
 
   it('应在 incremental 模式下提供 gate 控件并在成功后重取一次 archi_graph', async () => {
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="incremental" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="incremental" />);
     await waitFor(() => expect(screen.getByTestId('archi-gate-select')).toBeTruthy());
     const before = callsOf('archi_graph').length;
 
@@ -1053,7 +1080,7 @@ describe('mode 差异与改档刷新', () => {
       if (command === 'archi_module') return Promise.resolve(detailOf('App'));
       return Promise.reject(new Error('元素不存在：App'));
     });
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="incremental" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="incremental" />);
     await waitFor(() => expect(screen.getByTestId('archi-gate-submit')).toBeTruthy());
     const before = callsOf('archi_graph').length;
     await act(async () => {
@@ -1086,7 +1113,8 @@ describe('mode 差异与改档刷新', () => {
       }
       return Promise.resolve(null);
     });
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="incremental" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="incremental" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-Root.Gone')).toBeTruthy());
 
     // 聚焦 `Root.Gone` 后改档触发重取，新图里该元素已删
@@ -1109,16 +1137,17 @@ describe('mode 差异与改档刷新', () => {
 describe('停摆与文档警告无关', () => {
   it('应不因文档警告停摆（diagnostics 空即正常态，文档缺失不进图面判据）', async () => {
     serveGraph(healthyGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     expect(screen.queryByTestId('archi-error-panel')).toBeNull();
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
   });
 });
 
 describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
   it('应缺省渲元素树且切到文件树时 testid 换面（两视图不共存）', async () => {
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
     // 正锚：元素树在场 + 文件树零取数（否定断言只作补充）
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     expect(screen.getAllByTestId('archi-tree-node').length).toBeGreaterThan(0);
@@ -1139,9 +1168,9 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
 
   it('应在两视图往返切换后只让文件树随重挂重取（图 / 抽屉 / 漂移零重取）', async () => {
     serveGraph(hubGraph());
-    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
-    await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
+    await waitFor(() => expect(callsOf('archi_module')).toHaveLength(2));
 
     const before = {
       graph: callsOf('archi_graph').length,
@@ -1186,8 +1215,9 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
       }
       return Promise.resolve(null);
     });
-    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    await openGraph();
     // 文件树是懒取数：切到「文件」分段才挂载
     switchTo('文件');
     await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
@@ -1219,7 +1249,8 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
       }
       return Promise.resolve(null);
     });
-    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
+    await openGraph();
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
     // 文件树在场需先切到「文件」分段（缺省分支是元素树）
     switchTo('文件');
@@ -1250,10 +1281,11 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
       }
       return Promise.resolve(null);
     });
-    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     // 文件树是懒取数：切到「文件」才发起（失败面只发生在切过去之后）
     switchTo('文件');
+    await openGraph();
 
     await waitFor(() => expect(screen.getByTestId('archi-file-tree-error')).toBeTruthy());
     const notice = screen.getByTestId('archi-file-tree-error').textContent ?? '';
@@ -1284,9 +1316,10 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
       }
       return Promise.resolve(null);
     });
-    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     switchTo('文件');
+    await openGraph();
 
     await waitFor(() => expect(screen.getByTestId('archi-file-tree-loading')).toBeTruthy());
     expect(screen.getByTestId('archi-file-tree-loading').textContent).toBe('解析中…');
@@ -1307,9 +1340,10 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
       }
       return Promise.resolve(null);
     });
-    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     switchTo('文件');
+    await openGraph();
 
     await waitFor(() => expect(screen.getByTestId('archi-file-tree-empty')).toBeTruthy());
     expect(screen.getByTestId('archi-file-tree-empty').textContent).toBe('仓库内无源文件');
@@ -1334,12 +1368,12 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
       }
       return Promise.resolve(null);
     });
-    const { rerender } = render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    const { rerender } = render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     switchTo('文件');
     await waitFor(() => expect(screen.getByTestId('archi-file-tree-error')).toBeTruthy());
 
-    rerender(<ArchitectureCanvas root={'B'} mode="full" />);
+    rerender(<ArchitecturePanel root={'B'} mode="full" />);
     // 换 root 触发图重取：正常态重挂 ⇒ 左栏回落缺省元素树（缺省值单点的又一证据）
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     expect(screen.queryByTestId('archi-file-tree-error')).toBeNull();
@@ -1354,7 +1388,7 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
 
   it('应在空模型分支下不挂载左栏（文件树与元素树皆缺席）', async () => {
     serveGraph({ elements: [], relations: [], diagnostics: [] });
-    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
 
     await waitFor(() => expect(screen.getByTestId('archi-canvas-empty')).toBeTruthy());
     // 正锚：早退分支 ⇒ 左栏整块不挂载，故文件树零取数（否定断言的支撑面）
@@ -1365,7 +1399,7 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
   });
 
   it('应让左栏三视图共用同一可调宽栏位（宽度不随视图变化）', async () => {
-    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:demoalpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     const columnOf = (): HTMLElement => screen.getByTestId('archi-tree-mode').parentElement!;
     const panelOf = (): HTMLElement => columnOf().closest('[data-panel]')!;
@@ -1458,7 +1492,7 @@ function reportWithFindings(): ArchiDriftReport {
 describe('左栏第三视图（契约）', () => {
   it('应在点「契约」后只渲契约面板（两树均不在场）', async () => {
     serveWithApiCheck(healthyGraph(), reportWithFindings());
-    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    render(<ArchitecturePanel root={'/ws'} mode="incremental" />);
     // 正锚先行：缺省分支是元素树（否定断言不得单独承担缺省判据）
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     expect(screen.getByTestId('archi-tree-mode')).toBeTruthy();
@@ -1476,7 +1510,7 @@ describe('左栏第三视图（契约）', () => {
 
   it('应在三视图往返切换时零重取图 / 抽屉 / 漂移三条命令', async () => {
     serveWithApiCheck(healthyGraph(), reportWithFindings());
-    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    render(<ArchitecturePanel root={'/ws'} mode="incremental" />);
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     await waitFor(() => expect(callsOf('archi_graph').length).toBeGreaterThan(0));
     const baseline = {
@@ -1501,8 +1535,9 @@ describe('左栏第三视图（契约）', () => {
 
   it('应把 apiFindings 下传到面板两轴与抽屉契约段', async () => {
     serveWithApiCheck(healthyGraph(), reportWithFindings());
-    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    render(<ArchitecturePanel root={'/ws'} mode="incremental" />);
     await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+    await openGraph();
     switchToContract();
     await waitFor(() => expect(screen.getByTestId('archi-contract-panel')).toBeTruthy());
 
@@ -1536,8 +1571,9 @@ describe('左栏第三视图（契约）', () => {
 
   it('应在判据条目点击时把聚焦传给抽屉（取数载荷随 fqn）', async () => {
     serveWithApiCheck(healthyGraph(), reportWithFindings());
-    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    render(<ArchitecturePanel root={'/ws'} mode="incremental" />);
     await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+    await openGraph();
     switchToContract();
     const findingsAxis = screen.getByTestId('archi-contract-axis-findings');
     await waitFor(() =>
@@ -1559,7 +1595,7 @@ describe('左栏第三视图（契约）', () => {
 
   it('应在 full 模式下零生成入口 + 一行只读提示', async () => {
     serveWithApiCheck(healthyGraph(), reportWithFindings());
-    render(<ArchitectureCanvas root={'/ws'} mode="full" />);
+    render(<ArchitecturePanel root={'/ws'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
     switchToContract();
     await waitFor(() => expect(screen.getByTestId('archi-contract-panel')).toBeTruthy());
@@ -1572,7 +1608,7 @@ describe('左栏第三视图（契约）', () => {
 
   it('应在 incremental 模式下渲染可用的生成入口', async () => {
     serveWithApiCheck(healthyGraph(), reportWithFindings());
-    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    render(<ArchitecturePanel root={'/ws'} mode="incremental" />);
     await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
     switchToContract();
     await waitFor(() =>
@@ -1584,7 +1620,7 @@ describe('左栏第三视图（契约）', () => {
 
   it('应让契约视图与另两视图共用同一可调宽栏位（宽度不随视图变化）', async () => {
     serveWithApiCheck(healthyGraph(), reportWithFindings());
-    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    render(<ArchitecturePanel root={'/ws'} mode="incremental" />);
     await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
 
     const columnOf = (): HTMLElement => screen.getByTestId('archi-tree-mode').parentElement!;
@@ -1602,16 +1638,18 @@ describe('左栏第三视图（契约）', () => {
   });
 });
 
-describe('抽屉契约段链路（drawer → FileViewer → read_file）', () => {
-  it('应在抽屉契约段点「查看」时经 FileViewer 触达 read_file（载荷 = root + repo 相对串）', async () => {
-    const contractPath = '.dev-team/architecture/api/Core/App.Auth.md';
+describe('右栏文档分段（api 三路径 → FileViewer → read_file）', () => {
+  it('应在文档分段按非空 api 路径出文件页签并逐页签读取（载荷 = root + repo 相对串）', async () => {
+    const contractPath = '.dev-team/architecture/models/App.Auth.md';
+    const schemaPath = '.dev-team/architecture/models/App.Auth.schema.json';
+    const generatedPath = 'src/auth.i.ts';
     invokeMock.mockImplementation((command: string) => {
       if (command === 'archi_graph') return Promise.resolve(healthyGraph());
       if (command === 'archi_drift') return Promise.resolve(driftReport());
       if (command === 'archi_module') {
         return Promise.resolve({
           ...detailOf('App'),
-          api: { status: 'declared', contractPath, schemaPath: null, generatedPath: null },
+          api: { status: 'declared', contractPath, schemaPath, generatedPath },
         });
       }
       if (command === 'archi_file_tree') return Promise.resolve(fileTree());
@@ -1630,23 +1668,27 @@ describe('抽屉契约段链路（drawer → FileViewer → read_file）', () =>
       return Promise.reject(new Error(`未预期命令: ${command}`));
     });
 
-    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    render(<ArchitecturePanel root={'/ws'} mode="incremental" />);
     await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
-    await waitFor(() => expect(screen.queryAllByTestId('archi-contract-path')).toHaveLength(3));
 
-    const rows = screen.queryAllByTestId('archi-contract-path');
-    const row = rows[0]!;
-    expect(row.getAttribute('title')).toBe(contractPath);
-    // 缺席的两槽位（schema / 生成物）行仍在场但「查看」禁用：不吞行、不误开空路径
-    for (const nullRow of [rows[1]!, rows[2]!]) {
-      expect(nullRow.querySelector('button')!.disabled).toBe(true);
-    }
-    fireEvent.click(row.querySelector('button')!);
+    // 缺省分段即「文档」：首个路径页签挂载即取正文（零点击）
     await waitFor(() => expect(callsOf('read_file')).toHaveLength(1));
-    const payload = callsOf('read_file')[0]!;
-    expect(payload.path).toBe(`/ws/${contractPath}`);
-    expect(payload.offset).toBeNull();
-    expect(payload.limit).toBeNull();
+    expect(callsOf('read_file')[0]).toEqual({
+      path: `/ws/${contractPath}`,
+      offset: null,
+      limit: null,
+    });
+    // 三条非空路径各自成页签（路径为 null 才不出页签）
+    for (const name of ['App.Auth.md', 'App.Auth.schema.json', 'auth.i.ts']) {
+      expect(screen.getByRole('tab', { name })).toBeTruthy();
+    }
+    fireEvent.click(screen.getByRole('tab', { name: 'App.Auth.schema.json' }));
+    await waitFor(() => expect(callsOf('read_file')).toHaveLength(2));
+    expect(callsOf('read_file')[1]).toEqual({
+      path: `/ws/${schemaPath}`,
+      offset: null,
+      limit: null,
+    });
     // 链路只经既有读面：不触发生成命令
     expect(callsOf('archi_api_generate')).toHaveLength(0);
   });
@@ -1670,7 +1712,7 @@ describe('停摆 / 空模型 / 报告缺席三态的左栏', () => {
       },
       driftReport(),
     );
-    const first = render(<ArchitectureCanvas root={'/ws'} mode="full" />);
+    const first = render(<ArchitecturePanel root={'/ws'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-error-panel')).toBeTruthy());
     expect(screen.queryByTestId('archi-contract-panel')).toBeNull();
     expect(screen.queryByTestId('archi-tree-mode')).toBeNull();
@@ -1678,7 +1720,7 @@ describe('停摆 / 空模型 / 报告缺席三态的左栏', () => {
     first.unmount();
 
     serveWithApiCheck({ elements: [], relations: [], diagnostics: [] }, driftReport());
-    render(<ArchitectureCanvas root={'/ws'} mode="full" />);
+    render(<ArchitecturePanel root={'/ws'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-canvas-empty')).toBeTruthy());
     expect(screen.queryByTestId('archi-contract-panel')).toBeNull();
     expect(callsOf('archi_api_check')).toHaveLength(0);
@@ -1693,8 +1735,9 @@ describe('停摆 / 空模型 / 报告缺席三态的左栏', () => {
       if (command === 'archi_api_check') return Promise.resolve(apiCheck());
       return Promise.reject(new Error(`未预期命令: ${command}`));
     });
-    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    render(<ArchitecturePanel root={'/ws'} mode="incremental" />);
     await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+    await openGraph();
     switchToContract();
     await waitFor(() => expect(screen.getByTestId('archi-contract-panel')).toBeTruthy());
 
@@ -1813,8 +1856,8 @@ function clickEdgeProp(source: string, target: string): void {
 describe('边点击 → 关系态面板（两态同槽互斥）', () => {
   it('应在点击 apis 非空的边时切到关系面板并恰取一次详情', async () => {
     serveSelectable(selectableGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
 
     await clickEdge('App->App.Auth');
 
@@ -1833,8 +1876,8 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
 
   it('应在选中边上只加粗既有描边（零新标记词汇）', async () => {
     serveSelectable(selectableGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
 
     const before = flow()
       .edges.filter((edge) => edge.id === 'App->App.Auth')
@@ -1854,8 +1897,8 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
 
   it('应在点击节点时回到元素态并清空选中（零新增 invoke）', async () => {
     serveSelectable(selectableGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
 
     await clickEdge('App->App.Auth');
     await waitFor(() => expect(screen.getByTestId('archi-relation-info')).toBeTruthy());
@@ -1871,8 +1914,8 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
 
   it('应在未声明 apis 的边上照常开面板但零取数（空态①）', async () => {
     serveSelectable(selectableGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
 
     await clickEdge('App->App.Billing');
 
@@ -1883,8 +1926,8 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
 
   it('应在同一元素对重复点开时 invoke 计数恒 1（缓存跨面板两态切换）', async () => {
     serveSelectable(selectableGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
 
     await clickEdge('App->App.Auth');
     await waitFor(() => expect(callsOf('archi_relation')).toHaveLength(1));
@@ -1911,8 +1954,8 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
         },
       ],
     });
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
 
     await clickEdge('App->App.Auth');
 
@@ -1924,8 +1967,8 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
 
   it('应在取数失败时只落行内错误与重试（图与元素面板零影响）', async () => {
     serveSelectable(selectableGraph(), { relationError: new Error('取数失败') });
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     const graphCalls = callsOf('archi_graph').length;
     const driftCalls = callsOf('archi_drift').length;
 
@@ -1942,13 +1985,15 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
 
   it('应在挂载与 root 变化时零 archi_relation（取数只由显式动作发起）', async () => {
     serveSelectable(selectableGraph());
-    const { rerender } = render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    const { rerender } = render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
 
-    rerender(<ArchitectureCanvas root={'C:\\demo\\beta'} mode="full" />);
+    rerender(<ArchitecturePanel root={'C:\\demo\\beta'} mode="full" />);
     await waitFor(() => expect(callsOf('archi_graph')).toHaveLength(2));
     expect(callsOf('archi_relation')).toHaveLength(0);
 
+    // 换根重挂 → 右栏分段复位到缺省「文档」：重新切到关系图再点边
+    await openGraph();
     await clickEdge('App->App.Auth');
     await waitFor(() => expect(callsOf('archi_relation')).toHaveLength(1));
     expect(callsOf('archi_relation')[0]?.root).toBe('C:\\demo\\beta');
@@ -1968,7 +2013,7 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
         },
       ],
     });
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-error-panel')).toBeTruthy());
     expect(document.querySelectorAll('.react-flow__edge')).toHaveLength(0);
     expect(callsOf('archi_relation')).toHaveLength(0);
@@ -1986,8 +2031,8 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
       invokeMock.mockReset();
       flowProps.length = 0;
       serveSelectable(selectableGraph(), variant.options);
-      const view = render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-      await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+      const view = render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+      await openGraph();
 
       await clickEdge('App->App.Auth');
 
@@ -2003,8 +2048,8 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
 
   it('应在点击不在图内的陈旧边 id 时保持元素态并零 archi_relation', async () => {
     serveSelectable(selectableGraph());
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     const graphCalls = callsOf('archi_graph').length;
 
     clickEdgeProp('App.Ghost', 'App.Auth');
@@ -2022,8 +2067,8 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
     const graph = selectableGraph();
     graph.relations.push({ ...relation('App', 'App.Auth', '核心聚合认证'), apis: ['Token'] });
     serveSelectable(graph);
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
 
     clickEdgeProp('App', 'App.Auth');
 
@@ -2040,8 +2085,8 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
     const graph = selectableGraph();
     graph.relations.push({ ...relation('App.Auth', 'App', '反向引用'), apis: ['Token'] });
     serveSelectable(graph);
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
 
     await clickEdge('App.Auth->App');
 
@@ -2065,12 +2110,12 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
 
   it('应在 root 变化时清空选中回到元素态', async () => {
     serveSelectable(selectableGraph());
-    const { rerender } = render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    const { rerender } = render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     await clickEdge('App->App.Auth');
     await waitFor(() => expect(screen.getByTestId('archi-relation-info')).toBeTruthy());
 
-    rerender(<ArchitectureCanvas root={'C:\\demo\\beta'} mode="full" />);
+    rerender(<ArchitecturePanel root={'C:\\demo\\beta'} mode="full" />);
 
     await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
     expect(screen.queryByTestId('archi-relation-info')).toBeNull();
@@ -2078,21 +2123,21 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
 
   it('应在重挂载后不复活旧选中', async () => {
     serveSelectable(selectableGraph());
-    const first = render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    const first = render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
+    await openGraph();
     await clickEdge('App->App.Auth');
     await waitFor(() => expect(screen.getByTestId('archi-relation-info')).toBeTruthy());
 
     first.unmount();
-    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    render(<ArchitecturePanel root={'C:\\demo\\alpha'} mode="full" />);
 
-    await waitFor(() => expect(screen.getByTestId('archi-drawer')).toBeTruthy());
+    await openGraph();
     expect(screen.queryByTestId('archi-relation-info')).toBeNull();
   });
 
   it('应在源码内零定时器（点边取数不被自动重取放大）', () => {
     const source = readFileSync(
-      resolve(process.cwd(), 'src/views/architecture/components/architecture-canvas.tsx'),
+      resolve(process.cwd(), 'src/views/architecture/components/architecture-panel.tsx'),
       'utf8',
     );
     expect(source).not.toContain('setInterval');
@@ -2106,7 +2151,7 @@ describe('边点击 → 关系态面板（两态同槽互斥）', () => {
 
 describe('左栏分段控件与缺省视图（AC-5 / AC-6）', () => {
   it('应按「元素 / 文件 / 契约」声明分段钮且缺省选中「元素」', async () => {
-    render(<ArchitectureCanvas root={'/ws'} mode="full" />);
+    render(<ArchitecturePanel root={'/ws'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
 
     const tabs = within(screen.getByTestId('archi-tree-mode')).getAllByRole('tab');
@@ -2121,7 +2166,7 @@ describe('左栏分段控件与缺省视图（AC-5 / AC-6）', () => {
 
   it('应在三视图切换后把选中态移到目标钮（零重取图 / 抽屉 / 漂移）', async () => {
     serveWithApiCheck(healthyGraph(), driftReport());
-    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    render(<ArchitecturePanel root={'/ws'} mode="incremental" />);
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
 
     const selected = (): (string | null)[] =>
@@ -2156,7 +2201,7 @@ describe('左栏分段控件与缺省视图（AC-5 / AC-6）', () => {
     for (const mode of ['full', 'incremental'] as const) {
       invokeMock.mockReset();
       serveGraphAndDrift(healthyGraph(), driftReport());
-      render(<ArchitectureCanvas root={'C:demoalpha'} mode={mode} />);
+      render(<ArchitecturePanel root={'C:demoalpha'} mode={mode} />);
 
       await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
       expect(callsOf('archi_file_tree')).toHaveLength(0);
@@ -2173,9 +2218,12 @@ describe('左栏分段控件与缺省视图（AC-5 / AC-6）', () => {
 // ---------------------------------------------------------------------------
 
 describe('源码自证（缺省值单点 / 声明序单点）', () => {
-  it('应把缺省视图与分段声明序各自单点持有（architecture-canvas.tsx）', () => {
-    const source = readFileSync(
-      resolve(process.cwd(), 'src/views/architecture/components/architecture-canvas.tsx'),
+  it('应把缺省视图与分段声明序各自单点持有（dashboard 子层）', () => {
+    const dashboard = readFileSync(
+      resolve(
+        process.cwd(),
+        'src/views/architecture/components/dashboard/architecture-dashboard.tsx',
+      ),
       'utf8',
     );
 
@@ -2183,54 +2231,52 @@ describe('源码自证（缺省值单点 / 声明序单点）', () => {
     // `stryMutAct_*(…) ? "" : (stryCov_*(…), 'element')`，整表达式逐字邻接在沙箱内消失，
     // 故判据只取「声明锚 + 同行字面量」两段（先例 use-config-chat.test.ts:601）。
     // 缺省值单点：全源恰一处 `TreeMode` 初值声明，且该行初值为 'element'
-    expect(source.match(/useState<TreeMode>\(/g) ?? []).toHaveLength(1);
-    expect(source).toMatch(/useState<TreeMode>\([^\n]*'element'/);
-    // 否定臂：'file' / 'contract' 不作初值（缺省不是文件树）
-    expect(source).not.toMatch(/useState<TreeMode>\([^\n]*'(file|contract)'/);
+    expect(dashboard.match(/useState<TreeMode>\(/g) ?? []).toHaveLength(1);
+    expect(dashboard).toMatch(/useState<TreeMode>\([^\n]*'element'/);
+    // 否定臂：'file' / 'contract' 不作初值（缺省不是文件树 / 契约视图）
+    expect(dashboard).not.toMatch(/useState<TreeMode>\([^\n]*'(file|contract)'/);
 
+    const column = readFileSync(
+      resolve(process.cwd(), 'src/views/architecture/components/dashboard/tree-column.tsx'),
+      'utf8',
+    );
     // 声明序单点：三钮显示名首现次序 元素 → 文件 → 契约
     // （锚显示名字面量而非 `mode: '…'` 邻接——字面量不被插桩，邻接会）
-    const displayOrder = ["'元素'", "'文件'", "'契约'"].map((label) => source.indexOf(label));
+    const displayOrder = ["'元素'", "'文件'", "'契约'"].map((label) => column.indexOf(label));
     for (const index of displayOrder) expect(index).toBeGreaterThan(-1);
     expect(displayOrder).toEqual([...displayOrder].sort((left, right) => left - right));
-    expect(source).toMatch(/label: [^\n]*'元素'/);
-    expect(source).toMatch(/label: [^\n]*'文件'/);
-    expect(source).toMatch(/label: [^\n]*'契约'/);
+    expect(column).toMatch(/label: [^\n]*'元素'/);
+    expect(column).toMatch(/label: [^\n]*'文件'/);
+    expect(column).toMatch(/label: [^\n]*'契约'/);
 
     // 分段钮与面板内容都由同一份 options 派生（JSX 内零第二份顺序）
-    expect(source.includes('<TabsTrigger value={option.mode}>')).toBe(true);
-    expect(source.includes('<TabsContent value={option.mode}>')).toBe(true);
-    expect(source.includes('options.map(')).toBe(true);
-    expect(source.includes('data-testid="archi-tree-mode"')).toBe(true);
-    expect(source.includes('role="group"')).toBe(true);
+    expect(column.includes('<TabsTrigger value={option.mode}>')).toBe(true);
+    expect(column.includes('<TabsContent value={option.mode}>')).toBe(true);
+    expect(column.includes('options.map(')).toBe(true);
+    expect(column.includes('data-testid="archi-tree-mode"')).toBe(true);
+    expect(column.includes('role="group"')).toBe(true);
 
     // 旧注释口径零命中（缺省陈述只由 treeMode 初值持有）
-    expect(source.includes('缺省文件树')).toBe(false);
-    expect(source.includes('左栏缺省为文件树')).toBe(false);
+    for (const source of [dashboard, column]) {
+      expect(source.includes('缺省文件树')).toBe(false);
+      expect(source.includes('左栏缺省为文件树')).toBe(false);
+    }
   });
 
-  it('应让 file-tree.tsx 的注释不再自行持有缺省值', () => {
+  it('应让 file-tree.tsx 不再自行持有缺省值（缺省与声明序归 dashboard 子层）', () => {
     const source = readFileSync(
-      resolve(process.cwd(), 'src/views/architecture/components/file-tree.tsx'),
+      resolve(process.cwd(), 'src/views/architecture/components/dashboard/file-tree.tsx'),
       'utf8',
     );
 
-    // 旧注释形态（「缺省」后接反引号包裹的 file）零命中
+    // 旧注释形态（「缺省」后接反引号包裹的 file）零命中；任何「缺省」行不得
+    // 自行陈述缺省值（缺省值单点在 architecture-dashboard.tsx 的 treeMode 初值）
     expect(source.includes('缺省 `file`')).toBe(false);
-    // 仍出现「缺省」的行必须指向单点持有者：不得在本文件重新持有缺省值
-    const lines = source.split('\n').filter((line) => line.includes('缺省'));
-    expect(lines).toHaveLength(1);
-    for (const line of lines) expect(line.includes('architecture-canvas.tsx')).toBe(true);
-    // 跨文件反证：本文件零 `TreeMode` 初值声明（缺省值单点只在 architecture-canvas.tsx）
-    expect(source).not.toMatch(/useState<TreeMode>\(/);
-
-    // 三值联合齐备（声明锚 + 三取值 indexOf 均在锚后；不锚整句逐字）
-    const unionAnchor = source.indexOf('export type TreeMode =');
-    expect(unionAnchor).toBeGreaterThan(-1);
-    expect(source.match(/export type TreeMode =/g) ?? []).toHaveLength(1);
-    for (const literal of ["'file'", "'element'", "'contract'"]) {
-      expect(source.indexOf(literal)).toBeGreaterThan(unionAnchor);
+    for (const line of source.split('\n').filter((candidate) => candidate.includes('缺省'))) {
+      expect(line).not.toMatch(/'(element|file|contract)'/);
     }
+    // 跨文件反证：本文件零 `TreeMode` 初值声明
+    expect(source).not.toMatch(/useState<TreeMode>\(/);
 
     // 导出面与 testid 零变动（组件行为与「缺省视图」解耦）
     expect(source.includes('export function FileTree')).toBe(true);
@@ -2246,11 +2292,26 @@ describe('源码自证（缺省值单点 / 声明序单点）', () => {
       expect(source.includes(`data-testid="${testId}"`)).toBe(true);
     }
 
-    // 对照臂：旧缺省口径在缺省值持有者内同样零命中
-    const canvasSource = readFileSync(
-      resolve(process.cwd(), 'src/views/architecture/components/architecture-canvas.tsx'),
+    // 三值联合与声明序在 tree-column.tsx（单点；声明锚 + 三取值 indexOf 均在锚后）
+    const column = readFileSync(
+      resolve(process.cwd(), 'src/views/architecture/components/dashboard/tree-column.tsx'),
       'utf8',
     );
-    expect(canvasSource.includes('缺省文件树')).toBe(false);
+    const unionAnchor = column.indexOf('export type TreeMode =');
+    expect(unionAnchor).toBeGreaterThan(-1);
+    expect(column.match(/export type TreeMode =/g) ?? []).toHaveLength(1);
+    for (const literal of ["'file'", "'element'", "'contract'"]) {
+      expect(column.indexOf(literal)).toBeGreaterThan(unionAnchor);
+    }
+
+    // 对照臂：旧缺省口径在缺省值持有者内同样零命中
+    const dashboardSource = readFileSync(
+      resolve(
+        process.cwd(),
+        'src/views/architecture/components/dashboard/architecture-dashboard.tsx',
+      ),
+      'utf8',
+    );
+    expect(dashboardSource.includes('缺省文件树')).toBe(false);
   });
 });

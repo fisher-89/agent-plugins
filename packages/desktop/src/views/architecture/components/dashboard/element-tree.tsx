@@ -7,12 +7,16 @@ import {
 } from 'lucide-react';
 import { useMemo } from 'react';
 
-import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  ScrollArea,
+} from '@/components/ui';
+import type { ArchiElement } from '@/types/generated/bindings';
 
-import type { ArchiElement } from '../../../types/generated/bindings';
-import { shortName } from '../lib/fqn';
+import { shortName } from '../../lib/fqn';
 
 export interface ElementTreeProps {
   /** 图元素（FQN 唯一） */

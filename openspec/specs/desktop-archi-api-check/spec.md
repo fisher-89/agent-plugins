@@ -406,7 +406,7 @@ pair 锚点（不进元素循环，与元素锚点并列、互不挤占）
 
 | 项 | 描述 |
 |---|---|
-| `views/architecture/components/contract-panel.tsx` | 判据轴按 `category` 分组呈现同一份 `apiFindings`（零重算） |
+| `views/architecture/components/dashboard/contract-panel.tsx` | 判据轴按 `category` 分组呈现同一份 `apiFindings`（零重算） |
 | `views/architecture/components/model-info.tsx` | 按 `element === fqn` 过滤呈现本元素判据（零二次 invoke） |
 
 ### 模块增量：报告数与入口面读数随动（relation-api-dependency-check）

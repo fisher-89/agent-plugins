@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { commands, type ArchiRelationDetail } from '../../../types/generated/bindings';
+import { commands, type ArchiRelationDetail } from '../../../../types/generated/bindings';
 
 /** 选中边的元素对身份（与 `ArchiRelation` / 报告聚合同一身份）。 */
 export interface RelationEdge {

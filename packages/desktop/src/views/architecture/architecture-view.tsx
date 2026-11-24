@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 
 import { ArchiChatPanel } from './agent/archi-chat-panel';
-import { ArchitectureCanvas } from './components/architecture-canvas';
+import { ArchitecturePanel } from './components/architecture-panel';
 
 export function ArchitectureView({ root }: { root: string | null }): React.JSX.Element {
   const [refreshTick, setRefreshTick] = useState(0);
@@ -31,7 +31,7 @@ export function ArchitectureView({ root }: { root: string | null }): React.JSX.E
         <ResizableHandle withHandle />
         <ResizablePanel minSize="40">
           <div className="h-full min-h-0 pl-1.5">
-            <ArchitectureCanvas key={refreshTick} root={root} mode="full" />
+            <ArchitecturePanel key={refreshTick} root={root} mode="full" />
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>

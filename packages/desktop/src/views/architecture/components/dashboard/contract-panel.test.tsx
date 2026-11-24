@@ -7,12 +7,12 @@ import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { Toaster } from '@/components/ui/sonner';
+import type { ArchiApiCheck, ArchiApiFinding } from '@/types/generated/bindings';
 
-import type { ArchiApiCheck, ArchiApiFinding } from '../../../types/generated/bindings';
 import { ContractPanel, type ContractPanelProps } from './contract-panel';
 
 /**
- * `ContractPanel` 单测（AC-9 / AC-10 / AC-11 / AC-12 / D16 / D17 / D18）：两轴并列与各自
+ * `ContractPanel` 单测：两轴并列与各自
  * 计数（零跨轴合计）、三分组与组内计数、chip 由数据派生与过滤、条目点击 = 聚焦、路径行经
  * `FileViewer` + `read_file`、五态（加载 / 未启用 / 零差异零判据 / 检查失败行内 / 生成失败
  * 顶部）与首帧未载入态的「解析中…」判定序、生成二次确认与调用序、`full` 零生成入口、
@@ -580,18 +580,18 @@ describe('ContractPanel：零第二份取数（源码自证）', () => {
   }
 
   it('应零引用三既有 hook 与零定时器零 watch（取数只走 archi_api_check）', () => {
-    const source = sourceOf('src/views/architecture/components/contract-panel.tsx');
+    const source = sourceOf('src/views/architecture/components/dashboard/contract-panel.tsx');
     for (const hook of ['useArchiGraph', 'useArchiDrift', 'useArchiModule']) {
       expect(source.includes(hook), `contract-panel.tsx 零 ${hook}`).toBe(false);
     }
     for (const poller of ['setInterval', 'setTimeout', 'watchSubscribe']) {
       expect(source.includes(poller), `contract-panel.tsx 零 ${poller}`).toBe(false);
     }
-    expect(source).toContain("from '../hooks/use-archi-api-check'");
+    expect(source).toContain("from '../../hooks/use-archi-api-check'");
   });
 
   it('应零前端类别常量表（chip 的类别与计数由 findings 派生）', () => {
-    const source = sourceOf('src/views/architecture/components/contract-panel.tsx');
+    const source = sourceOf('src/views/architecture/components/dashboard/contract-panel.tsx');
     for (const category of [
       'entry',
       'contract',

@@ -25,6 +25,9 @@ type InnerFile = Required<File> & {
 export interface FileViewerProps {
   root: string;
   files: File[];
+}
+
+export interface FileViewerDrawerProps extends FileViewerProps {
   title?: string;
   trigger?: UseRenderRenderProp<DrawerTriggerState>;
 }
@@ -140,50 +143,49 @@ function FileContent({ root, path, type }: FileContentProps): React.JSX.Element 
   );
 }
 
-export function FileViewer({
+export function FileViewerBlock({ root, files }: FileViewerProps): React.JSX.Element {
+  const innerFiles = toInnerFiles(files);
+  const [first] = innerFiles;
+  return innerFiles.length === 0 ? (
+    <Empty data-testid="file-viewer-empty">
+      <EmptyHeader>
+        <EmptyTitle>无文件可预览</EmptyTitle>
+        <EmptyDescription>当前条目没有关联的文档。</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  ) : (
+    <Tabs defaultValue={first.path} orientation="vertical" className="h-full">
+      <TabsList>
+        {innerFiles.map(({ path, name }) => (
+          <TabsTrigger key={path} value={path}>
+            {name}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      <ScrollArea className="max-h-full mask-linear-to-b mask-[linear-gradient(to_bottom,black_calc(100%-var(--spacing)*16),transparent_100%)]">
+        {innerFiles.map(({ path, type }) => (
+          <TabsContent key={path} value={path}>
+            <FileContent root={root} path={path} type={type} />
+            <div className="w-full h-16"></div>
+          </TabsContent>
+        ))}
+      </ScrollArea>
+    </Tabs>
+  );
+}
+
+export function FileViewerDrawer({
   root,
   files,
   title = '文档预览',
   trigger,
-}: FileViewerProps): React.JSX.Element {
-  const innerFiles = toInnerFiles(files);
-  if (innerFiles.length === 0) {
-    return (
-      <Empty data-testid="file-viewer-empty">
-        <EmptyHeader>
-          <EmptyTitle>无文件可预览</EmptyTitle>
-          <EmptyDescription>当前条目没有关联的文档。</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    );
-  }
-  // 首个文件默认激活；面板按需挂载（base-ui Tabs 缺省 keepMounted = false），
-  // 故非激活页签的正文到切换时才取数
-  const [first] = innerFiles;
+}: FileViewerDrawerProps): React.JSX.Element {
   return (
     <StandardDrawer
       containerClassName="w-[960px] max-w-[85vw]"
       title={title}
       trigger={trigger}
-      content={
-        <Tabs defaultValue={first.path} orientation="vertical" className="h-full">
-          <TabsList>
-            {innerFiles.map(({ path, name }) => (
-              <TabsTrigger key={path} value={path}>
-                {name}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          <ScrollArea className="max-h-full mask-linear-to-b mask-[linear-gradient(to_bottom,black_calc(100%-var(--spacing)*16),transparent_100%)]">
-            {innerFiles.map(({ path, type }) => (
-              <TabsContent key={path} value={path}>
-                <FileContent root={root} path={path} type={type} />
-                <div className="w-full h-16"></div>
-              </TabsContent>
-            ))}
-          </ScrollArea>
-        </Tabs>
-      }
+      content={<FileViewerBlock root={root} files={files} />}
     />
   );
 }

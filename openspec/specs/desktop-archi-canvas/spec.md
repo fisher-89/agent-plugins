@@ -8,7 +8,7 @@
 
 ### Requirement: 单一画布组件与两处挂载点
 
-架构画布 SHALL 为**一个共享组件**（`ArchitectureCanvas`，入参 `{ root, mode }`），在仓库内两处挂载，MUST NOT 为两处各写一套渲染：
+架构画布 SHALL 为**一个共享组件**（`ArchitecturePanel`，入参 `{ root, mode }`），在仓库内两处挂载，MUST NOT 为两处各写一套渲染：
 
 | 挂载点 | 位置 | `root` | `mode` |
 |---|---|---|---|
@@ -18,8 +18,8 @@
 - **观察根就是当前工作根**：命令签名 SHALL 一律显式带 `root`，MUST NOT 引入「当前选中 change」一类隐式上下文。change 侧的 `root` 派生口径 SHALL 与既有会话 `cwd` 口径同源（`detail.worktree`；归档 change 恒回落主仓根）。
 - **显式取数**：画布取数 SHALL 只在三种触发下发起——组件挂载、`root` 变化、用户显式刷新；MUST NOT 引入目录监听（watch）或轮询（沿 `desktop-file-watch` 既有红线，本变更不得以任何形式偷加自动刷新）。
 - **按需查询不计入三触发（本变更显式开窗）**：边点击取关系详情（`archi_relation`，见「关系信息面板（RelationInfo）与边点击」）由**显式用户动作**发起，既非 watch 也非轮询，**不计入上述三触发**；其触发面 SHALL 恰为「选中边变化（且该元素对有 `apis`）」与「用户点重试」。除此之外 MUST NOT 有任何自动重取（含选中态保持期间的任何重取、`root` 未变时的后台刷新）。本条是本 requirement 三触发纪律的唯一开窗，MUST NOT 被援引为引入 watch / 轮询 / 定时刷新的先例。
-- 画布区块 SHALL 为**两栏横向可调宽布局**（`ResizablePanelGroup`）：**左栏**为 `ResizablePanel`（`defaultSize={300}` / `minSize={200}`；面板内 base-ui `Tabs` 在**一个栏位内三种视图**间切换——缺省**元素树**（层级由 FQN 前缀派生）/ **文件树**（磁盘枚举 + 元素根归属标记）/ **契约视图**（生成物差异 + 契约判据两轴，见 `desktop-archi-contract-panel`）；三视图共用同一面板，栏宽可拖拽、MUST NOT 随视图切换变化）；**右栏**为 `ResizablePanel` 内的 `Card`——`CardHeader` 承载**两态面板**（元素态 `ModelInfo`，测试挂钩沿用 `archi-drawer`；关系态 `RelationInfo`，见「关系信息面板（RelationInfo）与边点击」），`CardContent` 承载 xyflow 画布（节点 = element，边 = relation，`data-testid="archi-canvas"`）。左栏三种视图的完整契约分别归 `desktop-archi-file-tree`（文件 / 元素两视图、分段切换语义与缺省视图）与 `desktop-archi-contract-panel`（契约视图）；本能力只登记「左栏是画布区第一栏、其缺省视图为元素树且文件树不参与首屏」。
-- 缺省渲染 SHALL 只呈现**聚焦元素的 1-hop 邻域**（入边 + 出边 + 直接子元素），聚焦切换 SHALL 由图内交互完成；全量铺开 MUST NOT 作为缺省形态（防大模型过载）。
+- 画布区块 SHALL 为**两栏横向可调宽布局**（`ResizablePanelGroup`）：**左栏**为 `ResizablePanel`（`defaultSize={300}` / `minSize={200}`；面板内 base-ui `Tabs` 在**一个栏位内三种视图**间切换——缺省**元素树**（层级由 FQN 前缀派生）/ **文件树**（磁盘枚举 + 元素根归属标记）/ **契约视图**（生成物差异 + 契约判据两轴，见 `desktop-archi-contract-panel`）；三视图共用同一面板，栏宽可拖拽、MUST NOT 随视图切换变化）；**右栏**为 `ResizablePanel` 内的 `Card`——`CardHeader` 承载**两态面板**（元素态 `ModelInfo`，测试挂钩沿用 `archi-drawer`；关系态 `RelationInfo`，见「关系信息面板（RelationInfo）与边点击」），`CardContent` 承载**三个分段视图**（base-ui `Tabs`，声明序 **文档 / 接口 / 关系图**，缺省「文档」；画布区挂 `data-testid="archi-canvas"`）：「文档」段按本元素 `api` 三路径（`contractPath` / `schemaPath` / `generatedPath`，仅非空项）逐条出文件页签并挂载 `FileViewerBlock`（正文经通用 `read_file` 自取）；「接口」段为本期占位（「敬请期待」）；「关系图」段承载 xyflow 画布（节点 = element，边 = relation）。xyflow 只在切到「关系图」分段时挂载（首屏零 ReactFlow 渲染）。左栏三种视图的完整契约分别归 `desktop-archi-file-tree`（文件 / 元素两视图、分段切换语义与缺省视图）与 `desktop-archi-contract-panel`（契约视图）；本能力只登记「左栏是画布区第一栏、其缺省视图为元素树且文件树不参与首屏」。
+- 右栏「关系图」分段的画布缺省渲染 SHALL 只呈现**聚焦元素的 1-hop 邻域**（入边 + 出边 + 直接子元素），聚焦切换 SHALL 由图内交互完成；全量铺开 MUST NOT 作为缺省形态（防大模型过载）。
 - 直接子元素 SHALL 渲染在聚焦节点**区域内**：聚焦元素有直接子元素时呈分组容器节点（标题栏 + 内容区），子节点以 xyflow `parentId` + `extent: 'parent'` 挂在容器下、逐行排在内容区内；邻域入 / 出边节点分布在容器左右两侧之外，MUST NOT 落进容器区域。
 - 入边列（`dependedBy`：依赖当前元素的节点）SHALL 以**虚线分区**框选：分区完整包住整列入边节点，作为画布背景装饰——MUST NOT 计入节点集、MUST NOT 响应点击 / 聚焦；无入边时不渲分区。
 - 测试挂钩 SHALL 用 data-testid，MUST NOT 以样式类名作查询挂钩（沿 `desktop-standard-components` 既有纪律）。
@@ -27,7 +27,7 @@
 #### Scenario: 两处挂载点共用同一组件
 
 - **WHEN** 分别打开 `/architecture` 与某 active change 详情的「架构」页签
-- **THEN** 两处呈现同一组件（可调宽左栏面板 / 右栏元素信息与画布齐备，左栏分段控件三视图齐备）；A 的 `root` 为主仓根，B 的 `root` 为该 change 的 `detail.worktree`；两处左栏缺省均为**元素树**，两处首屏 `archi_file_tree` 调用数均为 0
+- **THEN** 两处呈现同一组件（可调宽左栏面板 / 右栏元素信息与三分段视图齐备，左栏分段控件三视图齐备）；A 的 `root` 为主仓根，B 的 `root` 为该 change 的 `detail.worktree`；两处左栏缺省均为**元素树**，两处首屏 `archi_file_tree` 调用数均为 0
 
 #### Scenario: 归档 change 回落主仓根
 
@@ -46,7 +46,7 @@
 
 #### Scenario: 缺省 1-hop
 
-- **WHEN** 模型含数十元素且无元素被显式聚焦
+- **WHEN** 模型含数十元素、无元素被显式聚焦，且切到右栏「关系图」分段
 - **THEN** 画布只渲染聚焦元素（缺省取根元素或首个顶层元素）及其 1-hop 邻域；非邻域元素不出现在图内，全量仅经显式操作展开
 
 #### Scenario: 直接子元素渲染在聚焦节点区域内
@@ -168,7 +168,7 @@
 
 ### Requirement: 元素信息面板内容与本期边界
 
-元素信息面板（`ModelInfo`，位于右栏 `CardHeader`；测试挂钩沿用 `data-testid="archi-drawer"`）SHALL 呈现四类信息：① 元素概览（FQN / 摘要 / `kind` 与 `gate` 徽标 / 源码路径逐条，无源码时呈「（未配置）」占位；`modelFile` / `modelLine` 仅数据面，MUST NOT 在概览呈现）；② **入口文档单条**（仅 `api = none` 元素且 `doc` 非空时呈现，值为 `ArchiModuleDetail.doc` 的路径串，经 `FileViewer` + 通用 `read_file` 打开；`api = declared` 元素不渲本段——其入口文档由契约段的 `ContractPathRow("契约", api.contractPath)` 承担，**MUST NOT 出现两条入口文档**）；③ 契约段（`api.status` + 三路径 + 本元素判据，见 `desktop-archi-contract-panel`「元素信息面板契约段」）；④ `incremental` 模式下 `gate` 的编辑入口。
+元素信息面板（`ModelInfo`，位于右栏 `CardHeader`；测试挂钩沿用 `data-testid="archi-drawer"`）SHALL 呈现四类信息：① 元素概览（FQN / 摘要 / `kind` 与 `gate` 徽标 / 源码路径逐条，无源码时呈「（未配置）」占位；`modelFile` / `modelLine` 仅数据面，MUST NOT 在概览呈现）；② **入口文档单条**（仅 `api = none` 元素且 `doc` 非空时呈现，值为 `ArchiModuleDetail.doc` 的路径串，经 `FileViewerDrawer` + 通用 `read_file` 打开；`api = declared` 元素不渲本段——其入口文档由右栏「文档」分段的契约页签承担，**MUST NOT 出现两条入口文档**）；③ 契约段（仅本元素判据 + 「本元素无漂移」空态；三路径面归右栏「文档」分段，见 `desktop-archi-contract-panel`「元素信息面板契约段」）；④ `incremental` 模式下 `gate` 的编辑入口。
 
 以下内容 MUST NOT 在本能力出现（防"半成品字段"；漂移判定的消费面止于边 / 节点标记，面板不承载报告细节）：
 
@@ -191,7 +191,7 @@
 #### Scenario: declared 元素只有契约段一条入口文档
 
 - **WHEN** 聚焦契约在案的元素（如 `Backend.Infra.ArchiRuntime`）打开元素信息面板
-- **THEN** 入口文档只出现在契约段的 `ContractPathRow("契约")` 一行；面板内 MUST NOT 出现第二条入口文档行（`doc` 为 `null`）；段序为「概览 → 契约 → 入口文档 → 豁免」，`declared` 与 `api = none` 未声明 `doc` 时「入口文档」段整段不渲染
+- **THEN** 入口文档只出现在右栏「文档」分段的契约页签（`api.contractPath`）；元素信息面板内 MUST NOT 出现入口文档行（`doc` 为 `null`）；面板段序为「概览 → 契约 → 入口文档 → 豁免」，`declared` 与 `api = none` 未声明 `doc` 时「入口文档」段整段不渲染
 
 #### Scenario: 空态可辨
 
@@ -207,7 +207,7 @@
 
 画布的边 SHALL **可点**：点击一条边后，右栏 `CardHeader` 由元素态（`ModelInfo`）切到**关系态**（`RelationInfo`），两者共用同一块面板位——MUST NOT 新开抽屉、MUST NOT 用边旁浮卡（`EdgeLabelRenderer`）呈现详情。
 
-- **两态互斥且可回来**：同一时刻 `CardHeader` 恰呈一种面态；点边 → 关系态，点节点 → 元素态（并清空选中边）；`root` 变化、用户显式刷新、取数失败降级时选中边 SHALL 清空（回到元素态或空态），MUST NOT 保留指向旧图的选中。`CardContent` 的 xyflow 画布与既有 1-hop / 分组容器 / 入边分区渲染逐字不变。
+- **两态互斥且可回来**：同一时刻 `CardHeader` 恰呈一种面态；点边 → 关系态，点节点 → 元素态（并清空选中边）；`root` 变化、用户显式刷新、取数失败降级时选中边 SHALL 清空（回到元素态或空态），MUST NOT 保留指向旧图的选中。右栏「关系图」分段的 xyflow 画布与既有 1-hop / 分组容器 / 入边分区渲染逐字不变。
 - **边身份 = `(from, to)`**：选中态 SHALL 以元素对为身份（与 `ArchiRelation` / 报告聚合同一身份，沿用既有 edge `id = '<from>-><to>'`），MUST NOT 以像素 / 边序号为身份。
 - **两段取数分工（零重复 invoke）**：**声明清单**取图数据里已有的 `ArchiRelation.apis`（模型拷贝，点开即有，**零取数**）；**实际使用 / 两桶 / 命中点 / 模型行号**取自按需查询 `archi_relation(root, from, to)`（见 `desktop-archi-model`「IPC 命令面契约（九命令）」）。面板 MUST NOT 自行求差、MUST NOT 读 `archi_drift` 报告重算——两桶是命令返回值。
 - **面板七段（顺序固定）**：① 关系（`from` → `to` + 标记徽标，取 `ArchiRelation.mark` / `reason`）；② 说明（`description`，`null` 时不占文案）；③ 声明 API（`apis` 逐名，空则空态①）；④ 实际使用（`used` 逐名）；⑤ 两桶（`usedNotDeclared` / `declaredNotUsed` 两行，空则显「—」）；⑥ 命中点（`occurrences` 逐条 `file:line` + `specifier`）；⑦ 模型（`modelFile:modelLine` + 「查看」，经通用 `read_file` 打开该模型文件——与入口文档同一通路，MUST NOT 新增专用读取命令）。
@@ -267,34 +267,39 @@
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `src/views/architecture/components/architecture-canvas.tsx` | 共享画布 + 标记接线点（两挂载点共用） | 入参 `{ root, mode: 'full' \| 'incremental' }`；两栏可调宽布局（**左栏 `ResizablePanel`（`treeMode` 初值 `'element'`，可切文件树 / 契约视图）** / 右栏 `Card`：`CardHeader` 元素信息 `ModelInfo` + `CardContent` xyflow 画布）；1-hop 缺省；两态切换（正常态 / 停摆态）；`graph = driftMarks(report, graph)` 后交渲染，漂移取数失败降级为「零标记 + 行内提示」且 MUST NOT 阻断图渲染；`mode` 直接决定 `archi_drift` 的调用模式；data-testid 挂钩。左栏为 base-ui `Tabs`（`TabsList` 携 `data-testid="archi-tree-mode"`，三枚 `TabsTrigger` 声明序**元素 / 文件 / 契约**，`options` 与 `TabsTrigger` 同源）切换 `ElementTree` / `FileTree`（`desktop-archi-file-tree`）/ `ContractPanel`（`desktop-archi-contract-panel`），左栏 `defaultSize={300}` / `minSize={200}`，切换 MUST NOT 改变栏宽或触发图 / 元素信息面板重取数；缺省渲元素树 ⇒ `FileTree` 不挂载、`archi_file_tree` 零调用。画布节点视图取自 `components/graph/model-node.tsx` 的 `ModelNode`（叶子短名徽章）与 `components/graph/model-group-node.tsx` 的 `ModelGroupNode`（分组容器：聚焦元素有直接子元素时，子节点以 `parentId` 渲染在其区域内）；入边列以 `ViewportPortal` 虚线分区框选（`data-testid="archi-canvas-zone"`，背景装饰不入节点集） |
+| `src/views/architecture/components/architecture-panel.tsx` | 共享画布薄壳（两挂载点共用） | 入参 `{ root, mode: 'full' \| 'incremental' }`；`useArchiGraph` / `useArchiDrift` 取数 + `driftMarks` 合并；加载 / 无根 / 取数失败 / 结构错停摆 / 空模型五个早退分支（testid `archi-canvas-loading` / `archi-canvas-error` / `archi-canvas-empty` / `archi-error-panel`）；正常态把标记后图、`apiFindings`、`exemptVias` 与 `refresh` 交 `ArchitectureDashboard`；`mode` 直接决定 `archi_drift` 的调用模式 |
+| `src/views/architecture/components/dashboard/architecture-dashboard.tsx` | 两栏布局与交互态 | `ResizablePanelGroup`：左栏 `ResizablePanel`（`defaultSize={300}` / `minSize={200}`）内 `TreeColumn`，右栏 `ArchitectureNode`；持有聚焦（缺省首个顶层元素，显式覆盖失效即回落）、`treeMode`（初值 `'element'`）与选中边（派生态：元素对不在图内即按无选中渲染）；`root` 变化清选中；边选中且 `apis` 非空才发起 `archi_relation` |
+| `src/views/architecture/components/dashboard/tree-column.tsx` | 左栏三视图 | base-ui `Tabs`（`TabsList` 携 `data-testid="archi-tree-mode"` 与 `role="group"`，三枚 `TabsTrigger` 声明序**元素 / 文件 / 契约**，`options` 与 `TabsTrigger` 同源）切换 `ElementTree` / `FileTree`（`desktop-archi-file-tree`）/ `ContractPanel`（`desktop-archi-contract-panel`）；三视图共用同一栏位，切换 MUST NOT 改变栏宽或触发图 / 面板重取数；缺省渲元素树 ⇒ `FileTree` 不挂载、`archi_file_tree` 零调用 |
+| `src/views/architecture/components/dashboard/architecture-node.tsx` | 右栏面板 + 分段视图 | `Card`：`CardHeader` 两态互斥（`ModelInfo` ⇄ `RelationInfo`）；`CardContent`（`data-testid="archi-canvas"`）为 base-ui `Tabs` 三段（文档 / 接口 / 关系图）：文档段按本元素 `api` 三路径（仅非空项）挂 `FileViewerBlock`；接口段占位；关系图段挂 `NodeRelationGraph`。右栏另取一次 `useArchiModule` 供文档段路径（与面板同 hook / 同载荷） |
+| `src/views/architecture/components/graph/node-relation-graph.tsx` | xyflow 画布 | `toNodes` / `toEdges` / `neighborhoodPositions` / 入边分区（`ViewportPortal`，`data-testid="archi-canvas-zone"`，背景装饰不入节点集）；只读交互选项（禁拖 / 禁连 / 禁滚轮缩放 / 初视口适配全图）；漂移取数失败行内提示（`archi-drift-error`）且 MUST NOT 阻断图渲染 |
+| `src/views/architecture/components/graph/element-node.tsx` | 画布节点视图 | `ElementNode`（叶子短名徽章，`data-testid="archi-canvas-node"`）与 `ElementGroupNode`（分组容器：聚焦元素有直接子元素时，子节点以 `parentId` 渲染在其区域内） |
 | `src/views/architecture/lib/drift-marks.ts` | 报告 → 边标记纯函数 | `driftMarks(report, graph) -> ArchiGraph`：只读 `observations` / `suppressed` 两段、按 `(from, to)` 命中边；MUST NOT 派生节点标记（节点标记不呈现）；零判定、零 IO、无渲染依赖 |
 | `src/views/architecture/hooks/use-archi-drift.ts` | 漂移取数 | 经 `archi_drift(root, mode)` 显式取数（挂载 / 根切换 / 手动刷新三触发，零 watch 零轮询）；`mode` 由挂载点给定（A=`full` / B=`incremental`）；取数失败同时清空 `report` 与已载键（旧报告 MUST NOT 冒充本次结论）；返回 `report` / `loading` / `error` |
-| `src/views/architecture/components/element-tree.tsx` | 左栏元素视图（缺省视图） | 层级由 FQN 前缀派生；节点只呈短名（节点标记不呈现，叶子留禁用的展开空位）；停摆态零节点；testid `archi-element-tree` / `archi-tree-node` 不变（入参 / 渲染零改动，消费画布已取的 `elements` ⇒ 零新增 invoke） |
-| `src/views/architecture/components/file-tree.tsx` | 左栏文件树（第二视图） | 数据面 / 标记 / 点击语义 / 双向联动见 `desktop-archi-file-tree`；本能力只要求「缺省不挂载故不取数、点击走同一次 `onFocus`」 |
+| `src/views/architecture/components/dashboard/element-tree.tsx` | 左栏元素视图（缺省视图） | 层级由 FQN 前缀派生；节点只呈短名（节点标记不呈现，叶子留禁用的展开空位）；停摆态零节点；testid `archi-element-tree` / `archi-tree-node` 不变（入参 / 渲染零改动，消费画布已取的 `elements` ⇒ 零新增 invoke） |
+| `src/views/architecture/components/dashboard/file-tree.tsx` | 左栏文件树（第二视图） | 数据面 / 标记 / 点击语义 / 双向联动见 `desktop-archi-file-tree`；本能力只要求「缺省不挂载故不取数、点击走同一次 `onFocus`」 |
 | `src/views/architecture/hooks/use-archi-file-tree.ts` | 文件树取数 | 三触发（挂载 / `root` 变化 / 上层 `key` 重挂）、零 watch 零轮询；失败只落左栏行内错误、MUST NOT 阻断画布 |
 | `src/views/architecture/components/structure-error-panel.tsx` | 停摆态 | 逐条诊断（`kind` + `message` + `file:line`）+「修好后再看」；零图数据、零降级样式 |
-| `src/views/architecture/components/model-info.tsx` | 元素信息面板（右栏 `CardHeader`） | 导出 `ModelInfo`；概览（FQN / 摘要 / `kind` / `gate` 徽标 / 源码路径逐条，无 path 时「（未配置）」）+ 契约段 + **入口文档单条**（仅 `api = none` 且 `doc` 非空；空态文案随字段面更名）+ `incremental` 下 `gate` 编辑入口；`DocsSection` / `DocRow` 删除；本期零「相邻报告」区块 |
+| `src/views/architecture/components/model-info.tsx` | 元素信息面板（右栏 `CardHeader`） | 导出 `ModelInfo`；概览（FQN / 摘要 / `kind` / `gate` 徽标 / 源码路径逐条，无 path 时「（未配置）」）+ 契约段（仅本元素判据 + 「本元素无漂移」空态；三路径面归右栏「文档」分段）+ **入口文档单条**（仅 `api = none` 且 `doc` 非空；空态文案随字段面更名）+ `incremental` 下 `gate` 编辑入口；`DocsSection` / `DocRow` 删除；本期零「相邻报告」区块 |
 | `src/views/architecture/lib/marks.ts` | 标记 → 样式映射（边） | 边标记四值（`none` 实线 / `unfulfilled` 灰虚线 / `crossKind` 橙虚线 / `exempt` 灰实线）；未知值退化为中性；封闭词汇（节点标记不做视觉映射）；标记生产由 `drift-marks.ts` 承担，本件 MUST NOT 参与判定 |
 | `src/views/architecture/hooks/use-archi-graph.ts` | 画布取数 | 挂载 / `root` 变化 / 手动刷新三触发；零 watch 零轮询；停摆态与正常态两形状透出 |
-| `src/views/architecture/hooks/use-archi-module.ts` | 元素信息面板取数 | 仍单次 `archi_module`；载荷的 `docs` / `warnings` 位次由 `doc` 取代（取数逻辑与触发条件零改动）；入口文档正文由 `components/file` 的 `FileViewer` 经通用 `read_file` 自取 |
+| `src/views/architecture/hooks/use-archi-module.ts` | 元素信息面板 / 文档分段取数 | 右栏两处消费（`ModelInfo` 与 `ArchitectureNodeViews`）各调一次 `archi_module`（同一 hook / 同一载荷）；载荷的 `docs` / `warnings` 位次由 `doc` 取代（取数逻辑与触发条件零改动）；入口文档 / 契约正文由 `components/file` 的 `FileViewerBlock` 经通用 `read_file` 自取 |
 | `src/views/architecture/architecture-view.tsx` | 挂载点 A | `/architecture` 全量只读；显式刷新入口 |
 | `src/views/changes/change-detail-view.tsx`（架构页签） | 挂载点 B | 以 `detail.worktree` 为根、归档回落主仓根；`incremental` 可改档；页签切换不重复取数 |
 | `src/routes.tsx` + `src/components/app-sidebar.tsx` | 入口 | `/architecture` 路由 + 页面组「架构」项（`data-testid="nav-architecture"`，active 由 URL 派生） |
 
-### Component: `packages/desktop/src/views/architecture/components/architecture-canvas.tsx`
+### Component: `packages/desktop/src/views/architecture/components/dashboard/architecture-dashboard.tsx`
 
 | 项 | 变化 | 描述 |
 |---|---|---|
-| `CanvasBody` 左栏 | 改 | 左栏为 `ResizablePanel` 内的 base-ui `Tabs` 三视图分支（`value` 受控于 `treeMode`，初值 `'element'`；三枚 `TabsTrigger` 声明序 元素 / 文件 / 契约）：`value="element"` → `ElementTree`（缺省，不挂载其余两视图）、`value="file"` → `FileTree`（收 `root` 自取数）、`value="contract"` → `ContractPanel`；三视图共用同一面板（`defaultSize={300}` / `minSize={200}`，Tabs 以 `w-full h-full` 铺满）；`ElementTree` / `ContractPanel` 的入参与 testid 零改动 |
+| `treeMode` 初值与左栏接线 | 改 | 左栏由 `dashboard/tree-column.tsx` 的 base-ui `Tabs` 三视图分支承载（`value` 受控于 `treeMode`，初值 `'element'`；三枚 `TabsTrigger` 声明序 元素 / 文件 / 契约）：`value="element"` → `ElementTree`（缺省，不挂载其余两视图）、`value="file"` → `FileTree`（收 `root` 自取数）、`value="contract"` → `ContractPanel`；三视图共用同一面板（`defaultSize={300}` / `minSize={200}`，Tabs 以 `w-full h-full` 铺满）；`ElementTree` / `ContractPanel` 的入参与 testid 零改动 |
 | 数据传递 | 改 | `report.apiFindings` 与按元素过滤结果传给契约面板与元素信息面板；`mode` 决定生成按钮可用性；零新增取数（判据轴复用既有 `use-archi-drift`） |
-| 渲染与标记面 | 改 | `toEdges` / `defaultFocus` / 结构错停摆分支、`lib/marks.ts` / `lib/drift-marks.ts` 逐字不变；`toNodes` / `neighborhoodPositions` 按「直接子元素渲染在聚焦节点区域内」重写（子节点挂 `parentId`，聚焦节点成组时入 / 出边列让出容器）；节点视图拆为 `components/graph/model-node.tsx` 的 `ModelNode` 与 `components/graph/model-group-node.tsx` 的 `ModelGroupNode`，testid `archi-canvas-node` 不变 |
+| 渲染与标记面 | 改 | `toEdges` / `defaultFocus` / 结构错停摆分支、`lib/marks.ts` / `lib/drift-marks.ts` 逐字不变；`toNodes` / `neighborhoodPositions` 按「直接子元素渲染在聚焦节点区域内」重写（子节点挂 `parentId`，聚焦节点成组时入 / 出边列让出容器）；节点视图拆为 `components/graph/element-node.tsx` 的 `ElementNode` 与 `ElementGroupNode`，testid `archi-canvas-node` 不变 |
 
 ### Component: 零改动面
 
 | 项 | 描述 |
 |---|---|
-| `structure-error-panel.tsx` / `element-tree.tsx` / `file-tree.tsx`（行渲染与标记面） | 行渲染、标记呈现与点击语义逐字不变；`file-tree.tsx` 的入参由 `entries` 改为 `root`（组件内联 `useArchiFileTree` 自取数），`TreeModeSwitch` 退役（分段控件移至本能力的 `Tabs`） |
+| `structure-error-panel.tsx` / `dashboard/element-tree.tsx` / `dashboard/file-tree.tsx`（行渲染与标记面） | 行渲染、标记呈现与点击语义逐字不变；`file-tree.tsx` 的入参由 `entries` 改为 `root`（组件内联 `useArchiFileTree` 自取数），`TreeModeSwitch` 退役（分段控件移至本能力的 `Tabs`） |
 | `hooks/use-archi-graph.ts` / `use-archi-drift.ts` / `use-archi-module.ts` / `use-archi-file-tree.ts` | 三触发纪律与返回形状零改动 |
 
 ### 模块增量：元素信息面板入口文档单条换面（module-doc-field-docs-retirement）
@@ -304,7 +309,7 @@
 | 模块 | 职责 | 关键契约 |
 |------|------|------|
 | `packages/desktop/src/views/architecture/lib/drift-marks.ts` | 报告 → 边标记纯函数 | 零改动（只读 `observations` / `suppressed`；`apiFindings` 仍不参与节点 / 边标记） |
-| `packages/desktop/src/views/architecture/components/architecture-canvas.tsx` | 共享画布 | 零改动（两栏布局、左栏三视图、元素信息面板接线、`mode` 语义逐字不变） |
+| `packages/desktop/src/views/architecture/components/dashboard/architecture-dashboard.tsx` | 两栏布局 | 零改动（两栏布局、左栏三视图、元素信息面板接线、`mode` 语义逐字不变） |
 | `packages/desktop/src/views/architecture/components/model-info.test.tsx` | 面板语料 | `docsFixture` 删；`docs: []` fixture → `doc: null`；`archi-docs-empty` 用例改「入口文档空态」；新增两条否定断言（`declared` 元素零入口文档行 / 面板内零 `docs` 列表） |
 
 ### 模块增量：关系面板与边点击（relation-api-dependency-check）
@@ -313,24 +318,24 @@
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `src/views/architecture/components/architecture-canvas.tsx` | 共享画布（加边点击 + 面板两态） | `onEdgeClick` 置 `selectedEdge = { from, to }`；`onNodeClick` 置 `focus` 并清 `selectedEdge`；`CardHeader` 按 `selectedEdge` 两态切换（`ModelInfo` ⇄ `RelationInfo`）；`root` / 显式刷新 / 停摆态时清 `selectedEdge`；`toEdges` / `toNodes` / `marks` / `drift-marks` 逐字不变（`id` 仍 `<from>-><to>`） |
-| `src/views/architecture/components/relation-info.tsx`（新） | 关系信息面板 | 七段渲染 + 四空态（各有 testid）+ 行内错误与重试；`apis` 为空时不触发取数（hook 入参为 `null`）；两桶文案并列两种成因；testid 根 `archi-relation-info` |
-| `src/views/architecture/hooks/use-archi-relation.ts`（新） | 按需取数 | `(root, edge) -> { detail, loading, error, retry }`：无根 / 无选中 / `apis` 为空 → 不取数；同一元素对重复选中零重复 invoke；失败保留 `error` 供重试；零 watch 零轮询零 `setInterval` |
-| `src/views/architecture/components/model-info.tsx` | 元素态面板（零改动） | 概览 / 契约段 / 入口文档 / 改档入口逐字不变；两态切换由父级决定，面板本身零感知 |
+| `src/views/architecture/components/dashboard/architecture-dashboard.tsx` | 两栏布局与交互态（加边点击 + 面板两态） | `selectedEdge = { from, to }` 由卡片交互层持有：`onEdgeClick` 置选中、`onNodeClick` 置 `focus` 并清选中；`root` / 显式刷新 / 停摆态时清 `selectedEdge`；`CardHeader` 按 `selectedEdge` 两态切换（`ModelInfo` ⇄ `RelationInfo`）；`toEdges` / `toNodes` / `marks` / `drift-marks` 逐字不变（`id` 仍 `<from>-><to>`） |
+| `src/views/architecture/components/dashboard/relation-info.tsx`（新） | 关系信息面板 | 七段渲染 + 四空态（各有 testid）+ 行内错误与重试；`apis` 为空时不触发取数（hook 入参为 `null`）；两桶文案并列两种成因；testid 根 `archi-relation-info` |
+| `src/views/architecture/components/dashboard/use-archi-relation.ts`（新） | 按需取数 | `(root, edge) -> { detail, loading, error, retry }`：无根 / 无选中 / `apis` 为空 → 不取数；同一元素对重复选中零重复 invoke；失败保留 `error` 供重试；零 watch 零轮询零 `setInterval` |
+| `src/views/architecture/components/model-info.tsx` | 元素态面板（零改动） | 概览 / 入口文档 / 改档入口逐字不变；契约段只列本元素判据（路径面归右栏文档分段）；两态切换由父级决定，面板本身零感知 |
 | `src/views/architecture/lib/marks.ts` / `lib/drift-marks.ts` | 标记面（零改动） | `EdgeMark` 四值样式与报告 → 标记派生逐字不变；本变更不引入第五值、不派生节点标记 |
 | `src/views/architecture/hooks/use-archi-graph.ts` / `use-archi-drift.ts` / `use-archi-module.ts` / `use-archi-file-tree.ts` | 既有取数 | 三触发纪律与返回形状零改动（新 hook 与它们并列，不共享缓存） |
 
-### Component: `packages/desktop/src/views/architecture/components/architecture-canvas.tsx`
+### Component: `packages/desktop/src/views/architecture/components/dashboard/architecture-node.tsx`
 
 | 项 | 变化 | 描述 |
 |---|---|---|
-| `CanvasBody` 右栏 | 改 | `CardHeader` 两态分支：`selectedEdge === null` → 既有 `ModelInfo`；否则 `RelationInfo`（收 `root` / `edge` / `relation`（图里的 `ArchiRelation`，供 `apis` 与标记）/ `onRetry`）；`CardContent` 零改动 |
-| 交互 | 改 | `ReactFlow` 增 `onEdgeClick`；`onNodeClick` 追加清选中；边选中态以 `style` 高亮（只用既有 stroke 变量，不新增标记词汇） |
+| `CardHeader` | 改 | 两态分支：`selectedEdge === null` → 既有 `ModelInfo`；否则 `RelationInfo`（收 `root` / `edge` / `relation`（图里的 `ArchiRelation`，供 `apis` 与标记）/ `onRetry`） |
+| `CardContent` | 改 | 三段 `Tabs`（文档 / 接口 / 关系图）：文档段挂 `FileViewerBlock`，接口段占位，关系图段挂 `NodeRelationGraph`（`ReactFlow` 增 `onEdgeClick`；`onNodeClick` 追加清选中；边选中态以 `style` 高亮，只用既有 stroke 变量，不新增标记词汇） |
 | 渲染与标记面 | 零改动 | `toEdges` / `toNodes` / `neighborhoodPositions` / 入边分区 / 停摆分支逐字不变 |
 
 ### Component: 零改动面
 
 | 项 | 描述 |
 |---|---|
-| `model-info.tsx` / `element-tree.tsx` / `file-tree.tsx` / `contract-panel.tsx` / `structure-error-panel.tsx` | 渲染、交互与 testid 逐字不变 |
+| `model-info.tsx` / `dashboard/element-tree.tsx` / `dashboard/file-tree.tsx` / `dashboard/contract-panel.tsx` / `structure-error-panel.tsx` | 渲染、交互与 testid 逐字不变 |
 | `hooks/use-archi-graph.ts` / `use-archi-drift.ts` / `use-archi-module.ts` / `use-archi-file-tree.ts` / `use-archi-api-check.ts` | 三触发纪律与返回形状零改动 |

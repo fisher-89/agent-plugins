@@ -178,7 +178,7 @@ none               以上都不成立
 
 #### Scenario: 测试面不出现
 
-- **WHEN** 盘上存在 `src/views/architecture/components/file-tree.test.tsx` 与 `crates/core/archi/src/tree_test.rs`
+- **WHEN** 盘上存在 `src/views/architecture/components/dashboard/file-tree.test.tsx` 与 `crates/core/archi/src/tree_test.rs`
 - **THEN** 两条均不在树中；同目录下的非测试源文件（`file-tree.tsx` / `tree.rs`）照常出现
 
 #### Scenario: 配置 exclude 命中项不出现
@@ -307,7 +307,7 @@ none               以上都不成立
 
 - **三触发零监听**：取数 SHALL 只在组件挂载、`root` 变化、用户显式刷新三处发起；MUST NOT 引入目录 watch、定时轮询或事件订阅（沿 `desktop-archi-canvas`「三触发取数与零监听」同一红线）。刷新由 `ArchitectureView` 的 `refreshTick` 经 `key` 重挂统一覆盖（与 graph / drift 同步）。
 - **失败不阻断画布**：取数失败 SHALL 只在左栏呈行内 `archi-file-tree-error`，MUST NOT 阻断或降级画布与元素信息面板渲染（树与图独立失败）。
-- **取数归属**：`archi_file_tree` 的 invoke SHALL 由 `FileTree` 组件内经 `useArchiFileTree(root)` 发起（条目不再由 `architecture-canvas.tsx` 取好再下传）；`root` 由上层原样透传，取数纪律与三触发语义不变。
+- **取数归属**：`archi_file_tree` 的 invoke SHALL 由 `FileTree` 组件内经 `useArchiFileTree(root)` 发起（条目不再由上层 `dashboard/architecture-dashboard.tsx` / `dashboard/tree-column.tsx` 取好再下传）；`root` 由上层原样透传，取数纪律与三触发语义不变。
 - **旧结果不冒充**：失败时 SHALL 清空已载树（旧树 MUST NOT 继续以「本次结果」呈现），`root` 变化时旧 root 的树 MUST NOT 冒充新 root。
 - **状态面**：加载中呈「解析中…」；树空（有模型、零进树源文件）呈「仓库内无源文件」；模型停摆时上层整块换结构错面板、树不挂载（与画布同形）。
 
@@ -386,19 +386,25 @@ none               以上都不成立
 | `pub mod tree;` | 新增 | 模块登记 |
 | `pub use` 段 | 追加 | `tree::file_tree` 与 `ArchiFileTree` / `ArchiFileEntry` / `FileEntryKind` / `FileTreeMark` 跨 crate 唯一出口（沿既有 `pub use` 形态） |
 
-### Component: `packages/desktop/src/views/architecture/components/file-tree.tsx`（新增）
+### Component: `packages/desktop/src/views/architecture/components/dashboard/file-tree.tsx`（新增）
 
 | 项 | Props / 变化 | 描述 |
 |------|------|------|
 | `FileTree` | `{ root: string \| null; focused: string \| null; onFocus: (fqn: string) => void }` | 组件自取数（内联 `useArchiFileTree(root)`，条目不再由上层传入）；前端派生嵌套（目录先于文件、各自按 `name`）、per-path 翻转展开集合（默认前 3 段）、折叠不渲 DOM、`ScrollArea`；标记呈现与 tooltip（`member` 仅名称弱化）；`elementRoot` / `member` 点击 → `onFocus(owners[0])`，其余三值只切展开；`focused` 变化按「条目 `owners` 含该 FQN」定位全部命中条目并展开祖先链 + 多行高亮 + 滚到第一条（零命中 → 静默：零提示 / 零高亮 / 零滚动）；三态早退（取数失败 / 未回 / 正常）分别渲 `archi-file-tree-error` / `archi-file-tree-loading` / 本体；testid `archi-file-tree` / `archi-file-node` / `archi-file-mark`（`data-mark`） |
-| `TreeMode` | `'file' \| 'element' \| 'contract'` | 左栏三视图枚举（第三值 = 契约视图，视图本体归 `desktop-archi-contract-panel`）；分段控件本体已移至 `architecture-canvas.tsx`（`TreeModeSwitch` 退役）；三值与全部渲染 / 标记 / 点击 / 反查 / 展开态语义零改动，`TreeMode` 上方注释不陈述缺省（缺省值单点在 `architecture-canvas.tsx`） |
+| `TreeMode` | `'file' \| 'element' \| 'contract'` | 左栏三视图枚举（第三值 = 契约视图，视图本体归 `desktop-archi-contract-panel`）；枚举与分段控件本体在 `dashboard/tree-column.tsx`（`TreeModeSwitch` 退役）；三值与全部渲染 / 标记 / 点击 / 反查 / 展开态语义零改动，`TreeMode` 上方注释不陈述缺省（缺省值单点在 `dashboard/architecture-dashboard.tsx` 的 `treeMode` 初值） |
 
-### Component: `packages/desktop/src/views/architecture/components/architecture-canvas.tsx`（改）
+### Component: `packages/desktop/src/views/architecture/components/dashboard/tree-column.tsx`（新增）
 
 | 项 | 变化 | 描述 |
 |------|------|------|
-| `CanvasBody` 左栏 | 改 | `TreeColumn` 改为 `ResizablePanel` 内的 base-ui `Tabs`：`value` 受控于 `treeMode`（初值 `'element'`），`TabsList`（`data-testid="archi-tree-mode"`，`role="group"`）内三枚 `TabsTrigger` 声明序「元素」/「文件」/「契约」（`options` 与 `TabsTrigger` 同源，缺省值即首项），三枚 `TabsContent` 各渲 `ElementTree` / `FileTree` / `ContractPanel`；`FileTree` 改收 `root` 自取数（`useArchiFileTree` 内联），左栏 `defaultSize={300}` / `minSize={200}`；切换零额外取数（缺省不挂载 `FileTree` ⇒ `archi_file_tree` 零调用）；`ElementTree` / `ContractPanel` 入参与 testid 零变化 |
-| `toNodes` / `toEdges` / `neighborhoodPositions` / `defaultFocus` / 停摆分支 / 元素信息面板接线 / `driftMarks` 合并 | 零改动 | 本变更内画布与标记呈现逐字不变；节点视图由 `components/graph/model-node.tsx` 的 `ModelNode`（叶子短名徽章）与 `components/graph/model-group-node.tsx` 的 `ModelGroupNode`（分组容器）承担，testid `archi-canvas-node` 不变 |
+| `TreeColumn` | 新增 | `ResizablePanel` 内的 base-ui `Tabs`：`value` 受控于上层 `treeMode`（初值 `'element'`），`TabsList`（`data-testid="archi-tree-mode"`，`role="group"`）内三枚 `TabsTrigger` 声明序「元素」/「文件」/「契约」（`options` 与 `TabsTrigger` 同源，缺省值由 `dashboard/architecture-dashboard.tsx` 持有），三枚 `TabsContent` 各渲 `ElementTree` / `FileTree` / `ContractPanel`；`FileTree` 改收 `root` 自取数（`useArchiFileTree` 内联），左栏 `defaultSize={300}` / `minSize={200}`；切换零额外取数（缺省不挂载 `FileTree` ⇒ `archi_file_tree` 零调用）；`ElementTree` / `ContractPanel` 入参与 testid 零变化 |
+
+### Component: `packages/desktop/src/views/architecture/components/dashboard/architecture-dashboard.tsx`（改）
+
+| 项 | 变化 | 描述 |
+|------|------|------|
+| `treeMode` 初值与左栏接线 | 改 | `treeMode`（初值 `'element'`）与 `onModeChange` 由本组件持有，左栏 `ResizablePanel` 渲染 `TreeColumn`（`defaultSize={300}` / `minSize={200}`）；切换零额外取数（缺省不挂载 `FileTree` ⇒ `archi_file_tree` 零调用）；`ElementTree` / `ContractPanel` 入参与 testid 零变化 |
+| `toNodes` / `toEdges` / `neighborhoodPositions` / `defaultFocus` / 停摆分支 / 元素信息面板接线 / `driftMarks` 合并 | 零改动 | 本变更内画布与标记呈现逐字不变；节点视图由 `components/graph/element-node.tsx` 的 `ElementNode`（叶子短名徽章）与 `ElementGroupNode`（分组容器）承担，testid `archi-canvas-node` 不变 |
 
 ### Function: `packages/desktop/src/views/architecture/hooks/use-archi-file-tree.ts`（新增）
 
@@ -431,8 +437,8 @@ none               以上都不成立
 
 | 模块 | 说明 |
 |------|------|
-| `components/element-tree.tsx` / `element-tree.test.tsx` | 元素树保留为「元素」分段视图（archi-file-tree-lazy-load 起成为缺省视图），入参 / 渲染 / testid 零改动、零新增 invoke |
-| `components/file-tree.test.tsx` / `hooks/use-archi-file-tree.test.ts` | 直测 `FileTree` 与钩子、不经缺省视图 ⇒ 零改动（挂载 / `root` 变化 / 上层 `key` 重挂三触发与返回形状不变，缺省不挂载只是触发次数变少） |
+| `dashboard/element-tree.tsx` / `dashboard/element-tree.test.tsx` | 元素树保留为「元素」分段视图（archi-file-tree-lazy-load 起成为缺省视图），入参 / 渲染 / testid 零改动、零新增 invoke |
+| `dashboard/file-tree.test.tsx` / `hooks/use-archi-file-tree.test.ts` | 直测 `FileTree` 与钩子、不经缺省视图 ⇒ 零改动（挂载 / `root` 变化 / 上层 `key` 重挂三触发与返回形状不变，缺省不挂载只是触发次数变少） |
 | `components/model-info.tsx` / `structure-error-panel.tsx` / `lib/marks.ts` / `lib/drift-marks.ts` / `lib/fqn.ts` | 元素信息面板、停摆面板、边标记映射与标记派生、短名工具零改动 |
 | `crates/core/archi/src/drift/**`、`crates/infra/archi/**` | 漂移判定与门禁 runner 零改动（本能力只消费 `drift::config::load_config`） |
 | `crates/core/archi/src/scan/exclude.rs` / `exclude_test.rs` | `ExcludeSet::build(extra)` 语义即所需，零改动、零新增入口 |

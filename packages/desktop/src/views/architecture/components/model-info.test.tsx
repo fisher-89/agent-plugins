@@ -50,7 +50,7 @@ function relation(overrides: Partial<ArchiRelation> = {}): ArchiRelation {
 /** 入口文档载体 fixture（`doc` 单值、repo 相对 POSIX）。 */
 const ENTRY_DOC = 'src/auth/README.md';
 
-/** 契约段三路径 fixture（`contractPath` 落在 models 段：契约资产即入口文档）。 */
+/** 契约三路径 fixture（路径面由右栏「文档」分段消费；抽屉契约段只列本元素判据）。 */
 const DECLARED_API = {
   status: 'declared',
   contractPath: '.dev-team/architecture/models/App.Auth.md',
@@ -680,7 +680,7 @@ describe('取数异常', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 本变更：契约段（`api.status` + 三路径行 + 本元素判据 + 空态）
+// 本变更：契约段（本元素判据 + 空态；三路径面归右栏文档分段）
 // ---------------------------------------------------------------------------
 
 /** 契约段 detail 覆盖（`api` 投影可指定；其余字段取既有缺省）。 */
@@ -768,51 +768,27 @@ describe('抽屉契约段', () => {
     expect(contractIndex).toBeLessThan(entryDocIndex);
   });
 
-  it('应让 declared 三路径行各自可打开（read_file 载荷 = root + 该 repo 相对串）', async () => {
-    const paths = [DECLARED_API.contractPath, DECLARED_API.schemaPath, DECLARED_API.generatedPath];
-    for (const path of paths) {
-      cleanup();
-      invokeMock.mockReset();
-      renderWith([], DECLARED_API);
-      await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
-      await waitFor(() => expect(screen.queryAllByTestId('archi-contract-path')).toHaveLength(3));
-
-      const row = screen
-        .queryAllByTestId('archi-contract-path')
-        .find((candidate) => candidate.textContent?.includes(path))!;
-      expect(row.getAttribute('title')).toBe(path);
-      fireEvent.click(row.querySelector('button')!);
-      await waitFor(() => expect(callsOf('read_file')).toHaveLength(1));
-      const payload = callsOf('read_file')[0]!;
-      expect(payload.path).toBe(`/ws/${path}`);
-      expect(payload.offset).toBeNull();
-      expect(payload.limit).toBeNull();
+  it('应零契约路径行（路径面归右栏文档分段，抽屉只列判据）', async () => {
+    renderWith([], DECLARED_API);
+    await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
+    expect(screen.queryAllByTestId('archi-contract-path')).toHaveLength(0);
+    const drawer = screen.getByTestId('archi-drawer');
+    for (const path of [
+      DECLARED_API.contractPath,
+      DECLARED_API.schemaPath,
+      DECLARED_API.generatedPath,
+    ]) {
+      expect(drawer.textContent).not.toContain(path);
     }
+    expect(callsOf('read_file')).toHaveLength(0);
   });
 
-  it('应对路径为 null 的槽位渲禁用行（行在场、「查看」不可点）', async () => {
+  it('应不渲任何路径占位行（路径缺席不产生禁用行）', async () => {
     renderWith([], { ...DECLARED_API, schemaPath: null });
     await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
-    await waitFor(() => expect(screen.queryAllByTestId('archi-contract-path')).toHaveLength(3));
-
-    const rows = screen.queryAllByTestId('archi-contract-path');
-    const labels = rows.map((row) => row.querySelector('span')?.textContent);
-    expect(labels).toEqual(['契约', 'schema', '生成物']);
-    // 缺席路径：行仍在场（不吞行），但「查看」禁用、点击零 read_file
-    const nullRow = rows[1]!;
-    expect(nullRow.textContent).toContain('（该路径未生成）');
-    expect(nullRow.getAttribute('title')).toBeNull();
-    const disabledView = nullRow.querySelector('button')!;
-    expect(disabledView.disabled).toBe(true);
-    fireEvent.click(disabledView);
-    await act(async () => {
-      await Promise.resolve();
-    });
+    expect(screen.queryAllByTestId('archi-contract-path')).toHaveLength(0);
+    expect(screen.getByTestId('archi-drawer').textContent).not.toContain('（该路径未生成）');
     expect(callsOf('read_file')).toHaveLength(0);
-    // 另两行照常可点（禁用只作用于缺席槽位）
-    for (const row of [rows[0]!, rows[2]!]) {
-      expect(row.querySelector('button')!.disabled).toBe(false);
-    }
   });
 
   it('应只列本元素判据（element === fqn 严格过滤）', async () => {
@@ -847,7 +823,7 @@ describe('抽屉契约段', () => {
     );
   });
 
-  it('应在 api.status = none 时只渲一行空态且三路径行均不渲', async () => {
+  it('应在零判据时渲「本元素无漂移」空态（不按 api.status 分叉）', async () => {
     renderWith([], {
       status: 'none',
       contractPath: null,
@@ -856,15 +832,20 @@ describe('抽屉契约段', () => {
     });
     await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
     await waitFor(() =>
-      expect(screen.getByTestId('archi-contract-drawer-empty').textContent).toContain('无契约'),
+      expect(screen.getByTestId('archi-contract-drawer-empty').textContent).toContain(
+        '本元素无漂移',
+      ),
     );
+    expect(screen.getByTestId('archi-drawer').textContent).not.toContain('无契约');
     expect(screen.queryAllByTestId('archi-contract-path')).toHaveLength(0);
   });
 
   it('应零新增 invoke（只有 archi_module 与按需 read_file）', async () => {
     renderWith([finding()], DECLARED_API);
     await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
-    await waitFor(() => expect(screen.queryAllByTestId('archi-contract-path')).toHaveLength(3));
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-drawer').textContent).toContain('契约签名与代码签名不一致'),
+    );
     const commands = invokeMock.mock.calls.map(([name]) => name as string);
     expect(commands).toEqual(['archi_module']);
     expect(commands).not.toContain('archi_api_check');

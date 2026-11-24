@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ArchiRelationDetail } from '../../../types/generated/bindings';
+import type { ArchiRelationDetail } from '../../../../types/generated/bindings';
 import { useArchiRelation, type RelationEdge } from './use-archi-relation';
 
 /**
@@ -328,7 +328,7 @@ describe('RelationEdge 身份与状态面', () => {
 describe('零 watch 零轮询纪律', () => {
   it('应在源码内零定时器与零订阅（取数只由显式动作发起）', () => {
     const source = readFileSync(
-      resolve(process.cwd(), 'src/views/architecture/hooks/use-archi-relation.ts'),
+      resolve(process.cwd(), 'src/views/architecture/components/dashboard/use-archi-relation.ts'),
       'utf8',
     );
     for (const forbidden of [

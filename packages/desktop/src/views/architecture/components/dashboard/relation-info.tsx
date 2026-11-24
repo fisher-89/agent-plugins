@@ -1,8 +1,8 @@
-import { FileViewer } from '@/components/file/file-viewer';
+import { FileViewerDrawer } from '@/components/file/file-viewer';
 import { Badge, Button, FieldDescription, FieldLegend, FieldSet } from '@/components/ui';
 import type { ArchiRelation } from '@/types/generated/bindings';
 
-import type { ArchiRelationState, RelationEdge } from '../hooks/use-archi-relation';
+import type { ArchiRelationState, RelationEdge } from './use-archi-relation';
 
 export interface RelationInfoProps {
   /** 观察根（「查看」经通用 `read_file` 打开模型文件） */
@@ -126,7 +126,7 @@ function ModelSection({
             查看
           </Button>
         ) : (
-          <FileViewer
+          <FileViewerDrawer
             root={root}
             files={[{ path }]}
             trigger={

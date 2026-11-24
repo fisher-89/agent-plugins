@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ArchiElement } from '../../../types/generated/bindings';
-import { shortName } from '../lib/fqn';
+import type { ArchiElement } from '@/types/generated/bindings';
+
+import { shortName } from '../../lib/fqn';
 import { ElementTree } from './element-tree';
 
 function element(fqn: string, mark: ArchiElement['mark'] = 'none'): ArchiElement {

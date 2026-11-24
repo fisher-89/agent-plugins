@@ -4,9 +4,9 @@ import { resolve } from 'node:path';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ArchiRelation, ArchiRelationDetail } from '../../../types/generated/bindings';
-import type { ArchiRelationState, RelationEdge } from '../hooks/use-archi-relation';
+import type { ArchiRelation, ArchiRelationDetail } from '../../../../types/generated/bindings';
 import { RelationInfo } from './relation-info';
+import type { ArchiRelationState, RelationEdge } from './use-archi-relation';
 
 /**
  * `RelationInfo` 单测（`relation-api-dependency-check` / AC-7 / D13 / D14 / D19）：七段
@@ -410,7 +410,7 @@ describe('注入面与职责边界', () => {
 
   it('应在源码内零二次求差与零报告读取（职责边界机械锚）', () => {
     const source = readFileSync(
-      resolve(process.cwd(), 'src/views/architecture/components/relation-info.tsx'),
+      resolve(process.cwd(), 'src/views/architecture/components/dashboard/relation-info.tsx'),
       'utf8',
     );
     for (const forbidden of [

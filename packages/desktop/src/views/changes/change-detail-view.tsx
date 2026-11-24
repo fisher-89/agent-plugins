@@ -15,7 +15,7 @@ import type {
   ChangeDetail,
   ChangeRunEntry,
 } from '../../types/dto';
-import { ArchitectureCanvas } from '../architecture/components/architecture-canvas';
+import { ArchitecturePanel } from '../architecture/components/architecture-panel';
 import { ChangeChatPanel } from './agent';
 import {
   mountMaterials,
@@ -272,7 +272,7 @@ function DetailTabs({
         />
       </TabsContent>
       <TabsContent className="min-h-0 flex-1" value="architecture">
-        <ArchitectureCanvas root={archiRoot} mode="incremental" />
+        <ArchitecturePanel root={archiRoot} mode="incremental" />
       </TabsContent>
     </Tabs>
   );

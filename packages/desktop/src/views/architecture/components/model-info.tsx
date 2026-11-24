@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { FileViewer } from '@/components/file/file-viewer';
+import { FileViewerDrawer } from '@/components/file/file-viewer';
 import {
   Alert,
   Badge,
@@ -17,7 +17,6 @@ import {
   commands,
   type ApiStatus,
   type ArchiApiFinding,
-  type ArchiApiRef,
   type ArchiElement,
   type ArchiRelation,
   type GateTier,
@@ -152,102 +151,39 @@ function GateEditor({
   );
 }
 
-/**
- * 契约段的一条路径行（`status = declared` 才渲；「查看」经通用 `read_file`）。
- * 路径为 `null` 时行仍渲、「查看」禁用：行数是「declared 三行」的契约面，缺席由
- * 禁用态呈现，MUST NOT 静默少渲一行。
- */
-function ContractPathRow({
-  root,
-  label,
-  path,
-}: {
-  root: string;
-  label: string;
-  path: string | null;
-}): React.JSX.Element {
-  return (
-    <div
-      className="flex items-center gap-1"
-      data-testid="archi-contract-path"
-      title={path ?? undefined}
-    >
-      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
-        {path ?? '（该路径未生成）'}
-      </span>
-      {path === null ? (
-        // 路径缺席不吞行：行仍在场、「查看」禁用——`declared` 却缺路径的缺口要一眼可见
-        <Button variant="ghost" size="sm" disabled>
-          查看
-        </Button>
-      ) : (
-        <FileViewer
-          root={root}
-          files={[{ path }]}
-          trigger={
-            <Button variant="ghost" size="sm">
-              查看
-            </Button>
-          }
-        />
-      )}
-    </div>
-  );
-}
-
 /** 契约段（概览与文档之间）：`api.status` + 三路径行 + 本元素判据。 */
 function ContractSection({
-  root,
   element,
-  api,
   findings,
 }: {
-  root: string | null;
   element: ArchiElement;
-  api: ArchiApiRef;
   findings: ArchiApiFinding[];
 }): React.JSX.Element {
   const own = findings.filter((finding) => finding.element === element.fqn);
   return (
     <div className="flex flex-col gap-1">
       <h3 className="m-0 text-[13px] font-medium text-muted-foreground">契约</h3>
-      {api.status === 'none' || root === null ? (
+      {own.length === 0 ? (
         <div
           className="text-[13px] text-muted-foreground"
           data-testid="archi-contract-drawer-empty"
         >
-          无契约（`api = none` 或契约文件不在案）
+          本元素无漂移
         </div>
       ) : (
-        <>
-          <div className="text-xs text-muted-foreground">api {api.status}</div>
-          <ContractPathRow label="契约" path={api.contractPath} root={root} />
-          <ContractPathRow label="schema" path={api.schemaPath} root={root} />
-          <ContractPathRow label="生成物" path={api.generatedPath} root={root} />
-          {own.length === 0 ? (
-            <div
-              className="text-[13px] text-muted-foreground"
-              data-testid="archi-contract-drawer-empty"
-            >
-              本元素无漂移
-            </div>
-          ) : (
-            own.map((finding, index) => (
-              <div
-                className="flex flex-col gap-0.5"
-                data-kind={finding.kind}
-                key={`${finding.kind}:${finding.target ?? ''}:${index}`}
-              >
-                <span className="text-[11px] text-muted-foreground">
-                  {finding.kind}
-                  {finding.target === null ? '' : ` · ${finding.target}`}
-                </span>
-                <span className="wrap-break-word text-xs">{finding.message}</span>
-              </div>
-            ))
-          )}
-        </>
+        own.map((finding, index) => (
+          <div
+            className="flex flex-col gap-0.5"
+            data-kind={finding.kind}
+            key={`${finding.kind}:${finding.target ?? ''}:${index}`}
+          >
+            <span className="text-[11px] text-muted-foreground">
+              {finding.kind}
+              {finding.target === null ? '' : ` · ${finding.target}`}
+            </span>
+            <span className="wrap-break-word text-xs">{finding.message}</span>
+          </div>
+        ))
       )}
     </div>
   );
@@ -255,9 +191,6 @@ function ContractSection({
 
 /**
  * 入口文档段（仅 `api = none` 元素）：单条路径行（「查看」经通用 `read_file`）。
- *
- * `api = declared` 元素返回 `null`——其入口文档由契约段 `ContractPathRow("契约")`
- * 承担，两处同时给出会让抽屉出现两条入口文档。
  */
 function EntryDocSection({
   root,
@@ -281,7 +214,7 @@ function EntryDocSection({
           <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
             {doc}
           </span>
-          <FileViewer
+          <FileViewerDrawer
             root={root}
             files={[{ path: doc }]}
             trigger={
@@ -350,15 +283,10 @@ export function ModelInfo({
         </Alert>
       )}
       {root !== null && module.detail !== null && (
-        <ContractSection
-          root={root}
-          element={element}
-          api={module.detail.api}
-          findings={findings}
-        />
-      )}
-      {root !== null && module.detail !== null && (
-        <EntryDocSection root={root} api={element.api} doc={module.detail.doc} />
+        <>
+          <ContractSection element={element} findings={findings} />
+          <EntryDocSection root={root} api={element.api} doc={module.detail.doc} />
+        </>
       )}
       <ExemptSection element={element} relations={relations} />
       {mode === 'incremental' ? (

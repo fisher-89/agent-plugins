@@ -21,7 +21,7 @@ import type {
   RunStatus,
 } from '../../../types/dto';
 import { commands } from '../../../types/generated/bindings';
-import { ArchitectureCanvas } from '../../architecture/components/architecture-canvas';
+import { ArchitecturePanel } from '../../architecture/components/architecture-panel';
 import type { UseChangeFlowRunResult } from '../hooks/use-change-flow-run';
 
 /** 活面状态徽章文案（六档状态机镜像）。 */
@@ -321,7 +321,7 @@ function ArchiPreview({ root }: { root: string | null }): React.JSX.Element {
       className="h-72 min-h-0 rounded-md border border-border"
       data-testid="run-archi-preview-canvas"
     >
-      <ArchitectureCanvas root={root} mode="incremental" />
+      <ArchitecturePanel root={root} mode="incremental" />
     </div>
   );
 }

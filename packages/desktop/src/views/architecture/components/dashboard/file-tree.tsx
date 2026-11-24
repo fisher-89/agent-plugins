@@ -4,14 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TextTooltip } from '@/components/standard/tooltip';
 import { ScrollArea, Button, Collapsible, CollapsibleContent, Badge } from '@/components/ui';
 
-import type { ArchiFileEntry } from '../../../types/generated/bindings';
-import { useArchiFileTree } from '../hooks/use-archi-file-tree';
+import type { ArchiFileEntry } from '../../../../types/generated/bindings';
+import { useArchiFileTree } from '../../hooks/use-archi-file-tree';
 
 /** 默认展开层级：相对路径段数 ≤ 3 的目录默认展开（更深层默认折叠）。 */
 const DEFAULT_EXPAND_SEGMENTS = 3;
-
-/** 左栏树视图（分段控件三值之一；缺省值由 architecture-canvas.tsx 的 treeMode 持有）。 */
-export type TreeMode = 'file' | 'element' | 'contract';
 
 export interface FileTreeProps {
   root: string | null;

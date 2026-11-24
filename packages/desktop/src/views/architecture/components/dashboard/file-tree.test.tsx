@@ -1,20 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ArchiFileTree, ArchiFileEntry } from '../../../types/generated/bindings';
+import type { ArchiFileTree, ArchiFileEntry } from '../../../../types/generated/bindings';
 import { FileTree } from './file-tree';
-
-/**
- * 左栏文件树渲染面单测（AC-4 / AC-11 / AC-12 / AC-13）：扁平条目 → 森林的
- * 层级派生与兄弟序、缺省展开三段、归属标记呈现（member 仅弱化文字）、归属行
- * 点击语义、聚焦反查（多行高亮 / 根节点展开不下钻 / 滚到首条 / 零命中静默）、空树与
- * 取数状态面（挂载取数 / 解析中 / 失败行内 / 空根零 invoke）。
- *
- * 取数面已内收到组件：`FileTree` 只收 `root`，条目经 `useArchiFileTree` 取回。
- * 进程边界 mock：`@tauri-apps/api/core` 的 `invoke`（按命令名分发文件树 fixture）。
- * 展开态是组件内部 state，断言真实 DOM（`data-testid` / `data-path` / `data-mark`）。
- * `scrollIntoView` 由本文件内的临时桩补（`afterEach` 复原，不写进 `test-setup.ts` 原型）。
- */
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 

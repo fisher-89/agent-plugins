@@ -391,7 +391,7 @@
 - **引擎两面的入参恒定**：`mode = Full`、`changed = &[]`、`change = None`、`root = 会话执行根`；MUST NOT 传 `Incremental`（`infra/agent` 不依赖 `vcs`，取不到 `change_edit_set`；而 archi 臂与相位会话的 root 皆无 change 基准语义）、MUST NOT 由消费面自行拼报告。
 - **引擎面零写盘**：调用方 MUST NOT 落盘报告（命令面同款裁定）；落盘者恒为门禁 runner（`reports/archi/<timestamp>.json`）。
 - **取消除外**：引擎工具面与收口自检 SHALL 以 `CancelFlag::never()` 调用（不为几十毫秒扩取消通道）；`CheckError::Stopped` 对其不可达，出现即按失败面处置（`is_error` / `skipped` notice）。命令面同款：`CancelFlag::never()`，**无取消 ⇒ 无 in-flight 去重、无节流**（下文「并发扫描」条）。
-- **并发扫描（已知限制，零代码护栏）**：命令面在阻塞池执行后窗口可交互，重复触发 SHALL 产生**并行的全仓扫描**——连点刷新（`refreshTick` 变 ⇒ `<ArchitectureCanvas key>` 整块重挂 ⇒ 三个 hook 全重取）、反复切页、重挂载各起一条，每条各扫同一批文件并各产完整报告。本能力 MUST NOT 因此新增取消通道、MUST NOT 引入 in-flight 去重或节流、MUST NOT 为此调整 blocking 池配置；此类治理（取消 / 去重 / 增量触发）SHALL 归独立变更。并发扫描 MUST NOT 被读作回归：单次成本改造前后等同，变化只发生在「窗口挡不挡住第二次触发」。
+- **并发扫描（已知限制，零代码护栏）**：命令面在阻塞池执行后窗口可交互，重复触发 SHALL 产生**并行的全仓扫描**——连点刷新（`refreshTick` 变 ⇒ `<ArchitecturePanel key>` 整块重挂 ⇒ 三个 hook 全重取）、反复切页、重挂载各起一条，每条各扫同一批文件并各产完整报告。本能力 MUST NOT 因此新增取消通道、MUST NOT 引入 in-flight 去重或节流、MUST NOT 为此调整 blocking 池配置；此类治理（取消 / 去重 / 增量触发）SHALL 归独立变更。并发扫描 MUST NOT 被读作回归：单次成本改造前后等同，变化只发生在「窗口挡不挡住第二次触发」。
 
 #### Scenario: 命令面与门禁面逐字段同源
 

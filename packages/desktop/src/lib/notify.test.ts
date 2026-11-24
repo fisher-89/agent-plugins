@@ -280,7 +280,7 @@ const CALL_SITES = [
   'views/agents/hooks/use-agent-instances.ts',
   'views/agents/hooks/use-agent-providers.ts',
   'views/changes/hooks/use-change-list.ts',
-  'views/architecture/components/contract-panel.tsx',
+  'views/architecture/components/dashboard/contract-panel.tsx',
   'views/explores/components/explore-open-file.tsx',
 ];
 
