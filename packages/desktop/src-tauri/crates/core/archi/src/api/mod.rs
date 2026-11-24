@@ -751,14 +751,39 @@ pub(crate) fn entry_problem_reason(problem: &paths::EntryProblem) -> String {
     }
 }
 
-/// md 骨架文本（H1 + 空散文段 + 每操作一个 `### <op-id>` + `api-types` fence）。
+/// 草稿尾部的作者注：起草引导（三类 fence 的落点与唯一性 / 散文只留语义 /
+/// `api-reexport` 形态 / 起草后自查两轴）。
+///
+/// 解析器对非 `api-*` fence 显式跳过 ⇒ 整块惰性、零判据；MUST NOT 移出 fence——放进
+/// 裸正文或 `## ` 段正文会被两个抽取面（透传列表 / 表格复述）扫到，放进 `### ` heading
+/// 则占掉一个 op 锚点，三种错位都是装载期 `ApiError::Contract`。
+const BOOTSTRAP_NOTE: &str = concat!(
+    "```text\n",
+    "作者注（本块不参与契约解析）：\n",
+    "- 三类 fence：api-op（`### <op-id>` 下紧随）/ api-types（本模块自有 $defs，同文件唯一）/\n",
+    "  api-reexport（键 = 导出名、值 = 直接子元素 FQN，同文件唯一）\n",
+    "- 散文只留语义：职能 / 边界 / 不变量 / 承载理由；MUST NOT 用表格复述名字清单\n",
+    "  （名字清单的唯一持有者是三类 fence）\n",
+    "- api-reexport 形态：{ \"导出名\": \"直接子元素 FQN\" }；散文里的透传列表须与键集逐名相等\n",
+    "- 起草后跑 archi_api check 看两轴（生成物新鲜度 / 契约判据）；契约面未启用时\n",
+    "  enabled = false 且 findings 恒空\n",
+    "```\n",
+);
+
+/// md 骨架文本（H1 + 六段：职能 / 不变量 / 操作 / 类型 / 边界 / 承载理由 + 末尾
+/// 非 `api-*` fence 作者注）。
+///
+/// 六段各带一行含 CJK 的「（待补：…）」占位：解析器丢弃空 body 段，占位句是六段都进
+/// `sections` 的前提；占位句不是 `- ` / `* ` / `|` 起手，故两个抽取面零命中。
 ///
 /// 注记行 `<!-- <visibility> @ <file>:<line> -->` 取每个符号的**定义文件与行**
 /// （`ApiSymbol.file` / `line`），入口退出注记面——闭包一跳之后行号属于另一个文件，
 /// 用入口串拼它就等于注解说谎。
 fn bootstrap_text(fqn: &str, symbols: &[ApiSymbol]) -> String {
-    let mut text =
-        format!("# {fqn}\n\n## 职能\n\n（待补：一句职能）\n\n## 不变量\n\n（待补）\n\n## 操作\n\n");
+    let mut text = format!(
+        "# {fqn}\n\n## 职能\n\n（待补：一句职能）\n\n## 不变量\n\n（待补）\n\n\
+         ## 操作\n\n（待补：每个操作一个三级标题 + 紧随一个 api-op fence）\n\n"
+    );
     for symbol in symbols
         .iter()
         .filter(|symbol| symbol.kind == ApiSymbolKind::Function)
@@ -776,9 +801,16 @@ fn bootstrap_text(fqn: &str, symbols: &[ApiSymbol]) -> String {
         text.push_str(&bootstrap_op(symbol));
         text.push_str("\n```\n\n");
     }
-    text.push_str("## 类型\n\n```json api-types\n");
+    text.push_str(
+        "## 类型\n\n（待补：本模块自有 $defs，一个 api-types fence，同文件唯一）\n\n\
+         ```json api-types\n",
+    );
     text.push_str(&bootstrap_types(symbols));
-    text.push_str("\n```\n");
+    text.push_str(
+        "\n```\n\n## 边界\n\n（待补：本模块**不**负责什么）\n\n## 承载理由\n\n\
+         （待补：为什么它是独立元素）\n\n",
+    );
+    text.push_str(BOOTSTRAP_NOTE);
     text
 }
 

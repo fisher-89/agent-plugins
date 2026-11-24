@@ -1,0 +1,639 @@
+diff --git a/crates/core/archi/src/api/mod.rs b/crates/core/archi/src/api/mod.rs
+index 00a23200121d..e171aa2f9a8f 100644
+--- a/crates/core/archi/src/api/mod.rs
++++ b/crates/core/archi/src/api/mod.rs
+@@ -751,14 +751,39 @@ pub(crate) fn entry_problem_reason(problem: &paths::EntryProblem) -> String {
+     }
+ }
+ 
+-/// md 骨架文本（H1 + 空散文段 + 每操作一个 `### <op-id>` + `api-types` fence）。
++/// 草稿尾部的作者注：起草引导（三类 fence 的落点与唯一性 / 散文只留语义 /
++/// `api-reexport` 形态 / 起草后自查两轴）。
++///
++/// 解析器对非 `api-*` fence 显式跳过 ⇒ 整块惰性、零判据；MUST NOT 移出 fence——放进
++/// 裸正文或 `## ` 段正文会被两个抽取面（透传列表 / 表格复述）扫到，放进 `### ` heading
++/// 则占掉一个 op 锚点，三种错位都是装载期 `ApiError::Contract`。
++const BOOTSTRAP_NOTE: &str = concat!(
++    "```text\n",
++    "作者注（本块不参与契约解析）：\n",
++    "- 三类 fence：api-op（`### <op-id>` 下紧随）/ api-types（本模块自有 $defs，同文件唯一）/\n",
++    "  api-reexport（键 = 导出名、值 = 直接子元素 FQN，同文件唯一）\n",
++    "- 散文只留语义：职能 / 边界 / 不变量 / 承载理由；MUST NOT 用表格复述名字清单\n",
++    "  （名字清单的唯一持有者是三类 fence）\n",
++    "- api-reexport 形态：{ \"导出名\": \"直接子元素 FQN\" }；散文里的透传列表须与键集逐名相等\n",
++    "- 起草后跑 archi_api check 看两轴（生成物新鲜度 / 契约判据）；契约面未启用时\n",
++    "  enabled = false 且 findings 恒空\n",
++    "```\n",
++);
++
++/// md 骨架文本（H1 + 六段：职能 / 不变量 / 操作 / 类型 / 边界 / 承载理由 + 末尾
++/// 非 `api-*` fence 作者注）。
++///
++/// 六段各带一行含 CJK 的「（待补：…）」占位：解析器丢弃空 body 段，占位句是六段都进
++/// `sections` 的前提；占位句不是 `- ` / `* ` / `|` 起手，故两个抽取面零命中。
+ ///
+ /// 注记行 `<!-- <visibility> @ <file>:<line> -->` 取每个符号的**定义文件与行**
+ /// （`ApiSymbol.file` / `line`），入口退出注记面——闭包一跳之后行号属于另一个文件，
+ /// 用入口串拼它就等于注解说谎。
+ fn bootstrap_text(fqn: &str, symbols: &[ApiSymbol]) -> String {
+-    let mut text =
+-        format!("# {fqn}\n\n## 职能\n\n（待补：一句职能）\n\n## 不变量\n\n（待补）\n\n## 操作\n\n");
++    let mut text = format!(
++        "# {fqn}\n\n## 职能\n\n（待补：一句职能）\n\n## 不变量\n\n（待补）\n\n\
++         ## 操作\n\n（待补：每个操作一个三级标题 + 紧随一个 api-op fence）\n\n"
++    );
+     for symbol in symbols
+         .iter()
+         .filter(|symbol| symbol.kind == ApiSymbolKind::Function)
+@@ -776,9 +801,16 @@ fn bootstrap_text(fqn: &str, symbols: &[ApiSymbol]) -> String {
+         text.push_str(&bootstrap_op(symbol));
+         text.push_str("\n```\n\n");
+     }
+-    text.push_str("## 类型\n\n```json api-types\n");
++    text.push_str(
++        "## 类型\n\n（待补：本模块自有 $defs，一个 api-types fence，同文件唯一）\n\n\
++         ```json api-types\n",
++    );
+     text.push_str(&bootstrap_types(symbols));
+-    text.push_str("\n```\n");
++    text.push_str(
++        "\n```\n\n## 边界\n\n（待补：本模块**不**负责什么）\n\n## 承载理由\n\n\
++         （待补：为什么它是独立元素）\n\n",
++    );
++    text.push_str(BOOTSTRAP_NOTE);
+     text
+ }
+ 
+diff --git a/crates/core/archi/src/api/mod_test.rs b/crates/core/archi/src/api/mod_test.rs
+index af610bc699fc..f571cff87e4a 100644
+--- a/crates/core/archi/src/api/mod_test.rs
++++ b/crates/core/archi/src/api/mod_test.rs
+@@ -1996,8 +1996,9 @@ fn check委托单点() {
+ // bootstrap：草稿形态 / 零写盘 / 异常面
+ // ---------------------------------------------------------------------------
+ 
+-/// 正向（AC-12）：入口含 `pub fn a(&str) -> String` + `pub struct T` → 骨架文本 H1 = FQN、
+-/// 含两个空散文段、`### a` + `api-op` fence、一个 `api-types` fence 且键含 `T`。
++/// 正向（AC-1 / AC-12）：入口含 `pub fn a(&str) -> String` + `pub struct T` → 骨架文本
++/// H1 = FQN、六段（职能 / 不变量 / 操作 / 类型 / 边界 / 承载理由）齐在且段序单调、
++/// `### a` + `api-op` fence、一个 `api-types` fence 且键含 `T`。
+ #[test]
+ fn bootstrap草稿形态() {
+     let temp = TempDir::new("bootstrap-draft");
+@@ -2025,6 +2026,320 @@ fn bootstrap草稿形态() {
+         text.contains("external") || text.contains("crateOnly") || text.contains("testOnly"),
+         "每符号附 visibility 注释：\n{text}"
+     );
++
++    // 六段骨架：新增两枚 needle + 段序单调（旧的 `## 职能` / `## 不变量` 两条仍在上方）
++    for piece in ["## 边界", "## 承载理由"] {
++        assert!(text.contains(piece), "含六段之一 `{piece}`：\n{text}");
++    }
++    let order = [
++        "## 职能",
++        "## 不变量",
++        "## 操作",
++        "## 类型",
++        "## 边界",
++        "## 承载理由",
++    ]
++    .map(|heading| {
++        text.find(heading)
++            .unwrap_or_else(|| panic!("六段缺 `{heading}`：\n{text}"))
++    });
++    assert!(
++        order.windows(2).all(|pair| pair[0] < pair[1]),
++        "段序为 职能 / 不变量 / 操作 / 类型 / 边界 / 承载理由，实际下标 {order:?}：\n{text}"
++    );
++}
++
++/// 正向（AC-1 / AC-3 组合：`api::bootstrap` → `contract::parse`）：同一夹具的草稿直喂
++/// `parse` 零错误，`sections` 的 heading 序列逐字逐序恰六段；`ops` 恰 1 条、`types` 非空、
++/// `reexports` 空（草稿 MUST NOT 自动生成 `api-reexport` fence）。
++#[test]
++fn bootstrap草稿过parse段序恰六段() {
++    let temp = TempDir::new("bootstrap-draft-parse");
++    let fqn = "App.Core.Alpha";
++    temp.write_model(&format!(
++        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
++    ));
++    temp.write(
++        "src/alpha/src/lib.rs",
++        "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n",
++    );
++
++    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
++    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("草稿应零错误装载");
++
++    let headings: Vec<&str> = contract
++        .sections
++        .iter()
++        .map(|section| section.heading.as_str())
++        .collect();
++    assert_eq!(
++        headings,
++        vec!["职能", "不变量", "操作", "类型", "边界", "承载理由"],
++        "段序逐字逐序恰六段：\n{draft}"
++    );
++    assert_eq!(contract.ops.len(), 1, "op 恰 1 条：{:#?}", contract.ops);
++    assert!(
++        !contract.types.is_empty(),
++        "`api-types` 非空（含取数面类型 `T`）"
++    );
++    assert!(
++        contract.reexports.is_empty(),
++        "草稿 MUST NOT 自动生成 `api-reexport` fence"
++    );
++}
++
++/// 正向（AC-2 / AC-3 组合：`api::bootstrap` → `contract::parse`）：说明块对解析器惰性——
++/// `reexport_prose` 空，且六段 `body` 逐个不含「作者注」与「三类 fence」（fence 内容不入
++/// 散文区，矩阵迭代 6 段）。
++#[test]
++fn bootstrap作者注不进任何散文段() {
++    let temp = TempDir::new("bootstrap-note-quarantine");
++    let fqn = "App.Core.Alpha";
++    temp.write_model(&format!(
++        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
++    ));
++    temp.write(
++        "src/alpha/src/lib.rs",
++        "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n",
++    );
++
++    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
++    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("草稿应零错误装载");
++    assert_eq!(contract.sections.len(), 6, "矩阵迭代六段");
++    assert!(
++        contract.reexport_prose.is_empty(),
++        "说明块里的透传措辞不进散文透传列表：{:?}",
++        contract.reexport_prose
++    );
++    for section in &contract.sections {
++        assert!(
++            !section.body.contains("作者注"),
++            "段 `{}` 的 body 不含作者注：{}",
++            section.heading,
++            section.body
++        );
++        assert!(
++            !section.body.contains("三类 fence"),
++            "段 `{}` 的 body 不含三类 fence 教学：{}",
++            section.heading,
++            section.body
++        );
++    }
++}
++
++/// 正向（AC-2）：作者注在文件末尾的非 `api-*` fenced 块内——末行是收尾围栏、` ```text `
++/// 恰一处且落在 `## 承载理由` 之后；块体含 `api-reexport` 形态与四要点关键词。
++#[test]
++fn bootstrap作者注在末尾非api块内() {
++    let temp = TempDir::new("bootstrap-note-position");
++    let fqn = "App.Core.Alpha";
++    temp.write_model(&format!(
++        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
++    ));
++    temp.write(
++        "src/alpha/src/lib.rs",
++        "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n",
++    );
++
++    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
++    let trimmed = draft.trim_end();
++    assert!(trimmed.ends_with("```"), "末块以收尾围栏结束：\n{draft}");
++    assert_eq!(
++        trimmed.matches("```text").count(),
++        1,
++        "语言标 `text` 的说明块恰一处（非 `api-*` 语言标）：\n{draft}"
++    );
++    let note_start = trimmed
++        .rfind("```text")
++        .unwrap_or_else(|| panic!("缺说明块：\n{draft}"));
++    let carrier = trimmed
++        .rfind("## 承载理由")
++        .unwrap_or_else(|| panic!("缺承载理由段：\n{draft}"));
++    assert!(
++        note_start > carrier,
++        "说明块落在 `## 承载理由` 之后（文件末尾）：{note_start} vs {carrier}"
++    );
++
++    let note = &trimmed[note_start..];
++    for piece in [
++        "api-op",
++        "api-types",
++        "api-reexport",
++        "{ \"导出名\": \"直接子元素 FQN\" }",
++    ] {
++        assert!(note.contains(piece), "说明块含要点 `{piece}`：\n{note}");
++    }
++    let enabled = note
++        .find("enabled")
++        .unwrap_or_else(|| panic!("说明块缺冷启动口径：\n{note}"));
++    assert!(
++        note[enabled..].contains("findings"),
++        "`enabled` 与 `findings` 同段：\n{note}"
++    );
++}
++
++/// 边界（AC-1，矩阵迭代 6 段）：六段 `body.trim()` 逐字等于占位句；逐段首字符非
++/// `-` / `*` / `|`、含 CJK、零行首 `### ` 与零 `- ` 起手（占位句不进两个抽取面）。
++#[test]
++fn bootstrap六段占位句形态() {
++    let temp = TempDir::new("bootstrap-placeholders");
++    let fqn = "App.Core.Alpha";
++    temp.write_model(&format!(
++        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
++    ));
++    temp.write(
++        "src/alpha/src/lib.rs",
++        "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n",
++    );
++
++    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
++    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("草稿应零错误装载");
++    let expected = [
++        ("职能", "（待补：一句职能）"),
++        ("不变量", "（待补）"),
++        (
++            "操作",
++            "（待补：每个操作一个三级标题 + 紧随一个 api-op fence）",
++        ),
++        (
++            "类型",
++            "（待补：本模块自有 $defs，一个 api-types fence，同文件唯一）",
++        ),
++        ("边界", "（待补：本模块**不**负责什么）"),
++        ("承载理由", "（待补：为什么它是独立元素）"),
++    ];
++    assert_eq!(contract.sections.len(), expected.len(), "矩阵迭代六段");
++    for (section, (heading, placeholder)) in contract.sections.iter().zip(expected) {
++        assert_eq!(section.heading, heading, "段序与段名逐字");
++        let body = section.body.trim();
++        assert_eq!(
++            body, placeholder,
++            "段 `{heading}` 占位句逐字：{}",
++            section.body
++        );
++        let first = body
++            .chars()
++            .next()
++            .unwrap_or_else(|| panic!("段 `{heading}` body 非空"));
++        assert!(
++            !matches!(first, '-' | '*' | '|'),
++            "段 `{heading}` 首字符不进列表 / 表格抽取面：{first:?}"
++        );
++        assert!(
++            body.chars()
++                .any(|character| ('\u{4e00}'..='\u{9fff}').contains(&character)),
++            "段 `{heading}` 占位句含 CJK：{body}"
++        );
++        assert!(
++            !section.body.contains("### "),
++            "段 `{heading}` body 零三级标题：{}",
++            section.body
++        );
++        assert!(
++            !section
++                .body
++                .lines()
++                .any(|line| line.trim_start().starts_with("- ")),
++            "段 `{heading}` body 零 `- ` 起手行：{}",
++            section.body
++        );
++    }
++}
++
++/// 边界（AC-4 组合：`api::bootstrap` → `contract::parse`）：零导出入口 → 零行首 `### `
++/// 锚点、`api-types` 为 `{}`，仍零错误装载且六段齐在（`ops` / `types` / `reexport_prose` 空）。
++#[test]
++fn bootstrap无符号元素仍六段且过parse() {
++    let temp = TempDir::new("bootstrap-empty-six-sections");
++    let fqn = "App.Frontend.Components.Agent";
++    temp.write_model(&format!(
++        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/\"]\n"
++    ));
++    temp.write("views/agent/src/lib.rs", "// 零导出\n");
++
++    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
++    assert!(
++        !draft.lines().any(|line| line.starts_with("### ")),
++        "零符号 ⇒ 零行首 op 锚点：\n{draft}"
++    );
++    assert!(
++        draft.contains("```json api-types\n{}\n```"),
++        "零符号 ⇒ api-types 为 `{{}}`：\n{draft}"
++    );
++
++    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("无符号草稿仍应零错误装载");
++    assert_eq!(contract.sections.len(), 6, "无符号场景仍六段：\n{draft}");
++    assert!(contract.ops.is_empty(), "零 op");
++    assert!(contract.types.is_empty(), "零类型");
++    assert!(contract.reexport_prose.is_empty(), "零散文透传");
++}
++
++/// 边界（两判据分叉的钉子）：有符号草稿的裸 `contains("### ")` 为真（命中说明块内的
++/// `` `### <op-id>` ``），而行首扫描只数真 op 锚点——「只有行首 `### ` 才是 op 锚点」
++/// 钉成可读锚，MUST NOT 把该断言改回 `contains`。
++#[test]
++fn bootstrap作者注含字面三级标题但非op锚点() {
++    let temp = TempDir::new("bootstrap-note-heading");
++    let fqn = "App.Core.Alpha";
++    temp.write_model(&format!(
++        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
++    ));
++    temp.write(
++        "src/alpha/src/lib.rs",
++        "pub fn a(input: &str) -> String { String::new() }\n",
++    );
++
++    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
++    assert!(
++        draft.contains("### "),
++        "说明块内的字面三级标题命中裸 contains：\n{draft}"
++    );
++    assert!(
++        draft.contains("`### <op-id>`"),
++        "命中源即说明块里的形态示例：\n{draft}"
++    );
++    assert_eq!(
++        draft
++            .lines()
++            .filter(|line| line.starts_with("### "))
++            .count(),
++        1,
++        "行首扫描只数真 op 锚点：\n{draft}"
++    );
++}
++
++/// 边界（AC-1 / AC-3，超大符号列表）：40 个 `pub fn` → 行首 op 锚点 40 条，占位段不被
++/// 挤掉（`sections.len()` 仍 6），说明块恰一个，草稿仍零错误装载。
++#[test]
++fn bootstrap四十op段数恒定() {
++    let temp = TempDir::new("bootstrap-forty-ops");
++    let fqn = "App.Core.ManyOps";
++    temp.write_model(&format!(
++        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/many/\"]\n"
++    ));
++    let source: String = (0..40)
++        .map(|index| format!("pub fn op_{index:02}(input: &str) -> String {{ String::new() }}\n"))
++        .collect();
++    temp.write("src/many/src/lib.rs", &source);
++
++    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
++    assert_eq!(
++        draft
++            .lines()
++            .filter(|line| line.starts_with("### "))
++            .count(),
++        40,
++        "四十个 op 各一条行首锚点：\n{draft}"
++    );
++    assert_eq!(
++        draft.matches("作者注（本块不参与契约解析）").count(),
++        1,
++        "说明块恰一个（不被 op 段复制）：\n{draft}"
++    );
++
++    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("四十 op 草稿仍应零错误装载");
++    assert_eq!(contract.sections.len(), 6, "占位段不被 op 段挤掉");
++    assert_eq!(contract.ops.len(), 40, "op 数随符号数");
+ }
+ 
+ /// 正向（AC-1 / D41）：草稿的 `@ <entry>:<line>` 注记用 `Resolved.entry`——crate 形态
+@@ -4869,9 +5184,9 @@ fn bootstrap组合闭包草稿名单() {
+         );
+     }
+     assert_eq!(
+-        text.matches("### ").count(),
++        text.lines().filter(|line| line.starts_with("### ")).count(),
+         3,
+-        "草稿 op 集恰 3 条：\n{text}"
++        "草稿 op 集恰 3 条（行首锚点扫描，说明块里的 `### <op-id>` 不计）：\n{text}"
+     );
+     for absent in ["### Other", "### AgentInputExtraProps"] {
+         assert!(
+@@ -5045,7 +5360,10 @@ fn bootstrap空符号集草稿() {
+     ));
+     empty_entry.write("views/agent/src/lib.rs", "// 零导出\n");
+     let text = bootstrap(empty_entry.root(), fqn).expect("起草应成功");
+-    assert!(!text.contains("### "), "零符号 ⇒ 零 op heading：\n{text}");
++    assert!(
++        !text.lines().any(|line| line.starts_with("### ")),
++        "零符号 ⇒ 零行首 op 锚点（说明块里的 `### <op-id>` 不是锚点）：\n{text}"
++    );
+     assert!(
+         text.contains("```json api-types\n{}\n```"),
+         "零符号 ⇒ api-types 为 `{{}}`：\n{text}"
+@@ -5067,8 +5385,8 @@ fn bootstrap空符号集草稿() {
+     );
+     let text = bootstrap(rejected.root(), fqn).expect("起草应成功");
+     assert!(
+-        !text.contains("### "),
+-        "目标归属另一个元素 ⇒ 全拒、零 op heading：\n{text}"
++        !text.lines().any(|line| line.starts_with("### ")),
++        "目标归属另一个元素 ⇒ 全拒、零行首 op 锚点：\n{text}"
+     );
+     assert!(
+         text.contains("```json api-types\n{}\n```"),
+diff --git a/crates/infra/agent/src/sdk/mount.rs b/crates/infra/agent/src/sdk/mount.rs
+index b19bf60e9858..6827ad762706 100644
+--- a/crates/infra/agent/src/sdk/mount.rs
++++ b/crates/infra/agent/src/sdk/mount.rs
+@@ -258,7 +258,9 @@ fn archi_module_definition() -> ToolDefinition {
+              出边与入边（对端 FQN + 说明）、直接子元素与入口文档单值 doc（仅 api = none 元素有值；declared 走 api.contractPath，正文用 read 自取）；\
+              省略 element 返回全部元素的薄概览，每条含 hasPath（缺 path 的元素一次判出）；\
+              单元素响应另给 resolvedEntry（入口解析结果：显式命中 / 约定默认命中 / 不可用成因）；\
+-             新元素的字段形态用 archi_scaffold 取模板。模型写坏时返回结构化诊断（先修模型）",
++             新元素的字段形态用 archi_scaffold 取模板；\
++             `api.schemaPath` / `api.generatedPath` 给另两条生成物路径（`contractPath` 已指手写真相）。\
++             模型写坏时返回结构化诊断（先修模型）",
+             vocabulary(ElementKind::ALL.map(ElementKind::as_str)),
+             vocabulary(GateTier::ALL.map(GateTier::as_str)),
+         ),
+@@ -292,16 +294,19 @@ fn archi_search_definition() -> ToolDefinition {
+     }
+ }
+ 
+-/// `archi_api` 定义（契约面自检：`check` 两轴 / `bootstrap` 草稿；零写盘）。
++/// `archi_api` 定义（契约面自检与草稿：`check` 两轴 / `bootstrap` 草稿；零写盘）。
+ fn archi_api_definition() -> ToolDefinition {
+     ToolDefinition {
+         name: ARCHI_API_TOOL.to_owned(),
+         description: concat!(
+-            "查询模块 API 契约面的两轴事实（自检）。`check` 返回生成物新鲜度（三类差异：",
++            "查询模块 API 契约面的两轴事实（自检与草稿）。`check` 返回生成物新鲜度（三类差异：",
+             "内容不符 / 应删未删 / 应生成未生成）与契约判据摘要（按 category 计数 + 逐条 ",
+-            "kind / element / message）；`bootstrap` 按元素 FQN 输出契约 md 草稿（只出 ",
+-            "stdout 语义、零写盘）。模型结构错时返回诊断清单（先修模型）。生成物过期用既有",
+-            "生成命令重生成，MUST NOT 手改生成物"
++            "kind / element / message）；`bootstrap` 按元素 FQN 输出契约 md 草稿——",
++            "新建 / 补契约的第一步就取它（只出 stdout 语义、零写盘）。",
++            "生成物四类：契约 md 同目录的 `<FQN>.schema.json`、架构域 `INDEX.toml`、",
++            "入口同级 `.i.rs` / `.i.ts`——过期用既有生成命令重生成，MUST NOT 手改生成物。",
++            "`check` 的 `artifacts.enabled = false` 即契约面未启用（此时 `findings` 恒空，",
++            "不等于零问题）。模型结构错时返回诊断清单（先修模型）"
+         )
+         .to_owned(),
+         parameters: serde_json::json!({
+diff --git a/crates/infra/agent/src/sdk/mount_test.rs b/crates/infra/agent/src/sdk/mount_test.rs
+index a44ff5ea67d2..d73165c5af8c 100644
+--- a/crates/infra/agent/src/sdk/mount_test.rs
++++ b/crates/infra/agent/src/sdk/mount_test.rs
+@@ -1162,9 +1162,10 @@ fn archi_api三档恒放行() {
+     }
+ }
+ 
+-/// 正向（AC-15 / D13）：`archi_api` 的入参 schema 形态——`action` 为封闭二值
+-/// （`check` / `bootstrap`）、`element` 可选字符串、`required == ["action"]`，描述里含
+-/// 「生成物过期用既有生成命令重生成、MUST NOT 手改生成物」要点。
++/// 正向（AC-5 / AC-15 / D13）：`archi_api` 的入参 schema 形态——`action` 为封闭二值
++/// （`check` / `bootstrap`）、`element` 可选字符串、`required == ["action"]`；描述含
++/// bootstrap 指路（`第一步`）、四类生成物点名（`.schema.json` / `INDEX.toml` / `.i.rs` /
++/// `.i.ts`）与冷启动口径（`enabled` + `findings`），既有「MUST NOT 手改生成物」三针仍绿。
+ #[test]
+ fn archi_api入参schema形态() {
+     let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
+@@ -1184,7 +1185,18 @@ fn archi_api入参schema形态() {
+         serde_json::json!(["action"]),
+         "仅 action 必填"
+     );
+-    for piece in ["MUST NOT", "手改生成物", "重生成"] {
++    for piece in [
++        "MUST NOT",
++        "手改生成物",
++        "重生成",
++        "第一步",
++        ".schema.json",
++        "INDEX.toml",
++        ".i.rs",
++        ".i.ts",
++        "enabled",
++        "findings",
++    ] {
+         assert!(
+             definition.description.contains(piece),
+             "描述含要点 `{piece}`：{}",
+@@ -1193,6 +1205,66 @@ fn archi_api入参schema形态() {
+     }
+ }
+ 
++/// 正向（AC-5）：冷启动口径同一句——以 `。` 切句后，含 `enabled` 的那一段同时含
++/// `findings` 与「不等于零问题」（拆成两句即红）。
++#[test]
++fn archi_api冷启动口径同句() {
++    let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
++    let sentence = definition
++        .description
++        .split('。')
++        .find(|sentence| sentence.contains("enabled"))
++        .unwrap_or_else(|| panic!("描述缺冷启动口径：{}", definition.description));
++    assert!(
++        sentence.contains("findings"),
++        "同句含 `findings`：{sentence}"
++    );
++    assert!(
++        sentence.contains("不等于零问题"),
++        "同句点明「不等于零问题」：{sentence}"
++    );
++}
++
++/// 正向（AC-5）：首句语义对齐「自检与草稿」，旧单义括号形态 `（自检）` 零残留。
++#[test]
++fn archi_api首句自检与草稿() {
++    let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
++    assert!(
++        definition.description.contains("自检与草稿"),
++        "首句取两轴口径：{}",
++        definition.description
++    );
++    assert!(
++        !definition.description.contains("（自检）"),
++        "旧单义括号形态零残留：{}",
++        definition.description
++    );
++}
++
++/// 边界（AC-5）：落位与尾句——`bootstrap` → `第一步` → `.schema.json` → `enabled` 下标
++/// 单调，诊断收尾句仍占末位（冷启动句不越位）。
++#[test]
++fn archi_api描述落位与尾句() {
++    let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
++    let description = &definition.description;
++    let positions: Vec<usize> = ["bootstrap", "第一步", ".schema.json", "enabled"]
++        .iter()
++        .map(|needle| {
++            description
++                .find(needle)
++                .unwrap_or_else(|| panic!("描述缺 `{needle}`：{description}"))
++        })
++        .collect();
++    assert!(
++        positions.windows(2).all(|pair| pair[0] < pair[1]),
++        "下标单调（bootstrap / 第一步 / .schema.json / enabled），实际 {positions:?}"
++    );
++    assert!(
++        description.trim_end().ends_with("（先修模型）"),
++        "诊断收尾句仍在末位：{description}"
++    );
++}
++
+ /// 边界：工具描述是**产品通用文本**——对 agent 可见的描述面 MUST NOT 携带本仓的
+ /// 专用命令名（产品对任意 workspace 生效，生成命令归属各自仓库的文档面）。
+ #[test]
+@@ -1810,13 +1882,22 @@ fn archi_scaffold定义kind词表派生() {
+     );
+ }
+ 
+-/// 正向（表驱动）：`archi_module` 描述改述后的三句——`hasPath` 判缺 `path`、入口解析
+-/// 结果随响应给出（显式 / 约定默认 / 不可用成因）、新元素字段形态用 `archi_scaffold`。
++/// 正向（表驱动）：`archi_module` 描述改述后的三句 + 第四句——`hasPath` 判缺 `path`、
++/// 入口解析结果随响应给出（显式 / 约定默认 / 不可用成因）、新元素字段形态用
++/// `archi_scaffold`，以及 `schemaPath` / `generatedPath` 两条生成物路径的指路。
+ #[test]
+ fn archi_module描述补三句指路() {
+     let definition = lookup(ARCHI_MODULE_TOOL).expect("定义在案");
+     let description = &definition.description;
+-    for piece in ["hasPath", "resolvedEntry", "archi_scaffold"] {
++    for piece in [
++        "hasPath",
++        "resolvedEntry",
++        "archi_scaffold",
++        "schemaPath",
++        "generatedPath",
++        "contractPath",
++        "另两条生成物路径",
++    ] {
+         assert!(
+             description.contains(piece),
+             "描述含新指路 `{piece}`：{description}"
+@@ -1828,6 +1909,29 @@ fn archi_module描述补三句指路() {
+     );
+ }
+ 
++/// 边界（AC-6）：第四句落位——`archi_scaffold` 一句之后、诊断收尾句之前（放段首或段尾
++/// 即红）。
++#[test]
++fn archi_module描述第四句落位() {
++    let definition = lookup(ARCHI_MODULE_TOOL).expect("定义在案");
++    let description = &definition.description;
++    let scaffold = description
++        .find("archi_scaffold")
++        .unwrap_or_else(|| panic!("描述缺 archi_scaffold：{description}"));
++    let schema = description
++        .find("schemaPath")
++        .unwrap_or_else(|| panic!("描述缺 schemaPath：{description}"));
++    let tail = description
++        .find("模型写坏时")
++        .unwrap_or_else(|| panic!("描述缺诊断收尾句：{description}"));
++    assert!(schema > 0, "`schemaPath` 不在段首：{schema}");
++    assert!(
++        scaffold < schema,
++        "第四句在 `archi_scaffold` 一句之后：{scaffold} vs {schema}"
++    );
++    assert!(schema < tail, "第四句在诊断收尾句之前：{schema} vs {tail}");
++}
++
+ /// 边界：`archi_module` 描述删除字段形态教学——零代码围栏、零 `entry` 三档表；
+ /// `modelFile` + `modelLine` 可直接 `edit` 的句子保留。
+ #[test]

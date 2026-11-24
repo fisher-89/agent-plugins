@@ -1996,8 +1996,9 @@ fn check委托单点() {
 // bootstrap：草稿形态 / 零写盘 / 异常面
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-12）：入口含 `pub fn a(&str) -> String` + `pub struct T` → 骨架文本 H1 = FQN、
-/// 含两个空散文段、`### a` + `api-op` fence、一个 `api-types` fence 且键含 `T`。
+/// 正向（AC-1 / AC-12）：入口含 `pub fn a(&str) -> String` + `pub struct T` → 骨架文本
+/// H1 = FQN、六段（职能 / 不变量 / 操作 / 类型 / 边界 / 承载理由）齐在且段序单调、
+/// `### a` + `api-op` fence、一个 `api-types` fence 且键含 `T`。
 #[test]
 fn bootstrap草稿形态() {
     let temp = TempDir::new("bootstrap-draft");
@@ -2025,6 +2026,320 @@ fn bootstrap草稿形态() {
         text.contains("external") || text.contains("crateOnly") || text.contains("testOnly"),
         "每符号附 visibility 注释：\n{text}"
     );
+
+    // 六段骨架：新增两枚 needle + 段序单调（旧的 `## 职能` / `## 不变量` 两条仍在上方）
+    for piece in ["## 边界", "## 承载理由"] {
+        assert!(text.contains(piece), "含六段之一 `{piece}`：\n{text}");
+    }
+    let order = [
+        "## 职能",
+        "## 不变量",
+        "## 操作",
+        "## 类型",
+        "## 边界",
+        "## 承载理由",
+    ]
+    .map(|heading| {
+        text.find(heading)
+            .unwrap_or_else(|| panic!("六段缺 `{heading}`：\n{text}"))
+    });
+    assert!(
+        order.windows(2).all(|pair| pair[0] < pair[1]),
+        "段序为 职能 / 不变量 / 操作 / 类型 / 边界 / 承载理由，实际下标 {order:?}：\n{text}"
+    );
+}
+
+/// 正向（AC-1 / AC-3 组合：`api::bootstrap` → `contract::parse`）：同一夹具的草稿直喂
+/// `parse` 零错误，`sections` 的 heading 序列逐字逐序恰六段；`ops` 恰 1 条、`types` 非空、
+/// `reexports` 空（草稿 MUST NOT 自动生成 `api-reexport` fence）。
+#[test]
+fn bootstrap草稿过parse段序恰六段() {
+    let temp = TempDir::new("bootstrap-draft-parse");
+    let fqn = "App.Core.Alpha";
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
+    ));
+    temp.write(
+        "src/alpha/src/lib.rs",
+        "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n",
+    );
+
+    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
+    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("草稿应零错误装载");
+
+    let headings: Vec<&str> = contract
+        .sections
+        .iter()
+        .map(|section| section.heading.as_str())
+        .collect();
+    assert_eq!(
+        headings,
+        vec!["职能", "不变量", "操作", "类型", "边界", "承载理由"],
+        "段序逐字逐序恰六段：\n{draft}"
+    );
+    assert_eq!(contract.ops.len(), 1, "op 恰 1 条：{:#?}", contract.ops);
+    assert!(
+        !contract.types.is_empty(),
+        "`api-types` 非空（含取数面类型 `T`）"
+    );
+    assert!(
+        contract.reexports.is_empty(),
+        "草稿 MUST NOT 自动生成 `api-reexport` fence"
+    );
+}
+
+/// 正向（AC-2 / AC-3 组合：`api::bootstrap` → `contract::parse`）：说明块对解析器惰性——
+/// `reexport_prose` 空，且六段 `body` 逐个不含「作者注」与「三类 fence」（fence 内容不入
+/// 散文区，矩阵迭代 6 段）。
+#[test]
+fn bootstrap作者注不进任何散文段() {
+    let temp = TempDir::new("bootstrap-note-quarantine");
+    let fqn = "App.Core.Alpha";
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
+    ));
+    temp.write(
+        "src/alpha/src/lib.rs",
+        "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n",
+    );
+
+    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
+    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("草稿应零错误装载");
+    assert_eq!(contract.sections.len(), 6, "矩阵迭代六段");
+    assert!(
+        contract.reexport_prose.is_empty(),
+        "说明块里的透传措辞不进散文透传列表：{:?}",
+        contract.reexport_prose
+    );
+    for section in &contract.sections {
+        assert!(
+            !section.body.contains("作者注"),
+            "段 `{}` 的 body 不含作者注：{}",
+            section.heading,
+            section.body
+        );
+        assert!(
+            !section.body.contains("三类 fence"),
+            "段 `{}` 的 body 不含三类 fence 教学：{}",
+            section.heading,
+            section.body
+        );
+    }
+}
+
+/// 正向（AC-2）：作者注在文件末尾的非 `api-*` fenced 块内——末行是收尾围栏、` ```text `
+/// 恰一处且落在 `## 承载理由` 之后；块体含 `api-reexport` 形态与四要点关键词。
+#[test]
+fn bootstrap作者注在末尾非api块内() {
+    let temp = TempDir::new("bootstrap-note-position");
+    let fqn = "App.Core.Alpha";
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
+    ));
+    temp.write(
+        "src/alpha/src/lib.rs",
+        "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n",
+    );
+
+    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
+    let trimmed = draft.trim_end();
+    assert!(trimmed.ends_with("```"), "末块以收尾围栏结束：\n{draft}");
+    assert_eq!(
+        trimmed.matches("```text").count(),
+        1,
+        "语言标 `text` 的说明块恰一处（非 `api-*` 语言标）：\n{draft}"
+    );
+    let note_start = trimmed
+        .rfind("```text")
+        .unwrap_or_else(|| panic!("缺说明块：\n{draft}"));
+    let carrier = trimmed
+        .rfind("## 承载理由")
+        .unwrap_or_else(|| panic!("缺承载理由段：\n{draft}"));
+    assert!(
+        note_start > carrier,
+        "说明块落在 `## 承载理由` 之后（文件末尾）：{note_start} vs {carrier}"
+    );
+
+    let note = &trimmed[note_start..];
+    for piece in [
+        "api-op",
+        "api-types",
+        "api-reexport",
+        "{ \"导出名\": \"直接子元素 FQN\" }",
+    ] {
+        assert!(note.contains(piece), "说明块含要点 `{piece}`：\n{note}");
+    }
+    let enabled = note
+        .find("enabled")
+        .unwrap_or_else(|| panic!("说明块缺冷启动口径：\n{note}"));
+    assert!(
+        note[enabled..].contains("findings"),
+        "`enabled` 与 `findings` 同段：\n{note}"
+    );
+}
+
+/// 边界（AC-1，矩阵迭代 6 段）：六段 `body.trim()` 逐字等于占位句；逐段首字符非
+/// `-` / `*` / `|`、含 CJK、零行首 `### ` 与零 `- ` 起手（占位句不进两个抽取面）。
+#[test]
+fn bootstrap六段占位句形态() {
+    let temp = TempDir::new("bootstrap-placeholders");
+    let fqn = "App.Core.Alpha";
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
+    ));
+    temp.write(
+        "src/alpha/src/lib.rs",
+        "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n",
+    );
+
+    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
+    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("草稿应零错误装载");
+    let expected = [
+        ("职能", "（待补：一句职能）"),
+        ("不变量", "（待补）"),
+        (
+            "操作",
+            "（待补：每个操作一个三级标题 + 紧随一个 api-op fence）",
+        ),
+        (
+            "类型",
+            "（待补：本模块自有 $defs，一个 api-types fence，同文件唯一）",
+        ),
+        ("边界", "（待补：本模块**不**负责什么）"),
+        ("承载理由", "（待补：为什么它是独立元素）"),
+    ];
+    assert_eq!(contract.sections.len(), expected.len(), "矩阵迭代六段");
+    for (section, (heading, placeholder)) in contract.sections.iter().zip(expected) {
+        assert_eq!(section.heading, heading, "段序与段名逐字");
+        let body = section.body.trim();
+        assert_eq!(
+            body, placeholder,
+            "段 `{heading}` 占位句逐字：{}",
+            section.body
+        );
+        let first = body
+            .chars()
+            .next()
+            .unwrap_or_else(|| panic!("段 `{heading}` body 非空"));
+        assert!(
+            !matches!(first, '-' | '*' | '|'),
+            "段 `{heading}` 首字符不进列表 / 表格抽取面：{first:?}"
+        );
+        assert!(
+            body.chars()
+                .any(|character| ('\u{4e00}'..='\u{9fff}').contains(&character)),
+            "段 `{heading}` 占位句含 CJK：{body}"
+        );
+        assert!(
+            !section.body.contains("### "),
+            "段 `{heading}` body 零三级标题：{}",
+            section.body
+        );
+        assert!(
+            !section
+                .body
+                .lines()
+                .any(|line| line.trim_start().starts_with("- ")),
+            "段 `{heading}` body 零 `- ` 起手行：{}",
+            section.body
+        );
+    }
+}
+
+/// 边界（AC-4 组合：`api::bootstrap` → `contract::parse`）：零导出入口 → 零行首 `### `
+/// 锚点、`api-types` 为 `{}`，仍零错误装载且六段齐在（`ops` / `types` / `reexport_prose` 空）。
+#[test]
+fn bootstrap无符号元素仍六段且过parse() {
+    let temp = TempDir::new("bootstrap-empty-six-sections");
+    let fqn = "App.Frontend.Components.Agent";
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/\"]\n"
+    ));
+    temp.write("views/agent/src/lib.rs", "// 零导出\n");
+
+    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
+    assert!(
+        !draft.lines().any(|line| line.starts_with("### ")),
+        "零符号 ⇒ 零行首 op 锚点：\n{draft}"
+    );
+    assert!(
+        draft.contains("```json api-types\n{}\n```"),
+        "零符号 ⇒ api-types 为 `{{}}`：\n{draft}"
+    );
+
+    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("无符号草稿仍应零错误装载");
+    assert_eq!(contract.sections.len(), 6, "无符号场景仍六段：\n{draft}");
+    assert!(contract.ops.is_empty(), "零 op");
+    assert!(contract.types.is_empty(), "零类型");
+    assert!(contract.reexport_prose.is_empty(), "零散文透传");
+}
+
+/// 边界（两判据分叉的钉子）：有符号草稿的裸 `contains("### ")` 为真（命中说明块内的
+/// `` `### <op-id>` ``），而行首扫描只数真 op 锚点——「只有行首 `### ` 才是 op 锚点」
+/// 钉成可读锚，MUST NOT 把该断言改回 `contains`。
+#[test]
+fn bootstrap作者注含字面三级标题但非op锚点() {
+    let temp = TempDir::new("bootstrap-note-heading");
+    let fqn = "App.Core.Alpha";
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
+    ));
+    temp.write(
+        "src/alpha/src/lib.rs",
+        "pub fn a(input: &str) -> String { String::new() }\n",
+    );
+
+    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
+    assert!(
+        draft.contains("### "),
+        "说明块内的字面三级标题命中裸 contains：\n{draft}"
+    );
+    assert!(
+        draft.contains("`### <op-id>`"),
+        "命中源即说明块里的形态示例：\n{draft}"
+    );
+    assert_eq!(
+        draft
+            .lines()
+            .filter(|line| line.starts_with("### "))
+            .count(),
+        1,
+        "行首扫描只数真 op 锚点：\n{draft}"
+    );
+}
+
+/// 边界（AC-1 / AC-3，超大符号列表）：40 个 `pub fn` → 行首 op 锚点 40 条，占位段不被
+/// 挤掉（`sections.len()` 仍 6），说明块恰一个，草稿仍零错误装载。
+#[test]
+fn bootstrap四十op段数恒定() {
+    let temp = TempDir::new("bootstrap-forty-ops");
+    let fqn = "App.Core.ManyOps";
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/many/\"]\n"
+    ));
+    let source: String = (0..40)
+        .map(|index| format!("pub fn op_{index:02}(input: &str) -> String {{ String::new() }}\n"))
+        .collect();
+    temp.write("src/many/src/lib.rs", &source);
+
+    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
+    assert_eq!(
+        draft
+            .lines()
+            .filter(|line| line.starts_with("### "))
+            .count(),
+        40,
+        "四十个 op 各一条行首锚点：\n{draft}"
+    );
+    assert_eq!(
+        draft.matches("作者注（本块不参与契约解析）").count(),
+        1,
+        "说明块恰一个（不被 op 段复制）：\n{draft}"
+    );
+
+    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("四十 op 草稿仍应零错误装载");
+    assert_eq!(contract.sections.len(), 6, "占位段不被 op 段挤掉");
+    assert_eq!(contract.ops.len(), 40, "op 数随符号数");
 }
 
 /// 正向（AC-1 / D41）：草稿的 `@ <entry>:<line>` 注记用 `Resolved.entry`——crate 形态
@@ -4869,9 +5184,9 @@ fn bootstrap组合闭包草稿名单() {
         );
     }
     assert_eq!(
-        text.matches("### ").count(),
+        text.lines().filter(|line| line.starts_with("### ")).count(),
         3,
-        "草稿 op 集恰 3 条：\n{text}"
+        "草稿 op 集恰 3 条（行首锚点扫描，说明块里的 `### <op-id>` 不计）：\n{text}"
     );
     for absent in ["### Other", "### AgentInputExtraProps"] {
         assert!(
@@ -5045,7 +5360,10 @@ fn bootstrap空符号集草稿() {
     ));
     empty_entry.write("views/agent/src/lib.rs", "// 零导出\n");
     let text = bootstrap(empty_entry.root(), fqn).expect("起草应成功");
-    assert!(!text.contains("### "), "零符号 ⇒ 零 op heading：\n{text}");
+    assert!(
+        !text.lines().any(|line| line.starts_with("### ")),
+        "零符号 ⇒ 零行首 op 锚点（说明块里的 `### <op-id>` 不是锚点）：\n{text}"
+    );
     assert!(
         text.contains("```json api-types\n{}\n```"),
         "零符号 ⇒ api-types 为 `{{}}`：\n{text}"
@@ -5067,8 +5385,8 @@ fn bootstrap空符号集草稿() {
     );
     let text = bootstrap(rejected.root(), fqn).expect("起草应成功");
     assert!(
-        !text.contains("### "),
-        "目标归属另一个元素 ⇒ 全拒、零 op heading：\n{text}"
+        !text.lines().any(|line| line.starts_with("### ")),
+        "目标归属另一个元素 ⇒ 全拒、零行首 op 锚点：\n{text}"
     );
     assert!(
         text.contains("```json api-types\n{}\n```"),

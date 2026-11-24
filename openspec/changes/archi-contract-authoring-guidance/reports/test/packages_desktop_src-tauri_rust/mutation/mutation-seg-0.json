@@ -1,0 +1,237 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/mount.rs:253:5: replace archi_module_definition -> ToolDefinition with Default::default()",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/mount.rs",
+          "function": {
+            "function_name": "archi_module_definition",
+            "return_type": "-> ToolDefinition",
+            "span": {
+              "start": {
+                "line": 251,
+                "column": 1
+              },
+              "end": {
+                "line": 275,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 253,
+              "column": 5
+            },
+            "end": {
+              "line": 274,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__mount.rs_line_253_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__mount.rs_line_253_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.7135933,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/mod.rs:783:5: replace bootstrap_text -> String with String::new()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/mod.rs",
+          "function": {
+            "function_name": "bootstrap_text",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 773,
+                "column": 1
+              },
+              "end": {
+                "line": 815,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 783,
+              "column": 5
+            },
+            "end": {
+              "line": 814,
+              "column": 9
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__api__mod.rs_line_783_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__mod.rs_line_783_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.6737141,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/mod.rs:783:5: replace bootstrap_text -> String with \"xyzzy\".into()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/mod.rs",
+          "function": {
+            "function_name": "bootstrap_text",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 773,
+                "column": 1
+              },
+              "end": {
+                "line": 815,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 783,
+              "column": 5
+            },
+            "end": {
+              "line": 814,
+              "column": 9
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__api__mod.rs_line_783_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__mod.rs_line_783_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.7278103,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/mount.rs:299:5: replace archi_api_definition -> ToolDefinition with Default::default()",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/mount.rs",
+          "function": {
+            "function_name": "archi_api_definition",
+            "return_type": "-> ToolDefinition",
+            "span": {
+              "start": {
+                "line": 297,
+                "column": 1
+              },
+              "end": {
+                "line": 321,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 299,
+              "column": 5
+            },
+            "end": {
+              "line": 320,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__mount.rs_line_299_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__mount.rs_line_299_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.3329525,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 4,
+  "missed": 0,
+  "caught": 0,
+  "timeout": 0,
+  "unviable": 4,
+  "success": 0,
+  "start_time": "2026-11-24T05:03:33.9564379Z",
+  "end_time": "2026-11-24T05:03:52.579207Z",
+  "cargo_mutants_version": "27.1.0"
+}

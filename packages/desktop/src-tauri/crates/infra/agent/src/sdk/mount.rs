@@ -258,7 +258,9 @@ fn archi_module_definition() -> ToolDefinition {
              出边与入边（对端 FQN + 说明）、直接子元素与入口文档单值 doc（仅 api = none 元素有值；declared 走 api.contractPath，正文用 read 自取）；\
              省略 element 返回全部元素的薄概览，每条含 hasPath（缺 path 的元素一次判出）；\
              单元素响应另给 resolvedEntry（入口解析结果：显式命中 / 约定默认命中 / 不可用成因）；\
-             新元素的字段形态用 archi_scaffold 取模板。模型写坏时返回结构化诊断（先修模型）",
+             新元素的字段形态用 archi_scaffold 取模板；\
+             `api.schemaPath` / `api.generatedPath` 给另两条生成物路径（`contractPath` 已指手写真相）。\
+             模型写坏时返回结构化诊断（先修模型）",
             vocabulary(ElementKind::ALL.map(ElementKind::as_str)),
             vocabulary(GateTier::ALL.map(GateTier::as_str)),
         ),
@@ -292,16 +294,19 @@ fn archi_search_definition() -> ToolDefinition {
     }
 }
 
-/// `archi_api` 定义（契约面自检：`check` 两轴 / `bootstrap` 草稿；零写盘）。
+/// `archi_api` 定义（契约面自检与草稿：`check` 两轴 / `bootstrap` 草稿；零写盘）。
 fn archi_api_definition() -> ToolDefinition {
     ToolDefinition {
         name: ARCHI_API_TOOL.to_owned(),
         description: concat!(
-            "查询模块 API 契约面的两轴事实（自检）。`check` 返回生成物新鲜度（三类差异：",
+            "查询模块 API 契约面的两轴事实（自检与草稿）。`check` 返回生成物新鲜度（三类差异：",
             "内容不符 / 应删未删 / 应生成未生成）与契约判据摘要（按 category 计数 + 逐条 ",
-            "kind / element / message）；`bootstrap` 按元素 FQN 输出契约 md 草稿（只出 ",
-            "stdout 语义、零写盘）。模型结构错时返回诊断清单（先修模型）。生成物过期用既有",
-            "生成命令重生成，MUST NOT 手改生成物"
+            "kind / element / message）；`bootstrap` 按元素 FQN 输出契约 md 草稿——",
+            "新建 / 补契约的第一步就取它（只出 stdout 语义、零写盘）。",
+            "生成物四类：契约 md 同目录的 `<FQN>.schema.json`、架构域 `INDEX.toml`、",
+            "入口同级 `.i.rs` / `.i.ts`——过期用既有生成命令重生成，MUST NOT 手改生成物。",
+            "`check` 的 `artifacts.enabled = false` 即契约面未启用（此时 `findings` 恒空，",
+            "不等于零问题）。模型结构错时返回诊断清单（先修模型）"
         )
         .to_owned(),
         parameters: serde_json::json!({

@@ -1162,9 +1162,10 @@ fn archi_api三档恒放行() {
     }
 }
 
-/// 正向（AC-15 / D13）：`archi_api` 的入参 schema 形态——`action` 为封闭二值
-/// （`check` / `bootstrap`）、`element` 可选字符串、`required == ["action"]`，描述里含
-/// 「生成物过期用既有生成命令重生成、MUST NOT 手改生成物」要点。
+/// 正向（AC-5 / AC-15 / D13）：`archi_api` 的入参 schema 形态——`action` 为封闭二值
+/// （`check` / `bootstrap`）、`element` 可选字符串、`required == ["action"]`；描述含
+/// bootstrap 指路（`第一步`）、四类生成物点名（`.schema.json` / `INDEX.toml` / `.i.rs` /
+/// `.i.ts`）与冷启动口径（`enabled` + `findings`），既有「MUST NOT 手改生成物」三针仍绿。
 #[test]
 fn archi_api入参schema形态() {
     let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
@@ -1184,13 +1185,84 @@ fn archi_api入参schema形态() {
         serde_json::json!(["action"]),
         "仅 action 必填"
     );
-    for piece in ["MUST NOT", "手改生成物", "重生成"] {
+    for piece in [
+        "MUST NOT",
+        "手改生成物",
+        "重生成",
+        "第一步",
+        ".schema.json",
+        "INDEX.toml",
+        ".i.rs",
+        ".i.ts",
+        "enabled",
+        "findings",
+    ] {
         assert!(
             definition.description.contains(piece),
             "描述含要点 `{piece}`：{}",
             definition.description
         );
     }
+}
+
+/// 正向（AC-5）：冷启动口径同一句——以 `。` 切句后，含 `enabled` 的那一段同时含
+/// `findings` 与「不等于零问题」（拆成两句即红）。
+#[test]
+fn archi_api冷启动口径同句() {
+    let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
+    let sentence = definition
+        .description
+        .split('。')
+        .find(|sentence| sentence.contains("enabled"))
+        .unwrap_or_else(|| panic!("描述缺冷启动口径：{}", definition.description));
+    assert!(
+        sentence.contains("findings"),
+        "同句含 `findings`：{sentence}"
+    );
+    assert!(
+        sentence.contains("不等于零问题"),
+        "同句点明「不等于零问题」：{sentence}"
+    );
+}
+
+/// 正向（AC-5）：首句语义对齐「自检与草稿」，旧单义括号形态 `（自检）` 零残留。
+#[test]
+fn archi_api首句自检与草稿() {
+    let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
+    assert!(
+        definition.description.contains("自检与草稿"),
+        "首句取两轴口径：{}",
+        definition.description
+    );
+    assert!(
+        !definition.description.contains("（自检）"),
+        "旧单义括号形态零残留：{}",
+        definition.description
+    );
+}
+
+/// 边界（AC-5）：落位与尾句——`bootstrap` → `第一步` → `.schema.json` → `enabled` 下标
+/// 单调，诊断收尾句仍占末位（冷启动句不越位）。
+#[test]
+fn archi_api描述落位与尾句() {
+    let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
+    let description = &definition.description;
+    let positions: Vec<usize> = ["bootstrap", "第一步", ".schema.json", "enabled"]
+        .iter()
+        .map(|needle| {
+            description
+                .find(needle)
+                .unwrap_or_else(|| panic!("描述缺 `{needle}`：{description}"))
+        })
+        .collect();
+    assert!(
+        positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "下标单调（bootstrap / 第一步 / .schema.json / enabled），实际 {positions:?}"
+    );
+    assert!(
+        description.trim_end().ends_with("（先修模型）"),
+        "诊断收尾句仍在末位：{description}"
+    );
 }
 
 /// 边界：工具描述是**产品通用文本**——对 agent 可见的描述面 MUST NOT 携带本仓的
@@ -1810,13 +1882,22 @@ fn archi_scaffold定义kind词表派生() {
     );
 }
 
-/// 正向（表驱动）：`archi_module` 描述改述后的三句——`hasPath` 判缺 `path`、入口解析
-/// 结果随响应给出（显式 / 约定默认 / 不可用成因）、新元素字段形态用 `archi_scaffold`。
+/// 正向（表驱动）：`archi_module` 描述改述后的三句 + 第四句——`hasPath` 判缺 `path`、
+/// 入口解析结果随响应给出（显式 / 约定默认 / 不可用成因）、新元素字段形态用
+/// `archi_scaffold`，以及 `schemaPath` / `generatedPath` 两条生成物路径的指路。
 #[test]
 fn archi_module描述补三句指路() {
     let definition = lookup(ARCHI_MODULE_TOOL).expect("定义在案");
     let description = &definition.description;
-    for piece in ["hasPath", "resolvedEntry", "archi_scaffold"] {
+    for piece in [
+        "hasPath",
+        "resolvedEntry",
+        "archi_scaffold",
+        "schemaPath",
+        "generatedPath",
+        "contractPath",
+        "另两条生成物路径",
+    ] {
         assert!(
             description.contains(piece),
             "描述含新指路 `{piece}`：{description}"
@@ -1826,6 +1907,29 @@ fn archi_module描述补三句指路() {
         description.contains("入口解析结果") || description.contains("显式命中"),
         "入口解析三态有交代：{description}"
     );
+}
+
+/// 边界（AC-6）：第四句落位——`archi_scaffold` 一句之后、诊断收尾句之前（放段首或段尾
+/// 即红）。
+#[test]
+fn archi_module描述第四句落位() {
+    let definition = lookup(ARCHI_MODULE_TOOL).expect("定义在案");
+    let description = &definition.description;
+    let scaffold = description
+        .find("archi_scaffold")
+        .unwrap_or_else(|| panic!("描述缺 archi_scaffold：{description}"));
+    let schema = description
+        .find("schemaPath")
+        .unwrap_or_else(|| panic!("描述缺 schemaPath：{description}"));
+    let tail = description
+        .find("模型写坏时")
+        .unwrap_or_else(|| panic!("描述缺诊断收尾句：{description}"));
+    assert!(schema > 0, "`schemaPath` 不在段首：{schema}");
+    assert!(
+        scaffold < schema,
+        "第四句在 `archi_scaffold` 一句之后：{scaffold} vs {schema}"
+    );
+    assert!(schema < tail, "第四句在诊断收尾句之前：{schema} vs {tail}");
 }
 
 /// 边界：`archi_module` 描述删除字段形态教学——零代码围栏、零 `entry` 三档表；
