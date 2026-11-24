@@ -1,0 +1,62 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-model-path-and-silent-trap\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:937:
+         domain_report.model.warnings
+     );
+     assert!(domain_report.errors.is_empty(), "零 errors");
+[31m-    assert_eq!(domain_report.status, ArchiCheckStatus::Clean, "零告警 ⇒ clean");
+[0m[32m+    assert_eq!(
+[0m[32m+        domain_report.status,
+[0m[32m+        ArchiCheckStatus::Clean,
+[0m[32m+        "零告警 ⇒ clean"
+[0m[32m+    );
+[0m 
+     let package = TempDir::new("no-path-domain-twin");
+     package.write_model("[element.\"App\"]\nkind = \"package\"\n");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-model-path-and-silent-trap\packages\desktop\src-tauri\crates\core\archi\src\parse\toml_test.rs:609:
+         "]\n",
+     );
+     let diagnostic = single_diagnostic(three);
+[31m-    assert_eq!(
+[0m[31m-        diagnostic.line,
+[0m[31m-        line_at(three, "./b/"),
+[0m[31m-        "3 条仍只报第 2 条"
+[0m[31m-    );
+[0m[32m+    assert_eq!(diagnostic.line, line_at(three, "./b/"), "3 条仍只报第 2 条");
+[0m     assert_ne!(diagnostic.line, line_at(three, "./c/"), "不铺开到第 3 条");
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-model-path-and-silent-trap\packages\desktop\src-tauri\crates\core\archi\src\parse\toml_test.rs:678:
+         "\"./c/\"".to_owned(),
+     ];
+     for value in values {
+[31m-        let source =
+[0m[31m-            format!("[element.\"App\"]\nkind = \"package\"\npath = [\"./a/\", {value}]\n");
+[0m[32m+        let source = format!("[element.\"App\"]\nkind = \"package\"\npath = [\"./a/\", {value}]\n");
+[0m         let diagnostic = single_diagnostic(&source);
+         assert_eq!(
+             diagnostic.kind,
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-model-path-and-silent-trap\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs:1090:
+         let value = execute_json(&context, crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, input).await;
+         let draft = value["draft"].as_str().expect("草稿为字符串").to_owned();
+ 
+[31m-        let target = tempdir(&format!("scaffold-parse-target-{}", kind.unwrap_or("default")));
+[0m[32m+        let target = tempdir(&format!(
+[0m[32m+            "scaffold-parse-target-{}",
+[0m[32m+            kind.unwrap_or("default")
+[0m[32m+        ));
+[0m         write_model(target.path(), "01-draft.toml", &draft);
+         let briefs = archi::dto::module_overview(target.path())
+             .unwrap_or_else(|error| panic!("{kind:?} 草稿应零结构诊断：{error}"));
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-model-path-and-silent-trap\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs:1097:
+         assert_eq!(briefs.len(), 1, "{kind:?} 草稿恰一声明（单段占位 FQN）");
+[31m-        assert!(
+[0m[31m-            !briefs[0].has_path,
+[0m[31m-            "{kind:?} 草稿的 path 为注释（未声明）"
+[0m[31m-        );
+[0m[32m+        assert!(!briefs[0].has_path, "{kind:?} 草稿的 path 为注释（未声明）");
+[0m     }
+ }
+ 
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

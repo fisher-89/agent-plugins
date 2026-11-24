@@ -1,0 +1,573 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/drift/mod.rs:94:5: replace check -> Result<Report, CheckError> with Ok(Default::default())",
+          "package": "archi",
+          "file": "crates/core/archi/src/drift/mod.rs",
+          "function": {
+            "function_name": "check",
+            "return_type": "-> Result<Report, CheckError>",
+            "span": {
+              "start": {
+                "line": 92,
+                "column": 1
+              },
+              "end": {
+                "line": 393,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 94,
+              "column": 5
+            },
+            "end": {
+              "line": 392,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__drift__mod.rs_line_94_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__drift__mod.rs_line_94_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 7.2973008,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/parse/toml.rs:105:5: replace to_model -> (Model, Vec<Diagnostic>) with (Default::default(), vec![])",
+          "package": "archi",
+          "file": "crates/core/archi/src/parse/toml.rs",
+          "function": {
+            "function_name": "to_model",
+            "return_type": "-> (Model, Vec<Diagnostic>)",
+            "span": {
+              "start": {
+                "line": 100,
+                "column": 1
+              },
+              "end": {
+                "line": 166,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 105,
+              "column": 5
+            },
+            "end": {
+              "line": 165,
+              "column": 6
+            }
+          },
+          "replacement": "(Default::default(), vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__parse__toml.rs_line_105_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__parse__toml.rs_line_105_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 7.6390792,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/parse/toml.rs:248:5: replace validate_path -> Option<Diagnostic> with None",
+          "package": "archi",
+          "file": "crates/core/archi/src/parse/toml.rs",
+          "function": {
+            "function_name": "validate_path",
+            "return_type": "-> Option<Diagnostic>",
+            "span": {
+              "start": {
+                "line": 236,
+                "column": 1
+              },
+              "end": {
+                "line": 261,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 248,
+              "column": 5
+            },
+            "end": {
+              "line": 260,
+              "column": 7
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__parse__toml.rs_line_248_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__parse__toml.rs_line_248_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.146709,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/parse/toml.rs:105:5: replace to_model -> (Model, Vec<Diagnostic>) with (Default::default(), vec![Default::default()])",
+          "package": "archi",
+          "file": "crates/core/archi/src/parse/toml.rs",
+          "function": {
+            "function_name": "to_model",
+            "return_type": "-> (Model, Vec<Diagnostic>)",
+            "span": {
+              "start": {
+                "line": 100,
+                "column": 1
+              },
+              "end": {
+                "line": 166,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 105,
+              "column": 5
+            },
+            "end": {
+              "line": 165,
+              "column": 6
+            }
+          },
+          "replacement": "(Default::default(), vec![Default::default()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__parse__toml.rs_line_105_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__parse__toml.rs_line_105_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.2979393,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/parse/toml.rs:248:5: replace validate_path -> Option<Diagnostic> with Some(Default::default())",
+          "package": "archi",
+          "file": "crates/core/archi/src/parse/toml.rs",
+          "function": {
+            "function_name": "validate_path",
+            "return_type": "-> Option<Diagnostic>",
+            "span": {
+              "start": {
+                "line": 236,
+                "column": 1
+              },
+              "end": {
+                "line": 261,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 248,
+              "column": 5
+            },
+            "end": {
+              "line": 260,
+              "column": 7
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__parse__toml.rs_line_248_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__parse__toml.rs_line_248_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 7.1958383,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/parse/toml.rs:248:37: replace || with && in validate_path",
+          "package": "archi",
+          "file": "crates/core/archi/src/parse/toml.rs",
+          "function": {
+            "function_name": "validate_path",
+            "return_type": "-> Option<Diagnostic>",
+            "span": {
+              "start": {
+                "line": 236,
+                "column": 1
+              },
+              "end": {
+                "line": 261,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 248,
+              "column": 37
+            },
+            "end": {
+              "line": 248,
+              "column": 39
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__parse__toml.rs_line_248_col_37.log",
+      "diff_path": "diff/crates__core__archi__src__parse__toml.rs_line_248_col_37.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.5420835,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/parse/toml.rs:248:51: replace < with > in validate_path",
+          "package": "archi",
+          "file": "crates/core/archi/src/parse/toml.rs",
+          "function": {
+            "function_name": "validate_path",
+            "return_type": "-> Option<Diagnostic>",
+            "span": {
+              "start": {
+                "line": 236,
+                "column": 1
+              },
+              "end": {
+                "line": 261,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 248,
+              "column": 51
+            },
+            "end": {
+              "line": 248,
+              "column": 52
+            }
+          },
+          "replacement": ">",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__parse__toml.rs_line_248_col_51_001.log",
+      "diff_path": "diff/crates__core__archi__src__parse__toml.rs_line_248_col_51_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 4.7743579,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/parse/toml.rs:248:51: replace < with == in validate_path",
+          "package": "archi",
+          "file": "crates/core/archi/src/parse/toml.rs",
+          "function": {
+            "function_name": "validate_path",
+            "return_type": "-> Option<Diagnostic>",
+            "span": {
+              "start": {
+                "line": 236,
+                "column": 1
+              },
+              "end": {
+                "line": 261,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 248,
+              "column": 51
+            },
+            "end": {
+              "line": 248,
+              "column": 52
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__parse__toml.rs_line_248_col_51.log",
+      "diff_path": "diff/crates__core__archi__src__parse__toml.rs_line_248_col_51.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.8923068,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/parse/toml.rs:248:13: replace != with == in validate_path",
+          "package": "archi",
+          "file": "crates/core/archi/src/parse/toml.rs",
+          "function": {
+            "function_name": "validate_path",
+            "return_type": "-> Option<Diagnostic>",
+            "span": {
+              "start": {
+                "line": 236,
+                "column": 1
+              },
+              "end": {
+                "line": 261,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 248,
+              "column": 13
+            },
+            "end": {
+              "line": 248,
+              "column": 15
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__parse__toml.rs_line_248_col_13.log",
+      "diff_path": "diff/crates__core__archi__src__parse__toml.rs_line_248_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.2214034,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/parse/toml.rs:248:51: replace < with <= in validate_path",
+          "package": "archi",
+          "file": "crates/core/archi/src/parse/toml.rs",
+          "function": {
+            "function_name": "validate_path",
+            "return_type": "-> Option<Diagnostic>",
+            "span": {
+              "start": {
+                "line": 236,
+                "column": 1
+              },
+              "end": {
+                "line": 261,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 248,
+              "column": 51
+            },
+            "end": {
+              "line": 248,
+              "column": 52
+            }
+          },
+          "replacement": "<=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__parse__toml.rs_line_248_col_51_002.log",
+      "diff_path": "diff/crates__core__archi__src__parse__toml.rs_line_248_col_51_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 4.0171645,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 10,
+  "missed": 0,
+  "caught": 0,
+  "timeout": 0,
+  "unviable": 10,
+  "success": 0,
+  "start_time": "2026-11-24T01:36:56.2285324Z",
+  "end_time": "2026-11-24T01:37:19.2061283Z",
+  "cargo_mutants_version": "27.1.0"
+}

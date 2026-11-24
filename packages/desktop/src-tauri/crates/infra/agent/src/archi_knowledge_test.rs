@@ -331,21 +331,115 @@ fn md缺省档与default逐值对拍() {
 }
 
 // ---------------------------------------------------------------------------
-// 静默陷阱保留（R1）与保留项
+// 形态纪律保留（R1）与保留项
 // ---------------------------------------------------------------------------
 
-/// 边界（表驱动）：四条 C 档纪律逐条在场——带引号 FQN 单键、`metadata` 必须内联表、
-/// 目录尾 `/`、容器填 `path` 后子元素依赖即 `dependsOnAncestor`。
+/// 边界（表驱动）：四条 C 档形态纪律逐条在场——带引号 FQN 单键、`metadata` 子表与
+/// 内联表等价、目录尾 `/`、容器填 `path` 后子元素依赖即 `dependsOnAncestor`；并断言
+/// 「子表会被读成另一个元素」一类假因果在骨架中零命中。
 #[test]
-fn 骨架静默陷阱四条在场() {
+fn 骨架形态纪律四条在场() {
     let source = skeleton();
     for needle in [
         "带引号的完整 FQN 单键",
-        "内联表",
+        "子表与内联表等价",
         "目录尾 `/`",
         "dependsOnAncestor",
     ] {
         assert!(source.contains(needle), "C 档纪律 `{needle}` 在场");
+    }
+    for forbidden in [
+        "读成另一个元素",
+        "读成**另一**元素",
+        "必须内联表",
+        "被读成元素",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "假因果句 `{forbidden}` MUST NOT 留在骨架"
+        );
+    }
+}
+
+/// 正向：键形段的真因果两句在场——未引号点分使**整份源解析失败**（诊断点名非法
+/// 子键）、`metadata` 子表与内联表**等价**（子表合法这一点 MUST 留在场）。
+#[test]
+fn 骨架含键形真因果句() {
+    let source = skeleton();
+    for needle in [
+        "整份源解析失败",
+        "诊断点名非法子键",
+        "子表与内联表等价",
+        "唯一声明才缺 `kind`",
+    ] {
+        assert!(source.contains(needle), "键形真因果句 `{needle}` 在场");
+    }
+}
+
+/// 正向：`path` 基数句三组口径齐备——`module` 必填可多条 / `package` 至多一条包根
+/// （纯容器可留空）/ `domain`·`composite` 选填，且含「空 `path` 零告警」压缩句与
+/// 「≥2 条即模型停摆」出路口径。
+#[test]
+fn 骨架含path基数三口径() {
+    let source = skeleton();
+    let line = line_starting("- `path`：");
+    for needle in [
+        "模块必填",
+        "可多条",
+        "至多一条包根",
+        "纯容器可留空",
+        "≥2 条即模型停摆",
+        "选填",
+        "空 `path` 零告警",
+    ] {
+        assert!(line.contains(needle), "`path` 基数句含 `{needle}`：{line}");
+    }
+    assert!(
+        line.contains("`domain` / `composite`"),
+        "选填口径点名两个豁免 kind：{line}"
+    );
+    assert!(
+        source.contains("archi_module") && source.contains("hasPath"),
+        "尾句「缺 `path` 看 `archi_module` 的 `hasPath`」保留"
+    );
+}
+
+/// 正向：`composite` 补「纯分层容器是标准形态」，且既有「组合」语义词不被顶替。
+#[test]
+fn 骨架含composite纯分层容器句() {
+    let source = skeleton();
+    assert!(
+        source.contains("纯分层容器是标准形态"),
+        "`composite` 标准形态句在场"
+    );
+    assert!(source.contains("组合"), "既有「组合」语义词仍在场");
+    assert!(
+        source.contains("可嵌套任意类型之上"),
+        "`composite` 的嵌套语义仍在场"
+    );
+}
+
+/// 正向：既有规范语义在体量压缩下不被删——四处口径（`domain` 层可省略 / `package`
+/// 指定语言 / `domain` 的业务实体举例 / 边界段的「指针不扩张」）与 `path` 尾句
+/// 「缺 `path` 看 `archi_module` 的 `hasPath`」逐字在场。
+///
+/// 这条锚的对手是「为压回体量而删纪律」：新增句挤占字节时只许词汇级等量置换，
+/// 上述语义属既有规范承诺，删掉即失真（`domain` 层可省略与 delta 的 `kind` 值域
+/// 同口径）。
+#[test]
+fn 骨架规范语义在体量压缩下不被删() {
+    let source = skeleton();
+    for needle in [
+        "`domain` 层可省略",
+        "指定语言",
+        "例：订单/通知",
+        "指针不扩张",
+        "缺 `path` 看 `archi_module` 的 `hasPath`",
+    ] {
+        assert!(
+            source.contains(needle),
+            "既有规范语义 `{needle}` 在场（体量压缩只做等量置换，不删纪律）"
+        );
     }
 }
 
@@ -374,15 +468,15 @@ fn lf_bytes(text: &str) -> usize {
     text.replace("\r\n", "\n").len()
 }
 
-/// 边界：骨架体量冻结在**实测值 2459 B**（LF 归一；词表收敛为字段值域、结构诊断
-/// 全量词不出现在知识文本后，目标区间定为 2300–2600 B），门限 ≤ 2700 B 仍在断言
-/// 内——增删内容须同批更新冻结值，MUST NOT 以「贴近门限」冒充达标。
+/// 边界：骨架体量冻结在**实测值 2596 B**（LF 归一；`path` 基数三口径 + 键形真因果
+/// 句 + `composite` 标准形态句落位后），目标区间仍为 2300–2600 B，门限 ≤ 2700 B
+/// 仍在断言内——增删内容须同批更新冻结值，MUST NOT 以「贴近门限」冒充达标。
 #[test]
 fn 骨架体量锚() {
     let bytes = lf_bytes(skeleton().trim_end());
     assert_eq!(
-        bytes, 2459,
-        "骨架体量实测 2459 B（LF 归一）已冻结；内容变更须同批更新本值与全文锚"
+        bytes, 2596,
+        "骨架体量实测 2596 B（LF 归一）已冻结；内容变更须同批更新本值与全文锚"
     );
     assert!(
         (2300..=2600).contains(&bytes),
@@ -394,14 +488,14 @@ fn 骨架体量锚() {
     );
 }
 
-/// 边界：全文（骨架 + 目录段）体量冻结在**实测值 2602 B**（LF 归一，目标区间
+/// 边界：全文（骨架 + 目录段）体量冻结在**实测值 2739 B**（LF 归一，目标区间
 /// 2450–2750 B），门限 ≤ 2850 B 仍在断言内。
 #[test]
 fn 全文体量锚() {
     let bytes = lf_bytes(&text());
     assert_eq!(
-        bytes, 2602,
-        "全文体量实测 2602 B（LF 归一）已冻结；内容变更须同批更新本值与骨架锚"
+        bytes, 2739,
+        "全文体量实测 2739 B（LF 归一）已冻结；内容变更须同批更新本值与骨架锚"
     );
     assert!(
         (2450..=2750).contains(&bytes),

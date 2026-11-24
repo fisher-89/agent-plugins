@@ -2,7 +2,7 @@
 # 外部系统适配器，依赖方向为 infra → core（跨域边 store → core.workflow / core.notification 与生产依赖一致）。
 
 [element."Backend.Infra"]
-kind = "package"
+kind = "composite"
 gate = "off"
 summary = "外部系统适配层：进程、本地库、版本控制、文件监视与 agent 运行时"
 

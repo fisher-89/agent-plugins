@@ -306,6 +306,71 @@ fn graph_view九类结构错一律停摆() {
     }
 }
 
+/// 异常（跨模块组合：`parse` 的 `path` 基数判据 → `parse_dir` → `graph_view`）：
+/// 模型目录唯一文件写 `package` 2 条 `path` → `Ok`（不 `Err`），`elements` /
+/// `relations` 皆空、`diagnostics` 恰一条 `invalidValue`（停摆全或无，**不是**跳过
+/// 坏元素、保留其余）。
+#[test]
+fn graph_view包根越界停摆() {
+    let temp = TempDir::new("halt-package-paths");
+    temp.write_model(
+        "01.toml",
+        "[element.\"Backend\"]\nkind = \"package\"\npath = [\"./a/\", \"./b/\"]\n",
+    );
+    let graph = dto::graph_view(temp.root())
+        .unwrap_or_else(|error| panic!("停摆态应 Ok 返回（不 Err）: {error}"));
+    assert_halted(&graph, "package 2 条 path");
+    assert_eq!(graph.diagnostics.len(), 1, "恰一条基数诊断");
+    assert_eq!(
+        graph.diagnostics[0].kind,
+        DiagnosticKind::InvalidValue,
+        "越界属值域违例"
+    );
+}
+
+/// 边界：非法文件内再放 2 个健康元素（`module` / `domain` 各 1，均 0 条 `path`）→
+/// `elements` 仍全空（全或不与健康元素共存），`diagnostics` 恰一条。
+#[test]
+fn graph_view包根越界不与健康元素共存() {
+    let temp = TempDir::new("halt-package-paths-healthy");
+    temp.write_model(
+        "01.toml",
+        concat!(
+            "[element.\"Backend\"]\n",
+            "kind = \"package\"\n",
+            "path = [\"./a/\", \"./b/\"]\n",
+            "\n",
+            "[element.\"Backend.Shell\"]\n",
+            "kind = \"module\"\n",
+            "\n",
+            "[element.\"Backend.Views\"]\n",
+            "kind = \"domain\"\n",
+        ),
+    );
+    let graph = dto::graph_view(temp.root()).expect("停摆态应 Ok");
+    assert_halted(&graph, "越界 + 2 健康元素");
+    assert_eq!(graph.diagnostics.len(), 1, "健康元素不冲淡诊断条数");
+}
+
+/// 边界：两文件模型（`01.toml` 写越界元素、`02.toml` 健康）→ `diagnostics` 恰一条
+/// 且 `file` 回填为该文件（`parse_dir` 逐文件回填在停摆路径上仍生效），`elements` 空。
+#[test]
+fn graph_view包根越界诊断file回填到出错文件() {
+    let temp = TempDir::new("halt-package-paths-file");
+    temp.write_model(
+        "01.toml",
+        "[element.\"Backend\"]\nkind = \"package\"\npath = [\"./a/\", \"./b/\"]\n",
+    );
+    temp.write_model("02.toml", "[element.\"Desktop\"]\nkind = \"package\"\n");
+    let graph = dto::graph_view(temp.root()).expect("停摆态应 Ok");
+    assert_halted(&graph, "两文件模型");
+    assert_eq!(graph.diagnostics.len(), 1, "恰一条基数诊断");
+    assert_eq!(
+        graph.diagnostics[0].file, ".dev-team/architecture/graph/model/01.toml",
+        "file 回填为出错文件（不是健康文件、不是空串）"
+    );
+}
+
 /// 边界：空态与停摆态可区分——`models/` 缺席 / 空目录 → 三数组皆空且
 /// `diagnostics` 空；`docNotFound` 场景 → 不进 `diagnostics`（`ArchiGraph` 无
 /// `warnings` 字段）。

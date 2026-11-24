@@ -7,6 +7,10 @@
 //! 引入方档位定级、`declared ∖ used` 只作观察项，求差单点见 [`api_buckets`]）→
 //! `occurrences` 聚合 → `status` 推导 → 报告装配。
 //!
+//! ④ 段的 `noPath` 按 `kind` 分档：`package` / `module` 空 `path` 记一条警告，
+//! `domain` / `composite` 空 `path` 是其标准形态、零告警——但所有空 `path` 元素都
+//! 不进 path 存在性循环。
+//!
 //! 边界：纯读盘、**零写盘**、**零 spawn**（报告落盘在 `crates/infra/archi`，本
 //! crate 只出结构）。`status` 推导序见 [`derive_status`]——`api_findings` 经纳管子集
 //! （入口文档承诺已成立元素的判据）影响 `status` 与 `passed`：子集内任一 `error` 档
@@ -21,7 +25,7 @@ use std::path::{Path, PathBuf};
 use foundation::cancel::CancelFlag;
 use sha2::{Digest, Sha256};
 
-use crate::dto::{self, GateTier};
+use crate::dto::{self, ElementKind, GateTier};
 use crate::scan::{self, DependencyEdge, ScanInput};
 use report::{
     ArchiDriftModel, ArchiDriftObservation, ArchiDriftOccurrence, ArchiDriftSuppressedEntry,
@@ -107,22 +111,25 @@ pub fn check(input: CheckInput<'_>) -> Result<Report, CheckError> {
         .collect();
     let config = config::load_config(input.root, &known).map_err(CheckError::Config)?;
 
-    // ④ 模型警告（`noPath` / `pathNotFound`）与 path 失效条目（按元素档位定级）
+    // ④ 模型警告（`noPath` / `pathNotFound`）与 path 失效条目（按元素档位定级）；
+    //    `noPath` 按 `kind` 分档（`domain` / `composite` 豁免）
     let mut model_warnings: Vec<ArchiDriftEntry> = Vec::new();
     let mut path_entries: Vec<ArchiDriftEntry> = Vec::new();
     for element in &graph.elements {
         if element.path.is_empty() {
-            model_warnings.push(ArchiDriftEntry {
-                kind: ArchiDriftKind::NoPath,
-                from: Some(element.fqn.clone()),
-                to: None,
-                gate: Some(element.gate),
-                message: format!(
-                    "元素 {} 未声明 path（不参与归属；依赖提取会把它视作无主）",
-                    element.fqn
-                ),
-                occurrences: Vec::new(),
-            });
+            if matches!(element.kind, ElementKind::Package | ElementKind::Module) {
+                model_warnings.push(ArchiDriftEntry {
+                    kind: ArchiDriftKind::NoPath,
+                    from: Some(element.fqn.clone()),
+                    to: None,
+                    gate: Some(element.gate),
+                    message: format!(
+                        "元素 {} 未声明 path（不参与归属；依赖提取会把它视作无主）",
+                        element.fqn
+                    ),
+                    occurrences: Vec::new(),
+                });
+            }
             continue;
         }
         for path in &element.path {

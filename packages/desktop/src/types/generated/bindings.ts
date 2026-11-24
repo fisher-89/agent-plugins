@@ -995,7 +995,8 @@ export type ArchiDriftEntry = {
  *  漂移条目种类（封闭五值；线格式 camelCase）：`undeclaredDependency`（未声明
  *  依赖，进 errors / warnings）、`undeclaredApi`（关系写了 `apis` 而代码用了清单外
  *  的名字，与前者同档规则、粒度到符号）、`pathNotFound`（元素 path 失效）、
- *  `ambiguousOwner`（归属不确定）、`noPath`（元素未声明 path）。
+ *  `ambiguousOwner`（归属不确定）、`noPath`（`package` / `module` 未声明 `path`；
+ *  `domain` / `composite` 空 `path` 是合法形态）。
  */
 export type ArchiDriftKind = 
 /**  代码存在跨元素 import 而模型未声明该关系 */
@@ -1004,7 +1005,7 @@ export type ArchiDriftKind =
 "pathNotFound" | 
 /**  同一最长前缀命中多个元素（归属不确定） */
 "ambiguousOwner" | 
-/**  元素未声明 `path`（不参与归属） */
+/**  `package` / `module` 未声明 `path`（不参与归属；容器空 `path` 是合法形态） */
 "noPath" | 
 /**  关系写了 `apis` 而代码对该元素对用了 `apis` 之外的名字（符号级对偶） */
 "undeclaredApi";

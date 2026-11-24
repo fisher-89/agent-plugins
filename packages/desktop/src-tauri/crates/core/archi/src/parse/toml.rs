@@ -3,6 +3,9 @@
 //!
 //! 行 / 列换算只做字节偏移的后处理（[`line_of`] / [`column_of`]），MUST NOT 二次
 //! 扫文本反推行列——span 由反序列化同时产出。
+//!
+//! `path` 的基数随 `kind`（[`validate_path`]）：`package` 至多一条包根，
+//! `module` / `domain` / `composite` 不设上界。
 
 use std::collections::BTreeMap;
 
@@ -103,8 +106,15 @@ fn to_model(raw: RawDocument, source: &str) -> (Model, Vec<Diagnostic>) {
     let mut elements: Vec<Element> = Vec::with_capacity(raw.element.len());
     for (key, raw_element) in raw.element {
         let span = key.span();
+        let fqn = key.into_inner();
+        diagnostics.extend(validate_path(
+            source,
+            &fqn,
+            raw_element.kind,
+            &raw_element.path,
+        ));
         elements.push(Element {
-            fqn: key.into_inner(),
+            fqn,
             kind: raw_element.kind,
             gate: raw_element.gate,
             api: raw_element.api,
@@ -221,6 +231,33 @@ fn validate_apis(
         }
     }
     diagnostics
+}
+
+/// `path` 的基数判据：`package` 至多一条包根（0 条 = 纯容器合法，1 条 = 包根
+/// 目录），其余 kind 不设上界。
+///
+/// 越界出带位置的 `invalidValue`，位置取第 2 条 `path` 的 `span`（比元素表头更准）；
+/// 元素照常入模型、诊断照常累积——「不跳过」的纪律在 `dto::graph_view` 的停摆分支，
+/// 不在本层。
+fn validate_path(
+    source: &str,
+    fqn: &str,
+    kind: ElementKind,
+    path: &[::toml::Spanned<String>],
+) -> Option<Diagnostic> {
+    if kind != ElementKind::Package || path.len() < 2 {
+        return None;
+    }
+    let span = path[1].span();
+    Some(Diagnostic {
+        kind: DiagnosticKind::InvalidValue,
+        message: format!(
+            "元素 {fqn} 是 package：一个包至多一条包根目录（纯容器可留空）——多条 path 属 module"
+        ),
+        file: String::new(),
+        line: line_of(source, span.start),
+        column: Some(column_of(source, span.start)),
+    })
 }
 
 /// parser / serde 错误 → 诊断种类（判定只看文案前缀；分类学需要机器可辨，文案

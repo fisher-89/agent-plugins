@@ -200,7 +200,7 @@ const SCAFFOLD_TEMPLATE: &str = r#"# 新元素模板（只读草稿：写盘仍�
 [element."NewElement"]
 
 kind = "__KIND__"
-# kind：package = 包根（无 path）/ domain = 容器（path 恒空）/ module = crate、目录型模块、视图或单文件组件
+# kind：package = 包（至多一条包根 path，纯容器可留空）/ domain = 领域容器（path 选填）/ module = crate、目录型模块、视图或单文件组件（path 必填、可多条）/ composite = 纯分组（无层级，可嵌套任意类型之上；纯分层容器是标准形态）
 
 # gate：缺省 off（ratchet 逐块收紧），值 off / warn / strict
 # gate = "off"
@@ -211,7 +211,7 @@ kind = "__KIND__"
 # entry：只在约定默认指不到时写（repo 相对 POSIX；单文件根 = 根文件自身 / 目录型根 = index.ts(x) / crate = src/lib.rs）
 # entry = "./src-tauri/crates/core/example/src/lib.rs"
 
-# path：叶元素必填；`./` 前缀、repo 相对；目录以 `/` 结尾、文件精确到扩展名；容器（package / domain）恒空
+# path：module 必填（可多条 = 若干根的清单）；package 至多一条包根（纯容器可留空；≥2 条即模型停摆）；domain / composite 选填；`./` 前缀、repo 相对；目录以 `/` 结尾、文件精确到扩展名
 # path = ["./src-tauri/crates/core/example/src/"]
 # path = ["./src-tauri/crates/core/example/src/lib.rs"]
 
@@ -221,7 +221,7 @@ kind = "__KIND__"
 # summary：一行摘要
 # summary = "一句话说明本元素负责什么"
 
-# metadata：必须是内联表（子表会被读成另一个元素）
+# metadata：子表与内联表等价（[element."X".metadata] 写在已声明元素之后零诊断；成为唯一声明才缺 kind）
 # metadata = { owner = "team-x", layer = "core" }
 
 # 关系模板

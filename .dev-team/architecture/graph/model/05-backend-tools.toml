@@ -2,7 +2,7 @@
 # 唯一一条「工具 → 壳」的反向边：导出 bindings 必须以壳的包为依赖。
 
 [element."Backend.Tools"]
-kind = "package"
+kind = "composite"
 gate = "off"
 summary = "构建期工具 crate 容器"
 

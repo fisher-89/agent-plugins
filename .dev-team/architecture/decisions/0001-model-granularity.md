@@ -18,11 +18,11 @@
 
 子域计数口径示例：`Desktop.Views.Changes.Flow` 的目录顶层与子目录合计 16 个非测试源文件、`renderers` 8 个、`agent` 4 个（含其 `hooks/`），恰三处达标。
 
-元素类型与粒度档对应：crate（`crates/{core,infra,tools}/<dir>/`）与两个包根（`Backend` / `Desktop`）`kind = "package"`；`core` / `infra` / `tools` 分层容器同为 `package`（其子元素是包）；业务聚合容器（`Desktop.Views` / `Desktop.Components` / `Desktop.Components.Standard`）`kind = "domain"`（`path` 选填）；目录 / 视图 / 单文件组件（含 barrel 与生成物中继）`kind = "module"`。`composite` 是聚合类型，本仓当前无实例——它不承担层级，只用于把过多的同级元素分类；`path` 选填，填了即持文件并可作端点，不填则纯分组。
+元素类型与粒度档对应：crate（`crates/{core,infra,tools}/<dir>/`）与两个包根（`Backend` / `Desktop`）`kind = "package"`（`path` 至多一条包根：持根路径即兜底面，纯容器可留空）；`core` / `infra` / `tools` **纯分组容器**（`Backend.Core` / `Backend.Infra` / `Backend.Tools`）`kind = "composite"`（无层级、不持文件，空 `path` 正是标准形态）；业务聚合容器（`Desktop.Views` / `Desktop.Components` / `Desktop.Components.Standard`）`kind = "domain"`（`path` 选填）；目录 / 视图 / 单文件组件（含 barrel 与生成物中继）`kind = "module"`（`path` 必填、可多条 = 若干根的清单）。`composite` 不承担层级，只把过多的同级元素分类、可嵌套在任意类型之上；`path` 选填，填了即持文件并可作端点，不填则纯分组。
 
 ## 3. 容器 `path` 选填；包根兜底文件归属；barrel 是目录模块的入口
 
-包含关系由 FQN 前缀表达，不由关系表达。`domain` / `composite` 容器（`Backend.Core` / `Backend.Infra` / `Backend.Tools` / `Desktop.Views` / `Desktop.Components` / `Desktop.Components.Standard`）的 `path` 是**选填**字段：不填即纯分组（本基线六个容器全部留空）；填了即「它自己持有文件」，该元素因而可以成为关系端点。容器持 `path` 时须留意：子元素依赖它会写出「子 → 父」，`dependsOnAncestor` 立即停摆——本基线因此让六个容器保持空。
+包含关系由 FQN 前缀表达，不由关系表达。六个容器按语义分两组：**`composite` 纯分组组** = `Backend.Core` / `Backend.Infra` / `Backend.Tools`（无层级、不持文件，空 `path` 是典型形态）；**`domain` 业务聚合组** = `Desktop.Views` / `Desktop.Components` / `Desktop.Components.Standard`（可持文件）。两组的 `path` 都是**选填**字段：本基线六个容器全部留空（`composite` 组空 `path` 就是它的形态本身，`domain` 组空 `path` 表示当前不持文件）；填了即「它自己持有文件」，该元素因而可以成为关系端点。容器持 `path` 时须留意：子元素依赖它会写出「子 → 父」，`dependsOnAncestor` 立即停摆——本基线因此让六个容器保持空。
 
 两个包根 `Backend` / `Desktop` 不在此列：它们是 `kind = "package"` 的**持有者**，各持根路径（`./packages/desktop/src-tauri/` 与 `./packages/desktop/src/`），把未被更具体元素认领的文件兜在自己名下。这是「包 = 文件归属兜底面」的显式表达；`Backend` 与 `Desktop` 因而可以成为关系端点（如 `Desktop → Desktop.GeneratedBindings`），不属于「容器随手连边」。
 

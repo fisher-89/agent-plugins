@@ -246,15 +246,17 @@ fn 缺必填字段归_missing_field_且位置未知形态自洽() {
     assert!(diagnostic.line != u32::MAX, "不出现 u32::MAX 哨兵值");
 }
 
-/// 异常：`invalidValue`——非法 `kind` 列出三个合法值，非法 `gate` 列出三个合法值。
+/// 异常：`invalidValue`——非法 `kind` 列出四个合法值（经 `ElementKind::ALL` 派生），
+/// 非法 `gate` 列出三个合法值。
 #[test]
 fn 非法枚举值归_invalid_value_且列出全部合法值() {
     let kind_diagnostic = single_diagnostic("[element.\"App\"]\nkind = \"pakage\"\n");
     assert_eq!(kind_diagnostic.kind, DiagnosticKind::InvalidValue);
-    for legal in ["package", "domain", "module"] {
+    for kind in ElementKind::ALL {
         assert!(
-            kind_diagnostic.message.contains(legal),
-            "kind 错误文案应列出合法值 {legal}: {}",
+            kind_diagnostic.message.contains(kind.as_str()),
+            "kind 错误文案应列出合法值 {}: {}",
+            kind.as_str(),
             kind_diagnostic.message
         );
     }
@@ -301,13 +303,76 @@ fn 未知字段被拒而metadata未知键被接受() {
     );
 }
 
-/// 异常：`metadata` 非字符串值 → 拒绝且位置在案（按 spec「非字符串值即
-/// `invalidValue`」与 D19 的值域判据：serde 的 `invalid type` 与前缀分类学的
-/// `invalidValue` 同档，文案与位置零加工）；子表形态
-/// `[element."App.Auth".metadata]` 无法构成合法元素（缺 `kind`）→ `missingField`，
-/// 且不产出任何元素（单文件解析全或无）。
+/// 正向（行为锚：`metadata` 子表与内联表等价）：内联表源与「子表挂在已声明元素
+/// 之后」源各零诊断，`metadata` 键值逐项相同、其余字段逐字段相等，且元素集恰
+/// `{App}`（不出现 `…metadata` 形态的元素）。
 #[test]
-fn metadata非字符串值被拒且子表形态不静默成元数据() {
+fn metadata子表与内联表等价() {
+    let inline = concat!(
+        "[element.\"App\"]\n",
+        "kind = \"package\"\n",
+        "path = [\"./src/app/\"]\n",
+        "doc = \"./src/app/README.md\"\n",
+        "metadata = { owner = \"core\", tier = \"1\" }\n",
+    );
+    let subtable = concat!(
+        "[element.\"App\"]\n",
+        "kind = \"package\"\n",
+        "path = [\"./src/app/\"]\n",
+        "doc = \"./src/app/README.md\"\n",
+        "\n",
+        "[element.\"App\".metadata]\n",
+        "owner = \"core\"\n",
+        "tier = \"1\"\n",
+    );
+
+    let mut models = Vec::new();
+    for (label, source) in [("内联表", inline), ("子表", subtable)] {
+        let outcome = parse(source);
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "{label}形态应零诊断: {:?}",
+            outcome.diagnostics
+        );
+        let fqns: Vec<&str> = outcome
+            .model
+            .elements
+            .iter()
+            .map(|element| element.fqn.as_str())
+            .collect();
+        assert_eq!(fqns, vec!["App"], "{label}形态元素集恰 {{App}}");
+        models.push(outcome.model);
+    }
+
+    let left = models[0].element("App").expect("内联表形态 App 在场");
+    let right = models[1].element("App").expect("子表形态 App 在场");
+    for (key, expected) in [("owner", "core"), ("tier", "1")] {
+        assert_eq!(
+            left.metadata.get(key).map(String::as_str),
+            Some(expected),
+            "内联表形态 metadata 键 `{key}` 逐字还原"
+        );
+        assert_eq!(
+            left.metadata.get(key).map(String::as_str),
+            right.metadata.get(key).map(String::as_str),
+            "两形态的 metadata 键 `{key}` 逐项相同"
+        );
+    }
+    assert_eq!(
+        left.metadata.len(),
+        right.metadata.len(),
+        "两形态 metadata 键数相同（零多余键）"
+    );
+    assert_eq!(left.kind, right.kind, "kind 逐字段相等");
+    assert_eq!(left.path, right.path, "path 逐字段相等");
+    assert_eq!(left.doc, right.doc, "doc 逐字段相等");
+}
+
+/// 异常（行为锚：值域）：`metadata` 非字符串值 → 拒绝且位置在案（按 spec「非字符
+/// 串值即 `invalidValue`」与 D19 的值域判据：serde 的 `invalid type` 与前缀分类学
+/// 的 `invalidValue` 同档，文案与位置零加工）。
+#[test]
+fn metadata非字符串值被拒() {
     for source in [
         "[element.\"App\"]\nkind = \"package\"\nmetadata = { n = 1 }\n",
         "[element.\"App\"]\nkind = \"package\"\nmetadata = { flag = true }\n",
@@ -324,18 +389,25 @@ fn metadata非字符串值被拒且子表形态不静默成元数据() {
             diagnostic.message
         );
     }
+}
 
-    // 子表形态：被读成元素 App.Auth.metadata 的父表，缺 kind 即 missingField
-    let diagnostic = single_diagnostic(
-        "[element.\"App\"]\nkind = \"package\"\n\n[element.\"App.Auth\".metadata]\nowner = \"core\"\n",
+/// 异常（行为锚：`metadata` 子表成为唯一声明）：`[element."App.Auth".metadata]` 是
+/// 该 FQN 的唯一声明 → 缺 `kind` 即 `missingField`，且单文件解析全或无（零元素）。
+#[test]
+fn metadata子表成为唯一声明即缺kind() {
+    let source =
+        "[element.\"App\"]\nkind = \"package\"\n\n[element.\"App.Auth\".metadata]\nowner = \"core\"\n";
+    let diagnostic = single_diagnostic(source);
+    assert_eq!(
+        diagnostic.kind,
+        DiagnosticKind::MissingField,
+        "唯一声明的子表缺 kind 即 missingField: {}",
+        diagnostic.message
     );
-    assert_eq!(diagnostic.kind, DiagnosticKind::MissingField);
-    let outcome = parse(
-        "[element.\"App\"]\nkind = \"package\"\n\n[element.\"App.Auth\".metadata]\nowner = \"core\"\n",
-    );
+    let outcome = parse(source);
     assert!(
         outcome.model.elements.is_empty(),
-        "解析失败即全或无：不静默保留半个模型"
+        "解析失败即全或无：不保留半个模型"
     );
 }
 
@@ -385,6 +457,320 @@ fn 同文件重复表头归_duplicate_element() {
 }
 
 // ---------------------------------------------------------------------------
+// `path` 基数按 kind 分档（`package` 至多一条包根；其余 kind 不设上界）
+// ---------------------------------------------------------------------------
+
+/// 正向：`package` 恰 1 条 `path`（本仓 19 个元素的形态）→ 零诊断，元素在场且
+/// `path` 逐字保留（`./` 前缀 / 尾 `/` 都不归一）。
+#[test]
+fn package一条path逐字保留且零诊断() {
+    let source = concat!(
+        "[element.\"Backend\"]\n",
+        "kind = \"package\"\n",
+        "path = [\"./packages/desktop/src-tauri/crates/\"]\n",
+    );
+    let outcome = parse(source);
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "1 条包根合法: {:?}",
+        outcome.diagnostics
+    );
+    let element = outcome.model.element("Backend").expect("元素在场");
+    assert_eq!(element.kind, ElementKind::Package);
+    assert_eq!(
+        element.path,
+        vec!["./packages/desktop/src-tauri/crates/".to_owned()],
+        "path 逐字保留（不归一）"
+    );
+}
+
+/// 正向：`package` 省略 `path` 与显式 `path = []` 两形态（纯容器的形态）→ 各零
+/// 诊断、`path` 为空数组、元素照常入模型（「省略」与「空数组」等价）。
+#[test]
+fn package零条path合法() {
+    let sources = [
+        "[element.\"Backend\"]\nkind = \"package\"\n",
+        "[element.\"Backend\"]\nkind = \"package\"\npath = []\n",
+    ];
+    for source in sources {
+        let outcome = parse(source);
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "0 条包根合法（纯容器）: {source:?} → {:?}",
+            outcome.diagnostics
+        );
+        let element = outcome.model.element("Backend").expect("元素照常入模型");
+        assert!(element.path.is_empty(), "省略与空数组都产空 path");
+    }
+}
+
+/// 正向：`module` 2 条与 5 条（后者即 `Desktop.Shell` 形态）→ 零诊断、条目数与
+/// 逐项值全量保留（不设上界、不截断）。
+#[test]
+fn module多条path合法() {
+    let two = vec!["./src/a/".to_owned(), "./src/b/".to_owned()];
+    let five = vec![
+        "./src/core/".to_owned(),
+        "./src/views/".to_owned(),
+        "./src/components/".to_owned(),
+        "./src/lib/".to_owned(),
+        "./src/main.tsx".to_owned(),
+    ];
+    for paths in [two, five] {
+        let items = paths
+            .iter()
+            .map(|path| format!("\"{path}\""))
+            .collect::<Vec<String>>()
+            .join(", ");
+        let source = format!("[element.\"Desktop.Shell\"]\nkind = \"module\"\npath = [{items}]\n");
+        let outcome = parse(&source);
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "module 不设上界（{} 条）: {:?}",
+            paths.len(),
+            outcome.diagnostics
+        );
+        let element = outcome.model.element("Desktop.Shell").expect("元素在场");
+        assert_eq!(element.path, paths, "条目与逐项值全量保留");
+    }
+}
+
+/// 正向：`domain` 与 `composite` 各 2 条 `path` → 两形态各自零诊断（选填容器不设
+/// 上界），`path` 逐字保留。
+#[test]
+fn domain与composite多条path合法() {
+    for kind in [ElementKind::Domain, ElementKind::Composite] {
+        let source = format!(
+            "[element.\"App.Group\"]\nkind = \"{}\"\npath = [\"./src/a/\", \"./src/b/\"]\n",
+            kind.as_str()
+        );
+        let outcome = parse(&source);
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "{} 不设上界: {:?}",
+            kind.as_str(),
+            outcome.diagnostics
+        );
+        let element = outcome.model.element("App.Group").expect("元素在场");
+        assert_eq!(
+            element.path,
+            vec!["./src/a/".to_owned(), "./src/b/".to_owned()],
+            "{} 的 path 逐字保留",
+            kind.as_str()
+        );
+    }
+}
+
+/// 异常：`package` 写 2 条与 3 条 `path` → 恰一条诊断（`Option` 即「至多一条」，
+/// 不逐条铺开）：`invalidValue`、位置为第 2 条（非第 3 条、非表头行）、带列、
+/// 文案含「至多一条包根」并给出两句出路。
+#[test]
+fn package多条path被拒且位置命中第二条() {
+    let two = concat!(
+        "[element.\"Backend\"]\n",
+        "kind = \"package\"\n",
+        "path = [\"./a/\", \"./b/\"]\n",
+    );
+    let diagnostic = single_diagnostic(two);
+    assert_eq!(
+        diagnostic.kind,
+        DiagnosticKind::InvalidValue,
+        "包根越界是值域违例"
+    );
+    assert_eq!(
+        diagnostic.line,
+        line_at(two, "./b/"),
+        "位置取第 2 条 path 所在行"
+    );
+    assert_ne!(
+        diagnostic.line,
+        line_at(two, "[element.\"Backend\"]"),
+        "不落到元素表头行"
+    );
+    let column = diagnostic.column.expect("基数诊断带列");
+    assert!(column >= 1, "列 1 起始：{column}");
+    assert_eq!(diagnostic.file, "", "单文件契约：file 留空");
+    for piece in ["至多一条包根", "纯容器可留空", "module"] {
+        assert!(
+            diagnostic.message.contains(piece),
+            "文案含出路 `{piece}`: {}",
+            diagnostic.message
+        );
+    }
+
+    // 3 条：仍恰一条，且位置恒为第 2 条（跨行布局下与第 3 条可辨）
+    let three = concat!(
+        "[element.\"Backend\"]\n",
+        "kind = \"package\"\n",
+        "path = [\n",
+        "  \"./a/\",\n",
+        "  \"./b/\",\n",
+        "  \"./c/\",\n",
+        "]\n",
+    );
+    let diagnostic = single_diagnostic(three);
+    assert_eq!(diagnostic.line, line_at(three, "./b/"), "3 条仍只报第 2 条");
+    assert_ne!(diagnostic.line, line_at(three, "./c/"), "不铺开到第 3 条");
+}
+
+/// 异常：`package` 写 200 条 `path`（超大清单）→ 仍恰一条诊断，位置恒为第 2 条
+/// （`Option` 即「至多一条」，不随条目数增长）。
+#[test]
+fn package两百条path仍恰一条诊断() {
+    let items = (0..200)
+        .map(|index| format!("  \"./p{index:03}/\",\n"))
+        .collect::<String>();
+    let source = format!("[element.\"Backend\"]\nkind = \"package\"\npath = [\n{items}]\n");
+    let diagnostic = single_diagnostic(&source);
+    assert_eq!(diagnostic.kind, DiagnosticKind::InvalidValue);
+    assert_eq!(
+        diagnostic.line,
+        line_at(&source, "./p001/"),
+        "200 条仍只报第 2 条（位置不随规模漂移）"
+    );
+}
+
+/// 边界：`package` 2 条 `path` 与 2 个健康元素同文件 → 诊断恰一条且 **3 个元素全部
+/// 入模型**（`parse` 层不跳过坏元素；「不跳过」的纪律只在 `graph_view` 的停摆分支）。
+#[test]
+fn package越界诊断不跳过任何元素() {
+    let source = concat!(
+        "[element.\"App\"]\n",
+        "kind = \"package\"\n",
+        "path = [\"./a/\", \"./b/\"]\n",
+        "\n",
+        "[element.\"App.Mod\"]\n",
+        "kind = \"module\"\n",
+        "path = [\"./src/mod/\"]\n",
+        "\n",
+        "[element.\"App.Domain\"]\n",
+        "kind = \"domain\"\n",
+    );
+    let diagnostic = single_diagnostic(source);
+    assert_eq!(diagnostic.kind, DiagnosticKind::InvalidValue);
+    let outcome = parse(source);
+    let fqns: Vec<&str> = outcome
+        .model
+        .elements
+        .iter()
+        .map(|element| element.fqn.as_str())
+        .collect();
+    assert_eq!(
+        fqns,
+        vec!["App", "App.Domain", "App.Mod"],
+        "坏元素与健康元素全部入模型（不跳过）"
+    );
+}
+
+/// 边界：第 2 条 `path` 的取值矩阵（`""` 空串 / >1000 字符超长 / 含 `\n` 与 emoji
+/// 转义 / 目录尾 `/`）→ 判据只按**基数**不按内容：各自仍恰一条，位置恒在第 2 条。
+#[test]
+fn package第二条path取值矩阵只按基数() {
+    let long = format!("\"{}\"", "x".repeat(1200));
+    let values = [
+        "\"\"".to_owned(),
+        long,
+        r#""a\nb🚀""#.to_owned(),
+        "\"./c/\"".to_owned(),
+    ];
+    for value in values {
+        let source = format!("[element.\"App\"]\nkind = \"package\"\npath = [\"./a/\", {value}]\n");
+        let diagnostic = single_diagnostic(&source);
+        assert_eq!(
+            diagnostic.kind,
+            DiagnosticKind::InvalidValue,
+            "按基数判、不按内容: {value}"
+        );
+        assert_eq!(diagnostic.line, 3, "位置恒为第 2 条所在行: {value}");
+        let outcome = parse(&source);
+        let element = outcome.model.element("App").expect("元素照常入模型");
+        assert_eq!(element.path.len(), 2, "两条 path 逐字保留（不截断）");
+    }
+}
+
+/// 边界：两条 `path` 的布局矩阵（同行数组 / 每条一行）→ 行号分别为该行与第 2 条
+/// 自身行，两形态都不落到表头行（span 精确性）。
+#[test]
+fn package两条path布局矩阵行号不落表头() {
+    let same_line = concat!(
+        "[element.\"App\"]\n",
+        "kind = \"package\"\n",
+        "path = [\"./a/\", \"./b/\"]\n",
+    );
+    let diagnostic = single_diagnostic(same_line);
+    assert_eq!(
+        diagnostic.line,
+        line_at(same_line, "path = ["),
+        "同行数组：位置即该行"
+    );
+    assert_ne!(
+        diagnostic.line,
+        line_at(same_line, "[element.\"App\"]"),
+        "同行数组：不落到表头行"
+    );
+
+    let multi_line = concat!(
+        "[element.\"App\"]\n",
+        "kind = \"package\"\n",
+        "path = [\n",
+        "  \"./a/\",\n",
+        "  \"./b/\",\n",
+        "]\n",
+    );
+    let diagnostic = single_diagnostic(multi_line);
+    assert_eq!(
+        diagnostic.line,
+        line_at(multi_line, "./b/"),
+        "每条一行：位置为第 2 条自身行"
+    );
+    assert_ne!(
+        diagnostic.line,
+        line_at(multi_line, "[element.\"App\"]"),
+        "每条一行：不落到表头行"
+    );
+}
+
+/// 边界：`ElementKind::ALL` 四值 × 2 条 `path` 全矩阵（四值经 `ALL` 派生，不手抄
+/// 字面量）→ 仅 `Package` 出诊断，`Domain` / `Module` / `Composite` 零诊断。
+#[test]
+fn path基数按kind分档四值全矩阵() {
+    for kind in ElementKind::ALL {
+        let source = format!(
+            "[element.\"App\"]\nkind = \"{}\"\npath = [\"./a/\", \"./b/\"]\n",
+            kind.as_str()
+        );
+        let outcome = parse(&source);
+        match kind {
+            ElementKind::Package => {
+                assert_eq!(
+                    outcome.diagnostics.len(),
+                    1,
+                    "Package 越界恰一条: {:?}",
+                    outcome.diagnostics
+                );
+                assert_eq!(outcome.diagnostics[0].kind, DiagnosticKind::InvalidValue);
+            }
+            other => {
+                assert!(
+                    outcome.diagnostics.is_empty(),
+                    "{} 不设上界: {:?}",
+                    other.as_str(),
+                    outcome.diagnostics
+                );
+                let element = outcome.model.element("App").expect("元素在场");
+                assert_eq!(element.kind, other);
+                assert_eq!(
+                    element.path,
+                    vec!["./a/".to_owned(), "./b/".to_owned()],
+                    "{} 的 path 逐字保留",
+                    other.as_str()
+                );
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 边界：str / int / 规模
 // ---------------------------------------------------------------------------
 
@@ -426,12 +812,12 @@ fn 字符串值边界_超长与转义与数组规模均逐字保留() {
     assert_eq!(app.path, vec!["./a/".to_owned()], "单元素 path");
     assert_eq!(app.doc.as_deref(), Some("./a/README.md"), "单元素 doc");
 
-    // 200 项 path
+    // 200 项 path：`module` 不设上界（`package` 至多一条包根，见下方 path 基数用例）
     let items = (0..200)
         .map(|index| format!("\"./p{index:03}/md.md\""))
         .collect::<Vec<String>>()
         .join(", ");
-    let source = format!("[element.\"App\"]\nkind = \"package\"\npath = [{items}]\n");
+    let source = format!("[element.\"App\"]\nkind = \"module\"\npath = [{items}]\n");
     let outcome = parse(&source);
     assert!(outcome.diagnostics.is_empty());
     let app = outcome.model.element("App").expect("App 在模型内");

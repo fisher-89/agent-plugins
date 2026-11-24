@@ -899,6 +899,178 @@ fn path失效按元素档定级() {
     }
 }
 
+/// 异常（`noPath` 分档 · 仍报面）：`package` 空 `path`（模型唯一元素）+ 一个源文件 →
+/// `model.warnings` 恰一条 `noPath`、`errors` 空、`status == clean`（模型警告不进
+/// `status` / `passed`）。
+#[test]
+fn package空path仍记模型警告() {
+    let temp = TempDir::new("no-path-package");
+    temp.write_model("[element.\"App\"]\nkind = \"package\"\n");
+    temp.write("src/a.ts", "export const a = 1;\n");
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert_eq!(report.model.warnings.len(), 1, "package 空 path 记一条");
+    let entry = &report.model.warnings[0];
+    assert_eq!(entry.kind, ArchiDriftKind::NoPath, "kind 为 noPath");
+    assert_eq!(entry.from.as_deref(), Some("App"), "from 为该元素");
+    assert_eq!(entry.to, None, "noPath 无目标");
+    assert_eq!(entry.gate, Some(dto::GateTier::Off), "gate 取元素档位");
+    assert!(report.errors.is_empty(), "noPath 不进 errors");
+    assert_eq!(
+        report.status,
+        ArchiCheckStatus::Clean,
+        "模型警告不进 status（仍 clean）"
+    );
+}
+
+/// 正向（`noPath` 分档 · 豁免面）：`domain` 空 `path`（模型唯一元素）+ 一个源文件 →
+/// `model.warnings` 空、`errors` 空、`status == clean`；与「同输入形态的 `package`
+/// 孪生」对拍，读数差**恰好只在** `model.warnings`。
+#[test]
+fn domain空path零模型警告() {
+    let domain = TempDir::new("no-path-domain");
+    domain.write_model("[element.\"App\"]\nkind = \"domain\"\n");
+    domain.write("src/a.ts", "export const a = 1;\n");
+    let domain_report = run_full(domain.root()).expect("判定应成功");
+    assert!(
+        domain_report.model.warnings.is_empty(),
+        "domain 空 path 是其标准形态（零告警）: {:?}",
+        domain_report.model.warnings
+    );
+    assert!(domain_report.errors.is_empty(), "零 errors");
+    assert_eq!(
+        domain_report.status,
+        ArchiCheckStatus::Clean,
+        "零告警 ⇒ clean"
+    );
+
+    let package = TempDir::new("no-path-domain-twin");
+    package.write_model("[element.\"App\"]\nkind = \"package\"\n");
+    package.write("src/a.ts", "export const a = 1;\n");
+    let package_report = run_full(package.root()).expect("判定应成功");
+    assert_eq!(
+        domain_report.model.elements, package_report.model.elements,
+        "两形态元素数相同（输入形态一致）"
+    );
+    assert_eq!(
+        domain_report.warnings.len(),
+        package_report.warnings.len(),
+        "顶层 warnings 不受分档影响"
+    );
+    assert_eq!(
+        domain_report.scan.unmatched_files, package_report.scan.unmatched_files,
+        "归属读数不受分档影响（两者都不认领文件）"
+    );
+    assert_eq!(
+        package_report.model.warnings.len(),
+        domain_report.model.warnings.len() + 1,
+        "读数差恰好只在 model.warnings 的一条"
+    );
+}
+
+/// 正向（`noPath` 分档 · 豁免面）：`composite` 空 `path`（模型唯一元素）+ 一个源文件
+/// → `model.warnings` 空、`errors` 空、`status == clean`。
+#[test]
+fn composite空path零模型警告() {
+    let temp = TempDir::new("no-path-composite");
+    temp.write_model("[element.\"App\"]\nkind = \"composite\"\n");
+    temp.write("src/a.ts", "export const a = 1;\n");
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert!(
+        report.model.warnings.is_empty(),
+        "composite 空 path 是其标准形态（零告警）: {:?}",
+        report.model.warnings
+    );
+    assert!(report.errors.is_empty(), "零 errors");
+    assert_eq!(report.status, ArchiCheckStatus::Clean, "零告警 ⇒ clean");
+}
+
+/// 边界（`noPath` 分档 · 四值矩阵）：四 kind 各一元素全部空 `path` → `model.warnings`
+/// **恰两条**，条目 `from` 集恰 `{App, App.Mod}`（`domain` / `composite` 零条目）。
+#[test]
+fn 四kind空path只有package与module记警告() {
+    let temp = TempDir::new("no-path-four-kinds");
+    temp.write_model(concat!(
+        "[element.\"App\"]\nkind = \"package\"\n\n",
+        "[element.\"App.Domain\"]\nkind = \"domain\"\n\n",
+        "[element.\"App.Mod\"]\nkind = \"module\"\n\n",
+        "[element.\"App.Comp\"]\nkind = \"composite\"\n",
+    ));
+    temp.write("src/a.ts", "export const a = 1;\n");
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert_eq!(report.model.warnings.len(), 2, "恰两条模型警告");
+    let froms: Vec<&str> = report
+        .model
+        .warnings
+        .iter()
+        .map(|entry| {
+            assert_eq!(entry.kind, ArchiDriftKind::NoPath, "两条都是 noPath");
+            entry.from.as_deref().expect("noPath 带 from")
+        })
+        .collect();
+    assert_eq!(froms, vec!["App", "App.Mod"], "from 集恰 package 与 module");
+    assert!(!froms.contains(&"App.Domain"), "domain 零条目");
+    assert!(!froms.contains(&"App.Comp"), "composite 零条目");
+    assert!(report.errors.is_empty(), "模型警告不进 errors");
+    assert_eq!(report.status, ArchiCheckStatus::Clean, "状态仍 clean");
+}
+
+/// 边界（`noPath` 分档 · 归属面）：`domain` / `composite` 空 `path` 元素与同名前缀的
+/// 源文件共存 → `scan.unmatched_files` 含该文件（豁免不认领文件、不参与归属），且零
+/// `noPath`。
+#[test]
+fn domain与composite空path不认领文件() {
+    for kind in ["domain", "composite"] {
+        let temp = TempDir::new("no-path-unowned");
+        temp.write_model(&format!("[element.\"Views\"]\nkind = \"{kind}\"\n"));
+        temp.write("views/a.ts", "export const a = 1;\n");
+        let report = run_full(temp.root()).expect("判定应成功");
+        assert!(
+            report
+                .scan
+                .unmatched_files
+                .contains(&"views/a.ts".to_owned()),
+            "{kind} 空 path 不认领任何文件：{:?}",
+            report.scan.unmatched_files
+        );
+        assert!(
+            report
+                .model
+                .warnings
+                .iter()
+                .all(|entry| entry.kind != ArchiDriftKind::NoPath),
+            "{kind} 零 noPath：{:?}",
+            report.model.warnings
+        );
+        assert!(report.errors.is_empty(), "{kind} 零 errors");
+    }
+}
+
+/// 边界（`noPath` 分档 · 与 `pathNotFound` 共存）：`domain` 空 `path` + 另一元素
+/// `path` 指向不存在文件 → `model.warnings` 恰一条且 `kind == PathNotFound`（无
+/// `noPath` 混入），`errors` 空。
+#[test]
+fn domain空path与路径失效共存() {
+    let temp = TempDir::new("no-path-with-missing");
+    temp.write_model(
+        "[element.\"Ghost\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"./src/ghost/\"]\n\n\
+         [element.\"Views\"]\nkind = \"domain\"\n",
+    );
+    temp.write("src/a.ts", "export const a = 1;\n");
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert_eq!(report.model.warnings.len(), 1, "恰一条模型警告");
+    assert_eq!(
+        report.model.warnings[0].kind,
+        ArchiDriftKind::PathNotFound,
+        "唯一一条是路径失效（无 noPath 混入）"
+    );
+    assert_eq!(
+        report.model.warnings[0].from.as_deref(),
+        Some("Ghost"),
+        "路径失效属于声明了 path 的元素"
+    );
+    assert!(report.errors.is_empty(), "warn 档路径失效不进 errors");
+}
+
 /// 异常：元素无 `path` → `model.warnings[]` 一条 `noPath`，不参与归属，
 /// `errors[]` 空。
 #[test]

@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
+use archi::dto::ElementKind;
+
 use crate::sdk::tools::{ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL};
 
 use super::archi_tool::ArchiContext;
@@ -956,7 +958,7 @@ async fn archi_tool_doc边界与scope异常() {
 
 /// 正向：省略 `kind` → `{ "draft": <TOML> }`，草稿含 `kind = "domain"` 实值行、
 /// 字段序注释（`gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata`）、
-/// 内联 `metadata` 纪律行与 `path` 必填提示。
+/// `metadata` 子表与内联表等价的纪律行与 `path` 基数提示。
 #[tokio::test]
 async fn archi_scaffold省略kind取domain且字段序齐备() {
     let dir = healthy("scaffold-default");
@@ -975,29 +977,31 @@ async fn archi_scaffold省略kind取domain且字段序齐备() {
         "# doc",
         "# summary",
         "# metadata",
-        "内联表",
-        "叶元素必填",
+        "子表与内联表等价",
+        "module 必填",
     ] {
         assert!(draft.contains(piece), "草稿含字段序/纪律线索 `{piece}`");
     }
 }
 
-/// 正向（表驱动）：三种 `kind` 逐值 → 草稿实值行逐值对应。
+/// 正向（表驱动）：四种 `kind` 逐值（经 `ElementKind::ALL` 派生，不手抄字面量）→
+/// 草稿实值行逐值对应且零 `__KIND__` 残留。
 #[tokio::test]
-async fn archi_scaffold三kind逐值() {
+async fn archi_scaffold四kind逐值() {
     let dir = healthy("scaffold-kinds");
     let context = ArchiContext::new(dir.path().to_path_buf());
-    for kind in ["package", "domain", "module"] {
+    for kind in ElementKind::ALL {
         let value = execute_json(
             &context,
             crate::sdk::tools::ARCHI_SCAFFOLD_TOOL,
-            json!({ "kind": kind }),
+            json!({ "kind": kind.as_str() }),
         )
         .await;
         let draft = value["draft"].as_str().expect("草稿为字符串");
         assert!(
-            draft.contains(&format!("kind = \"{kind}\"")),
-            "{kind} 实值行逐值对应：{draft}"
+            draft.contains(&format!("kind = \"{}\"", kind.as_str())),
+            "{} 实值行逐值对应：{draft}",
+            kind.as_str()
         );
         assert!(
             !draft.contains("__KIND__"),
@@ -1006,21 +1010,96 @@ async fn archi_scaffold三kind逐值() {
     }
 }
 
-/// 边界：草稿经真实模型解析零结构诊断（单段占位 FQN、关系块全注释）——把它落成盘
-/// 上唯一模型文件后，概览应 `Ok` 且恰一元素。
+/// 正向（表驱动）：模板的 `kind` 行四值语义逐组在场——语义词随 `ElementKind::ALL`
+/// 派生，新增变体未补语义即红。
+#[tokio::test]
+async fn archi_scaffold模板kind行四值语义() {
+    let dir = healthy("scaffold-kind-semantics");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let value = execute_json(&context, crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, json!({})).await;
+    let draft = value["draft"].as_str().expect("草稿为字符串");
+    for kind in ElementKind::ALL {
+        let meaning = match kind {
+            ElementKind::Package => "至多一条包根",
+            ElementKind::Domain => "领域容器",
+            ElementKind::Module => "模块",
+            ElementKind::Composite => "纯分组",
+        };
+        assert!(
+            draft.contains(meaning),
+            "kind 语义 `{meaning}`（{}）在场：{draft}",
+            kind.as_str()
+        );
+    }
+    assert!(
+        draft.contains("纯分层容器是标准形态"),
+        "`composite` 的标准形态句在场"
+    );
+}
+
+/// 边界：模板的 `path` 行给出两句出路——`module` 必填（可多条）与 `package` 纯容器可
+/// 留空，且写明「≥2 条即模型停摆」，与 `TomlParser` 的基数判据口径一致。
+#[tokio::test]
+async fn archi_scaffold模板path行出路() {
+    let dir = healthy("scaffold-path-cardinality");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let value = execute_json(&context, crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, json!({})).await;
+    let draft = value["draft"].as_str().expect("草稿为字符串");
+    let line = draft
+        .lines()
+        .find(|line| line.starts_with("# path："))
+        .unwrap_or_else(|| panic!("草稿缺 `path` 纪律行：{draft}"));
+    for needle in ["module 必填", "可多条", "纯容器可留空", "≥2 条即模型停摆"] {
+        assert!(line.contains(needle), "`path` 行含 `{needle}`：{line}");
+    }
+    assert!(
+        !line.contains("容器（package / domain）恒空"),
+        "旧的「容器恒空」口径 MUST NOT 残留：{line}"
+    );
+}
+
+/// 异常（表驱动）：草稿零结构诊断词（与骨架 `md不列结构诊断全量词表` 同源纪律）——
+/// `kind` / `path` / `metadata` 三行改写不得引入诊断词。
+#[tokio::test]
+async fn archi_scaffold草稿零结构诊断词() {
+    let dir = healthy("scaffold-no-diagnostic-words");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let value = execute_json(&context, crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, json!({})).await;
+    let draft = value["draft"].as_str().expect("草稿为字符串");
+    for word in [
+        "invalidValue",
+        "unknownField",
+        "missingField",
+        "syntaxError",
+    ] {
+        assert!(!draft.contains(word), "草稿零诊断词 `{word}`：{draft}");
+    }
+}
+
+/// 边界：草稿经真实模型解析零结构诊断（单段占位 FQN、关系块全注释）——把三种 kind
+/// 的草稿各落成盘上唯一模型文件后，概览应 `Ok` 且恰一元素、`path` 仍是注释。
 #[tokio::test]
 async fn archi_scaffold草稿零结构诊断() {
     let source = healthy("scaffold-parse");
     let context = ArchiContext::new(source.path().to_path_buf());
-    let value = execute_json(&context, crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, json!({})).await;
-    let draft = value["draft"].as_str().expect("草稿为字符串").to_owned();
+    for kind in [None, Some("package"), Some("composite")] {
+        let input = match kind {
+            Some(kind) => json!({ "kind": kind }),
+            None => json!({}),
+        };
+        let value = execute_json(&context, crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, input).await;
+        let draft = value["draft"].as_str().expect("草稿为字符串").to_owned();
 
-    let target = tempdir("scaffold-parse-target");
-    write_model(target.path(), "01-draft.toml", &draft);
-    let briefs = archi::dto::module_overview(target.path())
-        .unwrap_or_else(|error| panic!("草稿应零结构诊断：{error}"));
-    assert_eq!(briefs.len(), 1, "草稿恰一声明（单段占位 FQN）");
-    assert!(!briefs[0].has_path, "草稿的 path 为注释（未声明）");
+        let target = tempdir(&format!(
+            "scaffold-parse-target-{}",
+            kind.unwrap_or("default")
+        ));
+        write_model(target.path(), "01-draft.toml", &draft);
+        let briefs = archi::dto::module_overview(target.path())
+            .unwrap_or_else(|error| panic!("{kind:?} 草稿应零结构诊断：{error}"));
+        assert_eq!(briefs.len(), 1, "{kind:?} 草稿恰一声明（单段占位 FQN）");
+        assert!(!briefs[0].has_path, "{kind:?} 草稿的 path 为注释（未声明）");
+    }
 }
 
 /// 边界：关系部分全为注释行（零裸 `[[relation]]` 表，避免 `missingField`），四键齐备
@@ -1060,9 +1139,10 @@ async fn archi_scaffold零写盘() {
 }
 
 /// 异常（表驱动）：`kind` 非法**串**（`packagex` / 大小写变体 `Domain`）→ `Err` 文案
-/// 点名三值；空串 / `null` / 非字符串按「省略」处置（取 `domain`），零静默退化。
+/// 点名四值（词表经 `ElementKind::ALL` 派生）；空串 / `null` / 非字符串按「省略」处置
+/// （取 `domain`），零静默退化。
 #[tokio::test]
-async fn archi_scaffold非法kind报错点名三值() {
+async fn archi_scaffold非法kind报错点名四值() {
     let dir = healthy("scaffold-invalid-kind");
     let context = ArchiContext::new(dir.path().to_path_buf());
     for input in [json!({ "kind": "packagex" }), json!({ "kind": "Domain" })] {
@@ -1070,8 +1150,12 @@ async fn archi_scaffold非法kind报错点名三值() {
             .execute(crate::sdk::tools::ARCHI_SCAFFOLD_TOOL, &input)
             .await
             .expect_err("值集外应 Err");
-        for value in ["domain", "module", "package"] {
-            assert!(error.contains(value), "Err 文案点名 {value}：{error}");
+        for kind in ElementKind::ALL {
+            assert!(
+                error.contains(kind.as_str()),
+                "Err 文案点名 {}：{error}",
+                kind.as_str()
+            );
         }
     }
     // 空串 / null / 非字符串视为省略（缺省 domain），不报错

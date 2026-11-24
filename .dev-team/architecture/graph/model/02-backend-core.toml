@@ -2,7 +2,7 @@
 # 与基础设施无关的领域与流程引擎；出边只沿本层内部的依赖方向，全部边 = Cargo [dependencies] 的 workspace 内声明。
 
 [element."Backend.Core"]
-kind = "package"
+kind = "composite"
 gate = "off"
 summary = "与基础设施无关的领域与流程引擎层"
 
