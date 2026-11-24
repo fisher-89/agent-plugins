@@ -1,0 +1,69 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/mount.rs:349:5: replace archi_scaffold_definition -> ToolDefinition with Default::default()",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/mount.rs",
+          "function": {
+            "function_name": "archi_scaffold_definition",
+            "return_type": "-> ToolDefinition",
+            "span": {
+              "start": {
+                "line": 343,
+                "column": 1
+              },
+              "end": {
+                "line": 365,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 349,
+              "column": 5
+            },
+            "end": {
+              "line": 364,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__mount.rs_line_349_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__mount.rs_line_349_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 8.3443082,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 1,
+  "missed": 0,
+  "caught": 0,
+  "timeout": 0,
+  "unviable": 1,
+  "success": 0,
+  "start_time": "2026-11-24T05:37:32.0699695Z",
+  "end_time": "2026-11-24T05:37:41.4144015Z",
+  "cargo_mutants_version": "27.1.0"
+}

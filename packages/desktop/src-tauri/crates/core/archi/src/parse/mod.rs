@@ -9,7 +9,7 @@ use crate::model::{Diagnostic, Model, ParseOutcome};
 
 pub mod toml;
 
-pub use toml::TomlParser;
+pub use toml::{TomlParser, ELEMENT_FIELD_NAMES};
 
 #[cfg(test)]
 mod mod_test;

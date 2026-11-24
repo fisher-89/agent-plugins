@@ -208,7 +208,7 @@ kind = "__KIND__"
 # api：缺省 declared（承诺有契约）；显式无 API 写 none
 # api = "none"
 
-# entry：只在约定默认指不到时写（repo 相对 POSIX；单文件根 = 根文件自身 / 目录型根 = index.ts(x) / crate = src/lib.rs）
+# entry：单值，只在约定默认指不到时写（repo 相对 POSIX；单文件根 = 根文件自身 / 目录型根 = index.ts(x) / crate = src/lib.rs）
 # entry = "./src-tauri/crates/core/example/src/lib.rs"
 
 # path：module 必填（可多条 = 若干根的清单）；package 至多一条包根（纯容器可留空；≥2 条即模型停摆）；domain / composite 选填；`./` 前缀、repo 相对；目录以 `/` 结尾、文件精确到扩展名
@@ -221,7 +221,8 @@ kind = "__KIND__"
 # summary：一行摘要
 # summary = "一句话说明本元素负责什么"
 
-# metadata：子表与内联表等价（[element."X".metadata] 写在已声明元素之后零诊断；成为唯一声明才缺 kind）
+# metadata：选填自由表（字符串 → 字符串）——值 MUST 是字符串（数字 / 布尔等非字符串值被拒）；
+#           子表与内联表等价（[element."X".metadata] 写在已声明元素之后零诊断；成为唯一声明才缺 kind）
 # metadata = { owner = "team-x", layer = "core" }
 
 # 关系模板
@@ -230,7 +231,8 @@ kind = "__KIND__"
 # to = "App.Dependency"
 # desc = "为什么依赖"
 # apis = ["ExportedName"]
-# apis：选填名字清单，只写名字、可留空、生成物面留空；差额看 archi_drift
+# apis：选填名字清单（可留空 = 不声明 API 粒度）——只写名字（禁签名 / 类型形状 / `::` 限定路径 / 空白）；
+#       逐项非空、同名不重复；`apis = []` 与省略同义（显式空数组被拒）；生成物面留空，差额看 archi_drift
 "#;
 
 /// 按 kind 出草稿（占位替换单点；草稿含注释行与一行实值 `kind`）。

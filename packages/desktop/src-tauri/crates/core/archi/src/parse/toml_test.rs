@@ -8,7 +8,7 @@
 use crate::dto::{DiagnosticKind, ElementKind, GateTier};
 use crate::model::ParseOutcome;
 
-use super::toml::{column_of, line_of};
+use super::toml::{column_of, line_of, ELEMENT_FIELD_NAMES};
 use super::{SourceParser, TomlParser};
 
 /// 解析入口（`SourceParser` 关联函数，无接收者）。
@@ -2199,4 +2199,380 @@ fn 解析apis同文件两关系各自独立() {
 /// 辅助：取单条关系源的 `apis`（模型侧原文）。
 fn outcome_apis(source: &str) -> Vec<String> {
     parse(source).model.relations[0].apis.clone()
+}
+
+// ===========================================================================
+// `ELEMENT_FIELD_NAMES`：字段面清单的源码自证（机器可读副本 vs `RawElement` 定义）
+//
+// 常量是**副本**不是权威：权威是 `RawElement` 的字段定义，两者同批维护。判据一律取自
+// 真实源文件（`include_str!` 编译期嵌入，不是替身），测试内零手抄八字面量。
+// ===========================================================================
+
+/// 块定位串（常量 doc MUST NOT 含该字面，否则定位提前命中）。
+const RAW_ELEMENT_ANCHOR: &str = "struct RawElement {";
+
+/// 块收尾串（首个出现处即结构体结尾）。
+const BLOCK_END: &str = "\n}";
+
+/// 块取：定位串之后到首个 [`BLOCK_END`] 之间的文本；缺任一即点名定位串 panic（零静默
+/// 返回空清单）。
+fn raw_element_block(source: &str) -> &str {
+    let start = source
+        .find(RAW_ELEMENT_ANCHOR)
+        .unwrap_or_else(|| panic!("源文本缺定位串 `{RAW_ELEMENT_ANCHOR}`"));
+    let rest = &source[start + RAW_ELEMENT_ANCHOR.len()..];
+    let end = rest
+        .find(BLOCK_END)
+        .unwrap_or_else(|| panic!("源文本缺块收尾（`{RAW_ELEMENT_ANCHOR}` 之后无 `}}`）"));
+    &rest[..end]
+}
+
+/// 块内字段名：滤掉 `///` doc 行、`#[…]` 属性行与空行，只留以 `,` 收尾的行，取首个
+/// `:` 前名字（与 `RawElement` 的书写约定一一对应）。
+fn field_names_in(block: &str) -> Vec<String> {
+    block
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with("///") && !line.starts_with("#["))
+        .filter(|line| line.ends_with(','))
+        .map(|line| line.split(':').next().unwrap_or_default().trim().to_owned())
+        .collect()
+}
+
+/// 块内字段名 → 类型文本：与 [`field_names_in`] 同一套行过滤（`///` doc 行与 `#[…]` 属性
+/// 行先滤掉，故注释里的全角冒号不进类型面），取首个 `:` 之后的原文并去尾逗号。
+fn field_types_in(block: &str) -> Vec<(String, String)> {
+    block
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with("///") && !line.starts_with("#["))
+        .filter(|line| line.ends_with(','))
+        .filter_map(|line| line.split_once(':'))
+        .map(|(name, rest)| {
+            (
+                name.trim().to_owned(),
+                rest.trim().trim_end_matches(',').trim().to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// 双向差集：`(块内有而常量缺的项, 常量有而块内缺的项)`——两侧各自点名，不静默丢项。
+fn diff_sides(found: &[String], expected: &[&str]) -> (Vec<String>, Vec<String>) {
+    let found_names: Vec<&str> = found.iter().map(String::as_str).collect();
+    let block_only = found
+        .iter()
+        .filter(|name| !expected.contains(&name.as_str()))
+        .cloned()
+        .collect();
+    let constant_only = expected
+        .iter()
+        .filter(|name| !found_names.contains(name))
+        .map(|name| (*name).to_owned())
+        .collect();
+    (block_only, constant_only)
+}
+
+/// 首个错位下标（长度不等时覆盖较长的尾段）——「只比集合不比序」的实现由此判红。
+fn first_mismatch_index(found: &[String], expected: &[&str]) -> Option<usize> {
+    (0..found.len().max(expected.len()))
+        .find(|index| found.get(*index).map(String::as_str) != expected.get(*index).copied())
+}
+
+/// 正向：真实源文件的 `RawElement` 块内字段名与常量**同序同集**（逐位相等），块内项数
+/// 与 `[&str; 8]` 的类型元数互证。
+#[test]
+fn 字段面清单与raw_element块同序同集() {
+    let source = include_str!("toml.rs");
+    let names = field_names_in(raw_element_block(source));
+    assert_eq!(
+        first_mismatch_index(&names, &ELEMENT_FIELD_NAMES),
+        None,
+        "块内字段面 `{names:?}` 与常量 `{ELEMENT_FIELD_NAMES:?}` 逐位相等"
+    );
+    assert_eq!(
+        names,
+        ELEMENT_FIELD_NAMES.to_vec(),
+        "同序同集（逐位 assert_eq）"
+    );
+    assert_eq!(names.len(), 8, "块内恰八字段（与常量类型元数互证）");
+}
+
+/// 正向：常量恰八项——`[&str; 8]` 的类型元数是编译期锚，运行期断言与源码块计数互证。
+#[test]
+fn 字段面清单恰八项() {
+    assert_eq!(ELEMENT_FIELD_NAMES.len(), 8, "常量恰八项");
+    let block_names = field_names_in(raw_element_block(include_str!("toml.rs")));
+    assert_eq!(
+        block_names.len(),
+        ELEMENT_FIELD_NAMES.len(),
+        "源码块字段数 = 常量项数"
+    );
+}
+
+/// 正向（表驱动）：项值形状——逐项非空、无首尾空白、无内嵌空白、无 `::`、无重复
+///（遍历常量，测试内零手抄八字面量）。
+#[test]
+fn 字段面清单项值形状合规() {
+    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for name in ELEMENT_FIELD_NAMES {
+        assert!(!name.is_empty(), "字段名非空");
+        assert_eq!(name.trim(), name, "字段名无首尾空白：{name:?}");
+        assert!(
+            !name.chars().any(char::is_whitespace),
+            "字段名无内嵌空白：{name:?}"
+        );
+        assert!(!name.contains("::"), "字段名不是限定路径：{name:?}");
+        assert!(name.is_ascii(), "字段名是 ASCII 键名：{name:?}");
+        assert!(seen.insert(name), "字段名无重复：{name:?}");
+    }
+    assert_eq!(seen.len(), 8, "八项互异");
+}
+
+/// 边界：定位锚唯一——`include_str!("toml.rs")` 内 `struct RawElement {` 恰一处；新常量
+/// 的 doc 若含该字面，定位会提前命中（`grep -c` 自查的机械等价面）。
+#[test]
+fn 字段面清单定位锚唯一() {
+    let source = include_str!("toml.rs");
+    assert_eq!(
+        source.matches(RAW_ELEMENT_ANCHOR).count(),
+        1,
+        "定位串恰一处（常量 doc MUST NOT 含该字面）"
+    );
+    assert!(source.contains(BLOCK_END), "块收尾串在真实源文件内在场");
+}
+
+/// 边界：过滤规则——块内混入 `///` doc 行、`#[serde(default)]` 属性行与空行时，三者均
+/// 不入名字清单（只留以 `,` 收尾的字段行）。
+#[test]
+fn 字段面清单过滤规则只留逗号收尾行() {
+    let block = concat!(
+        "\n",
+        "    /// 契约状态指针（缺省 `declared`；doc 行带逗号, 亦不入清单）\n",
+        "    #[serde(default)]\n",
+        "\n",
+        "    kind: ElementKind,\n",
+        "    gate: GateTier,\n",
+    );
+    assert_eq!(
+        field_names_in(block),
+        vec!["kind".to_owned(), "gate".to_owned()],
+        "`///` 行 / `#[…]` 行 / 空行均不产名字"
+    );
+}
+
+/// 边界：容器规模三形态——空块（`[]`，零 panic）、单字段（恰一项）、200 字段（全量不
+/// 截断，`///` 行不干扰计数）。
+#[test]
+fn 字段面清单空块单元素与超大块() {
+    assert!(
+        field_names_in("\n").is_empty(),
+        "空容器 → 空名字清单（零 panic）"
+    );
+    assert_eq!(
+        field_names_in("\n    kind: ElementKind,\n"),
+        vec!["kind".to_owned()],
+        "单元素容器 → 恰一项"
+    );
+
+    let mut block = String::new();
+    for index in 0..200 {
+        block.push_str(&format!("    field{index:03}: String,\n"));
+        if index % 10 == 0 {
+            block.push_str("    /// 注释行，带逗号,\n");
+        }
+    }
+    let names = field_names_in(&block);
+    assert_eq!(names.len(), 200, "200 字段全量（不截断）");
+    assert_eq!(names[0], "field000", "首项逐字");
+    assert_eq!(names[199], "field199", "末项逐字");
+
+    let (block_only, constant_only) = diff_sides(&names, &ELEMENT_FIELD_NAMES);
+    assert_eq!(block_only.len(), 200, "块内 200 项全数点名");
+    assert_eq!(block_only[0], "field000", "点名首项");
+    assert_eq!(constant_only.len(), 8, "常量八项全数点名");
+}
+
+/// 异常：`RawElement` 多一字段而常量未同批 → 「块内有而常量缺」侧点名该字段；反例：
+/// 块内去掉 `metadata` →「常量有而块内缺」侧点名 `metadata`。
+#[test]
+fn 字段面清单增减字段双向差集点名() {
+    let mut extra_block = String::new();
+    for name in ELEMENT_FIELD_NAMES {
+        extra_block.push_str(&format!("    {name}: T,\n"));
+    }
+    extra_block.push_str("    layout: String,\n");
+    let (block_only, constant_only) =
+        diff_sides(&field_names_in(&extra_block), &ELEMENT_FIELD_NAMES);
+    assert_eq!(
+        block_only,
+        vec!["layout".to_owned()],
+        "多出的字段由「块内有而常量缺」侧点名"
+    );
+    assert!(constant_only.is_empty(), "常量无缺失项");
+
+    let mut fewer_block = String::new();
+    for name in ELEMENT_FIELD_NAMES
+        .iter()
+        .filter(|name| **name != "metadata")
+    {
+        fewer_block.push_str(&format!("    {name}: T,\n"));
+    }
+    let (block_only, constant_only) =
+        diff_sides(&field_names_in(&fewer_block), &ELEMENT_FIELD_NAMES);
+    assert!(block_only.is_empty(), "零多余项");
+    assert_eq!(
+        constant_only,
+        vec!["metadata".to_owned()],
+        "删掉 metadata 后由「常量有而块内缺」侧点名"
+    );
+}
+
+/// 异常：同集不同序——把 `gate` 与 `api` 互换后集合仍相等，但同序比较即红并点名首个
+/// 错位下标（只比集合不比序的实现由此判红）。
+#[test]
+fn 字段面清单同集不同序点名首个错位下标() {
+    let mut swapped = String::new();
+    for (index, name) in ELEMENT_FIELD_NAMES.iter().enumerate() {
+        let ordered = match index {
+            1 => ELEMENT_FIELD_NAMES[2],
+            2 => ELEMENT_FIELD_NAMES[1],
+            _ => *name,
+        };
+        swapped.push_str(&format!("    {ordered}: T,\n"));
+    }
+    let names = field_names_in(&swapped);
+
+    let mut left = names.clone();
+    let mut right: Vec<String> = ELEMENT_FIELD_NAMES
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect();
+    left.sort();
+    right.sort();
+    assert_eq!(left, right, "集合仍相等（顺序被抹平）");
+    assert_eq!(
+        first_mismatch_index(&names, &ELEMENT_FIELD_NAMES),
+        Some(1),
+        "同序比较在首个错位下标（1 = `gate` 位）判红"
+    );
+}
+
+/// 异常：定位锚缺失——不含 `struct RawElement {` 的文本经块取即 panic，文案点名定位
+/// 串、零静默返回空清单。
+#[test]
+#[should_panic(expected = "struct RawElement {")]
+fn 字段面清单定位锚缺失即点名定位串() {
+    let _ = raw_element_block("[element.\"App\"]\nkind = \"package\"\n");
+}
+
+/// 八字段的类型期望（序 = `RawElement` 声明序 = [`ELEMENT_FIELD_NAMES`] 序）：名字侧零
+/// 手抄（由常量给出），本表只持类型文本。以未闭合的 `<` 收尾者（`Vec<`）按前缀判据——
+/// 泛型参数由字段面唯一合法形状决定，不逐字钉死 `::toml::Spanned<…>`。
+const RAW_ELEMENT_FIELD_TYPES: [&str; 8] = [
+    "ElementKind",
+    "GateTier",
+    "ApiStatus",
+    "Option<String>",
+    "Vec<",
+    "Option<String>",
+    "Option<String>",
+    "BTreeMap<String, String>",
+];
+
+/// 正向（回归，表驱动 8 行）：字段面零改动——真实源文件 `RawElement` 块的八字段类型逐项
+/// 在位，常量与字段定义同批维护不改变任何字段类型（`kind: ElementKind` / `gate: GateTier` /
+/// `api: ApiStatus` / `entry: Option<String>` / `path: Vec<…>` / `doc: Option<String>` /
+/// `summary: Option<String>` / `metadata: BTreeMap<String, String>`）。
+#[test]
+fn 字段面清单八字段类型逐项在位() {
+    let types = field_types_in(raw_element_block(include_str!("toml.rs")));
+    assert_eq!(
+        types.len(),
+        ELEMENT_FIELD_NAMES.len(),
+        "块内字段行数与常量项数一致（每字段恰一行声明）：{types:?}"
+    );
+    for (field, expected) in ELEMENT_FIELD_NAMES.iter().zip(RAW_ELEMENT_FIELD_TYPES) {
+        let actual = types
+            .iter()
+            .find(|(name, _)| name == field)
+            .map(|(_, declared)| declared.as_str())
+            .unwrap_or_else(|| panic!("块内缺字段 `{field}` 的声明行：{types:?}"));
+        if expected.ends_with('<') {
+            assert!(
+                actual.starts_with(expected),
+                "字段 `{field}` 的类型以 `{expected}` 开头：{actual}"
+            );
+        } else {
+            assert_eq!(actual, expected, "字段 `{field}` 的类型逐字在位：{actual}");
+        }
+    }
+}
+
+/// 正向：再导出面——经 `crate::parse::ELEMENT_FIELD_NAMES`（而非 `super::toml::`）取到的
+/// 常量与定义处逐项相等（同一常量，非第二份定义），且可遍历出八项。
+#[test]
+fn 字段面清单经parse出口与定义处同一常量() {
+    let via_crate = crate::parse::ELEMENT_FIELD_NAMES;
+    assert_eq!(
+        via_crate, ELEMENT_FIELD_NAMES,
+        "`crate::parse` 出口与 `super::toml` 定义处同一常量"
+    );
+    assert_eq!(via_crate.len(), 8, "出口可遍历出八项");
+    let reexported: Vec<&str> = via_crate.to_vec();
+    let defined: Vec<&str> = ELEMENT_FIELD_NAMES.to_vec();
+    assert_eq!(reexported, defined, "逐项相等（零第二份定义）");
+}
+
+/// 正向（回归）：常量无解析期副作用——空源零诊断；非法 `api` 值 / 显式空 `apis` / 非
+/// 字符串 `metadata` 三支既有判据的诊断种类不变；500 元素规模源照常全量入模型。
+#[test]
+fn 字段面清单不参与解析且既有值面判据不变() {
+    let empty = parse("");
+    assert!(empty.diagnostics.is_empty(), "空源零诊断");
+    assert!(empty.model.elements.is_empty(), "空源零元素");
+
+    let comment_only = parse("# 只有注释\n# 第二行\n");
+    assert!(comment_only.diagnostics.is_empty(), "仅注释源零诊断");
+    assert!(comment_only.model.elements.is_empty(), "仅注释源零元素");
+
+    let api = single_diagnostic("[element.\"App\"]\nkind = \"package\"\napi = \"non\"\n");
+    assert_eq!(
+        api.kind,
+        DiagnosticKind::InvalidValue,
+        "非法 api 值仍归 invalidValue"
+    );
+    for status in crate::dto::ApiStatus::ALL {
+        assert!(
+            api.message.contains(status.as_str()),
+            "文案仍列出合法值 {}（词表源是 ApiStatus::ALL）",
+            status.as_str()
+        );
+    }
+
+    let apis =
+        single_diagnostic("[[relation]]\nfrom = \"App.Auth\"\nto = \"App.Billing\"\napis = []\n");
+    assert_eq!(
+        apis.kind,
+        DiagnosticKind::InvalidValue,
+        "显式空 apis 仍违例"
+    );
+
+    let metadata =
+        single_diagnostic("[element.\"App\"]\nkind = \"package\"\nmetadata = { n = 1 }\n");
+    assert_eq!(
+        metadata.kind,
+        DiagnosticKind::InvalidValue,
+        "非字符串 metadata 值仍违例"
+    );
+
+    let mut source = String::new();
+    for index in 0..500 {
+        source.push_str(&format!(
+            "[element.\"App.Mod{index:03}\"]\nkind = \"module\"\n\n"
+        ));
+    }
+    let scaled = parse(&source);
+    assert!(scaled.diagnostics.is_empty(), "500 元素规模源零诊断");
+    assert_eq!(scaled.model.elements.len(), 500, "元素全量入模型");
 }

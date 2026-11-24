@@ -56,9 +56,9 @@ pub(crate) const ARCHI_API_TOOL: &str = "archi_api";
 /// 与契约面）。执行体同上；**恒全量、零写盘**——报告落盘者恒为门禁 runner。
 pub(crate) const ARCHI_DRIFT_TOOL: &str = "archi_drift";
 
-/// `archi_scaffold` 专用只读工具名（新元素 TOML 模板：字段序 / 内联 `metadata` /
-/// `path` 必填提示 / 关系模板）。执行体同上；**只读零写盘**——写面仍是既有 `write` /
-/// `edit`，故本工具不在「专用写工具」之列。
+/// `archi_scaffold` 专用只读工具名（新元素 TOML 草稿 = 字段词典：逐字段一行纪律与值域
+/// + 关系四键模板）。执行体同上；**只读零写盘**——写面仍是既有 `write` / `edit`，故本
+/// 工具不在「专用写工具」之列。
 pub(crate) const ARCHI_SCAFFOLD_TOOL: &str = "archi_scaffold";
 
 /// `propose_config` 专用工具名（config 会话唯一提案出口）：常量本体驻执行体模块
@@ -345,8 +345,8 @@ fn archi_drift_definition() -> ToolDefinition {
     }
 }
 
-/// `archi_scaffold` 定义（新元素模板：字段序 + 内联 `metadata` + `path` 必填提示 +
-/// 关系模板；零写盘）。
+/// `archi_scaffold` 定义（字段词典：新元素 TOML 草稿，逐字段一行纪律与值域 + 关系四键
+/// 模板；零写盘）。
 ///
 /// `kind` 的 enum 由元素种类词表派生（词汇单点，零第二份字面量）；草稿本身
 /// 过 `TomlParser` 零诊断——这是「示例 TOML 从知识骨架删除」的自证锚。
@@ -354,7 +354,7 @@ fn archi_scaffold_definition() -> ToolDefinition {
     ToolDefinition {
         name: ARCHI_SCAFFOLD_TOOL.to_owned(),
         description: concat!(
-            "取新元素 TOML 模板（字段序 / 内联 metadata / path 必填提示 / 关系模板），",
+            "取新元素 TOML 草稿，同时是字段词典：模型元素字段面逐字段一行纪律与值域 + 关系四键模板，",
             "只读零写盘——写面仍是既有 write / edit。kind 省略取 domain，值集见 enum。",
             "草稿可直接抄改（单段占位 FQN，多段时先声明祖先），改完用 archi_drift 自查",
         )

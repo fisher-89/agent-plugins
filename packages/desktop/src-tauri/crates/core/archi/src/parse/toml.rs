@@ -55,6 +55,15 @@ struct RawElement {
     metadata: BTreeMap<String, String>,
 }
 
+/// 元素表字段面清单（机器可读副本）：顺序 = `RawElement` 声明序。
+///
+/// 权威仍是 `RawElement` 的字段定义；两者同批维护（`toml_test` 的源码自证对拍同序同集），
+/// 消费侧（`archi_scaffold` 草稿的字段全集断言）遍历本常量、MUST NOT 手抄字段名字面量。
+/// 命名带元素前缀：`parse` 命名空间里裸 `FIELD_NAMES` 指代不明。
+pub const ELEMENT_FIELD_NAMES: [&str; 8] = [
+    "kind", "gate", "api", "entry", "path", "doc", "summary", "metadata",
+];
+
 /// 关系条目字段面（`from` / `to` 必填，`desc` / `apis` 可选）。
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

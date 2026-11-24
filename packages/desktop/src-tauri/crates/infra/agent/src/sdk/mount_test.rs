@@ -8,6 +8,7 @@
 
 use agent::{AskMode, FinishSpec, SessionInjections};
 
+use crate::sdk::archi_tool::ArchiContext;
 use crate::sdk::mount::{
     builtin, definitions, injected, injected_finish, lookup, registry, ToolExec, ToolMount,
     ToolTier, ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_MODULE_TOOL, ARCHI_SCAFFOLD_TOOL,
@@ -1670,27 +1671,185 @@ fn archi_drift定义scope词表单点且零多余参数() {
     assert_eq!(keys, vec!["scope"], "零 mode / 零 root 参数（恒全量）");
 }
 
-/// 正向：`archi_scaffold` 描述含「字段序 / 内联 `metadata` / `path` 必填提示 / 关系模板」
-/// 「`kind` 省略取 `domain`」「零写盘、写面仍是 `write` / `edit`」。
+/// 正向：`archi_scaffold` 描述改词典措辞——含「字段词典 / 逐字段一行纪律 / 值域 /
+/// 关系四键 / `kind` 省略取 `domain` / 只读零写盘 / `write` / `edit`」；旧标签（字段序枚举 /
+/// 内联 `metadata` / `path` 必填提示 / 关系模板）**零命中**（正反两向同批落地，R-4）。
 #[test]
 fn archi_scaffold定义描述要素() {
     let definition = lookup(ARCHI_SCAFFOLD_TOOL).expect("定义在案");
     assert_eq!(ARCHI_SCAFFOLD_TOOL, "archi_scaffold", "常量值");
     let description = &definition.description;
     for piece in [
-        "字段序",
-        "内联 metadata",
-        "path 必填提示",
-        "关系模板",
+        "字段词典",
+        "逐字段一行纪律",
+        "值域",
+        "关系四键",
         "kind 省略取 domain",
         "只读零写盘",
         "write / edit",
     ] {
         assert!(
             description.contains(piece),
-            "描述含要素 `{piece}`：{description}"
+            "描述含词典要素 `{piece}`：{description}"
         );
     }
+    for stale in ["字段序", "内联 metadata", "path 必填提示", "关系模板"] {
+        assert!(
+            !description.contains(stale),
+            "描述零旧标签 `{stale}`（去枚举后不再点名）：{description}"
+        );
+    }
+    assert!(
+        description.contains("草稿可直接抄改") && description.contains("archi_drift"),
+        "行为指引两句保留（去枚举只删字段名清单）：{description}"
+    );
+}
+
+/// 边界：描述单行散文形态——非空、零换行、零代码围栏、零裸 TOML 行（`[element.`）；
+/// `concat!` 三行拼接后仍是单行（工具清单里的可读形态）。
+#[test]
+fn archi_scaffold描述单行散文形态() {
+    let description = lookup(ARCHI_SCAFFOLD_TOOL).expect("定义在案").description;
+    assert!(!description.trim().is_empty(), "描述非空");
+    assert!(
+        !description.contains('\n'),
+        "`concat!` 三行拼接后零换行：{description}"
+    );
+    assert!(!description.contains("```"), "零代码围栏：{description}");
+    assert!(
+        !description.contains("[element."),
+        "零裸 TOML 行（示例 TOML 归草稿正文，不进描述）：{description}"
+    );
+}
+
+/// 正向：定义面同源——挂载清单内恰一项、`lookup` 与下发路径 `definitions` 的描述逐字相等
+///（零「清单里存一份、执行体另写一份」）；参数面属性键集恰 `["kind"]`，且该属性的描述
+/// 与其 enum 长度一致（描述与词表不脱耦）。
+#[test]
+fn archi_scaffold定义单源且零新参数() {
+    let mounts: Vec<&ToolMount> = registry()
+        .iter()
+        .filter(|mount| mount.definition.name == ARCHI_SCAFFOLD_TOOL)
+        .collect();
+    assert_eq!(mounts.len(), 1, "挂载清单内恰一项");
+    let mount = mounts[0];
+    assert_eq!(mount.tier, ToolTier::Read, "只读档位（三档恒放行）");
+
+    let by_lookup = lookup(ARCHI_SCAFFOLD_TOOL).expect("`lookup` 单点可取");
+    assert_eq!(
+        mount.definition.description, by_lookup.description,
+        "`lookup` 与挂载清单描述同源"
+    );
+
+    let dispatched =
+        definitions(&injected_ask(&[ARCHI_SCAFFOLD_TOOL], None, None), "").expect("名字清单合法");
+    assert_eq!(dispatched.len(), 1, "下发清单恰一项");
+    assert_eq!(
+        dispatched[0].definition.description, mount.definition.description,
+        "下发路径与挂载清单描述逐字相等（零第二份描述）"
+    );
+    assert_eq!(
+        dispatched[0].definition.parameters, mount.definition.parameters,
+        "下发路径与挂载清单参数面同源"
+    );
+
+    let properties = mount.definition.parameters["properties"]
+        .as_object()
+        .expect("properties 为对象");
+    let keys: Vec<&str> = properties.keys().map(String::as_str).collect();
+    assert_eq!(keys, vec!["kind"], "零新参数（无 mode / field / root）");
+    let kind = &properties["kind"];
+    assert!(
+        kind["description"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("元素 kind 四值之一（省略取 domain）"),
+        "`kind` 的属性描述在场：{}",
+        kind["description"]
+    );
+    assert_eq!(
+        kind["enum"].as_array().map(Vec::len),
+        Some(archi::dto::ElementKind::ALL.len()),
+        "属性描述与实际 enum 长度一致（描述与词表不脱耦）"
+    );
+    assert_eq!(
+        mount.definition.parameters["required"],
+        serde_json::json!([]),
+        "`required` 为空数组（零必填参数）"
+    );
+}
+
+/// 盘面快照（repo 相对路径 → 字节）：只读判据的机械面。
+fn snapshot_dir(root: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    fn walk(base: &std::path::Path, dir: &std::path::Path, out: &mut Vec<(String, Vec<u8>)>) {
+        let Ok(reader) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in reader.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(base, &path, out);
+                continue;
+            }
+            let relative = path
+                .strip_prefix(base)
+                .expect("相对路径")
+                .to_string_lossy()
+                .replace('\\', "/");
+            out.push((relative, std::fs::read(&path).expect("读文件失败")));
+        }
+    }
+    let mut entries = Vec::new();
+    walk(root, root, &mut entries);
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    entries
+}
+
+/// 执行 `archi_scaffold` 并取 `{ draft }` 内的草稿正文：响应是紧凑 JSON，草稿里的
+/// `kind = "domain"` 到响应原文已转义成 `kind = \"domain\"`，故必须解 JSON 后断
+/// `draft` 字段（对原文 `contains` 恒假）。
+async fn scaffold_draft(context: &ArchiContext, input: serde_json::Value) -> String {
+    let text = context
+        .execute(ARCHI_SCAFFOLD_TOOL, &input)
+        .await
+        .unwrap_or_else(|error| panic!("{input} 入参应成稿: {error}"));
+    let value: serde_json::Value = serde_json::from_str(&text).expect("响应为 JSON 串");
+    value["draft"]
+        .as_str()
+        .expect("响应形状为 { draft: <TOML> }")
+        .to_owned()
+}
+
+/// 组合：描述与执行行为同源——省略 `kind` 回 `domain`、显式 `kind = "module"` 回 `module`
+///（省略态若回别的值，描述句 `kind 省略取 domain` 即与执行体错位）；调用前后盘面字节快照
+/// 相同（只读零写盘，写面仍走 `write` / `edit`）。
+#[tokio::test]
+async fn archi_scaffold描述与执行体同源() {
+    let dir = tempfile::Builder::new()
+        .prefix("sdk-mount-scaffold-behavior-")
+        .tempdir()
+        .expect("创建合成目录失败");
+    std::fs::write(dir.path().join("seed.txt"), "seed\n").expect("写种子文件失败");
+    let before = snapshot_dir(dir.path());
+
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    for (input, expected) in [
+        (serde_json::json!({}), archi::dto::ElementKind::Domain),
+        (
+            serde_json::json!({ "kind": "module" }),
+            archi::dto::ElementKind::Module,
+        ),
+    ] {
+        let draft = scaffold_draft(&context, input.clone()).await;
+        assert!(
+            draft.contains(&format!("kind = \"{}\"", expected.as_str())),
+            "{} 入参回 {} 实值行：{draft}",
+            input,
+            expected.as_str()
+        );
+    }
+
+    assert_eq!(before, snapshot_dir(dir.path()), "只读草稿零写盘");
 }
 
 // ---------------------------------------------------------------------------

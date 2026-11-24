@@ -11,9 +11,12 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-use archi::dto::ElementKind;
+use archi::dto::{ApiStatus, DiagnosticKind, ElementKind, GateTier};
+use archi::parse::{SourceParser, TomlParser, ELEMENT_FIELD_NAMES};
 
-use crate::sdk::tools::{ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL};
+use crate::sdk::tools::{
+    ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SCAFFOLD_TOOL, ARCHI_SEARCH_TOOL, MAX_RESULT_BYTES,
+};
 
 use super::archi_tool::ArchiContext;
 
@@ -1138,6 +1141,182 @@ async fn archi_scaffold零写盘() {
     assert_eq!(before, snapshot(dir.path()), "只读草稿零写盘");
 }
 
+/// 边界：多字节字符安全——草稿正文含 `→` / `≥` / `——`（字符数 < 字节数）时，行首定位
+/// 与块取仍按字节安全落到同一行（零 panic），行数按 `\n` 计数不失真、逐行字节数不为
+/// 多字节字符吞掉半截。
+#[tokio::test]
+async fn archi_scaffold草稿多字节边界安全() {
+    let dir = healthy("scaffold-multibyte");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let value = execute_json(&context, ARCHI_SCAFFOLD_TOOL, json!({})).await;
+    let draft = value["draft"].as_str().expect("草稿为字符串");
+
+    for needle in ["→", "≥", "——"] {
+        assert!(
+            draft.contains(needle),
+            "草稿含多字节字符 `{needle}`（字符数 < 字节数的前提在于场）：{draft}"
+        );
+    }
+    let chars = draft.chars().count();
+    assert!(
+        chars < draft.len(),
+        "草稿 {chars} 字符 / {} 字节——多字节确实在场，后续行首 / 块取走的是字节偏移",
+        draft.len()
+    );
+
+    assert_eq!(
+        draft.lines().count(),
+        draft.matches('\n').count(),
+        "行数按 `\\n` 计数一致（草稿以换行收尾，多字节不额外切行）"
+    );
+    let accounted: usize = draft.lines().map(str::len).sum::<usize>() + draft.matches('\n').count();
+    assert_eq!(
+        accounted,
+        draft.len(),
+        "逐行字节数 + 换行数 = 全文字节（多字节字符未被截半、行数未失真）"
+    );
+    let metadata_line =
+        line_starting_with(draft, "# metadata：").expect("多字节行的行首定位不因 `→` / `——` 失效");
+    assert!(
+        metadata_line.contains('→') && metadata_line.contains("——"),
+        "`→` / `——` 落在 `# metadata：` 行内：{metadata_line}"
+    );
+    let path_line = line_starting_with(draft, "# path：").expect("多字节行的行首定位不因 `≥` 失效");
+    assert!(
+        path_line.contains('≥'),
+        "`≥` 落在 `# path：` 行内：{path_line}"
+    );
+
+    for line in [metadata_line, path_line] {
+        assert!(
+            line.len() > line.chars().count(),
+            "该行字节数 > 字符数（`：` 与 `→` / `≥` / `——` 均多字节）：{line}"
+        );
+        assert!(
+            line.starts_with("# "),
+            "含多字节全角冒号的行首前缀仍可逐字匹配：{line}"
+        );
+    }
+
+    for field in ["doc", "summary", "metadata"] {
+        assert!(
+            line_starting_with(draft, &format!("# {field}：")).is_some(),
+            "多字节行仍在其前的字段 `{field}` 行首判据成立（字节偏移不漂移）"
+        );
+    }
+    let metadata_block = block_starting_with(draft, "# metadata：");
+    assert!(
+        metadata_block.lines().count() >= 2,
+        "块取跨多字节行不截断：{metadata_block}"
+    );
+    for needle in ["值 MUST 是字符串", "子表与内联表等价"] {
+        assert!(
+            metadata_block.contains(needle),
+            "块内多字节行之后的内容仍在场 `{needle}`：{metadata_block}"
+        );
+    }
+}
+
+/// 异常：解析判据非空转——草稿里被解注释的样例行必须让真实 `TomlParser` 数出诊断
+/// （只判「`unwrap` 成功」不数诊断的实现会漏判模型停摆）。
+///
+/// 两条 `# path = ` 样例行各是**单元素数组**：同时解注释即 TOML 同键重复，document 层
+/// 即拒（`duplicate key` → `duplicateElement`），走不到 `path` 的基数判据；故基数面按
+/// 「两份样例并成一条数组」构造——值逐字取自草稿（零手抄），即成 `package` 的两条包根
+/// → 恰一条 `invalidValue`。
+#[tokio::test]
+async fn archi_scaffold草稿解注释path被真实解析拒() {
+    let dir = healthy("scaffold-path-uncomment");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let value = execute_json(&context, ARCHI_SCAFFOLD_TOOL, json!({ "kind": "package" })).await;
+    let draft = value["draft"].as_str().expect("草稿为字符串");
+
+    let clean = TomlParser::parse(draft);
+    assert!(
+        clean.diagnostics.is_empty(),
+        "对照：`package` 草稿原样零诊断：{:?}",
+        clean.diagnostics
+    );
+
+    let path_examples: Vec<&str> = draft
+        .lines()
+        .filter(|line| line.starts_with("# path = "))
+        .collect();
+    assert_eq!(
+        path_examples.len(),
+        2,
+        "模板给两条 `# path = ` 样例行：{path_examples:?}"
+    );
+
+    let both = draft
+        .lines()
+        .map(|line| match line.strip_prefix("# path = ") {
+            Some(rest) => format!("path = {rest}"),
+            None => line.to_owned(),
+        })
+        .collect::<Vec<String>>()
+        .join("\n");
+    let outcome = TomlParser::parse(&both);
+    assert_eq!(
+        outcome.diagnostics.len(),
+        1,
+        "两条 `path` 同时解注释 → 恰一条诊断（`unwrap` 成功 ≠ 零诊断）：{:?}",
+        outcome.diagnostics
+    );
+    assert_eq!(
+        outcome.diagnostics[0].kind,
+        DiagnosticKind::DuplicateElement,
+        "同键重复在 document 层即被拒（走不到基数判据）：{:?}",
+        outcome.diagnostics[0]
+    );
+
+    let values: Vec<String> = path_examples
+        .iter()
+        .map(|line| {
+            line.trim_start_matches("# path = ")
+                .trim()
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .to_owned()
+        })
+        .collect();
+    let without_examples = draft
+        .lines()
+        .filter(|line| !line.starts_with("# path = "))
+        .collect::<Vec<&str>>()
+        .join("\n");
+    let candidate = format!("{without_examples}\npath = [{}]\n", values.join(", "));
+    let outcome = TomlParser::parse(&candidate);
+    assert_eq!(
+        outcome.diagnostics.len(),
+        1,
+        "`package` 两条包根 → 恰一条诊断（零铺开）：{:?}",
+        outcome.diagnostics
+    );
+    assert_eq!(
+        outcome.diagnostics[0].kind,
+        DiagnosticKind::InvalidValue,
+        "包根越界是值域违例：{:?}",
+        outcome.diagnostics[0]
+    );
+    assert!(
+        outcome.diagnostics[0].message.contains("至多一条包根"),
+        "诊断落的是 `validate_path` 而非泛化解析失败：{}",
+        outcome.diagnostics[0].message
+    );
+    assert_eq!(
+        outcome.model.elements.len(),
+        1,
+        "元素照常入模型、诊断照常累积"
+    );
+    assert_eq!(
+        outcome.model.elements[0].path.len(),
+        2,
+        "两条包根逐条入模型：{:?}",
+        outcome.model.elements[0].path
+    );
+}
+
 /// 异常（表驱动）：`kind` 非法**串**（`packagex` / 大小写变体 `Domain`）→ `Err` 文案
 /// 点名四值（词表经 `ElementKind::ALL` 派生）；空串 / `null` / 非字符串按「省略」处置
 /// （取 `domain`），零静默退化。
@@ -1170,6 +1349,431 @@ async fn archi_scaffold非法kind报错点名四值() {
             .expect("省略形态应 Ok");
         assert!(text.contains("domain"), "省略取 domain：{text}");
     }
+}
+
+// ===========================================================================
+// 本变更：`archi_scaffold` 草稿即字段词典（字段面全集锚 / 值域派生 / 值面纪律）
+//
+// 判据一律按**行首 / 块取**设计：`contains(字段名)` 在 `apis` 顶替 `api` 时假命中，故
+// 字段面与行内限定的断言只用行首定位；词表从真实常量派生（`ELEMENT_FIELD_NAMES` /
+// `GateTier::ALL` / `ApiStatus::ALL` / `default()`），测试内零手抄字段名与值。
+// ===========================================================================
+
+/// 行首定位：首个以 `prefix` 开头的行（零 `contains` 假命中）。
+fn line_starting_with<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    text.lines().find(|line| line.starts_with(prefix))
+}
+
+/// 块取：从首个以 `prefix` 开头的行起，到其后首个空行止（右开边界）；无后继空行即取到
+/// 文末（末行块不 panic、不截断）。
+fn block_starting_with(text: &str, prefix: &str) -> String {
+    let mut block: Vec<&str> = Vec::new();
+    let mut started = false;
+    for line in text.lines() {
+        if !started {
+            started = line.starts_with(prefix);
+            if !started {
+                continue;
+            }
+        } else if line.trim().is_empty() {
+            break;
+        }
+        block.push(line);
+    }
+    assert!(started, "草稿缺以 `{prefix}` 开头的行");
+    block.join("\n")
+}
+
+/// 行首载体计数（三形态：实值行 / 冒号纪律行 / 赋值示例行）。
+fn carrier_count(text: &str, field: &str) -> usize {
+    let forms = [
+        format!("{field} = "),
+        format!("# {field}："),
+        format!("# {field} = "),
+    ];
+    text.lines()
+        .filter(|line| forms.iter().any(|form| line.starts_with(form.as_str())))
+        .count()
+}
+
+/// 未注释赋值行的键清单（非 `#` 起始且含 ` = `）。
+fn uncommented_assignment_keys(text: &str) -> Vec<String> {
+    text.lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .filter_map(|line| line.split_once(" = "))
+        .map(|(key, _)| key.trim().to_owned())
+        .collect()
+}
+
+/// 正向（表驱动，AC-2）：草稿的字段面全集锚——遍历 `ELEMENT_FIELD_NAMES`（测试内零手抄
+/// 八字面量），逐字段断言三形态并集 + `# {f}：` **行首**在场（第一反向锚）+ 唯一未注释
+/// 赋值行的键属字段面（第二反向锚）+ 行首载体数；四 kind 逐值恒成立。
+#[tokio::test]
+async fn archi_scaffold草稿含字段面全集() {
+    let dir = healthy("scaffold-field-names");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let value = execute_json(&context, ARCHI_SCAFFOLD_TOOL, json!({})).await;
+    let draft = value["draft"].as_str().expect("响应为 { draft: <TOML> }");
+
+    for field in ELEMENT_FIELD_NAMES {
+        let forms = [
+            format!("{field} = "),
+            format!("# {field}："),
+            format!("# {field} = "),
+        ];
+        assert!(
+            forms.iter().any(|form| draft.contains(form.as_str())),
+            "字段 `{field}` 以三形态之一在场：{draft}"
+        );
+        assert!(
+            line_starting_with(draft, &format!("# {field}：")).is_some(),
+            "字段 `{field}` 的纪律行以行首形态在场（`contains` 会假命中）：{draft}"
+        );
+    }
+
+    let keys = uncommented_assignment_keys(draft);
+    assert_eq!(keys.len(), 1, "草稿内未注释赋值行恰一条：{keys:?}");
+    assert!(
+        ELEMENT_FIELD_NAMES.contains(&keys[0].as_str()),
+        "唯一实值行的键属字段面：{keys:?}"
+    );
+
+    for field in ELEMENT_FIELD_NAMES {
+        let expected = if field == "path" { 3 } else { 2 };
+        assert_eq!(
+            carrier_count(draft, field),
+            expected,
+            "字段 `{field}` 的行首载体数（`path` 3 / `kind` 2 / 其余各 2）——判据按存在而非恰一"
+        );
+    }
+
+    for kind in ElementKind::ALL {
+        let value = execute_json(
+            &context,
+            ARCHI_SCAFFOLD_TOOL,
+            json!({ "kind": kind.as_str() }),
+        )
+        .await;
+        let draft = value["draft"].as_str().expect("草稿为字符串");
+        for field in ELEMENT_FIELD_NAMES {
+            assert!(
+                line_starting_with(draft, &format!("# {field}：")).is_some(),
+                "{} 草稿含 `{field}` 纪律行（词典正文与 kind 值无关）",
+                kind.as_str()
+            );
+        }
+        assert_eq!(
+            uncommented_assignment_keys(draft).len(),
+            1,
+            "{} 草稿唯一实值行（`__KIND__` 单点替换不动纪律行）",
+            kind.as_str()
+        );
+    }
+}
+
+/// 异常（AC-2 反向可判）：删 `# api：` 行 → 行首判据为假（`# apis：` 在场不顶替）；删
+/// `kind = "__KIND__"` 行 → 唯一实值行判据为假（0 条 ≠ 1）。
+#[tokio::test]
+async fn archi_scaffold草稿字段面反向锚可判() {
+    let dir = healthy("scaffold-field-negative");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let value = execute_json(&context, ARCHI_SCAFFOLD_TOOL, json!({})).await;
+    let draft = value["draft"].as_str().expect("草稿为字符串");
+
+    let without_api: String = draft
+        .lines()
+        .filter(|line| !line.starts_with("# api："))
+        .collect::<Vec<&str>>()
+        .join("\n");
+    assert!(
+        line_starting_with(draft, "# api：").is_some(),
+        "对照：原草稿的 `api` 纪律行判据为真"
+    );
+    assert!(
+        without_api.contains("# apis："),
+        "前提：`apis` 纪律行仍在场"
+    );
+    assert!(
+        line_starting_with(&without_api, "# api：").is_none(),
+        "`# apis：` 不顶替 `# api：`（假命中反例）"
+    );
+
+    let without_kind: String = draft
+        .lines()
+        .filter(|line| !line.starts_with("kind = "))
+        .collect::<Vec<&str>>()
+        .join("\n");
+    assert!(
+        uncommented_assignment_keys(&without_kind).is_empty(),
+        "实值行缺失 → 0 条（≠ 1，删整行形态亦判红）"
+    );
+}
+
+/// 正向（AC-4）：值域派生——`# gate：` 行内包含 `GateTier::ALL` 三值与缺省档（由
+/// `Default` 派生，零手抄 `off`），`# api：` 行内包含 `ApiStatus::ALL` 二值与缺省档；行内
+/// 限定防假命中（`declared` 亦出现在 `# doc：` 行）；草稿零结构诊断词。
+#[tokio::test]
+async fn archi_scaffold模板值域逐值且零诊断词() {
+    let dir = healthy("scaffold-value-domain");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let value = execute_json(&context, ARCHI_SCAFFOLD_TOOL, json!({})).await;
+    let draft = value["draft"].as_str().expect("草稿为字符串");
+
+    let gate_line = line_starting_with(draft, "# gate：").expect("`gate` 纪律行在场");
+    for tier in GateTier::ALL {
+        assert!(
+            gate_line.contains(tier.as_str()),
+            "`gate` 行含值 {}（三值全在场）：{gate_line}",
+            tier.as_str()
+        );
+    }
+    assert!(
+        gate_line.contains(&format!("缺省 {}", GateTier::default().as_str())),
+        "缺省档从 `Default` 派生：{gate_line}"
+    );
+
+    let api_line = line_starting_with(draft, "# api：").expect("`api` 纪律行在场");
+    for status in ApiStatus::ALL {
+        assert!(
+            api_line.contains(status.as_str()),
+            "`api` 行含值 {}（二值全在场）：{api_line}",
+            status.as_str()
+        );
+    }
+    assert!(
+        api_line.contains(&format!("缺省 {}", ApiStatus::default().as_str())),
+        "缺省档从 `Default` 派生：{api_line}"
+    );
+
+    let doc_line = line_starting_with(draft, "# doc：").expect("`doc` 纪律行在场");
+    assert!(
+        doc_line.contains(ApiStatus::default().as_str()),
+        "前提：缺省 api 词亦出现在 `# doc：` 行（全串 contains 会假命中）：{doc_line}"
+    );
+    let fragment = "# doc：单值指针，declared 写了即 apiUnexpected\n";
+    assert!(
+        fragment.contains(ApiStatus::default().as_str()),
+        "构造片段的全串 `contains` 会命中 `doc` 行"
+    );
+    assert!(
+        !line_starting_with(fragment, "# api：")
+            .is_some_and(|line| line.contains(ApiStatus::default().as_str())),
+        "行首定位不把 `# doc：` 行算作 `# api：` 行判据（行内限定防假命中）"
+    );
+
+    for word in [
+        "invalidValue",
+        "unknownField",
+        "missingField",
+        "syntaxError",
+    ] {
+        assert!(
+            !draft.contains(word),
+            "草稿零结构诊断词 `{word}`（新文本只写行为）"
+        );
+    }
+}
+
+/// 正向（AC-1）：`entry` 单值纪律、`metadata` 块三 needle、`apis` 块八 needle——块一律按
+/// 「`# {f}：` 行到下一空行」取（续行扩写免疫，单行断法必假）；末行块取到文末零截断；
+/// `entry` 行内限定反例。
+#[tokio::test]
+async fn archi_scaffold模板值面纪律四条() {
+    let dir = healthy("scaffold-value-face");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let value = execute_json(&context, ARCHI_SCAFFOLD_TOOL, json!({})).await;
+    let draft = value["draft"].as_str().expect("草稿为字符串");
+
+    let entry_line = line_starting_with(draft, "# entry：").expect("`entry` 纪律行在场");
+    assert!(
+        entry_line.contains("单值"),
+        "`entry` 的单值语义在场（`Option<String>`）：{entry_line}"
+    );
+
+    let metadata_block = block_starting_with(draft, "# metadata：");
+    let metadata_head = line_starting_with(draft, "# metadata：").expect("`metadata` 首行");
+    for needle in ["值 MUST 是字符串", "非字符串值被拒", "子表与内联表等价"] {
+        assert!(
+            metadata_block.contains(needle),
+            "`metadata` 块含 `{needle}`：{metadata_block}"
+        );
+    }
+    assert!(
+        metadata_block.lines().count() >= 2,
+        "`metadata` 块已扩为多行（事实校准）：{metadata_block}"
+    );
+    assert!(
+        !metadata_head.contains("子表与内联表等价"),
+        "该 needle 落在续行（单行断法必假）：{metadata_head}"
+    );
+
+    let apis_block = block_starting_with(draft, "# apis：");
+    let apis_head = line_starting_with(draft, "# apis：").expect("`apis` 首行");
+    for needle in [
+        "只写名字",
+        "可留空",
+        "逐项非空",
+        "同名不重复",
+        "显式空数组被拒",
+        "生成物面留空",
+        "archi_drift",
+        "`apis = []` 与省略同义",
+    ] {
+        assert!(
+            apis_block.contains(needle),
+            "`apis` 块含 `{needle}`：{apis_block}"
+        );
+    }
+    for needle in [
+        "逐项非空",
+        "同名不重复",
+        "显式空数组被拒",
+        "生成物面留空",
+        "archi_drift",
+        "`apis = []` 与省略同义",
+    ] {
+        assert!(
+            !apis_head.contains(needle),
+            "`{needle}` 在续行（块取法扩张免疫）：{apis_head}"
+        );
+    }
+    assert!(
+        apis_block
+            .lines()
+            .last()
+            .unwrap_or_default()
+            .contains("archi_drift"),
+        "`apis` 块取到文末（无后继空行、零截断）：{apis_block}"
+    );
+    let tail = block_starting_with("# apis：末行块\n# 续行无空行收尾", "# apis：");
+    assert_eq!(tail.lines().count(), 2, "无后继空行即取到文末");
+
+    let fragment = "# doc：单值指针\n";
+    assert!(fragment.contains("单值"), "全串 `contains` 会命中 `doc` 行");
+    assert!(
+        !line_starting_with(fragment, "# entry：").is_some_and(|line| line.contains("单值")),
+        "`# doc：单值指针` 不顶替 `entry`（R-3 反例）"
+    );
+}
+
+/// 边界（AC-5）：响应体量面——`cap_result` 未截断、响应单键 `{ draft }`、草稿 < 8 000 B
+/// 且 ≤ 45 行（R-5 体量护栏；精确读数属桌面端账目）、转义增长后仍 ≪ 上限。
+#[tokio::test]
+async fn archi_scaffold响应体量与未截断() {
+    let dir = healthy("scaffold-size");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let text = context
+        .execute(ARCHI_SCAFFOLD_TOOL, &json!({}))
+        .await
+        .expect("省略 kind 应成功");
+
+    assert!(
+        !text.contains("已截断"),
+        "`cap_result` 未截断（截断即纪律行被切 → 词典静默残废）"
+    );
+    assert!(
+        text.len() < MAX_RESULT_BYTES,
+        "响应 {} B ≪ 上限 {MAX_RESULT_BYTES} B",
+        text.len()
+    );
+
+    let value: Value = serde_json::from_str(&text).expect("响应为 JSON 串");
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("响应为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, vec!["draft"], "响应单键（零第二键）");
+
+    let draft = value["draft"].as_str().expect("草稿为字符串");
+    assert!(draft.len() < 8_000, "草稿 {} B < 8000 B", draft.len());
+    assert!(
+        draft.lines().count() <= 45,
+        "草稿 {} 行 ≤ 45 行",
+        draft.lines().count()
+    );
+
+    let escaped = serde_json::to_string(&value).expect("重序列化成功");
+    assert!(
+        escaped.len() < MAX_RESULT_BYTES,
+        "转义增长后 {} B 仍 ≪ 上限（词典扩容不触顶）",
+        escaped.len()
+    );
+}
+
+/// 组合（AC-2 / AC-4 端到端）：词典链路——模板 → `scaffold_draft` → `scaffold_payload`
+/// → `serde_json` → `cap_result`：响应文本对八字段逐项行首对齐（一次读全，零二次点查）；
+/// 样例可直接抄改（`gate` 逐值解注释后经真实 `TomlParser` 零诊断且值入模型）；`apis`
+/// 纪律与 `validate_apis` 判据同向。
+#[tokio::test]
+async fn archi_scaffold词典链路端到端() {
+    let dir = healthy("scaffold-dictionary-chain");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let text = context
+        .execute(ARCHI_SCAFFOLD_TOOL, &json!({}))
+        .await
+        .expect("省略 kind 应成功");
+    let value: Value = serde_json::from_str(&text).expect("响应为 JSON 串");
+    let draft = value["draft"].as_str().expect("响应为 { draft: <TOML> }");
+
+    for field in ELEMENT_FIELD_NAMES {
+        assert!(
+            text.contains(&format!("# {field}：")),
+            "全链路输出含 `{field}` 纪律行（词典正文未被序列化抹掉）"
+        );
+    }
+
+    let gate_example = line_starting_with(draft, "# gate = ")
+        .expect("`gate` 样例行在场")
+        .to_owned();
+    for tier in GateTier::ALL {
+        let candidate = draft.replace(&gate_example, &format!("gate = \"{}\"", tier.as_str()));
+        let outcome = TomlParser::parse(&candidate);
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "gate = {} 的草稿零诊断：{:?}",
+            tier.as_str(),
+            outcome.diagnostics
+        );
+        assert_eq!(
+            outcome.model.elements.len(),
+            1,
+            "草稿恰一元素（单段占位 FQN）"
+        );
+        assert_eq!(
+            outcome.model.elements[0].gate,
+            tier,
+            "词典给的值域样例可直用（{} 入模型）",
+            tier.as_str()
+        );
+    }
+
+    let apis_example = line_starting_with(draft, "# apis = ")
+        .expect("`apis` 样例行在场")
+        .trim_start_matches("# ")
+        .to_owned();
+    let source =
+        format!("[[relation]]\nfrom = \"App.Auth\"\nto = \"App.Billing\"\n{apis_example}\n");
+    let outcome = TomlParser::parse(&source);
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "解注释的 `apis` 样例逐项合法：{:?}",
+        outcome.diagnostics
+    );
+    assert!(
+        !outcome.model.relations[0].apis.is_empty(),
+        "样例名字逐项入模型（非空口承诺）"
+    );
+
+    let empty =
+        TomlParser::parse("[[relation]]\nfrom = \"App.Auth\"\nto = \"App.Billing\"\napis = []\n");
+    assert_eq!(empty.diagnostics.len(), 1, "显式空数组恰一条诊断");
+    assert_eq!(
+        empty.diagnostics[0].kind,
+        DiagnosticKind::InvalidValue,
+        "词典「显式空数组被拒」与 `validate_apis` 判据同向"
+    );
 }
 
 // ===========================================================================
