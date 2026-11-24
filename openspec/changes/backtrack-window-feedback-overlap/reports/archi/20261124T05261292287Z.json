@@ -1,0 +1,2527 @@
+{
+  "version": 3,
+  "timestamp": "2026-11-24T05:26:12.92287Z",
+  "mode": "full",
+  "root": "D:/Projects\\.worktrees\\wps-claude-plugin\\backtrack-window-feedback-overlap",
+  "change": "backtrack-window-feedback-overlap",
+  "base": null,
+  "modelHash": "sha256:6cc50dbfdec563667fb396438fa899a08519a15494eb450d8a6feda49455a8dc",
+  "model": {
+    "elements": 55,
+    "relations": 129,
+    "byGate": {
+      "strict": 0,
+      "warn": 0,
+      "off": 55
+    },
+    "structuralErrors": [],
+    "warnings": []
+  },
+  "scan": {
+    "mode": "full",
+    "changedFiles": 0,
+    "scannedFiles": 422,
+    "excluded": [
+      {
+        "file": ".claude/skills/redb/tests/fixture.rs",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/agent/src/ask_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/agent/src/event_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/agent/src/kernel_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/agent/src/lib_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/agent/src/port_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/agent/src/runner_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/agent/src/session_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/agent/src/state_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/agent/src/steer_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/agent/src/stream_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/agent/src/usage_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/check_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/contract_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/diff_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/emit/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/emit/rust_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/emit/ts_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/extract/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/extract/rust_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/extract/ts_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/paths_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/render_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/schema_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/diff_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/drift/config_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/drift/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/drift/report_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/dto_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/edit_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/graph_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/model_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/parse/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/parse/toml_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/relation_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/scan/exclude_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/scan/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/scan/owner_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/scan/rust_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/scan/ts_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/search_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/tree_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/api-absent/repo/src/api/index.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/api-absent/repo/src/consumer/x.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/api-declared-exact/repo/src/api/index.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/api-declared-exact/repo/src/consumer/x.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/api-declared-not-used/repo/src/api/index.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/api-declared-not-used/repo/src/consumer/x.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/api-mismatch/repo/src/mod/mod.rs",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/api-used-not-declared/repo/src/api/index.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/api-used-not-declared/repo/src/consumer/x.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/config-suppressed/repo/src/auth/token.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/config-suppressed/repo/src/billing/x.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/empty-model/repo/src/a.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/import-type/repo/src/auth/token.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/import-type/repo/src/billing/x.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/inline-suppressed/repo/src/auth/token.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/inline-suppressed/repo/src/billing/x.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/no-changes/repo/src/billing/x.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/occurrences-aggregated/repo/src/auth/token.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/occurrences-aggregated/repo/src/billing/f0.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/occurrences-aggregated/repo/src/billing/f1.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/occurrences-aggregated/repo/src/billing/f2.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/structural-error/repo/src/auth/token.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/target-unowned/repo/src/billing/x.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/target-unowned/repo/src/shared/token.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/test-file-excluded/repo/src/auth/auth.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/test-file-excluded/repo/src/auth/token.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/test-file-excluded/repo/src/billing/x.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/two-modes-consistent/repo/src/auth/token.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/two-modes-consistent/repo/src/billing/x.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/undeclared-three-gates/repo/src/off/a.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/undeclared-three-gates/repo/src/shared/token.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/undeclared-three-gates/repo/src/strict/a.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/undeclared-three-gates/repo/src/warn/a.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/unfulfilled-declaration/repo/src/auth/token.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/unfulfilled-declaration/repo/src/billing/x.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/unresolved-dynamic/repo/src/auth/token.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/corpus/drift/unresolved-dynamic/repo/src/billing/x.ts",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/golden_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/perf.rs",
+        "rule": "**/tests/**"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/pilot_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/vocabulary_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/checks/src/aggregate_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/checks/src/diagnose_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/checks/src/globmatch_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/checks/src/model_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/checks/src/parser/coverage_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/checks/src/parser/js_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/checks/src/parser/junit_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/checks/src/parser/rust_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/checks/src/parser/text_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/checks/src/reuse_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/checks/tests/corpus_golden_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/config/src/lib_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/foundation/src/cancel_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/foundation/src/identity_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/foundation/src/layout/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/foundation/src/prune_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/foundation/src/windows_name_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/notification/src/lib_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/orchestration/src/ask_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/orchestration/src/control_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/orchestration/src/decision_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/orchestration/src/finish_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/orchestration/src/notify_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/orchestration/src/port_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/orchestration/src/prompt_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/orchestration/src/run_history_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/orchestration/src/snapshot_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/orchestration/src/state_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/orchestration/src/steps_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/orchestration/src/transcript_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/orchestration/src/verdict_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/orchestration/src/walker_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/eval_checklist_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/markdown_doc_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/registry_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/tasks_progress_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/model/checklist_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/model/domain_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/queries/detail_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/queries/explore_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/queries/list_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/queries/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/state_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/write/archive_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/write/backtrack_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/write/create_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/write/decision_log_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/write/delete_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_log_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_next_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_start_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_table_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/write/promote_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/src/write/run_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/workflow/tests/corpus_golden_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/archi_knowledge_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/compose_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/config_knowledge_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/lib_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/model_catalog_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/archi_drift_view_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/archi_tool_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/bash_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/blocks_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/compact_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/config_propose_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/config_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/context_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/db_tool_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/effort_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/explore_note_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/log_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/loop_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/model_spec_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/mount_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/normalize_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/policy_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/preamble_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/preclose_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/protect/inline_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/protect/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/protect/reason_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/protect/rules_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/protect/shell_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/reasoning_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/resume_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/runner_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/sandbox_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/tools_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/web_search_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/store_port_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/worker_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/archi/src/api_artifacts_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/archi/src/report_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/archi/src/runner_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/checks/src/environment_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/checks/src/mutation/cargo_mutants_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/checks/src/mutation/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/checks/src/mutation/report_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/checks/src/mutation/segments_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/checks/src/mutation/stryker_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/checks/src/static_check_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/checks/src/testexec/detect_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/checks/src/testexec/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/checks/src/testexec/report_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/checks/src/testexec/runner_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/exec/src/lib_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/exec/src/lockprobe_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/exec/src/output_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/exec/src/run_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/exec/src/shell_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/exec/src/transient_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/store/src/change_port_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/store/src/describe_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/store/src/envelope_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/store/src/model_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/store/src/notification_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/store/src/query_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/store/src/store_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/vcs/src/bootstrap_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/vcs/src/git_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/vcs/src/lib_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/watch/src/lib_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/tools/archi-api-gen/src/main_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/bindings/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/bindings/zod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/agents/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/archi/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/atomic_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/change_flow/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/changes/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/config/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/db/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/env/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/exec/agent_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/exec/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/explores/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/fs/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/notifications/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/stats/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/watch/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/workspaces/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/env_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/selfcheck_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src/app.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/agent/agent-error.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/components/agent/agent-input.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/agent/agent-messages.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/agent/agent-render-memo.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/agent/agent-session-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/agent/index.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/agent/message-cards/blocks.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/agent/message-cards/config-apply-scope.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/agent/message-cards/tool-cards.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/agent/session-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/app-sidebar.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/file/file-viewer.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/notification-bell.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/standard/combobox.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/standard/dailog.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/standard/drawer.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/standard/hooks/use-open.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/components/standard/pagination.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/standard/select.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/ui/message-scroller.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/hooks/use-agent-session.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/hooks/use-agent-session.throttle.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/hooks/use-app-environment.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/hooks/use-highlighted-code.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/hooks/use-notifications.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/hooks/use-updater.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/hooks/use-workspaces.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/lib/agent-adapter.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/lib/agent-transport.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/lib/agent-virtual.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/lib/explore-groups.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/lib/explore-stance.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/lib/explore-title.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/lib/explore-workflow-type.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/lib/highlighter.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/lib/ipc-contract.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/lib/ipc-drift.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/lib/ipc.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/lib/notify.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/lib/parse.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/lib/token.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/module-entries.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/agent/agent-debug-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/agent/components/agent-raw-stream.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/agent/components/agent-run-form.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/agent/components/agent-run-history.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/agent/hooks/use-agent-options.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/agent/hooks/use-agent-run-history.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/agents/agents-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/agents/components/agent-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/agents/components/masked-api-key.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/agents/components/provider-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/agents/hooks/use-agent-instances.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/agents/hooks/use-agent-providers.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/agents/hooks/use-model-catalog.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/agent/archi-chat-composer.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/agent/archi-chat-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/agent/hooks/use-archi-chat.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/architecture-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/components/architecture-canvas.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/components/contract-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/components/element-tree.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/components/file-tree.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/components/model-info.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/components/relation-info.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/components/structure-error-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/hooks/use-archi-api-check.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/hooks/use-archi-drift.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/hooks/use-archi-file-tree.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/hooks/use-archi-graph.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/hooks/use-archi-module.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/hooks/use-archi-relation.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/lib/drift-marks.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/lib/fqn.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/lib/marks.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/agent/change-chat-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/agent/hooks/use-change-chat.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/change-detail-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/change-list-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/components/change-create-dialog.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/components/change-delete-dialog.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/attachments.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/change-flow-graph.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/detail-drawer.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/graph.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/layout.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/metrics.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/phase-column-node.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/run-control-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/run-state.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/run-step-node.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/session-transcript-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/stdout-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/flow/stdout-text.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/hooks/use-change-detail.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/hooks/use-change-flow-run.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/hooks/use-change-list.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/hooks/use-change-list.toast.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/hooks/use-exec-output.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/renderers/artifact-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/renderers/eval-checklist-renderer.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/renderers/fallback.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/renderers/markdown-doc-renderer.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/renderers/registry.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/renderers/tasks-progress-renderer.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/config/components/basic-config-section.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/config/components/config-chat-panel.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/config/components/diagnostics-section.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/config/components/extra-fields-section.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/config/components/tests-section.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/config/components/write-protection-section.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/config/config-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/config/hooks/use-config-chat.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/config/hooks/use-workspace-config.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/db/db-inspector-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/db/hooks/use-db-inspector.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/explores/components/explore-composer.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/explores/components/explore-create-dialog.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/explores/components/explore-open-file.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/explores/components/explore-preview.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/explores/explore-detail-pane.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/explores/explore-routes.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/explores/hooks/use-explore-doc.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/explores/hooks/use-explore-list.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/explores/hooks/use-explore-session.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/info/components/dir-tree.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/info/components/language-table.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/info/components/stats-summary.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/info/hooks/use-code-stats.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/info/info-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      }
+    ],
+    "unmatchedFiles": [
+      ".claude/skills/redb/src/main.rs",
+      "packages/desktop/src-tauri/build.rs",
+      "packages/desktop/src-tauri/crates/core/agent/src/ask.rs",
+      "packages/desktop/src-tauri/crates/core/agent/src/event.rs",
+      "packages/desktop/src-tauri/crates/core/agent/src/kernel.rs",
+      "packages/desktop/src-tauri/crates/core/agent/src/lib.rs",
+      "packages/desktop/src-tauri/crates/core/agent/src/port.rs",
+      "packages/desktop/src-tauri/crates/core/agent/src/runner.rs",
+      "packages/desktop/src-tauri/crates/core/agent/src/session.rs",
+      "packages/desktop/src-tauri/crates/core/agent/src/state.rs",
+      "packages/desktop/src-tauri/crates/core/agent/src/steer.rs",
+      "packages/desktop/src-tauri/crates/core/agent/src/stream.rs",
+      "packages/desktop/src-tauri/crates/core/agent/src/usage.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/check.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/contract.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/diff.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/emit/mod.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/emit/rust.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/emit/ts.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/extract/mod.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/extract/rust.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/extract/ts.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/mod.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/paths.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/render.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/schema.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/diff.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/drift/config.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/drift/mod.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/drift/report.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/dto.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/edit.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/graph.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/lib.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/model.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/parse/mod.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/parse/toml.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/relation.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/scan/exclude.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/scan/mod.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/scan/owner.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/scan/rust.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/scan/ts.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/search.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/tree.rs",
+      "packages/desktop/src-tauri/crates/core/checks/src/aggregate.rs",
+      "packages/desktop/src-tauri/crates/core/checks/src/diagnose.rs",
+      "packages/desktop/src-tauri/crates/core/checks/src/globmatch.rs",
+      "packages/desktop/src-tauri/crates/core/checks/src/lib.rs",
+      "packages/desktop/src-tauri/crates/core/checks/src/model.rs",
+      "packages/desktop/src-tauri/crates/core/checks/src/parser/coverage.rs",
+      "packages/desktop/src-tauri/crates/core/checks/src/parser/js.rs",
+      "packages/desktop/src-tauri/crates/core/checks/src/parser/junit.rs",
+      "packages/desktop/src-tauri/crates/core/checks/src/parser/mod.rs",
+      "packages/desktop/src-tauri/crates/core/checks/src/parser/rust.rs",
+      "packages/desktop/src-tauri/crates/core/checks/src/parser/text.rs",
+      "packages/desktop/src-tauri/crates/core/checks/src/reuse.rs",
+      "packages/desktop/src-tauri/crates/core/config/src/lib.rs",
+      "packages/desktop/src-tauri/crates/core/foundation/src/cancel.rs",
+      "packages/desktop/src-tauri/crates/core/foundation/src/identity.rs",
+      "packages/desktop/src-tauri/crates/core/foundation/src/layout/mod.rs",
+      "packages/desktop/src-tauri/crates/core/foundation/src/lib.i.rs",
+      "packages/desktop/src-tauri/crates/core/foundation/src/lib.rs",
+      "packages/desktop/src-tauri/crates/core/foundation/src/prune.rs",
+      "packages/desktop/src-tauri/crates/core/foundation/src/windows_name.rs",
+      "packages/desktop/src-tauri/crates/core/notification/src/lib.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/ask.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/control.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/decision.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/finish.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/lib.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/notify.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/port.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/prompt.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/run_history.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/snapshot.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/state.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/steps.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/transcript.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/verdict.rs",
+      "packages/desktop/src-tauri/crates/core/orchestration/src/walker.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/envelope.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/eval_checklist.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/markdown_doc.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/mod.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/registry.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/tasks_progress.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/lib.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/model/checklist.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/model/domain.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/model/mod.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/queries/detail.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/queries/explore.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/queries/list.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/queries/mod.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/state.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/write/archive.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/write/backtrack.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/write/create.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/write/decision_log.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/write/delete.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/write/mod.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_log.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_next.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_start.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_table.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/write/promote.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/write/run.rs",
+      "packages/desktop/src-tauri/crates/core/workflow/src/write/worktree.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/archi_knowledge.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/ask_scripted_provider.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/compose.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/config_knowledge.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/lib.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/model_catalog.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/archi_drift_view.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/archi_tool.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/bash.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/before_done.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/blocks.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/compact.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/config.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/config_propose.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/context.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/db_tool.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/effort.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/explore_note.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/log.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/loop.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/mod.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/model_spec.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/mount.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/normalize.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/policy.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/preamble.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/preclose.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/protect/inline.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/protect/mod.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/protect/reason.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/protect/rules.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/protect/shell.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/reasoning.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/resume.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/runner.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/sandbox.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/tools.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/sdk/web_search.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/store_port.rs",
+      "packages/desktop/src-tauri/crates/infra/agent/src/worker.rs",
+      "packages/desktop/src-tauri/crates/infra/archi/src/api_artifacts.rs",
+      "packages/desktop/src-tauri/crates/infra/archi/src/lib.i.rs",
+      "packages/desktop/src-tauri/crates/infra/archi/src/lib.rs",
+      "packages/desktop/src-tauri/crates/infra/archi/src/report.rs",
+      "packages/desktop/src-tauri/crates/infra/archi/src/runner.rs",
+      "packages/desktop/src-tauri/crates/infra/checks/src/environment.rs",
+      "packages/desktop/src-tauri/crates/infra/checks/src/lib.rs",
+      "packages/desktop/src-tauri/crates/infra/checks/src/mutation/cargo_mutants.rs",
+      "packages/desktop/src-tauri/crates/infra/checks/src/mutation/mod.rs",
+      "packages/desktop/src-tauri/crates/infra/checks/src/mutation/report.rs",
+      "packages/desktop/src-tauri/crates/infra/checks/src/mutation/segments.rs",
+      "packages/desktop/src-tauri/crates/infra/checks/src/mutation/stryker.rs",
+      "packages/desktop/src-tauri/crates/infra/checks/src/static_check.rs",
+      "packages/desktop/src-tauri/crates/infra/checks/src/testexec/detect.rs",
+      "packages/desktop/src-tauri/crates/infra/checks/src/testexec/mod.rs",
+      "packages/desktop/src-tauri/crates/infra/checks/src/testexec/report.rs",
+      "packages/desktop/src-tauri/crates/infra/checks/src/testexec/runner.rs",
+      "packages/desktop/src-tauri/crates/infra/exec/src/job.rs",
+      "packages/desktop/src-tauri/crates/infra/exec/src/lib.rs",
+      "packages/desktop/src-tauri/crates/infra/exec/src/lockprobe.rs",
+      "packages/desktop/src-tauri/crates/infra/exec/src/output.rs",
+      "packages/desktop/src-tauri/crates/infra/exec/src/run.rs",
+      "packages/desktop/src-tauri/crates/infra/exec/src/shell.rs",
+      "packages/desktop/src-tauri/crates/infra/exec/src/transient.rs",
+      "packages/desktop/src-tauri/crates/infra/store/src/canonical.rs",
+      "packages/desktop/src-tauri/crates/infra/store/src/change_port.rs",
+      "packages/desktop/src-tauri/crates/infra/store/src/describe.rs",
+      "packages/desktop/src-tauri/crates/infra/store/src/envelope.rs",
+      "packages/desktop/src-tauri/crates/infra/store/src/lib.rs",
+      "packages/desktop/src-tauri/crates/infra/store/src/model.rs",
+      "packages/desktop/src-tauri/crates/infra/store/src/notification.rs",
+      "packages/desktop/src-tauri/crates/infra/store/src/query.rs",
+      "packages/desktop/src-tauri/crates/infra/store/src/store.rs",
+      "packages/desktop/src-tauri/crates/infra/vcs/src/bootstrap.rs",
+      "packages/desktop/src-tauri/crates/infra/vcs/src/git.rs",
+      "packages/desktop/src-tauri/crates/infra/vcs/src/lib.rs",
+      "packages/desktop/src-tauri/crates/infra/watch/src/lib.rs",
+      "packages/desktop/src-tauri/crates/tools/archi-api-gen/src/main.rs",
+      "packages/desktop/src-tauri/crates/tools/export-bindings/build.rs",
+      "packages/desktop/src-tauri/crates/tools/export-bindings/src/main.rs",
+      "packages/desktop/src-tauri/crates/tools/specta-zod-patched/src/error.rs",
+      "packages/desktop/src-tauri/crates/tools/specta-zod-patched/src/lib.rs",
+      "packages/desktop/src-tauri/crates/tools/specta-zod-patched/src/map_keys.rs",
+      "packages/desktop/src-tauri/crates/tools/specta-zod-patched/src/opaque.rs",
+      "packages/desktop/src-tauri/crates/tools/specta-zod-patched/src/primitives.rs",
+      "packages/desktop/src-tauri/crates/tools/specta-zod-patched/src/references.rs",
+      "packages/desktop/src-tauri/crates/tools/specta-zod-patched/src/reserved_names.rs",
+      "packages/desktop/src-tauri/crates/tools/specta-zod-patched/src/types.rs",
+      "packages/desktop/src-tauri/crates/tools/specta-zod-patched/src/zod.rs",
+      "packages/desktop/src-tauri/src/bindings/mod.rs",
+      "packages/desktop/src-tauri/src/bindings/zod.rs",
+      "packages/desktop/src-tauri/src/commands/agents/mod.rs",
+      "packages/desktop/src-tauri/src/commands/archi/mod.rs",
+      "packages/desktop/src-tauri/src/commands/ask_test_support.rs",
+      "packages/desktop/src-tauri/src/commands/atomic.rs",
+      "packages/desktop/src-tauri/src/commands/change_flow/mod.rs",
+      "packages/desktop/src-tauri/src/commands/changes/mod.rs",
+      "packages/desktop/src-tauri/src/commands/config/mod.rs",
+      "packages/desktop/src-tauri/src/commands/db/mod.rs",
+      "packages/desktop/src-tauri/src/commands/env/mod.rs",
+      "packages/desktop/src-tauri/src/commands/exec/agent.rs",
+      "packages/desktop/src-tauri/src/commands/exec/mod.rs",
+      "packages/desktop/src-tauri/src/commands/explores/mod.rs",
+      "packages/desktop/src-tauri/src/commands/fs/mod.rs",
+      "packages/desktop/src-tauri/src/commands/mod.rs",
+      "packages/desktop/src-tauri/src/commands/notifications/mod.rs",
+      "packages/desktop/src-tauri/src/commands/stats/mod.rs",
+      "packages/desktop/src-tauri/src/commands/watch/mod.rs",
+      "packages/desktop/src-tauri/src/commands/workspaces/mod.rs",
+      "packages/desktop/src-tauri/src/env.rs",
+      "packages/desktop/src-tauri/src/lib.rs",
+      "packages/desktop/src-tauri/src/main.rs",
+      "packages/desktop/src-tauri/src/selfcheck.rs",
+      "packages/desktop/src/app.tsx",
+      "packages/desktop/src/components/agent/agent-error.ts",
+      "packages/desktop/src/components/agent/agent-input.tsx",
+      "packages/desktop/src/components/agent/agent-messages.tsx",
+      "packages/desktop/src/components/agent/agent-session-view.tsx",
+      "packages/desktop/src/components/agent/index.tsx",
+      "packages/desktop/src/components/agent/message-cards/blocks.tsx",
+      "packages/desktop/src/components/agent/message-cards/config-apply-scope.tsx",
+      "packages/desktop/src/components/agent/message-cards/tool-cards.tsx",
+      "packages/desktop/src/components/agent/message-cards/user-message.tsx",
+      "packages/desktop/src/components/agent/session-panel.tsx",
+      "packages/desktop/src/components/app-sidebar.tsx",
+      "packages/desktop/src/components/file/file-viewer.tsx",
+      "packages/desktop/src/components/notification-bell.tsx",
+      "packages/desktop/src/components/standard/combobox.tsx",
+      "packages/desktop/src/components/standard/dailog.tsx",
+      "packages/desktop/src/components/standard/drawer.tsx",
+      "packages/desktop/src/components/standard/hooks/use-open.ts",
+      "packages/desktop/src/components/standard/pagination.tsx",
+      "packages/desktop/src/components/standard/select.tsx",
+      "packages/desktop/src/components/standard/tooltip.tsx",
+      "packages/desktop/src/components/ui/alert.tsx",
+      "packages/desktop/src/components/ui/badge.tsx",
+      "packages/desktop/src/components/ui/bubble.tsx",
+      "packages/desktop/src/components/ui/button-group.tsx",
+      "packages/desktop/src/components/ui/button.tsx",
+      "packages/desktop/src/components/ui/card.tsx",
+      "packages/desktop/src/components/ui/checkbox.tsx",
+      "packages/desktop/src/components/ui/code-block.tsx",
+      "packages/desktop/src/components/ui/collapsible.tsx",
+      "packages/desktop/src/components/ui/combobox.tsx",
+      "packages/desktop/src/components/ui/context-menu.tsx",
+      "packages/desktop/src/components/ui/dialog.tsx",
+      "packages/desktop/src/components/ui/drawer.tsx",
+      "packages/desktop/src/components/ui/dropdown-menu.tsx",
+      "packages/desktop/src/components/ui/empty.tsx",
+      "packages/desktop/src/components/ui/field.tsx",
+      "packages/desktop/src/components/ui/hooks/use-highlighted-code.ts",
+      "packages/desktop/src/components/ui/hover-card.tsx",
+      "packages/desktop/src/components/ui/index.ts",
+      "packages/desktop/src/components/ui/input-group.tsx",
+      "packages/desktop/src/components/ui/input.tsx",
+      "packages/desktop/src/components/ui/kbd.tsx",
+      "packages/desktop/src/components/ui/label.tsx",
+      "packages/desktop/src/components/ui/lib/highlighter.tsx",
+      "packages/desktop/src/components/ui/marker.tsx",
+      "packages/desktop/src/components/ui/message-scroller.tsx",
+      "packages/desktop/src/components/ui/message.tsx",
+      "packages/desktop/src/components/ui/pagination.tsx",
+      "packages/desktop/src/components/ui/progress.tsx",
+      "packages/desktop/src/components/ui/questionnaire.tsx",
+      "packages/desktop/src/components/ui/resizable.tsx",
+      "packages/desktop/src/components/ui/scroll-area.tsx",
+      "packages/desktop/src/components/ui/select.tsx",
+      "packages/desktop/src/components/ui/separator.tsx",
+      "packages/desktop/src/components/ui/sheet.tsx",
+      "packages/desktop/src/components/ui/sidebar.tsx",
+      "packages/desktop/src/components/ui/skeleton.tsx",
+      "packages/desktop/src/components/ui/sonner.tsx",
+      "packages/desktop/src/components/ui/spinner.tsx",
+      "packages/desktop/src/components/ui/table.tsx",
+      "packages/desktop/src/components/ui/tabs.tsx",
+      "packages/desktop/src/components/ui/textarea.tsx",
+      "packages/desktop/src/components/ui/tooltip.tsx",
+      "packages/desktop/src/components/ui/trace.tsx",
+      "packages/desktop/src/hooks/use-agent-session.ts",
+      "packages/desktop/src/hooks/use-app-environment.ts",
+      "packages/desktop/src/hooks/use-file-watch-signal.ts",
+      "packages/desktop/src/hooks/use-highlighted-code.ts",
+      "packages/desktop/src/hooks/use-notifications.ts",
+      "packages/desktop/src/hooks/use-updater.ts",
+      "packages/desktop/src/hooks/use-workspaces.ts",
+      "packages/desktop/src/lib/agent-adapter.ts",
+      "packages/desktop/src/lib/agent-transport.ts",
+      "packages/desktop/src/lib/agent-virtual.ts",
+      "packages/desktop/src/lib/explore-groups.ts",
+      "packages/desktop/src/lib/explore-stance.ts",
+      "packages/desktop/src/lib/explore-title.ts",
+      "packages/desktop/src/lib/explore-workflow-type.ts",
+      "packages/desktop/src/lib/highlighter.tsx",
+      "packages/desktop/src/lib/ipc-drift.ts",
+      "packages/desktop/src/lib/ipc.ts",
+      "packages/desktop/src/lib/notify.ts",
+      "packages/desktop/src/lib/parse.ts",
+      "packages/desktop/src/lib/token.ts",
+      "packages/desktop/src/main.tsx",
+      "packages/desktop/src/routes.tsx",
+      "packages/desktop/src/test-setup.ts",
+      "packages/desktop/src/types/dto.ts",
+      "packages/desktop/src/types/generated/bindings.ts",
+      "packages/desktop/src/types/generated/bindings.zod.check.ts",
+      "packages/desktop/src/types/generated/bindings.zod.ts",
+      "packages/desktop/src/views/agent/agent-debug-view.tsx",
+      "packages/desktop/src/views/agent/components/agent-raw-stream.tsx",
+      "packages/desktop/src/views/agent/components/agent-run-form.tsx",
+      "packages/desktop/src/views/agent/components/agent-run-history.tsx",
+      "packages/desktop/src/views/agent/hooks/use-agent-options.ts",
+      "packages/desktop/src/views/agent/hooks/use-agent-run-history.ts",
+      "packages/desktop/src/views/agent/index.ts",
+      "packages/desktop/src/views/agents/agents-view.tsx",
+      "packages/desktop/src/views/agents/components/agent-panel.tsx",
+      "packages/desktop/src/views/agents/components/masked-api-key.tsx",
+      "packages/desktop/src/views/agents/components/provider-panel.tsx",
+      "packages/desktop/src/views/agents/hooks/use-agent-instances.ts",
+      "packages/desktop/src/views/agents/hooks/use-agent-providers.ts",
+      "packages/desktop/src/views/agents/hooks/use-model-catalog.ts",
+      "packages/desktop/src/views/agents/index.ts",
+      "packages/desktop/src/views/architecture/agent/archi-chat-composer.tsx",
+      "packages/desktop/src/views/architecture/agent/archi-chat-panel.tsx",
+      "packages/desktop/src/views/architecture/agent/hooks/use-archi-chat.ts",
+      "packages/desktop/src/views/architecture/architecture-view.tsx",
+      "packages/desktop/src/views/architecture/components/architecture-canvas.tsx",
+      "packages/desktop/src/views/architecture/components/contract-panel.tsx",
+      "packages/desktop/src/views/architecture/components/element-tree.tsx",
+      "packages/desktop/src/views/architecture/components/file-tree.tsx",
+      "packages/desktop/src/views/architecture/components/graph/model-group-node.tsx",
+      "packages/desktop/src/views/architecture/components/graph/model-node.tsx",
+      "packages/desktop/src/views/architecture/components/model-info.tsx",
+      "packages/desktop/src/views/architecture/components/relation-info.tsx",
+      "packages/desktop/src/views/architecture/components/structure-error-panel.tsx",
+      "packages/desktop/src/views/architecture/hooks/use-archi-api-check.ts",
+      "packages/desktop/src/views/architecture/hooks/use-archi-drift.ts",
+      "packages/desktop/src/views/architecture/hooks/use-archi-file-tree.ts",
+      "packages/desktop/src/views/architecture/hooks/use-archi-graph.ts",
+      "packages/desktop/src/views/architecture/hooks/use-archi-module.ts",
+      "packages/desktop/src/views/architecture/hooks/use-archi-relation.ts",
+      "packages/desktop/src/views/architecture/index.ts",
+      "packages/desktop/src/views/architecture/lib/drift-marks.ts",
+      "packages/desktop/src/views/architecture/lib/fqn.ts",
+      "packages/desktop/src/views/architecture/lib/marks.ts",
+      "packages/desktop/src/views/changes/agent/change-chat-composer.tsx",
+      "packages/desktop/src/views/changes/agent/change-chat-panel.tsx",
+      "packages/desktop/src/views/changes/agent/hooks/use-change-chat.ts",
+      "packages/desktop/src/views/changes/agent/index.ts",
+      "packages/desktop/src/views/changes/change-detail-view.tsx",
+      "packages/desktop/src/views/changes/change-list-view.tsx",
+      "packages/desktop/src/views/changes/components/change-create-dialog.tsx",
+      "packages/desktop/src/views/changes/components/change-delete-dialog.tsx",
+      "packages/desktop/src/views/changes/flow/attachments.ts",
+      "packages/desktop/src/views/changes/flow/change-flow-graph.tsx",
+      "packages/desktop/src/views/changes/flow/detail-drawer.tsx",
+      "packages/desktop/src/views/changes/flow/graph.ts",
+      "packages/desktop/src/views/changes/flow/index.ts",
+      "packages/desktop/src/views/changes/flow/labeled-edge.tsx",
+      "packages/desktop/src/views/changes/flow/layout.ts",
+      "packages/desktop/src/views/changes/flow/metrics.ts",
+      "packages/desktop/src/views/changes/flow/phase-column-node.tsx",
+      "packages/desktop/src/views/changes/flow/run-control-panel.tsx",
+      "packages/desktop/src/views/changes/flow/run-state.ts",
+      "packages/desktop/src/views/changes/flow/run-step-node.tsx",
+      "packages/desktop/src/views/changes/flow/session-transcript-panel.tsx",
+      "packages/desktop/src/views/changes/flow/stdout-panel.tsx",
+      "packages/desktop/src/views/changes/flow/stdout-text.ts",
+      "packages/desktop/src/views/changes/flow/types.ts",
+      "packages/desktop/src/views/changes/hooks/use-change-detail.ts",
+      "packages/desktop/src/views/changes/hooks/use-change-flow-run.ts",
+      "packages/desktop/src/views/changes/hooks/use-change-list.ts",
+      "packages/desktop/src/views/changes/hooks/use-exec-output.ts",
+      "packages/desktop/src/views/changes/index.ts",
+      "packages/desktop/src/views/changes/renderers/artifact-tabs.tsx",
+      "packages/desktop/src/views/changes/renderers/artifact-view.tsx",
+      "packages/desktop/src/views/changes/renderers/eval-checklist-renderer.tsx",
+      "packages/desktop/src/views/changes/renderers/fallback.tsx",
+      "packages/desktop/src/views/changes/renderers/index.ts",
+      "packages/desktop/src/views/changes/renderers/markdown-doc-renderer.tsx",
+      "packages/desktop/src/views/changes/renderers/registry.ts",
+      "packages/desktop/src/views/changes/renderers/tasks-progress-renderer.tsx",
+      "packages/desktop/src/views/config/components/basic-config-section.tsx",
+      "packages/desktop/src/views/config/components/config-chat-panel.tsx",
+      "packages/desktop/src/views/config/components/diagnostics-section.tsx",
+      "packages/desktop/src/views/config/components/extra-fields-section.tsx",
+      "packages/desktop/src/views/config/components/tests-section.tsx",
+      "packages/desktop/src/views/config/components/write-protection-section.tsx",
+      "packages/desktop/src/views/config/config-view.tsx",
+      "packages/desktop/src/views/config/hooks/use-config-chat.ts",
+      "packages/desktop/src/views/config/hooks/use-workspace-config.ts",
+      "packages/desktop/src/views/config/index.ts",
+      "packages/desktop/src/views/db/db-inspector-view.tsx",
+      "packages/desktop/src/views/db/hooks/use-db-inspector.ts",
+      "packages/desktop/src/views/db/index.ts",
+      "packages/desktop/src/views/explores/components/explore-composer.tsx",
+      "packages/desktop/src/views/explores/components/explore-create-dialog.tsx",
+      "packages/desktop/src/views/explores/components/explore-open-file.tsx",
+      "packages/desktop/src/views/explores/components/explore-preview.tsx",
+      "packages/desktop/src/views/explores/explore-detail-pane.tsx",
+      "packages/desktop/src/views/explores/explore-detail-view.tsx",
+      "packages/desktop/src/views/explores/explore-layout.tsx",
+      "packages/desktop/src/views/explores/explore-list-view.tsx",
+      "packages/desktop/src/views/explores/hooks/use-explore-doc.ts",
+      "packages/desktop/src/views/explores/hooks/use-explore-list.ts",
+      "packages/desktop/src/views/explores/hooks/use-explore-session.ts",
+      "packages/desktop/src/views/explores/index.ts",
+      "packages/desktop/src/views/info/components/dir-tree.tsx",
+      "packages/desktop/src/views/info/components/language-table.tsx",
+      "packages/desktop/src/views/info/components/stats-summary.tsx",
+      "packages/desktop/src/views/info/hooks/use-code-stats.ts",
+      "packages/desktop/src/views/info/index.ts",
+      "packages/desktop/src/views/info/info-view.tsx",
+      "packages/desktop/src/views/welcome-view.tsx",
+      "packages/desktop/vite.config.ts"
+    ],
+    "matched": [],
+    "unresolved": []
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Archi",
+      "to": "Backend.Core.Foundation",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Core.Archi → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Checks",
+      "to": "Backend.Core.Config",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Core.Checks → Backend.Core.Config 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Checks",
+      "to": "Backend.Core.Foundation",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Core.Checks → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Config",
+      "to": "Backend.Core.Foundation",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Core.Config → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Orchestration",
+      "to": "Backend.Core.Agent",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Core.Orchestration → Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Orchestration",
+      "to": "Backend.Core.Foundation",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Core.Orchestration → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Orchestration",
+      "to": "Backend.Core.Notification",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Core.Orchestration → Backend.Core.Notification 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Orchestration",
+      "to": "Backend.Core.Workflow",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Core.Orchestration → Backend.Core.Workflow 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Workflow",
+      "to": "Backend.Core.Agent",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Core.Workflow → Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Core.Workflow",
+      "to": "Backend.Core.Foundation",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Core.Workflow → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Core.Agent",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.AgentRuntime → Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Core.Archi",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.AgentRuntime → Backend.Core.Archi 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Core.Checks",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.AgentRuntime → Backend.Core.Checks 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Core.Config",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.AgentRuntime → Backend.Core.Config 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Core.Foundation",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.AgentRuntime → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Core.Orchestration",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.AgentRuntime → Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Infra.Exec",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.AgentRuntime → Backend.Infra.Exec 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.AgentRuntime",
+      "to": "Backend.Infra.Store",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.AgentRuntime → Backend.Infra.Store 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ArchiRuntime",
+      "to": "Backend.Core.Archi",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.ArchiRuntime → Backend.Core.Archi 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ArchiRuntime",
+      "to": "Backend.Core.Foundation",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.ArchiRuntime → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ArchiRuntime",
+      "to": "Backend.Core.Orchestration",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.ArchiRuntime → Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ChecksRuntime",
+      "to": "Backend.Core.Checks",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.ChecksRuntime → Backend.Core.Checks 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ChecksRuntime",
+      "to": "Backend.Core.Config",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.ChecksRuntime → Backend.Core.Config 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ChecksRuntime",
+      "to": "Backend.Core.Foundation",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.ChecksRuntime → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ChecksRuntime",
+      "to": "Backend.Core.Orchestration",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.ChecksRuntime → Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.ChecksRuntime",
+      "to": "Backend.Infra.Exec",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.ChecksRuntime → Backend.Infra.Exec 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.Exec",
+      "to": "Backend.Core.Foundation",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.Exec → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.Store",
+      "to": "Backend.Core.Agent",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.Store → Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.Store",
+      "to": "Backend.Core.Foundation",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.Store → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.Store",
+      "to": "Backend.Core.Notification",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.Store → Backend.Core.Notification 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.Store",
+      "to": "Backend.Core.Workflow",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.Store → Backend.Core.Workflow 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.VcsRuntime",
+      "to": "Backend.Core.Foundation",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.VcsRuntime → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.VcsRuntime",
+      "to": "Backend.Core.Orchestration",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.VcsRuntime → Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.VcsRuntime",
+      "to": "Backend.Core.Workflow",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.VcsRuntime → Backend.Core.Workflow 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Infra.VcsRuntime",
+      "to": "Backend.Infra.Exec",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Infra.VcsRuntime → Backend.Infra.Exec 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Core.Agent",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Shell → Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Core.Archi",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Shell → Backend.Core.Archi 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Core.Config",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Shell → Backend.Core.Config 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Core.Foundation",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Shell → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Core.Notification",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Shell → Backend.Core.Notification 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Core.Orchestration",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Shell → Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Core.Workflow",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Shell → Backend.Core.Workflow 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Infra.AgentRuntime",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Shell → Backend.Infra.AgentRuntime 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Infra.ArchiRuntime",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Shell → Backend.Infra.ArchiRuntime 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Infra.ChecksRuntime",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Shell → Backend.Infra.ChecksRuntime 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Infra.Exec",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Shell → Backend.Infra.Exec 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Infra.Store",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Shell → Backend.Infra.Store 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Infra.VcsRuntime",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Shell → Backend.Infra.VcsRuntime 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Shell",
+      "to": "Backend.Infra.Watch",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Shell → Backend.Infra.Watch 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Tools.ArchiApiGen",
+      "to": "Backend.Core.Archi",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Tools.ArchiApiGen → Backend.Core.Archi 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Tools.ArchiApiGen",
+      "to": "Backend.Core.Foundation",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Tools.ArchiApiGen → Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Backend.Tools.ExportBindings",
+      "to": "Backend.Shell",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Backend.Tools.ExportBindings → Backend.Shell 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "Desktop.Views.Changes.Agent",
+      "to": "Desktop.Components.Ui",
+      "message": "全量模式已覆盖观察根下的全部源文件，仍未见 Desktop.Views.Changes.Agent → Desktop.Components.Ui 的 import（观察项，不参与门禁判据）"
+    }
+  ],
+  "apiFindings": [
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend",
+      "target": null,
+      "message": "元素 Backend 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Core.Agent",
+      "target": null,
+      "message": "元素 Backend.Core.Agent 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend/Core/Backend.Core.Agent.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Core.Archi",
+      "target": null,
+      "message": "元素 Backend.Core.Archi 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend/Core/Backend.Core.Archi.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Core.Checks",
+      "target": null,
+      "message": "元素 Backend.Core.Checks 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend/Core/Backend.Core.Checks.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Core.Config",
+      "target": null,
+      "message": "元素 Backend.Core.Config 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend/Core/Backend.Core.Config.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Core.Notification",
+      "target": null,
+      "message": "元素 Backend.Core.Notification 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend/Core/Backend.Core.Notification.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Core.Orchestration",
+      "target": null,
+      "message": "元素 Backend.Core.Orchestration 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend/Core/Backend.Core.Orchestration.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Core.Workflow",
+      "target": null,
+      "message": "元素 Backend.Core.Workflow 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend/Core/Backend.Core.Workflow.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Infra.AgentRuntime",
+      "target": null,
+      "message": "元素 Backend.Infra.AgentRuntime 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend/Infra/Backend.Infra.AgentRuntime.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Infra.ChecksRuntime",
+      "target": null,
+      "message": "元素 Backend.Infra.ChecksRuntime 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend/Infra/Backend.Infra.ChecksRuntime.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Infra.Exec",
+      "target": null,
+      "message": "元素 Backend.Infra.Exec 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend/Infra/Backend.Infra.Exec.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Infra.Store",
+      "target": null,
+      "message": "元素 Backend.Infra.Store 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend/Infra/Backend.Infra.Store.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Infra.VcsRuntime",
+      "target": null,
+      "message": "元素 Backend.Infra.VcsRuntime 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend/Infra/Backend.Infra.VcsRuntime.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Infra.Watch",
+      "target": null,
+      "message": "元素 Backend.Infra.Watch 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend/Infra/Backend.Infra.Watch.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Shell",
+      "target": null,
+      "message": "元素 Backend.Shell 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Backend/Backend.Shell.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Tools.ArchiApiGen",
+      "target": null,
+      "message": "元素 Backend.Tools.ArchiApiGen 声明 `api = none` 且未声明 `doc`——本模块没有入口文档（要给出入口文档，写 `doc = \"<repo 相对路径>\"`）",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Backend.Tools.ExportBindings",
+      "target": null,
+      "message": "元素 Backend.Tools.ExportBindings 声明 `api = none` 且未声明 `doc`——本模块没有入口文档（要给出入口文档，写 `doc = \"<repo 相对路径>\"`）",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop",
+      "target": null,
+      "message": "元素 Desktop 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Components.Standard.Combobox",
+      "target": null,
+      "message": "元素 Desktop.Components.Standard.Combobox 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Components/Standard/Desktop.Components.Standard.Combobox.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Components.Standard.Dailog",
+      "target": null,
+      "message": "元素 Desktop.Components.Standard.Dailog 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Components/Standard/Desktop.Components.Standard.Dailog.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Components.Standard.Drawer",
+      "target": null,
+      "message": "元素 Desktop.Components.Standard.Drawer 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Components/Standard/Desktop.Components.Standard.Drawer.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Components.Standard.Pagination",
+      "target": null,
+      "message": "元素 Desktop.Components.Standard.Pagination 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Components/Standard/Desktop.Components.Standard.Pagination.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Components.Standard.Select",
+      "target": null,
+      "message": "元素 Desktop.Components.Standard.Select 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Components/Standard/Desktop.Components.Standard.Select.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Components.Standard.Tooltip",
+      "target": null,
+      "message": "元素 Desktop.Components.Standard.Tooltip 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Components/Standard/Desktop.Components.Standard.Tooltip.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Components.Ui",
+      "target": null,
+      "message": "元素 Desktop.Components.Ui 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Components/Desktop.Components.Ui.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.GeneratedBindings",
+      "target": null,
+      "message": "元素 Desktop.GeneratedBindings 声明 `api = none` 且未声明 `doc`——本模块没有入口文档（要给出入口文档，写 `doc = \"<repo 相对路径>\"`）",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Shell",
+      "target": null,
+      "message": "元素 Desktop.Shell 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Desktop.Shell.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Views.AgentDebug",
+      "target": null,
+      "message": "元素 Desktop.Views.AgentDebug 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Views/Desktop.Views.AgentDebug.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Views.Agents",
+      "target": null,
+      "message": "元素 Desktop.Views.Agents 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Views/Desktop.Views.Agents.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Views.Architecture",
+      "target": null,
+      "message": "元素 Desktop.Views.Architecture 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Views/Desktop.Views.Architecture.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Views.Changes",
+      "target": null,
+      "message": "元素 Desktop.Views.Changes 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Views/Desktop.Views.Changes.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Views.Changes.Agent",
+      "target": null,
+      "message": "元素 Desktop.Views.Changes.Agent 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Views/Changes/Desktop.Views.Changes.Agent.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Views.Changes.Flow",
+      "target": null,
+      "message": "元素 Desktop.Views.Changes.Flow 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Views/Changes/Desktop.Views.Changes.Flow.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Views.Changes.Renderers",
+      "target": null,
+      "message": "元素 Desktop.Views.Changes.Renderers 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Views/Changes/Desktop.Views.Changes.Renderers.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Views.Config",
+      "target": null,
+      "message": "元素 Desktop.Views.Config 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Views/Desktop.Views.Config.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Views.DbInspector",
+      "target": null,
+      "message": "元素 Desktop.Views.DbInspector 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Views/Desktop.Views.DbInspector.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Views.Explores",
+      "target": null,
+      "message": "元素 Desktop.Views.Explores 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Views/Desktop.Views.Explores.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Views.Info",
+      "target": null,
+      "message": "元素 Desktop.Views.Info 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Views/Desktop.Views.Info.md",
+      "occurrences": []
+    },
+    {
+      "kind": "docMissing",
+      "category": "doc",
+      "element": "Desktop.Views.Welcome",
+      "target": null,
+      "message": "元素 Desktop.Views.Welcome 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：.dev-team/architecture/models/Desktop/Views/Desktop.Views.Welcome.md",
+      "occurrences": []
+    }
+  ],
+  "status": "clean"
+}

@@ -2369,7 +2369,8 @@ fn 回溯窗口四态_下界目标相位双角色携背景() {
 
 /// 四态之区间内部（正向）：窗口 `test-gen → proposal` 覆盖内部相位 test-design
 /// ——正常路由分支下发 test-design，双角色 prompt 同携窗口段（裁决 ①：区间内
-/// 每个相位都带背景，不只目标相位）。
+/// 每个相位都带背景，不只目标相位）；异源并存格下失败反馈段**仍**在场（当前
+/// 相位非窗口发起相位 ⇒ 不受同源抑制）。
 #[test]
 fn 回溯窗口四态_区间内部相位双角色携背景() {
     let reason = "需求返工：目标偏离";
@@ -2377,6 +2378,8 @@ fn 回溯窗口四态_区间内部相位双角色携背景() {
     // 晚于标记行 ⇒ 最新条目非标记行 ⇒ 走正常路由分支
     let mut decided = entry_with_id(30, "test-design", 1, Verdict::Fail, t(12));
     decided.decision_session_id = Some("sess-decision-1".to_owned());
+    // 失败项正文可辨识（异源并存格的反馈段在场性判据面）
+    decided.checklist = vec![checklist_item("设计完整性", false, "缺产物区组件")];
     let fake = RouteStore::seeded(vec![
         entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
         entry_with_id(12, "dev-design", 1, Verdict::Pass, t(2)),
@@ -2398,20 +2401,43 @@ fn 回溯窗口四态_区间内部相位双角色携背景() {
         "内部相位命中（to_index < col < from_index）"
     );
     assert_both_roles_carry(&outcome, reason, "内部相位 test-design");
+    // 异源并存格：窗口段与失败反馈段并存（窗口段在前）——抑制判据若被放宽成
+    // 「有窗口即抑制」，本段断言即判红
+    for (role, prompt) in role_prompts(&outcome) {
+        assert!(
+            prompt.contains("⚠️ 上次评估未通过（attempt 1）"),
+            "异源并存格 {role} prompt 仍含失败反馈段（当前相位非窗口发起相位）: {prompt}"
+        );
+        assert!(
+            prompt.contains("- 设计完整性：缺产物区组件"),
+            "异源并存格 {role} prompt 携失败项正文: {prompt}"
+        );
+        let window_at = prompt.find(WINDOW_TITLE).expect("窗口段在场");
+        let feedback_at = prompt.find("⚠️ 上次评估未通过").expect("反馈段在场");
+        assert!(
+            window_at < feedback_at,
+            "异源并存格 {role} 段序：窗口段先于失败反馈段: {prompt}"
+        );
+    }
 }
 
 /// 四态之上界（正向）：源头相位 `P = from` 命中——路由 test-gen 时窗口段仍在
-///（区间判据含上界；若无上界，agent 在源头相位重跑时反而丢失背景）。
+///（区间判据含上界；若无上界，agent 在源头相位重跑时反而丢失背景）。同源格：
+/// 该标记行正是被抑制的失败反馈段来源，其 `report` / `checklist` 正文 MUST NOT
+/// 出现在 prompt（R-5：只断窗口段在场等于白改）。
 #[test]
 fn 回溯窗口四态_上界源头相位命中() {
     let reason = "设计返工：缺产物区组件";
+    let mut marker = backtrack_marker(20, "test-gen", t(5), "dev-design", reason);
+    marker.report = SENTINEL_REPORT.to_owned();
+    marker.checklist = vec![checklist_item(SENTINEL_ITEM, false, SENTINEL_EVIDENCE)];
     let fake = RouteStore::seeded(vec![
         entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
         entry_with_id(12, "dev-design", 1, Verdict::Pass, t(2)),
         entry_with_id(13, "test-design", 1, Verdict::Pass, t(3)),
         // 最新条目（时间戳最晚、非标记行）⇒ 正常路由分支，落首个未过相位
         entry_with_id(14, "implement", 1, Verdict::Pass, t(12)),
-        backtrack_marker(20, "test-gen", t(5), "dev-design", reason),
+        marker,
     ]);
 
     let outcome = route(&fake, RUN, &SessionAnchors::new());
@@ -2427,6 +2453,24 @@ fn 回溯窗口四态_上界源头相位命中() {
         "源头相位命中（col == from_index，区间上界闭合）"
     );
     assert_both_roles_carry(&outcome, reason, "上界相位 test-gen");
+    // 同源格：失败反馈段整段省略（窗口段与反馈段读同一条标记行）——零段头、
+    // 零 `（attempt N）` 头、零标记行 report / checklist 正文
+    for (role, prompt) in role_prompts(&outcome) {
+        assert!(
+            !prompt.contains("⚠️ 上次评估未通过"),
+            "同源格 {role} prompt 零失败反馈段: {prompt}"
+        );
+        assert!(
+            !prompt.contains("（attempt"),
+            "同源格 {role} prompt 零 attempt 头: {prompt}"
+        );
+        assert!(
+            !prompt.contains(SENTINEL_REPORT)
+                && !prompt.contains(SENTINEL_ITEM)
+                && !prompt.contains(SENTINEL_EVIDENCE),
+            "同源格 {role} prompt 零标记行 report / checklist 正文（抑制非空转）: {prompt}"
+        );
+    }
 }
 
 /// 四态之窗外（正向）：区间下界之前的 proposal（`col < to_index`）→
@@ -3659,4 +3703,1031 @@ fn 窗口段体积界与常量算式() {
         MAX_BACKTRACK_WINDOWS,
         "每条原因全文逐字在场（零自行截断）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 用例组九：同源抑制（回溯窗口段 × 重试反馈段的同源重叠）——当前相位是某开放
+// 窗口的发起相位时，失败反馈段整段不渲染；窗口段 / 路由判定 / 响应字段面与
+// `error` · `done` 响应零变化。判据单点 `open_windows.any(|w| w.from_phase ==
+// def.id)` 在三态矩阵上逐格断言段 A（窗口段）与段 B（失败反馈段）的在场性；
+// `fail_feedback_suffix` 是模块私有件、正文在场性只经窗口外格端到端观测（不为
+// 此新增测试专用导出）。
+// ---------------------------------------------------------------------------
+
+/// 可辨识哨兵正文（抑制若空转，正文必出现在 prompt 内——差分对照的判据面）。
+const SENTINEL_REPORT: &str = "哨兵报告：产物区组件缺失，需补齐三处接口";
+const SENTINEL_ITEM: &str = "哨兵失败项";
+const SENTINEL_EVIDENCE: &str = "哨兵证据：design.md 缺产物区";
+
+/// 同源格窗口原因原文（窗口段与被抑制的反馈段读同一条标记行）。
+const SAME_ORIGIN_REASON: &str = "设计返工：缺产物区组件";
+
+/// 清单项工厂（pass 位可辨的失败项 / 通过项）。
+fn checklist_item(item: &str, pass: bool, evidence: &str) -> ChecklistItem {
+    ChecklistItem {
+        item: item.to_owned(),
+        pass,
+        evidence: evidence.to_owned(),
+    }
+}
+
+/// 双角色 prompt 投影（抑制判据对 executor / evaluator 同一闭包生效——逐角色同判）。
+fn role_prompts(outcome: &PhaseNextOutcome) -> Vec<(&'static str, &str)> {
+    vec![
+        (
+            "executor",
+            outcome
+                .executor
+                .as_ref()
+                .expect("executor spec 应在场")
+                .prompt
+                .as_str(),
+        ),
+        (
+            "evaluator",
+            outcome
+                .evaluator
+                .as_ref()
+                .expect("evaluator spec 应在场")
+                .prompt
+                .as_str(),
+        ),
+    ]
+}
+
+/// 标记行 / 已决失败条目的正文形态（三态矩阵的「正文来源」维度）。
+#[derive(Clone, Copy)]
+enum BodySource {
+    /// 清单空 → 反馈段正文退回 `report` 全文
+    Report,
+    /// 单条失败项优先（`- item：evidence`）
+    Checklist,
+    /// 空正文形态（只服务段头断言，不进 [`BodySource::ALL`]：正文为空串不可判）
+    Empty,
+}
+
+impl BodySource {
+    /// 三态矩阵的两个正文来源（`Empty` 由空正文用例单独取用）。
+    const ALL: [Self; 2] = [Self::Report, Self::Checklist];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Report => "report 正文",
+            Self::Checklist => "清单失败项",
+            Self::Empty => "空正文",
+        }
+    }
+
+    /// 正文注入（`attempt` 恒 1：`（attempt 1）` 头的可辨值）。
+    fn apply(self, record: &mut PhaseStateRecord) {
+        match self {
+            Self::Report => {
+                record.report = SENTINEL_REPORT.to_owned();
+                record.checklist = Vec::new();
+            }
+            Self::Checklist => {
+                record.report = "旧输出散文（不含哨兵）".to_owned();
+                record.checklist = vec![checklist_item(SENTINEL_ITEM, false, SENTINEL_EVIDENCE)];
+            }
+            Self::Empty => {
+                record.report = String::new();
+                record.checklist = Vec::new();
+            }
+        }
+    }
+
+    /// 正文在 prompt 内的可判形态（失败项优先，清单空退回 `report` 全文）。
+    fn rendered(self) -> String {
+        match self {
+            Self::Report => SENTINEL_REPORT.to_owned(),
+            Self::Checklist => format!("- {SENTINEL_ITEM}：{SENTINEL_EVIDENCE}"),
+            Self::Empty => String::new(),
+        }
+    }
+}
+
+/// 三态矩阵的一格：同一 fixture 族（同工厂、同正文来源），仅窗口与失败条目的归属
+/// 相位不同。
+#[derive(Clone, Copy)]
+enum MatrixCell {
+    /// 同源格：当前相位即开放窗口的发起相位 ⇒ 段 A 在场 / 段 B 抑制
+    SameOrigin,
+    /// 异源并存格：窗口命中但当前相位非发起相位，且自身带已决 fail ⇒ 两段并存
+    CrossOriginCoexist,
+    /// 窗口外格：无开放窗口 + 最新条目已决 fail ⇒ 只段 B
+    OutsideWindow,
+}
+
+impl MatrixCell {
+    const ALL: [Self; 3] = [
+        Self::SameOrigin,
+        Self::CrossOriginCoexist,
+        Self::OutsideWindow,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::SameOrigin => "同源格",
+            Self::CrossOriginCoexist => "异源并存格",
+            Self::OutsideWindow => "窗口外格",
+        }
+    }
+
+    /// 该格的路由落位（抑制不改路由——装置自检的期望值）。
+    fn next_phase(self) -> &'static str {
+        match self {
+            Self::SameOrigin => "test-gen",
+            Self::CrossOriginCoexist => "test-design",
+            Self::OutsideWindow => "dev-design",
+        }
+    }
+
+    /// 段 A（回溯重做窗口段）在场性。
+    fn window_present(self) -> bool {
+        !matches!(self, Self::OutsideWindow)
+    }
+
+    /// 段 B（失败反馈段）在场性。
+    fn feedback_present(self) -> bool {
+        !matches!(self, Self::SameOrigin)
+    }
+}
+
+/// 同源格 fixture：窗口发起相位 = 路由相位（`test-gen → dev-design`），全局最新
+/// 条目是 `implement` pass（`t(12)`、无 `backtrack_to`）⇒ 走正常路由分支（若标记行
+/// 成为全局最新条目则 `backtrack_to` 分支接管，抑制断言会空转）。
+fn same_origin_store(body: impl FnOnce(&mut PhaseStateRecord)) -> RouteStore {
+    let mut marker = backtrack_marker(20, "test-gen", t(5), "dev-design", SAME_ORIGIN_REASON);
+    body(&mut marker);
+    RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        entry_with_id(12, "dev-design", 1, Verdict::Pass, t(2)),
+        entry_with_id(13, "test-design", 1, Verdict::Pass, t(3)),
+        entry_with_id(14, "implement", 1, Verdict::Pass, t(12)),
+        marker,
+    ])
+}
+
+/// 异源并存格 fixture：窗口 `test-gen → proposal` 覆盖内部相位 `test-design`，该相位
+/// 自身带一条已决 fail（`t(12)`）⇒ 窗口段与失败反馈段并存。
+fn cross_origin_store(body: impl FnOnce(&mut PhaseStateRecord)) -> RouteStore {
+    let mut decided = entry_with_id(30, "test-design", 1, Verdict::Fail, t(12));
+    decided.decision_session_id = Some("sess-decision-1".to_owned());
+    body(&mut decided);
+    RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        entry_with_id(12, "dev-design", 1, Verdict::Pass, t(2)),
+        backtrack_marker(20, "test-gen", t(5), "proposal", "需求返工：目标偏离"),
+        decided,
+    ])
+}
+
+/// 窗口外格 fixture：库内零 backtrack 条目 + 目标相位已决 fail（与同源格标记行同形
+/// 正文——差分对照的同一装置）。
+fn outside_window_store(body: impl FnOnce(&mut PhaseStateRecord)) -> RouteStore {
+    let mut decided = entry_with_id(30, "dev-design", 1, Verdict::Fail, t(2));
+    decided.decision_session_id = Some("sess-decision-1".to_owned());
+    body(&mut decided);
+    RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        decided,
+    ])
+}
+
+/// 三态矩阵的 fixture 入口（格 × 正文来源）。
+fn matrix_store(cell: MatrixCell, body: BodySource) -> RouteStore {
+    match cell {
+        MatrixCell::SameOrigin => same_origin_store(|record| body.apply(record)),
+        MatrixCell::CrossOriginCoexist => cross_origin_store(|record| body.apply(record)),
+        MatrixCell::OutsideWindow => outside_window_store(|record| body.apply(record)),
+    }
+}
+
+/// 三态矩阵（正向，组合迭代 3 格 × 2 正文来源 × 2 角色）：逐格断言段 A / 段 B 的
+/// 在场性与正文在场性；放宽成「有窗口即抑制」时异源并存格判红，收紧成「`from ==
+/// to` 才抑制」时同源格判红。
+#[test]
+fn 同源抑制三态矩阵_窗口段与反馈段逐格在场性() {
+    for body in BodySource::ALL {
+        for cell in MatrixCell::ALL {
+            let label = format!("{}（正文来源：{}）", cell.label(), body.label());
+            let outcome = route(&matrix_store(cell, body), RUN, &SessionAnchors::new());
+
+            assert!(outcome.error.is_none(), "{label} 走正常路由分支（零分叉）");
+            assert_eq!(
+                outcome.next_phase.as_deref(),
+                Some(cell.next_phase()),
+                "{label} 抑制不改路由落位"
+            );
+            for (role, prompt) in role_prompts(&outcome) {
+                assert_eq!(
+                    prompt.contains(WINDOW_TITLE),
+                    cell.window_present(),
+                    "{label} {role} 段 A（回溯重做窗口段）在场性判错: {prompt}"
+                );
+                assert_eq!(
+                    prompt.contains("⚠️ 上次评估未通过"),
+                    cell.feedback_present(),
+                    "{label} {role} 段 B（失败反馈段）在场性判错: {prompt}"
+                );
+                assert_eq!(
+                    prompt.contains(&body.rendered()),
+                    cell.feedback_present(),
+                    "{label} {role} 正文在场性应与段 B 同判（抑制非空转的正面证据）: {prompt}"
+                );
+                assert!(
+                    !prompt.contains("⚠️ 回溯原因"),
+                    "{label} {role} 零 S2 退役文案: {prompt}"
+                );
+                if cell.window_present() && cell.feedback_present() {
+                    let window_at = prompt.find(WINDOW_TITLE).expect("窗口段在场");
+                    let feedback_at = prompt.find("⚠️ 上次评估未通过").expect("反馈段在场");
+                    assert!(
+                        window_at < feedback_at,
+                        "{label} {role} 异源并存格段序：窗口段先于失败反馈段: {prompt}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// 抑制非空转（正向，参数化迭代 2 正文来源）：同一正文分别喂给窗口外格与同源格
+/// ——前者 prompt 含该正文（证其确会被渲染），后者零命中；两格条目正文逐字相同 ⇒
+/// 差异只能来自抑制闸。
+#[test]
+fn 同源抑制非空转_同正文两格差分对照() {
+    for body in BodySource::ALL {
+        let rendered = body.rendered();
+        let outside = route(
+            &matrix_store(MatrixCell::OutsideWindow, body),
+            RUN,
+            &SessionAnchors::new(),
+        );
+        let suppressed = route(
+            &matrix_store(MatrixCell::SameOrigin, body),
+            RUN,
+            &SessionAnchors::new(),
+        );
+
+        for (role, prompt) in role_prompts(&outside) {
+            assert!(
+                prompt.contains(&rendered),
+                "窗口外格 {role}（{}）应渲出该正文——证明正文确会被渲染: {prompt}",
+                body.label()
+            );
+        }
+        for (role, prompt) in role_prompts(&suppressed) {
+            assert!(
+                !prompt.contains(&rendered),
+                "同源格 {role}（{}）正文零命中——抑制不是「正文为空所以没渲」: {prompt}",
+                body.label()
+            );
+            assert!(
+                prompt.contains(WINDOW_TITLE),
+                "同源格 {role}（{}）窗口段照常在场（抑制不触达段 A）: {prompt}",
+                body.label()
+            );
+        }
+    }
+}
+
+/// 判据不收窄（异常，反向判红）：同源格窗口 `to != from`（`test-gen → dev-design`）
+/// ⇒ 抑制仍生效（实现写成「`to == from` 才抑制」则本行判红）；同 fixture 族另取
+/// 「窗口内已通过相位重跑」（`retry_feedback = None`）形态——同样零反馈段，但
+/// `next_phase` 与 `last_result` 不同 ⇒ 两成因可辨。
+#[test]
+fn 同源抑制判据不收窄_与反馈缺席成因可辨() {
+    let suppressed = route(
+        &matrix_store(MatrixCell::SameOrigin, BodySource::Checklist),
+        RUN,
+        &SessionAnchors::new(),
+    );
+    let window = suppressed.backtrack_window.first().expect("同源格窗口非空");
+    assert_ne!(
+        window.to_phase, window.from_phase,
+        "装置自检：同源格窗口为跨相位回溯（判据不读 `to == from`）"
+    );
+    assert_eq!(
+        window.from_phase,
+        suppressed
+            .next_phase
+            .clone()
+            .expect("正常路由携 next_phase"),
+        "窗口发起相位即当前路由相位（同源）"
+    );
+    for (role, prompt) in role_prompts(&suppressed) {
+        assert!(
+            !prompt.contains("⚠️ 上次评估未通过"),
+            "跨相位同源格 {role} 仍抑制（「to == from 才抑制」实现必在此判红）: {prompt}"
+        );
+    }
+
+    // 形态二：窗口内已通过相位重跑——`stale` pass 不算过，但该相位最新条目 verdict
+    // 为 Pass ⇒ `retry_feedback = None` ⇒ 同样零反馈段（本成因与抑制无关）
+    let mut stale_pass = entry_with_id(30, "dev-design", 1, Verdict::Pass, t(12));
+    stale_pass.stale = true;
+    let fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        backtrack_marker(20, "test-gen", t(5), "dev-design", SAME_ORIGIN_REASON),
+        stale_pass,
+    ]);
+    let rerun = route(&fake, RUN, &SessionAnchors::new());
+    assert_eq!(
+        rerun.next_phase.as_deref(),
+        Some("dev-design"),
+        "stale pass 不算过 → 重跑同相位"
+    );
+    let rerun_window = rerun.backtrack_window.first().expect("窗口仍在");
+    assert_ne!(
+        rerun_window.from_phase,
+        rerun.next_phase.clone().expect("next_phase 在场"),
+        "形态二非同源格（零反馈段的成因不是抑制）"
+    );
+    for (role, prompt) in role_prompts(&rerun) {
+        assert!(
+            prompt.contains(WINDOW_TITLE),
+            "形态二 {role} 窗口段照常在场: {prompt}"
+        );
+        assert!(
+            !prompt.contains("⚠️ 上次评估未通过"),
+            "形态二 {role} 无失败条目 → retry_feedback = None → 零反馈段: {prompt}"
+        );
+    }
+
+    // 两成因可辨：同为「零段 B」，路由落位与 last_result 不同
+    assert_ne!(
+        suppressed.next_phase, rerun.next_phase,
+        "两成因的 next_phase 不同（抑制格落窗口发起相位 / 重跑格落该相位）"
+    );
+    assert_ne!(
+        suppressed
+            .last_result
+            .as_ref()
+            .map(|last| last.phase.as_str()),
+        rerun.last_result.as_ref().map(|last| last.phase.as_str()),
+        "两成因的 last_result 不同（抑制格取全局最新条目 implement / 重跑格为该相位 pass）"
+    );
+}
+
+/// 空正文不改变判据（异常，单次）：标记行 `checklist == []` 且 `report == ""` → 同源格
+/// 零 `⚠️ 上次评估未通过`；对照窗口外格同形条目仍渲出段头（正文为空）⇒ 抑制不是
+/// 「正文为空所以没渲」的空转。
+#[test]
+fn 同源抑制与正文无关_窗口外格空正文仍渲段头() {
+    let suppressed = route(
+        &matrix_store(MatrixCell::SameOrigin, BodySource::Empty),
+        RUN,
+        &SessionAnchors::new(),
+    );
+    let outside = route(
+        &matrix_store(MatrixCell::OutsideWindow, BodySource::Empty),
+        RUN,
+        &SessionAnchors::new(),
+    );
+
+    for (role, prompt) in role_prompts(&suppressed) {
+        assert!(
+            !prompt.contains("⚠️ 上次评估未通过"),
+            "同源格 {role} 空正文条目零反馈段: {prompt}"
+        );
+        assert!(
+            prompt.contains(WINDOW_TITLE),
+            "同源格 {role} 窗口段照常在场: {prompt}"
+        );
+    }
+    for (role, prompt) in role_prompts(&outside) {
+        assert!(
+            prompt.contains("⚠️ 上次评估未通过（attempt 1），请针对以下失败项修复："),
+            "窗口外格 {role} 同形条目仍渲出段头（正文为空）: {prompt}"
+        );
+        assert!(
+            !prompt.contains(WINDOW_TITLE),
+            "窗口外格 {role} 零窗口段: {prompt}"
+        );
+    }
+}
+
+/// 裁剪相容（边界，单次）：`MAX_BACKTRACK_WINDOWS + 1` 个同时开放窗口全覆盖当前相位
+/// `test-gen`（创建序 id 10 / 20 / 30，同源窗最末）⇒ 裁剪后同源窗口仍在集合内（末位），
+/// 抑制照常生效、被裁者原因零命中。
+#[test]
+fn 同源抑制裁剪相容_同源窗口过层级裁剪仍存活() {
+    let fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        entry_with_id(12, "dev-design", 1, Verdict::Pass, t(2)),
+        entry_with_id(13, "test-design", 1, Verdict::Pass, t(3)),
+        entry_with_id(14, "implement", 1, Verdict::Pass, t(12)),
+        backtrack_marker(10, "acceptance", t(4), "proposal", "R1-最早创建"),
+        backtrack_marker(20, "code-review", t(6), "proposal", "R2-中"),
+        backtrack_marker(30, "test-gen", t(5), "dev-design", SAME_ORIGIN_REASON),
+    ]);
+
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+
+    assert!(outcome.error.is_none(), "正常路由分支（零分叉）");
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("test-gen"),
+        "前置相位全 pass → 首个未过相位即同源相位"
+    );
+    assert_eq!(
+        outcome.backtrack_window.len(),
+        MAX_BACKTRACK_WINDOWS,
+        "命中 MAX_BACKTRACK_WINDOWS + 1 个窗口 → 裁剪至上限"
+    );
+    assert_eq!(
+        outcome
+            .backtrack_window
+            .last()
+            .map(|window| window.from_phase.as_str()),
+        outcome.next_phase.as_deref(),
+        "裁剪后末位即同源窗口（from_phase = next_phase）"
+    );
+    assert!(
+        outcome
+            .backtrack_window
+            .iter()
+            .any(|window| window.from_phase == "test-gen"),
+        "同源窗口必在渲染集合内（创建序最末由 take_last 保留）"
+    );
+    for (role, prompt) in role_prompts(&outcome) {
+        assert!(
+            !prompt.contains("R1-最早创建"),
+            "被裁窗口原因零命中 {role}: {prompt}"
+        );
+        assert!(
+            prompt.contains(&expected_block(SAME_ORIGIN_REASON)),
+            "{role} 同源窗口原因原文在场: {prompt}"
+        );
+        assert!(
+            !prompt.contains("⚠️ 上次评估未通过"),
+            "{role} 抑制不因层级裁剪失效: {prompt}"
+        );
+    }
+}
+
+/// 响应字段面不收缩（边界，单次）：同源格逐字段断言 `done` / `next_phase` / `round` /
+/// `steps` / `artifact_manifest` / 白名单 / `last_result` / `error` / `backtrack_window`
+/// 与改动前同形——唯一差异面是双角色 prompt 少一段。
+#[test]
+fn 同源抑制响应字段面不收缩_唯一差异面是prompt() {
+    let outcome = route(
+        &matrix_store(MatrixCell::SameOrigin, BodySource::Checklist),
+        RUN,
+        &SessionAnchors::new(),
+    );
+    let def = phase_def("test-gen");
+
+    assert!(!outcome.done, "非终态");
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("test-gen"),
+        "路由落位不变"
+    );
+    assert_eq!(outcome.round, 1, "round 不受抑制影响");
+    assert_eq!(outcome.steps, def.steps.to_vec(), "计划步序列逐项不变");
+    assert_eq!(
+        outcome.artifact_manifest,
+        def.artifact_manifest.to_vec(),
+        "产物清单逐项不变"
+    );
+    assert_eq!(
+        ids(&outcome.allowed_backtrack_phases),
+        vec![
+            "proposal",
+            "dev-design",
+            "test-design",
+            "implement",
+            "test-gen",
+        ],
+        "回溯白名单零收缩"
+    );
+    let last = outcome.last_result.expect("last_result 随行");
+    assert_eq!(
+        last.phase, "implement",
+        "last_result 取全局最新条目（非标记行）"
+    );
+    assert_eq!(last.verdict, Verdict::Pass, "last_result verdict 逐字不变");
+    assert!(outcome.error.is_none(), "正常路由零错误");
+    assert_eq!(
+        outcome.backtrack_window,
+        vec![window_entry("test-gen", "dev-design", SAME_ORIGIN_REASON)],
+        "backtrack_window 不因抑制收缩（五字段逐字段等值）"
+    );
+}
+
+/// 第一拍与抑制可辨（边界，参数化迭代 2 形态 + 1 对照）：常规回溯第一拍与自环第一
+/// 拍均走 `backtrack_to` 分支、窗口段在场且反馈段缺席（`retry_feedback` 恒 `None`）；
+/// 同源格同为零反馈段但走正常路由分支（`next_phase` = 窗口发起相位、`last_result`
+/// 取全局最新条目）⇒ 两形态输出可辨（合并实现即抹掉该差异）。
+#[test]
+fn 回溯第一拍与同源抑制两成因可辨() {
+    let regular_fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        entry_with_id(12, "dev-design", 1, Verdict::Pass, t(2)),
+        backtrack_marker(20, "test-gen", t(5), "dev-design", SAME_ORIGIN_REASON),
+    ]);
+    let regular = route(&regular_fake, RUN, &SessionAnchors::new());
+
+    let loop_fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        backtrack_marker(20, "implement", t(5), "implement", SAME_ORIGIN_REASON),
+    ]);
+    let loop_back = route(&loop_fake, RUN, &SessionAnchors::new());
+
+    for (label, outcome, target) in [
+        ("常规回溯第一拍", &regular, "dev-design"),
+        ("自环第一拍", &loop_back, "implement"),
+    ] {
+        assert!(
+            outcome.error.is_none(),
+            "{label} 回溯分支先手接管（零分叉）"
+        );
+        assert_eq!(
+            outcome.next_phase.as_deref(),
+            Some(target),
+            "{label} 路由落窗口目标相位"
+        );
+        for (role, prompt) in role_prompts(outcome) {
+            assert!(prompt.contains(WINDOW_TITLE), "{label} {role} 窗口段在场");
+            assert!(
+                !prompt.contains("⚠️ 上次评估未通过"),
+                "{label} {role} 反馈段缺席（retry_feedback 恒 None，与抑制无关）: {prompt}"
+            );
+        }
+    }
+
+    let same = route(
+        &matrix_store(MatrixCell::SameOrigin, BodySource::Checklist),
+        RUN,
+        &SessionAnchors::new(),
+    );
+    assert_eq!(
+        same.next_phase.as_deref(),
+        Some("test-gen"),
+        "同源格路由落窗口发起相位"
+    );
+    assert_eq!(
+        same.last_result.as_ref().map(|last| last.phase.as_str()),
+        Some("implement"),
+        "同源格 last_result 取全局最新条目（非标记行）"
+    );
+    for (role, prompt) in role_prompts(&same) {
+        assert!(
+            !prompt.contains("⚠️ 上次评估未通过"),
+            "同源格 {role} 同为零反馈段: {prompt}"
+        );
+    }
+    assert_ne!(
+        regular.next_phase, same.next_phase,
+        "第一拍与同源抑制的 next_phase 不同（两成因可辨）"
+    );
+    assert_ne!(
+        regular.last_result.as_ref().map(|last| last.phase.as_str()),
+        same.last_result.as_ref().map(|last| last.phase.as_str()),
+        "第一拍与同源抑制的 last_result 不同（两成因可辨）"
+    );
+}
+
+/// 抑制闸位置与段序退化（正向，单次）：同源格 prompt 恰为「上下文头 + 静态角色主体
+/// + 窗口段」——反馈段零长度（插值序不变，仅末段为空串）。
+#[test]
+fn 同源格prompt段序_静态主体之后窗口段且反馈段零长度() {
+    let outcome = route(
+        &matrix_store(MatrixCell::SameOrigin, BodySource::Checklist),
+        RUN,
+        &SessionAnchors::new(),
+    );
+    let def = phase_def("test-gen");
+    let section = backtrack_window_section(&outcome.backtrack_window);
+    assert!(!section.is_empty(), "同源格窗口段非空（抑制不触达段 A）");
+
+    for (role, static_body, resolved) in [
+        (
+            "executor",
+            def.executor
+                .as_ref()
+                .expect("test-gen executor 在表")
+                .prompt,
+            outcome
+                .executor
+                .as_ref()
+                .expect("executor spec 在场")
+                .prompt
+                .as_str(),
+        ),
+        (
+            "evaluator",
+            def.evaluator
+                .as_ref()
+                .expect("test-gen evaluator 在表")
+                .prompt,
+            outcome
+                .evaluator
+                .as_ref()
+                .expect("evaluator spec 在场")
+                .prompt
+                .as_str(),
+        ),
+    ] {
+        let prefix = format!("change: {CHANGE_NAME}\n\n{static_body}");
+        assert!(
+            resolved.starts_with(&prefix),
+            "{role} prompt 首部为上下文头 + 静态主体（抑制不改插值序）"
+        );
+        let tail = &resolved[prefix.len()..];
+        assert_eq!(
+            tail,
+            section.as_str(),
+            "{role} prompt 主体之后恰为窗口段（反馈段被抑制为零长度）"
+        );
+        assert!(
+            resolved.find(static_body).expect("主体在场")
+                < resolved.find(WINDOW_TITLE).expect("窗口段在场"),
+            "{role} 静态主体先于窗口段"
+        );
+        assert!(
+            !tail.contains("⚠️ 上次评估未通过"),
+            "{role} 窗口段之后无失败反馈段残留"
+        );
+    }
+}
+
+/// 只抑制反馈段、不抑制窗口段（异常，单次）：同一 fixture 内「窗口段在场」与「反馈段
+/// 缺席」同时成立（防「整段抑掉」与「窗口段被误删」两种错法）；两角色同判。
+#[test]
+fn 同源格只抑制反馈段不抑制窗口段() {
+    let outcome = route(
+        &matrix_store(MatrixCell::SameOrigin, BodySource::Checklist),
+        RUN,
+        &SessionAnchors::new(),
+    );
+
+    for (role, prompt) in role_prompts(&outcome) {
+        assert!(
+            prompt.contains(WINDOW_TITLE),
+            "同源格 {role} 窗口段不得被误删: {prompt}"
+        );
+        assert!(
+            prompt.contains(&expected_block(SAME_ORIGIN_REASON)),
+            "同源格 {role} 窗口段原因原文在场: {prompt}"
+        );
+        assert!(
+            !prompt.contains("⚠️ 上次评估未通过"),
+            "同源格 {role} 反馈段整段缺席: {prompt}"
+        );
+        assert!(
+            !prompt.contains(SENTINEL_ITEM) && !prompt.contains(SENTINEL_EVIDENCE),
+            "同源格 {role} 标记行清单正文零命中: {prompt}"
+        );
+    }
+}
+
+/// 标记行 `checklist` 四形态（边界，参数化迭代 4 形态）：`[]` + 哨兵 `report` / 单条
+/// fail 项 / 多条含 pass 项 / 100 条 fail 项 → 同源格四形态 prompt 逐字节相等（抑制后
+/// 正文来源无关）、零哨兵命中、零 panic。
+#[test]
+fn 同源格标记行checklist四形态prompt逐字节相等() {
+    let many: Vec<ChecklistItem> = (0..100)
+        .map(|index| checklist_item(&format!("失败项{index}"), false, &format!("证据{index}")))
+        .collect();
+    let shapes: [(&str, String, Vec<ChecklistItem>); 4] = [
+        (
+            "空清单 + report 全文",
+            SENTINEL_REPORT.to_owned(),
+            Vec::new(),
+        ),
+        (
+            "单条失败项",
+            "单条形态散文".to_owned(),
+            vec![checklist_item(SENTINEL_ITEM, false, SENTINEL_EVIDENCE)],
+        ),
+        (
+            "多条含 pass 项",
+            "多条形态散文".to_owned(),
+            vec![
+                checklist_item("失败项", false, "证据一"),
+                checklist_item("通过项", true, "证据二"),
+            ],
+        ),
+        ("100 条失败项", "百条形态散文".to_owned(), many),
+    ];
+
+    let mut baseline: Option<(String, String)> = None;
+    for (label, report, checklist) in shapes {
+        let fake = same_origin_store(|record| {
+            record.report = report.clone();
+            record.checklist = checklist.clone();
+        });
+        let outcome = route(&fake, RUN, &SessionAnchors::new());
+        let executor = outcome
+            .executor
+            .as_ref()
+            .expect("executor 在场")
+            .prompt
+            .clone();
+        let evaluator = outcome
+            .evaluator
+            .as_ref()
+            .expect("evaluator 在场")
+            .prompt
+            .clone();
+        for (role, prompt) in [("executor", &executor), ("evaluator", &evaluator)] {
+            assert!(
+                !prompt.contains("⚠️ 上次评估未通过"),
+                "{label} {role} 抑制后零反馈段: {prompt}"
+            );
+            assert!(
+                !prompt.contains(SENTINEL_ITEM) && !prompt.contains(SENTINEL_EVIDENCE),
+                "{label} {role} 哨兵正文零命中: {prompt}"
+            );
+        }
+        match &baseline {
+            None => baseline = Some((executor, evaluator)),
+            Some((baseline_executor, baseline_evaluator)) => {
+                assert_eq!(
+                    &executor, baseline_executor,
+                    "{label} 形态 executor prompt 与基准逐字节相等（正文来源无关）"
+                );
+                assert_eq!(
+                    &evaluator, baseline_evaluator,
+                    "{label} 形态 evaluator prompt 与基准逐字节相等"
+                );
+            }
+        }
+    }
+}
+
+/// 反馈段正文形状零变化（正向，参数化迭代 3 形态，窗口外格端到端）：失败项优先
+/// （pass 项不随行）/ 清单空退回 `report` 全文 / 全 pass 清单配 fail verdict 全量随行。
+#[test]
+fn 窗口外格反馈段正文三形态逐字渲染() {
+    let failing_first = route(
+        &outside_window_store(|record| {
+            record.report = "旧输出散文（失败项优先时不随行）".to_owned();
+            record.checklist = vec![
+                checklist_item("设计完整性", false, "缺产物区组件"),
+                checklist_item("任务分解", true, "tasks 齐备"),
+            ];
+        }),
+        RUN,
+        &SessionAnchors::new(),
+    );
+    for (role, prompt) in role_prompts(&failing_first) {
+        assert!(
+            prompt.contains("⚠️ 上次评估未通过（attempt 1），请针对以下失败项修复："),
+            "{role} 段头逐字在场: {prompt}"
+        );
+        assert!(
+            prompt.contains("- 设计完整性：缺产物区组件"),
+            "{role} 失败项（item + evidence）随行: {prompt}"
+        );
+        assert!(
+            !prompt.contains("- 任务分解"),
+            "{role} pass 项不随行: {prompt}"
+        );
+        assert!(
+            !prompt.contains("旧输出散文"),
+            "{role} 失败项优先时 report 不渗入: {prompt}"
+        );
+    }
+
+    let empty_checklist = route(
+        &outside_window_store(|record| {
+            record.report = SENTINEL_REPORT.to_owned();
+            record.checklist = Vec::new();
+        }),
+        RUN,
+        &SessionAnchors::new(),
+    );
+    for (role, prompt) in role_prompts(&empty_checklist) {
+        assert!(
+            prompt.contains(SENTINEL_REPORT),
+            "{role} 清单空退回 report 全文: {prompt}"
+        );
+    }
+
+    let all_pass = route(
+        &outside_window_store(|record| {
+            record.report = "全 pass 清单形态".to_owned();
+            record.checklist = vec![
+                checklist_item("项一", true, "证据一"),
+                checklist_item("项二", true, "证据二"),
+            ];
+        }),
+        RUN,
+        &SessionAnchors::new(),
+    );
+    for (role, prompt) in role_prompts(&all_pass) {
+        assert!(
+            prompt.contains("- 项一：证据一") && prompt.contains("- 项二：证据二"),
+            "{role} 全 pass 清单配 fail verdict 全量随行（不虚减）: {prompt}"
+        );
+        assert!(
+            !prompt.contains("全 pass 清单形态"),
+            "{role} 有清单项时不退化到 report: {prompt}"
+        );
+    }
+}
+
+/// 消费面收窄不改变语义（异常，参数化迭代 2 消费者）：窗口内非同源格的 fail 重试与
+/// 窗口外格的 fail 重启均照常渲正文 ⇒ 抑制未把 `fail_feedback_suffix` 降级为死代码。
+#[test]
+fn 反馈段两消费者均照常渲正文() {
+    let rendered = BodySource::Checklist.rendered();
+
+    let coexist = route(
+        &matrix_store(MatrixCell::CrossOriginCoexist, BodySource::Checklist),
+        RUN,
+        &SessionAnchors::new(),
+    );
+    for (role, prompt) in role_prompts(&coexist) {
+        assert!(
+            prompt.contains(&rendered),
+            "消费者一（异源并存格的 fail 重试）{role} 照常渲正文: {prompt}"
+        );
+        assert!(
+            prompt.contains(WINDOW_TITLE),
+            "消费者一 {role} 窗口段并存: {prompt}"
+        );
+    }
+
+    let restart = route(
+        &matrix_store(MatrixCell::OutsideWindow, BodySource::Checklist),
+        RUN,
+        &SessionAnchors::new(),
+    );
+    for (role, prompt) in role_prompts(&restart) {
+        assert!(
+            prompt.contains(&rendered),
+            "消费者二（窗口外格的 fail 重启）{role} 照常渲正文: {prompt}"
+        );
+        assert!(
+            !prompt.contains(WINDOW_TITLE),
+            "消费者二 {role} 零窗口段: {prompt}"
+        );
+    }
+}
+
+/// `（attempt N）` 三值 × 两格（边界，组合迭代 3 attempt × 2 格）：同源格零
+/// `（attempt`（信息损失只发生在此格），窗口外格逐字渲染该值。
+#[test]
+fn attempt三值两格_同源格零attempt窗口外格逐字渲染() {
+    for attempt in [0u32, 1, u32::MAX] {
+        let suppressed = route(
+            &same_origin_store(|record| {
+                record.attempt = attempt;
+                record.report = SENTINEL_REPORT.to_owned();
+                record.checklist = Vec::new();
+            }),
+            RUN,
+            &SessionAnchors::new(),
+        );
+        for (role, prompt) in role_prompts(&suppressed) {
+            assert!(
+                !prompt.contains("（attempt"),
+                "同源格 {role} attempt={attempt} 零 attempt 头（R-1 信息损失只在此格）: {prompt}"
+            );
+            assert!(
+                !prompt.contains(SENTINEL_REPORT),
+                "同源格 {role} attempt={attempt} 正文零命中: {prompt}"
+            );
+        }
+
+        let outside = route(
+            &outside_window_store(|record| {
+                record.attempt = attempt;
+                record.report = SENTINEL_REPORT.to_owned();
+                record.checklist = Vec::new();
+            }),
+            RUN,
+            &SessionAnchors::new(),
+        );
+        for (role, prompt) in role_prompts(&outside) {
+            assert!(
+                prompt.contains(&format!("（attempt {attempt}）")),
+                "窗口外格 {role} 逐字渲染 attempt={attempt}: {prompt}"
+            );
+            assert!(
+                prompt.contains(SENTINEL_REPORT),
+                "窗口外格 {role} 正文照常随行（损失未波及此格）: {prompt}"
+            );
+        }
+    }
+}
+
+/// 同源窗口恒在裁剪后集合内（正向，直调 `open_backtrack_windows`）：三窗覆盖
+/// `test-gen`（创建序 id 10 / 20 / 30，同源窗最末）→ 输出等于裁剪后两窗，末位
+/// `from_phase == "test-gen"` 且 `from_index` 为该组最小 ⇒ 同源判据
+/// `any(from_phase == def.id)` 恒可命中。
+#[test]
+fn 同源窗口恒在裁剪后集合内且from_index为该组最小() {
+    let table = requirement_table();
+    let entries = vec![
+        backtrack_marker(10, "acceptance", t(4), "proposal", "R1-最早创建"),
+        backtrack_marker(20, "code-review", t(6), "proposal", "R2-中"),
+        backtrack_marker(30, "test-gen", t(5), "dev-design", "R3-同源"),
+    ];
+
+    let windows = open_backtrack_windows(&entries, table, "test-gen");
+
+    assert_eq!(
+        windows,
+        vec![
+            window_entry("code-review", "proposal", "R2-中"),
+            window_entry("test-gen", "dev-design", "R3-同源"),
+        ],
+        "命中 MAX_BACKTRACK_WINDOWS + 1 条 → 取创建序末位两条（同源窗口在最末）"
+    );
+    let same_origin_window = windows.last().expect("裁剪后集合非空");
+    assert_eq!(same_origin_window.from_phase, "test-gen", "末位即同源窗口");
+    assert_eq!(
+        same_origin_window.from_index,
+        table_index("test-gen"),
+        "同源窗口 from_index = 当前相位下标"
+    );
+    assert_eq!(
+        same_origin_window.from_index,
+        windows
+            .iter()
+            .map(|window| window.from_index)
+            .min()
+            .expect("集合非空"),
+        "同源窗口 from_index 为该组最小 ⇒ take_last 恒保留它"
+    );
+    assert!(
+        windows.iter().any(|window| window.from_phase == "test-gen"),
+        "抑制判据 `any(from_phase == def.id)` 在裁剪后集合上恒可命中"
+    );
+    assert!(
+        !windows.iter().any(|window| window.reason == "R1-最早创建"),
+        "创建序最早者被裁（被裁者 from_index 最大）"
+    );
+}
+
+/// 同源格窗口段渲染零改动（正向，单次）：prompt 内窗口段与直调
+/// `backtrack_window_section(&outcome.backtrack_window)` 逐字节相等；段内原因按创建序、
+/// 标签行零属性、相位 id 零命中（抑制不动段 A 的字节）。
+#[test]
+fn 同源格窗口段渲染与直调逐字节相同() {
+    let fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        entry_with_id(12, "dev-design", 1, Verdict::Pass, t(2)),
+        entry_with_id(13, "test-design", 1, Verdict::Pass, t(3)),
+        entry_with_id(14, "implement", 1, Verdict::Pass, t(12)),
+        backtrack_marker(15, "code-review", t(4), "proposal", "R-较早创建"),
+        backtrack_marker(20, "test-gen", t(5), "dev-design", SAME_ORIGIN_REASON),
+    ]);
+
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("test-gen"),
+        "同源格走正常路由分支"
+    );
+    assert_eq!(
+        outcome.backtrack_window,
+        vec![
+            window_entry("code-review", "proposal", "R-较早创建"),
+            window_entry("test-gen", "dev-design", SAME_ORIGIN_REASON),
+        ],
+        "两窗均在集合内（≤ 上限不裁剪）且按创建序"
+    );
+    let section = backtrack_window_section(&outcome.backtrack_window);
+    for (role, prompt) in role_prompts(&outcome) {
+        let at = prompt
+            .find(&section)
+            .unwrap_or_else(|| panic!("{role} prompt 内窗口段应与直调渲染逐字节相同"));
+        let embedded = &prompt[at..at + section.len()];
+        assert_eq!(embedded, section.as_str(), "{role} 窗口段逐字节相等");
+        assert!(
+            embedded.find("R-较早创建").expect("较早原因在场")
+                < embedded.find(SAME_ORIGIN_REASON).expect("同源原因在场"),
+            "{role} 段内原因按创建序（不重排）"
+        );
+        for phase_id in ["code-review", "test-gen", "dev-design", "proposal"] {
+            assert!(
+                !embedded.contains(phase_id),
+                "{role} 段内 {phase_id} 零命中（标签行零属性）: {embedded}"
+            );
+        }
+        let tag_lines: Vec<&str> = embedded
+            .lines()
+            .filter(|line| line.starts_with("<backtrack"))
+            .collect();
+        assert_eq!(
+            tag_lines.len(),
+            outcome.backtrack_window.len(),
+            "{role} 标签行数 = 窗口条数"
+        );
+        for line in tag_lines {
+            assert_eq!(line, "<backtrack reason>", "{role} 标签行零属性");
+        }
+        assert!(
+            !prompt.contains("⚠️ 上次评估未通过"),
+            "{role} 同源格反馈段被抑制: {prompt}"
+        );
+    }
 }

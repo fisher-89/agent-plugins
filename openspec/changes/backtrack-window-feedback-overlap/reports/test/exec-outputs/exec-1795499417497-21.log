@@ -1,0 +1,15 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\backtrack-window-feedback-overlap\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_next.rs:481:
+     // 同源格：当前相位是某开放窗口的发起相位 ⇒ 窗口段与失败反馈段读的是同
+     // 一条标记行（`reason` 是决策者的修法方向、`checklist` / `report` 是评估
+     // 者旧输出的回灌），只留窗口段。判据只此一处，不进 `retry_feedback` 取值。
+[31m-    let same_origin = open_windows.iter().any(|window| window.from_phase == def.id);
+[0m[32m+    let same_origin = open_windows
+[0m[32m+        .iter()
+[0m[32m+        .any(|window| window.from_phase == def.id);
+[0m     let window_section = backtrack_window_section(&open_windows);
+     let feedback_suffix = retry_feedback
+         .filter(|_| !same_origin)
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

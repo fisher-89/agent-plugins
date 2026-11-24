@@ -437,6 +437,10 @@ pub fn backtrack_window_section(windows: &[BacktrackWindowEntry]) -> String {
 /// 失败反馈段：fail 重试时随 prompt 下发的检查结果——失败项优先（item +
 /// evidence）；全 pass 清单配 fail verdict 的漂移形态全量随行不虚减（与决策
 /// 输入 `build_decision_input` 同判）；清单空退回 report 全文。
+///
+/// 消费者为「窗口内非同源格的 fail 重试」与「窗口外格的 fail 重启」（决策
+/// stop / 决策缺席 / 越权拒 / `backtrack` 写面 Err 后的恢复路径）；同源格由
+/// `build_phase_response` 整段省略，本函数零判据。
 fn fail_feedback_suffix(record: &PhaseStateRecord) -> String {
     let failing: Vec<&ChecklistItem> = record.checklist.iter().filter(|item| !item.pass).collect();
     let source: Vec<&ChecklistItem> = if failing.is_empty() {
@@ -460,8 +464,9 @@ fn fail_feedback_suffix(record: &PhaseStateRecord) -> String {
 }
 
 /// 正常路由响应：上下文头（`change:` + 记录 `name`）+ 静态角色知识主体 +
-/// 回溯重做窗口段（静态主体之后、失败反馈段之前）+ 失败反馈段（fail 重试时
-/// 在场）+ 白名单随行（append 组装，零模板替换）。
+/// 回溯重做窗口段（静态主体之后、失败反馈段之前）+ 失败反馈段（fail 重试
+/// 且非同源格时在场——同源格的记录已由窗口段承载，整段省略）+ 白名单随行
+/// （append 组装，零模板替换）。
 fn build_phase_response(
     table: &'static [PhaseDefinition],
     def: &PhaseDefinition,
@@ -473,8 +478,17 @@ fn build_phase_response(
 ) -> PhaseNextOutcome {
     let context_header = format!("change: {name}\n\n");
     let open_windows = open_backtrack_windows(entries, table, def.id);
+    // 同源格：当前相位是某开放窗口的发起相位 ⇒ 窗口段与失败反馈段读的是同
+    // 一条标记行（`reason` 是决策者的修法方向、`checklist` / `report` 是评估
+    // 者旧输出的回灌），只留窗口段。判据只此一处，不进 `retry_feedback` 取值。
+    let same_origin = open_windows
+        .iter()
+        .any(|window| window.from_phase == def.id);
     let window_section = backtrack_window_section(&open_windows);
-    let feedback_suffix = retry_feedback.map(fail_feedback_suffix).unwrap_or_default();
+    let feedback_suffix = retry_feedback
+        .filter(|_| !same_origin)
+        .map(fail_feedback_suffix)
+        .unwrap_or_default();
     let resolve = |spec: &PhaseAgentSpec| ResolvedPhaseSpec {
         prompt: format!(
             "{context_header}{}{window_section}{feedback_suffix}",

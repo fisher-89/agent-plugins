@@ -1,0 +1,209 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/workflow/src/write/phase_next.rs:479:5: replace build_phase_response -> PhaseNextOutcome with Default::default()",
+          "package": "workflow",
+          "file": "crates/core/workflow/src/write/phase_next.rs",
+          "function": {
+            "function_name": "build_phase_response",
+            "return_type": "-> PhaseNextOutcome",
+            "span": {
+              "start": {
+                "line": 466,
+                "column": 1
+              },
+              "end": {
+                "line": 514,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 479,
+              "column": 5
+            },
+            "end": {
+              "line": 513,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__workflow__src__write__phase_next.rs_line_479_col_5.log",
+      "diff_path": "diff/crates__core__workflow__src__write__phase_next.rs_line_479_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 27.8775432,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/workflow/src/write/phase_next.rs:489:21: delete ! in build_phase_response",
+          "package": "workflow",
+          "file": "crates/core/workflow/src/write/phase_next.rs",
+          "function": {
+            "function_name": "build_phase_response",
+            "return_type": "-> PhaseNextOutcome",
+            "span": {
+              "start": {
+                "line": 466,
+                "column": 1
+              },
+              "end": {
+                "line": 514,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 489,
+              "column": 21
+            },
+            "end": {
+              "line": 489,
+              "column": 22
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__workflow__src__write__phase_next.rs_line_489_col_21.log",
+      "diff_path": "diff/crates__core__workflow__src__write__phase_next.rs_line_489_col_21.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 38.7288855,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 12.2442737,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=workflow@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/workflow/src/write/phase_next.rs:486:41: replace == with != in build_phase_response",
+          "package": "workflow",
+          "file": "crates/core/workflow/src/write/phase_next.rs",
+          "function": {
+            "function_name": "build_phase_response",
+            "return_type": "-> PhaseNextOutcome",
+            "span": {
+              "start": {
+                "line": 466,
+                "column": 1
+              },
+              "end": {
+                "line": 514,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 486,
+              "column": 41
+            },
+            "end": {
+              "line": 486,
+              "column": 43
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__workflow__src__write__phase_next.rs_line_486_col_41.log",
+      "diff_path": "diff/crates__core__workflow__src__write__phase_next.rs_line_486_col_41.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 38.7959396,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 12.9435047,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=workflow@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 3,
+  "missed": 0,
+  "caught": 2,
+  "timeout": 0,
+  "unviable": 1,
+  "success": 0,
+  "start_time": "2026-11-24T06:04:52.8557843Z",
+  "end_time": "2026-11-24T06:05:46.5435397Z",
+  "cargo_mutants_version": "27.1.0"
+}
