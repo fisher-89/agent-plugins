@@ -223,7 +223,7 @@ propose_config({ candidate: {...} })  → Ok { current, candidate, changes: [...
 - **数值整数化**：`fract() == 0.0` 且绝对值不超过 `2^53` 时出 `i64`，否则保留浮点（serde_json 的 `PosInt` 与 `Float` 不相等，阈值缺省值来自 `f64`，不整数化会让用户写的 `90` 变成 `90.0`）。
 - **`extra` 三坑**：① null 值条目 SHALL 保留（丢 null 规则只作用于已知 Option 字段，MUST NOT 作用于 `extra`，否则回读少一条）；② 键序按字母序重排（不可保真，接受）；③ 键冲突 SHALL 显式 `Err`（若将来给结构体加字段却忘进 `KNOWN_KEYS`，字段与 `extra` 副本会同键，`Map::insert` 会静默覆盖）。
 - **四面一致性锚**：写入器 SHALL 由四条机械锚守（缺一即漂移无人拦）——**P1** 文件面输出中 `extra` 值内部以外任何键名不含大写字母（自证，零维护）；**P2** 满配 fixture 的顶层键集 == `known_keys()` 且无 `extra`（使 `KNOWN_KEYS` 成为写入器键集的唯一持有者，并继承其与 `config.schema.json` 的既有一致性断言）；**P3** `assemble(to_file_value(cfg, 模板))` 与 `cfg` 逐字段相等（线面值比较，`WorkspaceConfig` 无 `PartialEq`）；**P4** 对「全字段显式」字面量 `L`（字母序、数值写整数）：`to_file_value(assemble(L).config, L) == L`。
-- **公开面配套**：`core/config` SHALL 导出 `known_keys()` 与 `TestFramework::ALL` / `as_str()`（与 `parse_framework` 双向互证），供知识词表与 P2 锚共用；`plan_apply_config` SHALL 返回 `ConfigWrite { file: PathBuf, content: String }`（沿 `archi::edit::GateWrite` 的 `{ file, content }` 形状），路径经 `foundation::layout::config_path`（crate 内 MUST NOT 出现 `config.json` 字面量）。
+- **公开面配套**：`core/config` SHALL 导出 `known_keys()` 与 `TestFramework::ALL` / `as_str()`（与 `parse_framework` 双向互证），供知识词表与 P2 锚共用；`plan_apply_config` SHALL 返回 `ConfigWrite { file: PathBuf, content: String }`（沿 `archi::edit::ModelWrite` 的 `{ file, content }` 形状——同型另有写后哈希字段 `hash`，配置写面 MUST NOT 引用它），路径经 `foundation::layout::config_path`（crate 内 MUST NOT 出现 `config.json` 字面量）。
 - **规范化明示（不做保序）**：写回会重排键序并格式化（字母序 + pretty 展开，行内数组拆行），`projects[i]` / `tests[i]` / `write_protection.files[i]` 内的未知子键在组装路径上被静默丢弃——该后果 SHALL 在应用确认面明示；MUST NOT 引入 `serde_json/preserve_order`（会把全仓 `Map` 换 `IndexMap`，波及所有 JSON 顺序断言）。
 
 #### Scenario: wire face 绝不用于落盘

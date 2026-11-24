@@ -519,6 +519,36 @@ api_buckets(declared: &[String], used: &[String]) -> (Vec<String>, Vec<String>)
 - **WHEN** 某后端关系写了 `apis = ["SystemCommand"]`，而观察根无 workspace 清单（Rust 事实面为零）
 - **THEN** 报告产出恰一条 `observations[].kind = unusedDeclaration`（`errors` / `warnings` 零新增、`status` / `passed` 不变）；其 `message` 同时含「可能已不再依赖」与「名字写错或扫描看不见」两种可能，MUST NOT 只写「没用」
 
+### Requirement: 单文件哈希（写面乐观锁粒度）
+
+判定域 SHALL 另提供两个**单文件粒度**哈希函数（`archi::drift` 公开面）：`file_hash(path) -> String`（读盘后累加）与 `file_hash_of(path, content) -> String`（字节由调用方给出）。用途单一是写面乐观锁——`plan_*` 以 `file_hash` 校验 `expect`、以 `file_hash_of` 填 `ModelWrite.hash`（写面语义归 `desktop-archi-model`）：
+
+- **零第二份实现**：两者 SHALL 经既有私有 `hash_files` 累加 helper（按给定序逐文件累加「相对路径 + 空字节 + 字节 + 空字节」，输出 `sha256:` 前缀的十六进制摘要）；MUST NOT 另写一份 Sha256 拼装，`hash_files` 的**可见性不放宽**（仍是私有 helper）。
+- **覆盖面封闭**：本组只覆盖**单个文件**；报告字段 `modelHash` SHALL 继续只覆盖 `graph/model/*.toml`，`assets_hash` SHALL 继续覆盖四类架构资产，两者口径逐字不变。两个新函数 MUST NOT 被写进报告、MUST NOT 取代 `modelHash` / `assets_hash`、MUST NOT 被用作缓存失效依据（本期零缓存）。
+- **可比性边界**：文件名参与累加 ⇒ 单文件值**与目录粒度值（`modelHash` / `assets_hash`）数值不可比**（异名同内容两文件得不同值，同内容不同路径亦然）。唯一可比对象是「同一路径的前后取值」；消费面 MUST NOT 断言本组值与 `modelHash` / `assets_hash` 相等，文档与测试口径都按此写明。
+- **写后等价锚**：`file_hash_of(file, content)` SHALL 逐字等于「把 `content` 落盘到 `file` 后 `file_hash(file)`」的返回值——写面把该值作为 `ModelWrite.hash` 交付，使调用方能把它直接作为下一次 `expect`（TOCTOU 闭环的前提）。
+- **稳定与容错（沿用资产哈希条）**：同一份字节必得同一值，与文件系统时间戳无关；单文件读取失败 SHALL 以空字节参与累加（宁可哈希变化，MUST NOT 让消费侧因 IO 抖动失败）。纯读盘、零写盘、零 spawn。
+
+#### Scenario: 形态与同盘稳定
+
+- **WHEN** 对同一模型文件连续两次调用 `file_hash`，随后改动该文件一个字节再调一次
+- **THEN** 前两次返回值逐字相等且形态为 `sha256:` + 64 位小写十六进制；第三次取值变化——同一路径上「值 != 上次值」即「文件已变」的判据成立
+
+#### Scenario: 写后等价锚成立
+
+- **WHEN** 取任一 `plan_*` 产出的 `content` 与 `hash`，用 `file_hash_of(file, content)` 独立重算，再把 `content` 落盘到 `file` 后调 `file_hash(file)`
+- **THEN** 三次取值逐字相等（`hash` == `file_hash_of` == 落盘后的 `file_hash`）；把该值作 `expect` 再调一次 `plan_*` 返回 `Ok`——「写后新值 → 下一次乐观锁」闭环成立
+
+#### Scenario: 不可与目录粒度哈希互比
+
+- **WHEN** 对同一文件分别取 `file_hash`、含它的 `assets_hash(root)` 与报告 `modelHash`；另对两个异名同内容的文件各取 `file_hash`
+- **THEN** 三者只共享 `sha256:` 前缀，数值 MUST NOT 被判等；两个异名同内容文件的 `file_hash` 亦不相等（文件名参与累加）——可比性边界由该条钉住
+
+#### Scenario: 零独立拼装
+
+- **WHEN** 审查 `crates/core/archi/src/drift/mod.rs` 与写面消费者 `crates/core/archi/src/edit/`
+- **THEN** 全仓只有一处累加实现（`drift::hash_files`，仍为私有）；`edit/` 内零 `Sha256` / `sha2` 字面；`model_hash` / `assets_hash` / `check` 的实现逐字不变
+
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
