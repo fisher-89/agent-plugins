@@ -36,7 +36,7 @@
 
 - 命中唯一最长前缀即归属该元素；同一最长长度命中多个元素 SHALL 判为归属不确定——文件计入 `scan.unmatchedFiles[]` 并记 `ambiguousOwner` warning，MUST NOT 任选其一。
 - 只被 `gate = off` 元素覆盖的文件 SHALL 计入 `scan.unmatchedFiles[]`（不产生任何违例；off 的语义是「本模块不参与判定」）。
-- 无元素认领的文件 SHALL 计入 `scan.unmatchedFiles[]`；元素未声明 `path` 时 SHALL 记 `noPath` warning 且不参与归属。
+- 无元素认领的文件 SHALL 计入 `scan.unmatchedFiles[]`；元素未声明 `path` 时 SHALL **按 `kind`** 决定是否记 `noPath` warning，且一律不参与归属：`package` / `module` 空 `path` SHALL 记 `noPath`（包应有包根、模块必填）；`domain` / `composite` 空 `path` 是选填容器的标准形态，MUST NOT 产 `noPath`。`package` 空 `path` 的告警语义 SHALL 被读作「`kind` 可能用错了」——真·纯分组应声明 `composite`（parse 期放行 0 条，drift 期提醒）；该语义 MUST NOT 被抬进 `errors`（不属定级面，`gate` 档位不改变它）。
 - 归属结果 SHALL 按元素聚合出线到 `scan.matched[]`（`{ element, files[] }`），供门禁诊断与视图复用。
 - **生成物归属按三候选并集判据**：`.i.<ext>` 生成物（`ext ∈ {rs, ts, tsx, js, jsx}`）SHALL 由 `OwnerIndex` 的「整组剥离 `<name>.i.<ext>` → `<name>` ∪ 替换扩展名 `<stem>.i.<ext>` → `<stem>.<ext>` ∪ 主干对齐 `<name>.i.<ext>` → `<name>` 与**文件型 `path` 的去扩展名形态**全等」并集判据归属（判据定义与断言面见 `desktop-archi-api`「生成物落点与入口查找」）——生成器产出的是**入口同级**形态：目录型根的落点仍在元素根之内（`crates/infra/archi/src/lib.i.rs`，整组剥离即命中），**文件型根**的落点是根的兄弟文件（`views/welcome-view.i.ts`），与 `path` 全名 `views/welcome-view.tsx` 既不相等也不互为前缀，只有第三候选能命中。归属判据 MUST NOT 在漂移侧另写一份：`scan` 的两处 `owner_of` 调用点（源文件归属与 `target_rel` 目标归属）自动获得同一判据。
   - **对报告的语义影响**：`gate != off` 的已声明元素，其生成物 SHALL 由 `scan.unmatchedFiles[]` 移入 `scan.matched[]`（这是判定面的一次语义修正：生成物本就属于该元素）；`gate = off` 元素下的生成物仍落 `unmatchedFiles[]`（与改动前同分支，报告零变化）。本仓 `gate` 全 `off` ⇒ 既有报告逐字段、逐序不变。
@@ -88,6 +88,16 @@
 
 - **WHEN** 在 `gate` 全为 `off` 的真仓上，**保持排除配置不变**（`exclude` 条目不在本对照内，避免两个变量混在一条断言里）分别以并集判据改动前 / 改动后执行全量检查
 - **THEN** 两份报告的 `unmatchedFiles[]` 集合与序、`matched[]`、`errors` / `warnings` / `excluded[]` 逐字段相同——唯一生成物 `crates/infra/archi/src/lib.i.rs` 所属元素 `gate = off`，`Owner::None` 与 `Owner::Element{off}` 同落 `unmatchedFiles[]`
+
+#### Scenario: noPath 按 kind 分档
+
+- **WHEN** 模型含四个空 `path` 元素：一个 `package`、一个 `module`、一个 `domain`、一个 `composite`
+- **THEN** `model.warnings` 恰两条 `noPath`（`package` 与 `module` 各一），`domain` / `composite` 零条目；`errors` / 顶层 `warnings` 为空——四个元素都不认领任何文件
+
+#### Scenario: package 空 path 的提示可经 composite 消解
+
+- **WHEN** 对同一份纯分组模型分两次运行：第一次该元素 `kind = "package"`、第二次改为 `kind = "composite"`，其余字段逐字相同
+- **THEN** 前者 `model.warnings` 恰一条 `noPath`（提示「`kind` 可能用错了」），后者为空；两种形态都在 parse 期合法（0 条 `path`），差异只出现在漂移读数上，MUST NOT 有 parse 期诊断
 
 ### Requirement: 三类漂移与定级只看引入方
 
@@ -622,3 +632,33 @@ api_buckets(declared: &[String], used: &[String]) -> (Vec<String>, Vec<String>)
 | `ArchiDriftKind` | 4 → 5 值 | 新增 `UndeclaredApi`（线格式 `undeclaredApi`）；`ALL` 长度断言随动 |
 | `ArchiObservationKind` | 零扩张（二值） | `UnusedDeclaration` 由空位转产出；值集与 `ALL` 不变 |
 | `REPORT_VERSION` | 保持 3 | 字段面零增删（名字进 `message`），不足以为版本递增提供理由 |
+
+### 模块增量：noPath 按 kind 分档（archi-model-path-and-silent-trap）
+
+| 模块 | 职责 | 关键契约 |
+|------|------|----------|
+| `crates/core/archi/src/drift/mod.rs` | 模型警告单点（本变更收窄一处） | `path.is_empty()` 分支改为 `matches!(element.kind, ElementKind::Package \| ElementKind::Module)` 才 push `NoPath`；`domain` / `composite` 空 `path` 不产条目；`message` 字符串逐字不变；`model_warnings.push(` 仍两处、`errors.push(` 仍三处；`use crate::dto::{self, ElementKind, GateTier};` |
+| `crates/core/archi/src/drift/report.rs` | 词汇单点（只改 doc） | `ArchiDriftKind` 仍五值、`ALL` 序不变、`as_str` 不变；`NoPath` 变体 doc 与枚举级总述的 `noPath` 括注同批改写（两处都经 specta 落到 `bindings.ts` 的 JSDoc） |
+| `crates/core/archi/src/drift/mod_test.rs` | 判据断言面 | 既有 `noPath警告`（`Ghost` = `module`）逐字不动；新增 `composite` / `domain` 空 `path` 零警告与 `package` 空 `path` 仍报三条 |
+| `packages/desktop/src/types/generated/bindings.ts` | 生成物（勿手改） | `bindings:export` 重导；预期 diff = `NoPath` 两处 JSDoc，`bindings.zod.ts` 零 diff |
+
+### Function: `crates/core/archi/src/drift/mod.rs`
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `check(CheckInput) -> Result<Report, CheckError>` | 改（仅 ④ 分支） | `noPath` 的入面从「所有空 path 元素」收窄为「`package` / `module` 空 path」；`pathNotFound` / 归属 / 定级 / 豁免 / `status` 推导 / `passed` 逐字不变 |
+| `derive_status` / `Report` | 零改动 | 五值 `status`、纳管子集、`apiFindings` 装配与排序不变 |
+
+### API: 报告线格式（零变化）
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `ArchiDriftKind::NoPath` | 语义收窄、词面不变 | 线格式词仍 `noPath`；五值 `ALL`、`as_str` 与金样匹配面不变 |
+| `model.warnings` 结构 | 零改动 | 条目字段仍 `kind` / `from` / `to` / `gate` / `message` / `occurrences`；本变更只减少条目，不新增字段 |
+
+### CLI: `archi_drift` / 门禁
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `archi_drift(root, mode)` | 读数变化 | 本仓 `model.warnings` 由 6 条变 0 条；其余字段逐字不变 |
+| 语料金样 | 零改动 | 20 份 `expected/*.json`（17 full + 3 incremental）逐字节不变（唯一含 `noPath` 的两份其 `App` 是 `package`） |

@@ -48,12 +48,13 @@ apis = ["ErrorCode"]        # 选填：这条依赖实际用到 `to` 元素的�
 ```
 
 - **键形裁决**：`element` 表的键 SHALL 为**带引号的完整 FQN 单键**（`[element."Backend.Core.Auth"]`），MUST NOT 用未引号点分形式（`[element.Backend.Core.Auth]`）声明层级——两种写法并存会使同一层级存在两种拼法、歧义不可判。层级 SHALL 由 **FQN 最长前缀**推导（`Backend.Core.Auth.Store` 的父亲是 `Backend.Core.Auth`），MUST NOT 由 TOML 表嵌套推导。
-- **字段面封闭**：元素字段 SHALL 为标量 / 数组 / **内联表**三形态；`metadata` MUST NOT 用子表（`[element."X".metadata]`）表达——子表与「子元素表头」同构，会被读成元素 `X.metadata`。
+- **字段面封闭**：元素字段 SHALL 为标量 / 数组 / **表**三形态；`metadata` 的内联表（`metadata = { … }`）与其子表形态（`[element."X".metadata]`，写在已声明元素之后）**语义等价**——TOML 表语义，两种形态都读出同一 `metadata` 表、零诊断。元素身份只由表头键决定：两种形态都 MUST NOT 产出名为 `X.metadata` 的元素。子表形态若成为该 FQN 的**唯一**声明（元素表只有 `metadata`、缺必填的 `kind`）即 `missingField`，整份源全或无。**MUST NOT 再表述为「子表会被读成另一个元素」**——该因果不成立（行为锚：`parse/toml_test.rs` 的 `metadata子表与内联表等价` / `metadata子表成为唯一声明即缺kind`）。
 - **关系条目字段面（本变更新增第四键）**：每条 `[[relation]]` SHALL 为四键——`from` / `to` 必填，`desc` / **`apis`** 可选；`apis` SHALL 为**字符串数组**（缺省空 = 不声明 API 粒度）。`deny_unknown_fields` 语义不变：`api = ["X"]`（单数拼错）报 `unknownField`，与元素表的 `api` 字段互不干扰。
 - **`apis` 的值面四条（只许名字）**：① **只许名字**——逐项 MUST NOT 含空白、MUST NOT 含 `::`、MUST NOT 表达签名 / 参数 / 类型形状，即不得是「`config_path() -> PathBuf`」或「`scan::ImportFact`」一类形态；② **非空**——逐项 MUST NOT 为空串；③ **不重复**——同一关系的 `apis` 内同名重复即拒收（MUST NOT 静默去重，静默去重会让「写重了」与「写对了」不可辨）；④ **空数组拒收**——`apis = []` 与省略同义，显式空数组报 `invalidValue`（同 `doc = [..]` / `entry = [..]` 的「显式错形态直接拒收」先例）。四条违反一律 `invalidValue` + 位置，模型整体停摆。
 - **`apis` 的取值域 = `to` 元素的代码导出名**：与扫描事实（`ImportFact.names` / `DependencyEdge.names`）同一名字空间，比对 SHALL **逐字符**（MUST NOT 大小写折叠、MUST NOT 驼峰归一——否则判定侧常驻第二处映射规则）。取值域 MUST NOT 收窄为「契约 fence 声明的 op / `$defs` 名」：契约声明面是留白面（前端契约 `props = 0`），收窄即不可用；也 MUST NOT 放宽为「协议正文」（见下条）。
 - **`apis` 是开放值集，不进封闭词汇对拍**：与 `doc` / `entry` 同列——它的值域是任意代码标识符（开放集），不是封闭词汇；因此四组派生 `ALL` 常量与「消费面词汇集一致性对拍」的词表 MUST NOT 因本字段扩张，知识文本也只给纪律句、不给词表。
-- **值域封闭**：`kind` 必填且 SHALL 为 `package` / `domain` / `module` / `composite` 四值之一（类型层级从大到小：包 > 领域 > 模块，`domain` 层可省略；`composite` 无实际层级，仅把过多的同级元素分类，可嵌套在任意类型之上）；`gate` 可选且 SHALL 为 `off` / `warn` / `strict` 三值之一（缺省 `off`）；**`api`** 可选且 SHALL 为 `declared` / `none` 二值之一（缺省 `declared`）；**`entry`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「一个入口只属于一个模块」这条约束不可表达）；`path` SHALL 为字符串数组（缺省空）；**`doc`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「入口文档唯一」不可表达）；`summary` 可选字符串；`metadata` SHALL 为字符串→字符串的自由表（未知键忽略，非字符串值即 `invalidValue`）。**`docs` 已退役**：字段面 MUST NOT 含 `docs`，写了即 `unknownField`。
+- **值域封闭**：`kind` 必填且 SHALL 为 `package` / `domain` / `module` / `composite` 四值之一（类型层级从大到小：包 > 领域 > 模块，`domain` 层可省略；`composite` 无实际层级，仅把过多的同级元素分类，可嵌套在任意类型之上）；`gate` 可选且 SHALL 为 `off` / `warn` / `strict` 三值之一（缺省 `off`）；**`api`** 可选且 SHALL 为 `declared` / `none` 二值之一（缺省 `declared`）；**`entry`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「一个入口只属于一个模块」这条约束不可表达）；`path` SHALL 为字符串数组（缺省空；基数随 `kind`，见下条）；**`doc`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「入口文档唯一」不可表达）；`summary` 可选字符串；`metadata` SHALL 为字符串→字符串的自由表（未知键忽略，非字符串值即 `invalidValue`）。**`docs` 已退役**：字段面 MUST NOT 含 `docs`，写了即 `unknownField`。
+- **`path` 的基数是 `kind` 的属性（`root` 与 `paths` 两种语义在此点名）**：`package` 是**一个包**（最小编译单元 / 独立依赖），`path` SHALL **至多 1 条**——0 条合法（纯容器，不对应任何目录），写 1 条即该包的**包根**目录；≥2 条 SHALL 报 `invalidValue`，诊断位置指向**第 2 条** `path` 的源码位置（比元素表头更准），message 点名「一个包至多一条包根目录（纯容器可留空）——多条 path 属 `module`」，模型经 `graph_view` **整图停摆**（既有全或无语义，MUST NOT 改成「跳过该元素」）。`module` 的 `path` 是**若干根的清单**，不设上界（目录型 / 单文件 / 多文件装配同形）；`domain` / `composite` 的 `path` 选填且不设上界。本条只守 `package` 的上界，MUST NOT 顺手扩张出 `module ≥ 1`、目录尾 `/` 一类形态校验；容错面为零是已知代价（`package` 写两条 `path` 在契约面本就只有 `path[0]` 可见）。
 - **未知字段拒绝**：元素表内出现未列出的字段（如 `gatte` / `docs`）SHALL 由 `deny_unknown_fields` 拒绝（`unknownField`）。
 - **属性与语义分离**：`gate` 档位 SHALL 是模型属性（本能力定义其值域与缺省）；档位的**语义消费**（参与归属、违例定级、门禁结论）归 `desktop-archi-drift` 与 `desktop-archi-gate`，本能力 MUST NOT 定义任何定级规则。
 - **`api` 状态指针（显式字段，非 `metadata`）**：元素 SHALL 有封闭二值的 `api` 字段（`declared` 缺省 / `none`，附 `ApiStatus::ALL`），语义为「本模块是否有公共 API 契约」的状态指针，并新增一层角色：**它是入口文档载体的开关**——`declared` ⇒ 入口文档 = 派生落点 `<models>/<分层目录…>/<FQN>.md`（= `contract_path`，`doc` MUST NOT 再声明第二个事实）；`none` ⇒ 入口文档 = `doc` 声明（可选）。该字段 MUST NOT 承载任何协议正文（签名 / 符号 / 接口 / 规范全文）。走显式字段而非 `metadata` 自由键的理由是可获得 `deny_unknown_fields` 的拼写校验：`api = "non"` 报 `invalidValue` 并列全合法值，而 `metadata = { api = "non" }` 会静默变成「未声明」。完备性判据（每个 `path` 非空元素 ∈ {`none`} ∪ {载体在案}）归 `desktop-archi-api-check`。
@@ -74,15 +75,30 @@ apis = ["ErrorCode"]        # 选填：这条依赖实际用到 `to` 元素的�
 - **WHEN** 模型写 `kind = "pakage"` 或 `gate = "stirct"`
 - **THEN** 解析返回 `invalidValue` 诊断，`message` 含 parser 原文（`line` / `column` / 源码片段 / `^^^^` 指示）并**列出全部合法值**（`package` / `domain` / `module` / `composite` 或 `off` / `warn` / `strict`），模型整体判定为停摆态
 
-#### Scenario: 内联 metadata 与非内联形态
+#### Scenario: metadata 子表与内联表等价
 
-- **WHEN** 分别以 `metadata = { owner = "platform", tier = "core" }` 与 `[element."Backend.Core.Auth".metadata]` 子表形态写 metadata
-- **THEN** 内联形态解析成功且未知键被接受；子表形态不产生 `Backend.Core.Auth` 的 `metadata`（该表被读成另一个元素 FQN），并因该元素缺 `kind` 报 `missingField`
+- **WHEN** 两份模型只在 metadata 形态上不同：一份写内联表 `metadata = { owner = "platform", tier = "core" }`，另一份在带 `kind` 的 `[element."Backend.Core.Auth"]` 之后写子表 `[element."Backend.Core.Auth".metadata]` + 同两项
+- **THEN** 两份都解析成功、零诊断；`Backend.Core.Auth` 的 `metadata` 键值逐项相同；元素集里 MUST NOT 出现名为 `Backend.Core.Auth.metadata` 的元素
+
+#### Scenario: metadata 子表成为唯一声明即缺 kind
+
+- **WHEN** 某 FQN 只以子表形态出现（`[element."Backend.Core.Auth".metadata]`，没有带 `kind` 的 `[element."Backend.Core.Auth"]`）
+- **THEN** 报 `missingField`（该 FQN 缺 `kind`），整份源全或无——MUST NOT 静默产出半个模型，MUST NOT 把该表读成另一个元素
 
 #### Scenario: 未引号点分形式被拒
 
 - **WHEN** 模型以 `[element.Backend.Core.Auth]`（未引号点分）声明层级
-- **THEN** 该写法不被承认为合法元素表头（FQN 键形不符）：模型按「无元素 / 缺字段」处置并给出诊断，MUST NOT 与 `[element."Backend.Core.Auth"]` 合并为同一元素
+- **THEN** 报 `unknownField`：文案点名非法子键 `Auth`（不在 `RawElement` 字段面内），整份源解析失败、不产出任何元素；MUST NOT 与 `[element."Backend.Core.Auth"]` 合并为同一元素
+
+#### Scenario: package 两条 path 被拒且整图停摆
+
+- **WHEN** 某 `kind = "package"` 元素写两条 `path`（`path = ["./a/", "./b/"]`）
+- **THEN** 解析返回一条 `invalidValue`，位置命中**第 2 条** `path` 所在行，message 含「至多一条包根」与合法形态提示；此后 `graph_view` 返回 `elements = []` / `relations = []`（整图停摆），MUST NOT 只丢该元素、MUST NOT 保留其余元素
+
+#### Scenario: package 零条 path 与其余 kind 的多条 path 合法
+
+- **WHEN** 解析一份模型：`package` 元素省略 `path`（纯容器），`module` 元素写 5 条 `path`（多根清单），`domain` 元素写 2 条 `path`，`composite` 元素写 2 条 `path`
+- **THEN** 四者全部解析成功、零诊断；`package` 的 `path` 为空数组——判据只在 `package` 的**上界**上成立，`module` / `domain` / `composite` 的基数 MUST NOT 被校验
 
 #### Scenario: 未知字段与元数据未知键的两侧口径
 
@@ -505,3 +521,28 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 |---|---|
 | `crates/core/archi/src/dto.rs` 既有投影 | `ArchiGraph` / `ArchiModuleDetail` / `ArchiApiRef` / `ArchiFileTree` 等逐字不变（本能力只加 `ArchiRelation.apis` 与一个新区块 DTO） |
 | 前端调用路径 | `archi_set_gate` 仍只在 `incremental` 路径出现；`archi_api_generate` 的调用面归 `desktop-archi-contract-panel`；`archi_relation` 的呈现归 `desktop-archi-canvas` |
+
+### 模块增量：path 基数判据与 metadata 形态口径（archi-model-path-and-silent-trap）
+
+| 模块 | 职责 | 关键契约 |
+|------|------|----------|
+| `crates/core/archi/src/parse/toml.rs` | 格式判定单点（本变更 +1 判据） | `to_model` 对每个元素校验 `kind == "package" && path.len() >= 2` ⇒ 一条 `DiagnosticKind::InvalidValue`，位置取 `path[1].span()`（第 2 条）；`Element.path` 仍 `Vec<String>`、`RawElement` 字段面八项与 `deny_unknown_fields` 逐字不变；0 / 1 条与其余 kind 零新判据；parser 错误到结构化诊断的换算（原文 / line / column 零加工）不变 |
+| `crates/core/archi/src/dto.rs` | 停摆语义（零改动） | `graph_view(root)` 的「`diagnostics` 非空 ⇒ `elements` / `relations` 清空」是既有唯一收口点，本变更 MUST NOT 改成「跳过坏元素」；`ArchiDiagnosticKind::ALL` 仍九值 |
+| `crates/core/archi/src/model.rs` | AST（零改动） | `Element { kind, path, … }` 字段面与派生 `PartialEq` 零改动；字段 `metadata: BTreeMap<String, String>` 的形态语义只由解析结果决定，本变更只纠正文案、不改类型 |
+| `crates/core/archi/src/parse/toml_test.rs` | 判据断言面 | 四条 `path` 基数用例（package 2 条拒收带行号 / package 0 条零诊断 / module 2 条零诊断 / composite 2 条零诊断）+ 两条 metadata 形态行为用例（子表与内联表等价 / 子表唯一声明即 `missingField`）；既有用例名与注释去假因果 |
+| `crates/core/archi/src/dto_test.rs` | 停摆断言面 | 新增独立用例（package 两条 path 的 `invalidValue` ⇒ `graph_view` 停摆），既有 `graph_view九类结构错一律停摆` 的表与名字逐字不变 |
+
+### API: 对外面（零变化）
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `ArchiDiagnosticKind` | 零改动 | 仍九值；`invalidValue` 的语义面（「值不在封闭值域 / 字面形态违例」）由本变更扩用一次，不加新变体 |
+| `ArchiGraph` / 投影 DTO | 零改动 | 字段名 / 顺序 / 语义与停摆态形状逐字不变 |
+| IPC 命令面 | 零改动 | 九命令与错误面不变；本判定经既有 `archi_graph` / `archi_module` 读面回灌 |
+
+### CLI / Component: 零改动面
+
+| 项 | 描述 |
+|---|---|
+| `archi_graph` / `archi_module` / `archi_drift` | 命令形态、错误文案语义与投影形状不变；新判据只让坏模型更早进入既有停摆分支 |
+| 前端组件 | 零 UI / 零 DTO 变化（停摆面板沿用既有 `structure-error-panel`） |

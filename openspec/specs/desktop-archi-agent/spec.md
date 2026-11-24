@@ -173,7 +173,7 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_scaffold`（不在七通用工�
 
 - **值集封闭且派生**：`kind` 的合法值 SHALL 由 `ElementKind::ALL` 派生（MUST NOT 手抄四值）；词汇外值 SHALL 以 `is_error` 回灌并**点名**合法值（MUST NOT 静默退化为缺省）。
 - **响应形状**：`{ "draft": "<TOML 片段>" }`——**一段**元素表模板，字段按模型字段面顺序列出（`kind` 实值；`gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata` 以注释行给出并各附一行纪律），另附一条 `[[relation]]` 模板注释。
-- **模板自证可解析**：草稿 SHALL 为合法 TOML 且经 `archi::parse` 的 `TomlParser` 解析后**零结构诊断**（机械锚：字段名 / 键形 / 内联 `metadata` 任一漂移即红）。纪律性提示 SHALL 只出现在注释行——MUST NOT 以注释外的非法行（如 `path = "<待填>"`）破坏可解析性。
+- **模板自证可解析**：草稿 SHALL 为合法 TOML 且经 `archi::parse` 的 `TomlParser` 解析后**零结构诊断**（机械锚：字段名 / 键形 / `metadata` 形态 / `kind` 四值语义任一漂移即红）。纪律性提示 SHALL 只出现在注释行——MUST NOT 以注释外的非法行（如 `path = "<待填>"`）破坏可解析性。
 - **零写盘**：本工具 MUST NOT 创建 / 覆盖 / 删除任何文件（与 `archi_api` 的 `bootstrap` 同款「只出 stdout 语义」）；MUST NOT 成为「写模型工具」（写面仍是既有 `write` / `edit`，见「模型 = 源码（写纪律与不设专用写工具）」）。
 - **体量受上限约束**：响应 SHALL 经 `tools::cap_result` 的既有 L1 上限单点（MUST NOT 为本工具新增截断逻辑）。
 - **只读档位**：归 `ToolTier::Read`（三档全放行），无路径参数（沙箱原样返回、写入保护零射程）。
@@ -181,7 +181,12 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_scaffold`（不在七通用工�
 #### Scenario: 草稿可解析且含必填提示
 
 - **WHEN** 调用 `archi_scaffold()`（省略 `kind`）与 `archi_scaffold(kind = "module")`
-- **THEN** 两次均返回单段元素表草稿（后者的 `kind` 行取 `module`）；草稿经 `TomlParser` 解析零结构诊断；`path` 的「叶元素必填、`./` 前缀、目录尾 `/`」与 `metadata` 的「必须内联表、禁子表」两句以注释行在场
+- **THEN** 两次均返回单段元素表草稿（后者的 `kind` 行取 `module`）；草稿经 `TomlParser` 解析零结构诊断；`path` 的「模块必填（可多条）/ 包至多一条包根 / `domain` · `composite` 选填」与 `metadata` 的「内联表与子表等价」两句以注释行在场，MUST NOT 再出现「子表会被读成另一个元素」一类假因果
+
+#### Scenario: 模板 kind 行覆盖四值语义
+
+- **WHEN** 遍历 `ElementKind::ALL` 四次调用 `archi_scaffold(kind = …)`
+- **THEN** 每次草稿的 `kind` 纪律注释都列出四个值各自的语义（`package` 至多一条包根 / `domain` 领域容器 / `module` 模块 / `composite` 纯分组），MUST NOT 缺任一值——`composite` 不得再是「零承载」的第四值
 
 #### Scenario: 词汇外 kind 被拒
 
@@ -378,12 +383,12 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 
 - **模型位置与聚合（B）**：模型文件位于架构域 `graph/model/` 下（契约资产在 `models/<分层目录…>/`，两目录分家）、按文件名字典序聚合；两处目录路径 SHALL 为**派生所得**的 repo 相对路径（见 `workspace-layout-resolution`），MUST NOT 在产品源码或知识文本中手写目录字面量。契约索引 `INDEX.toml` 的方位 MUST NOT 进知识文本（生成物，零手写面；需要时经 `archi_api` 的 `generatedPath` 取得）。
 - **字段纪律（B + C）**：
-  - `path`（B，一行 + 工具指路）：模块 / 包必填、`domain` / `composite` 选填（缺省空）、`./` 前缀、repo 相对、目录以 `/` 结尾、文件精确到扩展名；容器填了即持文件，子元素依赖它会触发 `dependsOnAncestor`。「这个元素缺不缺 `path`」由 `archi_module` 的 `hasPath` 一次判出。
+  - `path`（B，一行 + 工具指路）：**模块必填（可多条 = 若干根的清单）；包至多一条包根（纯容器可留空；≥2 条即模型停摆）**、`domain` / `composite` 选填（缺省空）、`./` 前缀、repo 相对、目录以 `/` 结尾、文件精确到扩展名；容器填了即持文件，子元素依赖它会触发 `dependsOnAncestor`。「这个元素缺不缺 `path`」由 `archi_module` 的 `hasPath` 一次判出；容器空 `path` 的漂移读数按 kind 分档（`domain` / `composite` 零告警）见 `desktop-archi-drift`。
   - `entry`（B，一行 + 工具指路）：只在约定默认指不到时声明（单文件根 = 根文件自身 / 目录型根 = `<root>/index.ts(x)` / crate = `src/lib.rs`）；解析结果与不可用成因由 `archi_module` 的 `resolvedEntry` 给出，MUST NOT 在知识文本里复述三档长表。
   - `doc`（B，一行 + 判据指路）：单值、repo 相对，只有 `api = none` 的元素可写；`declared` 的入口文档恒为派生落点（按 FQN 段链去根与叶分目录、名为 `<FQN>.md`），写了即 `apiUnexpected`。判据长表归 `desktop-archi-api` / `desktop-archi-api-check`。
-  - **字段形态与键形（C，散文必留）**：一元素一表头、键为带引号的完整 FQN 单键（禁点分嵌套写法——`[element.App.Auth]` 会被读成**另一个元素**）；`metadata` MUST 用内联表（子表同样会被读成另一个元素）；关系写 `[[relation]]`（`from` / `to` / `desc` / **`apis`**）。**字段序与各字段形态的完整模板不入散文**——用 `archi_scaffold` 取（D 档）。
+  - **字段形态与键形（C，散文必留）**：一元素一表头、键为带引号的完整 FQN 单键（未引号点分 `[element.App.Auth]` 使**整份源解析失败**——诊断点名非法子键 `Auth`，不是「读成另一个元素」；骨架 MUST NOT 写结构诊断词，见下「呈现源与对拍源分家」）；`metadata` 的**子表与内联表等价**（`[element."X".metadata]` 写在已声明元素之后零诊断；子表成为唯一声明则缺 `kind`、整份源不解析）；关系写 `[[relation]]`（`from` / `to` / `desc` / **`apis`**）。**字段序与各字段形态的完整模板不入散文**——用 `archi_scaffold` 取（D 档）。
   - **关系 `apis`（B，一行 + 判据指路，本变更新增）**：选填，**只写名字**——`to` 元素的代码导出名（禁签名 / 类型形状 / `::` 限定路径 / 空白），可留空即不声明 API 粒度，`apis = []` 与同名重复被拒；生成物面 MUST 留空（生成物是唯一真相，手写清单必然漂）。两桶结论（用了没声明 / 声明没用）由 `archi_drift` 的 `errors` / `warnings` / `observations` 给出，MUST NOT 在知识文本里复述判据长表，也 MUST NOT 让模型把它当协议正文写（正文仍在契约资产）。
-  - **`kind` 四值语义（C）**：`package` = 包（最小编译单元 / 独立依赖管理；包根与持有文件的包可带 `path`）/ `domain` = 领域（按业务实体边界聚合；`path` 选填）/ `module` = 目录型模块、视图或单文件组件 / `composite` = 无实际层级的组合（仅把过多的同级元素分类，可嵌套在任意类型之上；`path` 选填）。四值语义在 md 的「元素类型」段逐值给出（测试遍历 `ElementKind::ALL` 断言值 + 语义在场），不另设 kind 词汇行。
+  - **`kind` 四值语义（C）**：`package` = 包（最小编译单元 / 独立依赖管理；**至多一条包根 `path`，纯容器可留空**）/ `domain` = 领域（按业务实体边界聚合；`path` 选填）/ `module` = 目录型模块、视图或单文件组件（`path` 必填，可多条）/ `composite` = 无实际层级的组合（仅把过多的同级元素分类，可嵌套在任意类型之上；`path` 选填；**纯分层容器是它的标准形态**）。四值语义在 md 的「元素类型」段逐值给出（测试遍历 `ElementKind::ALL` 断言值 + 语义在场），不另设 kind 词汇行。
 - **层级与缺省（B + C）**：层级由 FQN 最长前缀推导（子元素须先声明祖先——违反时结构诊断 `orphanHierarchy` 由 `archi_module` / `archi_drift` 的 `is_error` 与读数给出）；新元素 `gate` 缺省 `off`（ratchet 逐块收紧）。
 - **计数复述单源（B，一行）**：模型文件表头注释里的元素 / 关系数量 SHALL 以工具读数（`archi_drift` 的 `model.elements` / `model.relations`）为准，改模型 SHALL 在同一批内更新表头；MUST NOT 让表头与模型本体各说各话。spec 的计数表与 ADR 的复算表属仓库文档面，知识文本 MUST NOT 复述任何具体数字。
 - **架构域看护配置（B，一行）**：`<archi_dir>/config.json` 存在且管 `ignore`（元素对豁免）/ `exclude`（扫描排除），未知键与缺 `reason` 即配置非法——非法时 `archi_drift` 以 `is_error` 点名具体条目；MUST NOT 在知识文本里复述字段长表。
@@ -481,7 +486,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 
 - **A 类句子 MUST 携带工具指路且工具面确有该字段**：知识文本里每条「来自 A 档」的纪律 SHALL 点名承载它的工具（`archi_module` / `archi_drift` / `archi_api` / `archi_scaffold`），且该工具的响应或 `Err` 面 SHALL 确有对应字段 / 判据。任一方向缺失（句子里点了不存在的字段、工具加了字段但句子没指路）即违约——由机械断言表守（一行为「纪律句关键词 → 工具名 → 工具面字段」）。
 - **三条补充规则 SHALL 逐条在案**：
-  1. **静默错误必须留上下文**：`metadata` 写子表、`[element.App.Auth]` 点分嵌套会被解析成**另一个元素**（`deny_unknown_fields` 不触发），工具无法在动作前拦住 ⇒ 归 C 档，散文必留。
+  1. **形态错误不静默，但发生在写盘之后**：未引号点分表头 `[element.App.Auth]` 归 `unknownField`、**整份源解析失败**（全或无）；`metadata` 子表与内联表**等价**、零诊断。两者都有**行为**测试钉住（`parse/toml_test.rs` 的 `未引号点分表头被拒且不与合法形态合并` / `metadata子表与内联表等价` / `metadata子表成为唯一声明即缺kind`）。归 C 档的理由仍成立但须换成**动作前不可判定**（写面是自由文本 `write` / `edit`，结构诊断只在写盘后可得；四档表的「不可判定」即此义），MUST NOT 再表述为「会被静默读成另一个元素」或「`deny_unknown_fields` 不触发」——后者已被行为测试否证，不是任何档位的依据。
   2. **写入定位必须留一行**：新元素的模型落点（模型目录）与手写契约的落点（契约资产目录）都在动作前需要，且新元素的契约三路径为 `null`（`api.contractPath` 指不到不存在的东西）⇒ 归 B 档，各留一行。
   3. **`kind` 语义不可脚本化**：「容器 = `domain` / crate、目录与单文件组件 = `module` / 包根 = `package`」是架构判断，工具只能事后判「和邻居不像」⇒ 归 C 档，散文必留。
 - **移动分层的原子性**：把某句从散文改判为 A/D 档时，**同批**必须落地「工具面确有该字段 / 模板」与「散文句替换为指路句」两半——只删不加（知识缺失）与只加不删（知识重复）同样违约。
@@ -492,10 +497,10 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 - **WHEN** 对知识文本的 A 档纪律句逐条取「关键词 → 工具名 → 工具面字段」三列核对
 - **THEN** 每条纪律句都点到承载它的工具名，且该工具的响应 / `Err` 确有对应字段（`hasPath` / `resolvedEntry` / 结构诊断 `kind` / 判据 `kind`）；任一列为空即测试红
 
-#### Scenario: 静默陷阱与 kind 语义留在散文
+#### Scenario: 形态纪律与 kind 语义留在散文
 
 - **WHEN** 审查知识文本的 C 档
-- **THEN** `metadata` 内联表禁令（含「子表会被读成另一个元素」的成因）、带引号 FQN 单键禁令、`kind` 四值语义逐值在场
+- **THEN** 带引号 FQN 单键纪律（成因写「未引号点分 → 整份源解析失败、诊断点名非法子键」）、`metadata` 子表与内联表等价的陈述、`kind` 四值语义逐值在场，且骨架零结构诊断词；MUST NOT 出现「子表 / 点分嵌套会被读成另一个元素」的假因果，也 MUST NOT 出现「`metadata` 必须内联表」的禁令
 
 #### Scenario: 只删不加即违约
 
@@ -670,3 +675,33 @@ archi 会话（装配层在 `SessionInjections.before_done` 置位 `ArchiPreclos
 |---|---|---|
 | `knowledge()` | 零改动（内容随骨架） | 骨架 + 派生段拼装；失败降级 `None`；体量锚（骨架 ≤ 2.2 KB / 全文 ≤ 2.8 KB）仍由测试断言 |
 | 派生词表 | 零改动 | `ElementKind::ALL` / `GateTier::ALL` / `ApiStatus::ALL` / `DiagnosticKind::ALL` 与两处目录派生逐字不变；`apis` 不进词表 |
+
+### 模块增量：kind × path 判据与静默陷阱清除（archi-model-path-and-silent-trap）
+
+| 模块 | 职责 | 关键契约 |
+|------|------|----------|
+| `crates/infra/agent/src/sdk/archi_tool.rs` | 模板单点（本变更改三行注释） | `SCAFFOLD_TEMPLATE`：`kind` 行四值齐列（`package` 至多一条包根 / `domain` 领域容器 / `module` 模块 / `composite` 纯分组）、`path` 行按新基数（模块必填可多条 / 包至多一条包根 / `domain`·`composite` 选填）、`metadata` 行写「内联表与子表等价」；`scaffold_draft` 的 `__KIND__` 替换与 `ElementKind::ALL` 派生不变；草稿对四值仍零结构诊断 |
+| `crates/infra/agent/src/archi-knowledge.md` | 知识骨架（三处改写 + 体量锚） | ①「位置与键形」键形句：未引号点分 → 整份源解析失败（诊断点名非法子键；骨架不写诊断词）；`metadata` 子表与内联表等价；② 字段纪律 `path` 首条：模块必填（可多条）/ 包至多一条包根（纯容器可空）/ `domain`·`composite` 选填；③ 元素类型 `composite` bullet 补「纯分层容器是标准用法」；骨架 2459 B / 全文 2602 B 两个冻结锚同批实测更新 |
+| `crates/infra/agent/src/archi_knowledge_test.rs` | 知识断言面 | `骨架静默陷阱四条在场` 改名（去「静默」）并把 `内联表` needle 换为 `子表与内联表等价`；四条 forbidden needle（`assert!(!source.contains(…))`）与说明注释**保留**——它们是「骨架零假因果」的防线，不属待清残留；A 档指路表、体量锚与降级用例的其余断言不变 |
+| `crates/infra/agent/src/sdk/archi_tool_test.rs` | 模板断言面 | `archi_scaffold三kind逐值` 改遍历 `ElementKind::ALL`；`叶元素必填` needle 改 `module 必填`；新增/保留「kind 四值语义在场」断言 |
+
+### Function: `crates/infra/agent/src/sdk/archi_tool.rs`
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `scaffold_draft(kind)` | 零改动 | 仍为 `SCAFFOLD_TEMPLATE.replace("__KIND__", kind.as_str())`；`kind` 值集仍由 `ElementKind::ALL` 派生 |
+| 模板文本 | 改 | 三行注释（`kind` / `path` / `metadata`）；无新增字段行、无新占位符 |
+
+### API: 工具面（零变化）
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `archi_scaffold` 参数 / 响应 | 零改动 | `kind` 可选四值（`ElementKind::ALL` 派生）；`{ draft }` 形状、`is_error` 回灌面、`cap_result` 截断单点不变 |
+| 五 archi 工具注入矩阵 | 零改动 | `(phase, role)` 矩阵、`ToolTier::Read`、挂载清单与成员校验不变 |
+
+### CLI / Component: 架构会话知识
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `archi_knowledge::knowledge()` 装配 | 零改动 | 骨架 + 两处派生目录段的拼装、失败降级 `None` 与 `SessionInjections.preamble` 合并路径不变 |
+| 前端组件 | 零改动 | 无 IPC / DTO / UI 变化 |

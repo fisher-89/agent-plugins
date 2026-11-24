@@ -15,10 +15,10 @@
 | 文件 | 内容 | 元素 | 关系 |
 |---|---|---|---|
 | `01-app.toml` | 两个包根 `Backend` / `Desktop`（`kind = "package"`，各持根路径） | 2 | 0 |
-| `02-backend-core.toml` | `Core` 容器 + **8** 个 core crate 元素 | **9** | **10** |
-| `03-backend-infra.toml` | `Infra` 容器 + **7** 个 infra crate 元素 | **8** | **25** |
+| `02-backend-core.toml` | `Core` 容器（`kind = "composite"`）+ **8** 个 core crate 元素（`package`） | **9** | **10** |
+| `03-backend-infra.toml` | `Infra` 容器（`kind = "composite"`）+ **7** 个 infra crate 元素（`package`） | **8** | **25** |
 | `04-backend-shell.toml` | Tauri 壳（命令面 / 装配 / bindings 导出） | 1 | **14** |
-| `05-backend-tools.toml` | `Tools` 容器 + `export-bindings` crate + `archi-api-gen` crate | **3** | **3** |
+| `05-backend-tools.toml` | `Tools` 容器（`kind = "composite"`）+ `export-bindings` crate + `archi-api-gen` crate（`package`） | **3** | **3** |
 | `06-frontend.toml` | 前端 `Shell` / 9 视图 / 3 视图内子域 / **13** 共享组件 / **目录模块 `Components.Agent`** / `Ui` / **生成物中继元素 `GeneratedBindings`** + **三个**容器（`Desktop` 包根在 `01`） | **32** | **77** |
 
 合计 SHALL 为 **55 元素 / 129 关系**，逐文件可加：元素侧 `2 + 9 + 8 + 1 + 3 + 32 = 55`（纯容器 6 + 其余 49），关系侧 `0 + 10 + 25 + 14 + 3 + 77 = 129`。关系侧另按取数口径分：**129 = 后端 52（`Cargo.toml` `[dependencies]` 的 workspace 内声明，拆在 `02`–`05`：10 + 25 + 14 + 3）+ 前端 77（`import` 证据，全在 `06`）**；两种拆分 MUST 得同值。前端 77 的构成 SHALL 为 **69 条元素 → 元素边 + 8 条 `Desktop.Components.Agent` 的 barrel 端点边**（含 `Desktop` 包根兜底共享文件产生的 `Desktop → Desktop.Components.Ui` / `Desktop → Desktop.GeneratedBindings` 两条）（3 条出边：入口 `index.tsx` 重导出 `AgentInput` / `AgentSessionView` / `SessionPanel`；5 条入边：`Views.AgentDebug` / `Views.Changes.Agent` / `Views.Changes.Flow` / **`Views.Config`** / `Views.Explores` import `@/components/agent`）——这 8 条由「`components/agent/` 是 `Components.Agent` 的目录模块入口」与「`@/components/agent` → `Components.Agent` 映射」两条规则必然导出，MUST NOT 从记数中剔除；12 个目录模块入口的**其余 re-export 全在本元素内**（`from == to` 自边被丢弃）⇒ 零新边。其中 `06-frontend.toml` 的 32 元素 = **3 个容器**（`Desktop.Views` / `Desktop.Components` / `Desktop.Components.Standard`）+ **29 个其余元素**（`Shell` 1 + 9 视图 + 3 子域 + 13 共享组件（7 `agent` + 6 `standard`）+ `Components.Agent` 1 + `Ui` 1 + **`GeneratedBindings` 1**）；`Desktop` 包根 SHALL 只在 `01-app.toml` 声明一次，`06` MUST NOT 重复声明（重复即 `duplicateElement`）。
@@ -28,7 +28,7 @@
 - **关系归属**：每条 `[[relation]]` SHALL 声明在**其 `from` 元素所在文件**内（定位一致、diff 不跨文件散落）。
 - **`gate` 全 `off`**：本基线内每个元素 SHALL 省略 `gate` 或显式写 `off`，MUST NOT 出现 `warn` / `strict`——冷启动 ratchet（收紧按模块独立变更，一个 change 收紧一块）。
 - **`summary`**：每个元素 SHALL 有一行中文职责说明，MUST NOT 用 FQN 字面复述自身名字。
-- **`path`**：模块 / 包必填，`domain` / `composite` 与仅作分组的包选填（缺省空，本基线六个容器全部留空）；`./` 前缀、repo 相对、目录以 `/` 结尾、文件精确到扩展名。容器填了即持文件、可作关系端点，但子元素依赖它会写出「子 → 父」并触发 `dependsOnAncestor`。目录模块入口由 `desktop-frontend-module-entry` 承载：`Desktop.Components.Agent` 是 `kind = "module"` 的**叶**元素，`path` 为目录 `./packages/desktop/src/components/agent/`，入口是该目录内既有的 `index.tsx`（不再以文件型 `path` 自任端点）。**生成物中继元素（本变更新增）**：`Desktop.GeneratedBindings` 是 `kind = "module"` 的**叶**元素，`path` 为生成目录 `./packages/desktop/src/types/generated/`——它持有三个生成文件（`bindings.ts` / `bindings.zod.ts` / `bindings.zod.check.ts`）的归属，从而让「前端 import 生成物」这条依赖的目标可归属（归属判据零改动，走既有 `OwnerIndex` 最长前缀）。
+- **`path`**：**模块必填（可多条 = 若干根的清单）；包至多一条包根（0 条 = 纯容器，缺省空，本基线六个容器全部留空）**；`domain` / `composite` 选填。**本基线六个容器按语义分两组**：三个**纯分组**容器 `Backend.Core` / `Backend.Infra` / `Backend.Tools` SHALL 为 `kind = "composite"`（无层级、不持文件，典型形态就是空 `path`）；三个**业务聚合**容器 `Desktop.Views` / `Desktop.Components` / `Desktop.Components.Standard` SHALL 为 `kind = "domain"`（可持文件，本基线同样留空）。「仅作分组的包」这个复合概念由 `composite` 承接，MUST NOT 再用 `kind = "package"` + 空 `path` 表达纯分组；`./` 前缀、repo 相对、目录以 `/` 结尾、文件精确到扩展名。容器填了即持文件、可作关系端点，但子元素依赖它会写出「子 → 父」并触发 `dependsOnAncestor`。目录模块入口由 `desktop-frontend-module-entry` 承载：`Desktop.Components.Agent` 是 `kind = "module"` 的**叶**元素，`path` 为目录 `./packages/desktop/src/components/agent/`，入口是该目录内既有的 `index.tsx`（不再以文件型 `path` 自任端点）。**生成物中继元素（本变更新增）**：`Desktop.GeneratedBindings` 是 `kind = "module"` 的**叶**元素，`path` 为生成目录 `./packages/desktop/src/types/generated/`——它持有三个生成文件（`bindings.ts` / `bindings.zod.ts` / `bindings.zod.check.ts`）的归属，从而让「前端 import 生成物」这条依赖的目标可归属（归属判据零改动，走既有 `OwnerIndex` 最长前缀）。
 - **`entry`**：叶元素 SHALL **仅在约定默认指不到时**声明（单值、`./` 前缀、repo 相对）；单文件根元素（`views/welcome-view.tsx`、`components/agent/` 的 7 个组件文件、`standard/*.tsx`）、**13 个目录型根元素**（入口由 ③ 的 `<root>/index.ts` / `<root>/index.tsx` 命中，含 `components/agent/` 与 `components/ui/`）与 15 个 `src/lib.rs` 命中的 crate MUST NOT 声明（根文件自身 / 语言约定默认已给出入口）。**生成物目录 MUST NOT 声明 `entry`**：它是三个叶子文件的集合、没有模块入口（`entry_state = Absent`），造一个 `index.ts` 只为消 `Absent` 属造假入口（`api = none` 已退出入口判据，零 `apiEntryMissing`，见 `desktop-archi-api-check`）。**本基线内显式 `entry` SHALL 恰为 3 处**（下列三值逐字在案；宿主能解析 `entry` 字段是这三行落地的前提，见 `desktop-archi-api`「生成物落点与入口查找」）：
   - `Backend.Shell` → `./packages/desktop/src-tauri/src/lib.rs`（目录型壳的根路径 `src-tauri/src/` 拼出的约定默认是 `src-tauri/src/src/lib.rs`，指不到）；
   - `Backend.Tools.ExportBindings` → `./packages/desktop/src-tauri/crates/tools/export-bindings/src/main.rs`；
@@ -46,7 +46,7 @@
   两个包根 `Backend` / `Desktop` SHALL 零 `doc`：包根的 `README.md` / `AGENT.md` 由仓库结构本身表达，**不进模型面**（原 `docs = ["./README.md", "./AGENT.md"]` 一行随 `docs` 字段退役删除）。
 - **`metadata`**：本基线 SHALL 全空（`owner` / `tier` 一类自由键会与 `Cargo.toml`、目录结构并列为第二事实源）。
 - **`desc`**：SHALL 为一句中文用途说明（「为什么依赖」），MUST NOT 写入证据清单（import 文件列表 / 依赖段位置）——证据由核对命令逐条取，模型内不存第二事实源。**命令面边的 `desc` SHALL 写明「经生成的 IPC 绑定」**（本变更起改指生成物中继元素，语义仍是「前端经生成物调后端命令面」）。
-- **计数复述单源**：模型文件的表头注释（如 `# 02 · core 分层（9 元素 / 10 关系）`）、本要求的逐文件计数表、与裁定记录 `§1` / `§9` 的复算表 SHALL 在同一次模型改动内同步为同值；三处任一处陈旧即漂移，按「同一 change 内补齐」处理，MUST NOT 让计数表与模型本体各说各话。**本变更的增量与历史留痕（同批写实，逐项留痕）**：① **本变更净增量** = 元素 **+1**（`Backend.Core.Notification`：新 crate `crates/core/notification`，`src/lib.rs` 经约定默认命中入口）、关系 **+4**（后端三条 `[dependencies]` 边 `Orchestration → Core.Notification` / `Store → Core.Notification` / `Shell → Core.Notification`，前端一条 `import` 边 `Shell → Components.Standard.Drawer`）⇒ `02` 段 8 / 9 → **9 / 10**、`03` 段 8 / 24 → **8 / 25**、`04` 段 1 / 13 → **1 / 14**、`06` 段 32 / 74 → **32 / 75**、全基线由 55 / 123 → **56 / 127**；② **历史留痕** = 上一变更（生成物中继元素 `Desktop.GeneratedBindings`）的净增量是元素 +1 / 关系 ±0（54 / 123 → 55 / 123），其同批校正的旧读数 `53 / 121` 与 `06` 段 30 / 72 已在案，MUST NOT 被重算进本次增量。**字段面扩容（`entry` / `api` / `doc` / `apis`）与目录模块入口（barrel）不改变元素与关系计数**：12 个 barrel 是元素 `path` 内的新增文件，既不新增元素也不新增边（入口只 re-export 本元素直属文件 ⇒ `from == to` 自边被丢弃）；**元素粒度补漏改变计数**（历史：`components/agent/session-panel.tsx` 与 `components/standard/tooltip.tsx`、`standard/combobox.tsx` 补建元素即各 +1）；**元素形态翻转改变容器 / 叶切分而不改总数**（历史：`Components.Agent` 容器 → 目录模块：容器 10 → 9、叶 43 → 44）；**契约资产迁入 `models/<分层目录…>/`、索引迁入 `graph/`、`docs` → `doc` 换面均不改变任何计数**。`modelHash` 则随模型字节变化——本变更新增一行元素、四条关系与四段表头注释都改字节，故 `modelHash` 必然变，该事实 SHALL 被如实记录，MUST NOT 写成「`modelHash` 逐字不变」。**读数写实边界**：本条只要求写实**模型表头 / 本表 / ADR 三处**与直接判据面（`desktop-archi-api-check` 的基线表、`desktop-archi-api` 的入口面实测）；其余 capability spec 内的历史读数（如 `desktop-frontend-module-entry` 的「71 条 / 44 个 `path` 非空」、`desktop-archi-contract-panel` 的「43 条存量」）不在本变更的追改面内——它们是各自变更交付时的读数（含本 delta 未追改的「55 元素 / 123 关系」一类历史值），与「53 / 120 vs 54 / 123」的陈旧同一处置。
+- **计数复述单源**：模型文件的表头注释（如 `# 02 · core 分层（9 元素 / 10 关系）`）、本要求的逐文件计数表、与裁定记录 `§1` / `§9` 的复算表 SHALL 在同一次模型改动内同步为同值；三处任一处陈旧即漂移，按「同一 change 内补齐」处理，MUST NOT 让计数表与模型本体各说各话。**本变更零计数变化（同批写实）**：元素 **55** / 关系 **129** 与六个文件段的计数（`01` 2 / 0、`02` 9 / 10、`03` 8 / 25、`04` 1 / 14、`05` 3 / 3、`06` 32 / 77）逐字不变——本变更只把 `02` / `03` / `05` 三个容器的 `kind` 由 `package` 改 `composite`（`path` 仍空），表头注释与计数表不因本变更改动；上一变更（`Backend.Core.Notification`，元素 +1 / 关系 +4）的增量已在基线账内，MUST NOT 被重算成本次增量。**字段面扩容（`entry` / `api` / `doc` / `apis`）与目录模块入口（barrel）不改变元素与关系计数**：12 个 barrel 是元素 `path` 内的新增文件，既不新增元素也不新增边（入口只 re-export 本元素直属文件 ⇒ `from == to` 自边被丢弃）；**元素粒度补漏改变计数**（历史：`components/agent/session-panel.tsx` 与 `components/standard/tooltip.tsx`、`standard/combobox.tsx` 补建元素即各 +1）；**元素形态翻转改变容器 / 叶切分而不改总数**（历史：`Components.Agent` 容器 → 目录模块：容器 10 → 9、叶 43 → 44）；**契约资产迁入 `models/<分层目录…>/`、索引迁入 `graph/`、`docs` → `doc` 换面均不改变任何计数**。`modelHash` 则随模型字节变化——三个容器各改一行 `kind` 即改字节（元素与关系条目数、表头注释不变），故 `modelHash` 必然变，该事实 SHALL 被如实记录，MUST NOT 写成「`modelHash` 逐字不变」。**读数写实边界**：本条只要求写实**模型表头 / 本表 / ADR 三处**与直接判据面（`desktop-archi-api-check` 的基线表、`desktop-archi-api` 的入口面实测）；其余 capability spec 内的历史读数（如 `desktop-frontend-module-entry` 的「71 条 / 44 个 `path` 非空」、`desktop-archi-contract-panel` 的「43 条存量」）不在本变更的追改面内——它们是各自变更交付时的读数，与陈旧计数同一处置，MUST NOT 与本节的 55 / 129 混为一谈。
 
 裁定记录 SHALL 落位 `<archi_dir>/decisions/0001-model-granularity.md`，MUST NOT 只写在 change 目录内（proposal 归档后不再被日常读取，判据须随架构域可读、可检索）。
 
@@ -73,7 +73,7 @@
 #### Scenario: 三处入口与 12 个目录入口在案后的判据面归位
 
 - **WHEN** 分别对壳、两个工具 crate、生成物中继元素、12 个前端目录根元素跑一次全量检查并读 `apiFindings`
-- **THEN** 壳**零** `apiEntryMissing`，同趟恰一条 `docMissing`（显式 `entry` 命中 ⇒ 入口判据不成立；`api = declared` 且派生契约 md 缺失 ⇒ `docMissing` 成立）——两条 MUST NOT 同时出现（入口债与入口文档债是两回事）；两个工具 crate 与生成物中继元素因 `api = none` **退出入口判据**，各恰一条 `docMissing`（`doc` 未声明），该结论 MUST NOT 被重算成「无入口」或「无 API」（生成物目录的 `Absent` 入口事实另见 `desktop-archi-api`「本仓入口面实测」）；12 个前端目录根**零** `apiEntryMissing`（各自的 `index.ts` / `index.tsx` 由 ③ 命中），同趟**各一条** `docMissing`；新增的 `Backend.Core.Notification` 同为 `api = declared` 且派生契约 md 不在盘 ⇒ 同趟恰一条 `docMissing`——12 条 + 该条由此居当前段 37 条之内，MUST NOT 被读成「入口债已清 ⇒ 判据面干净」
+- **THEN** 壳**零** `apiEntryMissing`，同趟恰一条 `docMissing`（显式 `entry` 命中 ⇒ 入口判据不成立；`api = declared` 且派生契约 md 缺失 ⇒ `docMissing` 成立）——两条 MUST NOT 同时出现（入口债与入口文档债是两回事）；两个工具 crate 与生成物中继元素因 `api = none` **退出入口判据**，各恰一条 `docMissing`（`doc` 未声明），该结论 MUST NOT 被重算成「无入口」或「无 API」（生成物目录的 `Absent` 入口事实另见 `desktop-archi-api`「本仓入口面实测」）；12 个前端目录根**零** `apiEntryMissing`（各自的 `index.ts` / `index.tsx` 由 ③ 命中），同趟**各一条** `docMissing`；`Backend.Core.Notification` 同为 `api = declared` 且派生契约 md 不在盘 ⇒ 同趟恰一条 `docMissing`——12 条 + 该条由此居当前 39 条之内，MUST NOT 被读成「入口债已清 ⇒ 判据面干净」
 
 #### Scenario: 契约子树与索引不改变模型读数
 
@@ -99,7 +99,7 @@
 | FQN | `kind` | `path` |
 |---|---|---|
 | `Backend` | `package` | `./packages/desktop/src-tauri/` |
-| `Backend.Core` | `package` | 空（分层容器） |
+| `Backend.Core` | `composite` | 空（分层容器） |
 | `Backend.Core.Notification` | `package` | `./packages/desktop/src-tauri/crates/core/notification/` |
 | `Backend.Core.Foundation` | `package` | `./packages/desktop/src-tauri/crates/core/foundation/` |
 | `Backend.Core.Config` | `package` | `./packages/desktop/src-tauri/crates/core/config/` |
@@ -108,7 +108,7 @@
 | `Backend.Core.Orchestration` | `package` | `./packages/desktop/src-tauri/crates/core/orchestration/` |
 | `Backend.Core.Agent` | `package` | `./packages/desktop/src-tauri/crates/core/agent/` |
 | `Backend.Core.Checks` | `package` | `./packages/desktop/src-tauri/crates/core/checks/` |
-| `Backend.Infra` | `package` | 空（分层容器） |
+| `Backend.Infra` | `composite` | 空（分层容器） |
 | `Backend.Infra.AgentRuntime` | `package` | `./packages/desktop/src-tauri/crates/infra/agent/` |
 | `Backend.Infra.ArchiRuntime` | `package` | `./packages/desktop/src-tauri/crates/infra/archi/` |
 | `Backend.Infra.ChecksRuntime` | `package` | `./packages/desktop/src-tauri/crates/infra/checks/` |
@@ -116,7 +116,7 @@
 | `Backend.Infra.Store` | `package` | `./packages/desktop/src-tauri/crates/infra/store/` |
 | `Backend.Infra.VcsRuntime` | `package` | `./packages/desktop/src-tauri/crates/infra/vcs/` |
 | `Backend.Infra.Watch` | `package` | `./packages/desktop/src-tauri/crates/infra/watch/` |
-| `Backend.Tools` | `package` | 空（分层容器） |
+| `Backend.Tools` | `composite` | 空（分层容器） |
 | `Backend.Tools.ExportBindings` | `package` | `./packages/desktop/src-tauri/crates/tools/export-bindings/` |
 | `Backend.Tools.ArchiApiGen` | `package` | `./packages/desktop/src-tauri/crates/tools/archi-api-gen/` |
 | `Backend.Shell` | `module` | `./packages/desktop/src-tauri/src/` |
@@ -255,13 +255,13 @@
 
 - **祖先显式声明**：所有容器元素 SHALL 在模型内声明（层级由 FQN 前缀推导，孤儿层级即 `orphanHierarchy`）；MUST NOT 依赖「隐式祖先自动补建」（本能力体系的既有前提）。
 - **停摆零容忍**：交付面 MUST NOT 以「结构错 + 停摆面板」形态收尾——停摆是坏模型的处置，不是基线的可接受状态。
-- **入口文档面零告警（本变更改写）**：`ArchiModuleDetail` 不再有 `warnings` 字段（`WarningKind` 随 `docs` 三源退役），入口文档的读数全部经漂移报告的 `apiFindings`：本基线 SHALL 恰为 **39 条 `docMissing`（`warn`、不纳管）**、其余十二值各 0 ⇒ `status` 仍 `clean`、`passed` 仍 `true`；`docNotFound` SHALL 零命中（没有任何元素声明 `doc`）。`path` 指向现存目录 / 文件 ⇒ `pathNotFound` / `ambiguousOwner` 零命中、顶层 `warnings` 为空；`model.warnings` SHALL 恰为 **6 条 `noPath`**（6 个容器当前未填 `path`——选填字段，本基线留空；`Backend` / `Desktop` 包根持 `path`，不在其中）——两层 MUST NOT 记混。
+- **入口文档面零告警（本变更改写）**：`ArchiModuleDetail` 不再有 `warnings` 字段（`WarningKind` 随 `docs` 三源退役），入口文档的读数全部经漂移报告的 `apiFindings`：本基线 SHALL 恰为 **39 条 `docMissing`（`warn`、不纳管）**、其余十二值各 0 ⇒ `status` 仍 `clean`、`passed` 仍 `true`；`docNotFound` SHALL 零命中（没有任何元素声明 `doc`）。`path` 指向现存目录 / 文件 ⇒ `pathNotFound` / `ambiguousOwner` 零命中、顶层 `warnings` 为空；`model.warnings` SHALL **为空**（六个容器 = 3 个 `composite` + 3 个 `domain`，空 `path` 是选填容器的标准形态 ⇒ 零 `noPath`；`Backend` / `Desktop` 包根持 `path`，不在其列）——两层 MUST NOT 记混。
 - **声明未兑现读数**：`observations` SHALL 恰为 **53** 条（52 条后端 + 1 条既有边面缺口 `Desktop.Views.Changes.Agent → Desktop.Components.Ui`）——前端命令面边因生成目录有了归属而全部兑现；后端 52 条仍全部未兑现（观察根无 workspace 清单 ⇒ Rust 事实面为零，属既有缺口，见 `desktop-archi-drift`「依赖 API 两桶对账与求差单点」）。
 
 #### Scenario: 正常态而非停摆态
 
 - **WHEN** 调用 `archi_graph(root)`
-- **THEN** 返回正常态：`elements` 55、`relations` 123（后端 49 + 前端 74）、`diagnostics` 空；`/architecture` 页面呈现左栏树 + 右栏元素信息与画布两栏，无结构错面板、零「修好后再看」文案
+- **THEN** 返回正常态：`elements` 55、`relations` 129（后端 52 + 前端 77）、`diagnostics` 空；`/architecture` 页面呈现左栏树 + 右栏元素信息与画布两栏，无结构错面板、零「修好后再看」文案
 
 #### Scenario: 成环与祖先禁边被机械拦住
 
@@ -276,7 +276,7 @@
 #### Scenario: 入口文档债不拉状态词
 
 - **WHEN** 以本仓根跑一次全量检查
-- **THEN** `apiFindings` 含 39 条 `docMissing`、顶层 `warnings` 为空、`model.warnings` 恰 **6** 条 `noPath`（6 个容器当前未填 `path`——选填字段，本基线留空；`Backend` / `Desktop` 包根持 `path`，不在其中）、`model.structuralErrors` 为空；`status = clean`、`passed = true`（`docMissing` 是 `warn` 且不纳管——若这 39 条把状态词抬成 `warnings` 即判据缺陷）。`noPath` 落 `model.warnings` 而非顶层 `warnings`，两处 MUST NOT 记混
+- **THEN** `apiFindings` 含 39 条 `docMissing`、顶层 `warnings` 为空、`model.warnings` **为空**（六个容器 = 3 个 `composite` + 3 个 `domain`，空 `path` 是合法形态；`Backend` / `Desktop` 包根持 `path`，不在其列）、`model.structuralErrors` 为空；`status = clean`、`passed = true`（`docMissing` 是 `warn` 且不纳管——若这 39 条把状态词抬成 `warnings` 即判据缺陷）。`noPath` 落 `model.warnings` 而非顶层 `warnings`，两处 MUST NOT 记混
 
 ### Requirement: 模型与裁定记录的可检索性
 
@@ -451,3 +451,29 @@
 | 覆盖判据四档 / 关系取数口径（`[dependencies]`、`import`） | 新元素与新边逐条命中既有判据（crate 粒度 / `[dependencies]` 段内 `{ workspace = true }` / `import` 证据），未新增任何判据档 |
 | 字段纪律（`entry` 恰三处、`api = none` 恰三处、`doc` 仅 `api = none` 可写、`metadata` 全空） | 新元素零 `entry` / 零 `api` / 零 `doc` / 零 `metadata`，三处计数不变 |
 | 前 11 条「已知缺口」登记 | 本 delta 只新增 `Shell → Components.Standard.Drawer` 一条**已声明**边，缺口清单其余条目（含 `Views.Changes → Components.Standard.Drawer`）逐字不动 |
+
+### 模块增量：纯分组容器改 composite 与读数写实（archi-model-path-and-silent-trap）
+
+| 模块 | 职责 | 关键契约 |
+|------|------|----------|
+| `.dev-team/architecture/graph/model/02-backend-core.toml` | 基线数据（1 行） | `Backend.Core` 的 `kind` `package` → `composite`；`path` 仍空；表头 9 / 10 与其余 8 元素逐字不变 |
+| `.dev-team/architecture/graph/model/03-backend-infra.toml` | 基线数据（1 行） | `Backend.Infra` 的 `kind` `package` → `composite`；表头 8 / 25 与其余 7 元素逐字不变 |
+| `.dev-team/architecture/graph/model/05-backend-tools.toml` | 基线数据（1 行） | `Backend.Tools` 的 `kind` `package` → `composite`；表头 3 / 3 不变（两个工具 crate 仍 `package`） |
+| `.dev-team/architecture/decisions/0001-model-granularity.md` | 裁定记录 | §2 末段：分层容器「同为 `package`」→「纯分组容器 `kind = "composite"`」；§3 首句：六个容器拆两组（`composite` 纯分组 / `domain` 业务聚合），删「`composite` 本仓当前无实例」 |
+| `.dev-team/architecture/graph/model/{01-app,04-backend-shell,06-frontend}.toml` | 零改动 | 包根 / 壳 / 前端三文件的元素、关系与表头计数逐字不变 |
+
+### CLI: 核对命令（本能力「命令 + 留痕」口径）
+
+| 命令 | 用途 | 本变更期望读数 |
+|---|---|---|
+| `archi_graph(root)` | 元素 / 关系 / 诊断 | `elements = 55`、`relations = 129`、`diagnostics = []`（不变） |
+| `archi_drift(root, "full")` | 覆盖 / 归属 / 契约判据 | `model.warnings` = **0 条**（六个容器 = 3 `composite` + 3 `domain`，空 `path` 合法）；`observations` = 53、`docMissing` = 39、`status = clean`、`passed = true`、`scan.*` 三项逐字段不变 |
+| `archi_module(root, "Backend.Core")` | 单个元素邻接 | `kind = "composite"`、`hasPath = false`、出边 / 入边与迁移前相同 |
+| `pnpm api:export` / `api:check` | 契约索引与生成物 | `INDEX.toml` / `.schema.json` / `.i.*` 零 diff（`kind` 不进索引） |
+
+### API / Component: 零改动面
+
+| 项 | 描述 |
+|---|---|
+| 模型 DTO / 画布 / 文件树 | `kind` 只影响元素树图标（`composite → LayersIcon` 已就位）；文件树按 `path` 非空判，六个容器仍不出节点 |
+| 契约面判据 | `path` 空 ⇒ `contract_path` 不派生；`docMissing` 39 与 `api = none` 三处留白不变 |
