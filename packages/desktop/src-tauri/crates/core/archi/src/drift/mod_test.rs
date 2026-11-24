@@ -3712,3 +3712,293 @@ fn 语料金样零新词面() {
     assert_eq!(baseline, 16, "既有语料金样 16 份零噪声");
     assert_eq!(added, 4, "新增两桶语料 4 份");
 }
+
+// ---------------------------------------------------------------------------
+// 单文件哈希（写面乐观锁口径）：`file_hash` / `file_hash_of` / 累加核心
+// ---------------------------------------------------------------------------
+
+/// 形态：`sha256:` + 64 位小写 hex。
+fn assert_single_file_hash_shape(value: &str) {
+    assert!(value.starts_with("sha256:"), "前缀 sha256：{value}");
+    let hex = value.trim_start_matches("sha256:");
+    assert_eq!(hex.len(), 64, "64 位十六进制：{value}");
+    assert!(
+        hex.chars()
+            .all(|ch| ch.is_ascii_digit() || ('a'..='f').contains(&ch)),
+        "小写 hex（无大写）：{value}"
+    );
+}
+
+/// 正向：同一模型文件连续两次取值逐字相等，形态固定。
+#[test]
+fn file_hash形态与同盘稳定() {
+    let temp = TempDir::new("file-hash-stable");
+    temp.write_model("[element.\"App\"]\nkind = \"package\"\n");
+    let path = temp
+        .root()
+        .join(".dev-team/architecture/graph/model/01-test.toml");
+
+    let first = super::file_hash(&path);
+    assert_single_file_hash_shape(&first);
+    assert_eq!(first, super::file_hash(&path), "同盘稳定");
+}
+
+/// 正向：改动文件一个字节后再取 → 与上次不等（同一路径前后取值可比）。
+#[test]
+fn 文件变即哈希变() {
+    let temp = TempDir::new("file-hash-sensitive");
+    temp.write(".dev-team/architecture/graph/model/01.toml", "x = 1\n");
+    let path = temp
+        .root()
+        .join(".dev-team/architecture/graph/model/01.toml");
+    let before = super::file_hash(&path);
+
+    std::fs::write(&path, "x = 2\n").expect("改写文件");
+    assert_ne!(before, super::file_hash(&path), "内容变即变");
+}
+
+/// 正向（组合：`file_hash_of` ↔ `hash_files` 读盘）：写后等价锚。
+#[test]
+fn file_hash_of等于落盘后file_hash() {
+    let temp = TempDir::new("file-hash-of");
+    let path = temp.root().join("draft.toml");
+    let content = "[element.\"App\"]\nkind = \"package\"\n";
+
+    let computed = super::file_hash_of(&path, content);
+    assert_single_file_hash_shape(&computed);
+    assert_eq!(
+        computed,
+        super::file_hash_of(&path, content),
+        "同内容两次相等"
+    );
+
+    std::fs::write(&path, content).expect("落盘");
+    assert_eq!(
+        computed,
+        super::file_hash(&path),
+        "逐字等于落盘后的 file_hash"
+    );
+}
+
+/// 异常：同名同内容跨目录相等；异名同内容不等（文件名分量进摘要）。
+#[test]
+fn 文件名参与累加() {
+    let first = TempDir::new("file-hash-name-a");
+    first.write(".dev-team/architecture/graph/model/01-x.toml", "x = 1\n");
+    let second = TempDir::new("file-hash-name-b");
+    second.write(".dev-team/architecture/graph/model/01-x.toml", "x = 1\n");
+    assert_eq!(
+        super::file_hash(
+            &first
+                .root()
+                .join(".dev-team/architecture/graph/model/01-x.toml")
+        ),
+        super::file_hash(
+            &second
+                .root()
+                .join(".dev-team/architecture/graph/model/01-x.toml")
+        ),
+        "同名同内容跨目录相等（累积基只取文件名）"
+    );
+
+    let same_dir = TempDir::new("file-hash-name-same-dir");
+    same_dir.write(".dev-team/architecture/graph/model/01-x.toml", "x = 1\n");
+    same_dir.write(".dev-team/architecture/graph/model/02-x.toml", "x = 1\n");
+    assert_ne!(
+        super::file_hash(
+            &same_dir
+                .root()
+                .join(".dev-team/architecture/graph/model/01-x.toml")
+        ),
+        super::file_hash(
+            &same_dir
+                .root()
+                .join(".dev-team/architecture/graph/model/02-x.toml")
+        ),
+        "异名同内容不等"
+    );
+}
+
+/// 异常：单文件值只与「同一路径的前后取值」可比——目录粒度值（`model_hash` /
+/// `assets_hash`）是聚合口径，数值不可比（双文件目录下聚合值累加两条「文件名 + 字节」，
+/// 单文件值只有一条）。
+#[test]
+fn 不可与目录粒度哈希互比() {
+    let temp = TempDir::new("file-hash-scope");
+    temp.write_model(
+        "[element.\"App\"]
+kind = \"package\"
+",
+    );
+    temp.write(
+        ".dev-team/architecture/graph/model/02-more.toml",
+        "[element.\"App.Auth\"]
+kind = \"domain\"
+",
+    );
+    let path = temp
+        .root()
+        .join(".dev-team/architecture/graph/model/01-test.toml");
+
+    let single = super::file_hash(&path);
+    let model = super::model_hash(temp.root());
+    let assets = super::assets_hash(temp.root());
+    for value in [&single, &model, &assets] {
+        assert_single_file_hash_shape(value);
+    }
+    assert_ne!(single, model, "与 modelHash 不可比（聚合口径累加多条）");
+    assert_ne!(
+        single, assets,
+        "与 assets_hash 不可比（相对根路径 + 四类资产）"
+    );
+}
+
+/// 边界（矩阵：不存在路径 / 目录路径）：读失败按空字节参与，且与 `file_hash_of(…, "")`
+/// 同值。
+#[test]
+fn 读失败按空字节参与() {
+    let temp = TempDir::new("file-hash-read-fail");
+    let missing = temp.root().join("no-such.toml");
+    let directory = temp.root().join("a-directory");
+    std::fs::create_dir_all(&directory).expect("建目录");
+
+    for path in [&missing, &directory] {
+        let value = super::file_hash(path);
+        assert_single_file_hash_shape(&value);
+        assert_eq!(value, super::file_hash(path), "读失败仍确定");
+        assert_eq!(
+            value,
+            super::file_hash_of(path, ""),
+            "读失败两函数同值（同一累加核心）"
+        );
+    }
+}
+
+/// 边界（矩阵：空串 / CRLF / emoji / 超长）：各 content 稳定且互异，零 panic。
+#[test]
+fn content边界稳定且互异() {
+    let temp = TempDir::new("file-hash-of-content");
+    let path = temp.root().join("draft.toml");
+    let long = "长".repeat(1200);
+    let cases = ["", "a\r\nb\r\n", "🚀 元素", long.as_str()];
+
+    let mut seen: Vec<String> = Vec::new();
+    for content in cases {
+        let value = super::file_hash_of(&path, content);
+        assert_single_file_hash_shape(&value);
+        assert_eq!(value, super::file_hash_of(&path, content), "稳定");
+        assert!(!seen.contains(&value), "不同 content 互异：{value}");
+        seen.push(value);
+    }
+    assert_eq!(seen.len(), 4);
+}
+
+/// 边界：`hash_files(&[file], parent, &read_bytes)` 与 `file_hash(file)` 同值（口径单锚），且
+/// `hash_files` 保持私有。
+#[test]
+fn hash_files是file_hash的口径单点() {
+    let temp = TempDir::new("file-hash-anchor");
+    temp.write(".dev-team/architecture/graph/model/01.toml", "x = 1\n");
+    let path = temp
+        .root()
+        .join(".dev-team/architecture/graph/model/01.toml");
+    let parent = path.parent().expect("父目录");
+
+    assert_eq!(
+        super::hash_files(std::slice::from_ref(&path), parent, &super::read_bytes),
+        super::file_hash(&path),
+        "两个入口必得同一值"
+    );
+    assert!(
+        !include_str!("mod.rs").contains("pub fn hash_files"),
+        "hash_files 仍非 pub"
+    );
+}
+
+/// 边界（矩阵：3 形态）：`read_bytes` 是「读失败按空字节」的字节来源单点——正常文件与
+/// `std::fs::read` 等值，缺席 / 目录两形态取空字节（不 panic、不报错），且与 `file_hash`
+/// 同口径。
+#[test]
+fn read_bytes读失败按空字节() {
+    let temp = TempDir::new("read-bytes");
+    temp.write(".dev-team/architecture/graph/model/01.toml", "x = 1\n");
+    let path = temp
+        .root()
+        .join(".dev-team/architecture/graph/model/01.toml");
+    assert_eq!(
+        super::read_bytes(&path),
+        std::fs::read(&path).expect("读文件"),
+        "正常文件与 std::fs::read 等值"
+    );
+
+    let missing = temp.root().join("no-such.toml");
+    assert!(
+        super::read_bytes(&missing).is_empty(),
+        "缺席按空字节（不 panic）"
+    );
+    let directory = temp.root().join("a-directory");
+    std::fs::create_dir_all(&directory).expect("建目录");
+    assert!(
+        super::read_bytes(&directory).is_empty(),
+        "目录按空字节（不 panic）"
+    );
+
+    assert_eq!(
+        super::hash_files(
+            std::slice::from_ref(&missing),
+            super::parent_of(&missing),
+            &super::read_bytes
+        ),
+        super::file_hash(&missing),
+        "字节来源单点：两入口同值"
+    );
+}
+
+/// 异常（源码锚）：全 crate 唯一一处 `Sha256` 拼装（唯一累加核心 = `hash_files`，
+/// 撤回的 `hash_with` 不得复活）；`edit/` 内零 `Sha256` / `sha2`。
+#[test]
+fn 唯一sha256拼装点() {
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source.matches("Sha256::new()").count(),
+        1,
+        "唯一累加核心 = hash_files"
+    );
+    assert!(
+        !source.contains("fn hash_with"),
+        "撤回的 hash_with 不得复活"
+    );
+    for edit_source in [
+        include_str!("../edit/mod.rs"),
+        include_str!("../edit/messages.rs"),
+    ] {
+        for forbidden in ["Sha256", "sha2"] {
+            assert!(!edit_source.contains(forbidden), "edit/ 内零 {forbidden}");
+        }
+    }
+}
+
+/// 边界（矩阵：注入闭包 / 空清单）：字节由 `read` 单点决定；空清单输出为空累加摘要。
+#[test]
+fn 注入reader与空清单() {
+    let temp = TempDir::new("file-hash-inject");
+    let path = temp.root().join("draft.toml");
+    let content = "x = 1\n";
+    let parent = path.parent().expect("父目录");
+
+    assert_eq!(
+        super::hash_files(std::slice::from_ref(&path), parent, &|_: &Path| {
+            content.as_bytes().to_vec()
+        }),
+        super::file_hash_of(&path, content),
+        "注入字节与 file_hash_of 同值"
+    );
+
+    let empty = super::hash_files(&[], Path::new("/base"), &|_: &Path| Vec::new());
+    assert_single_file_hash_shape(&empty);
+    assert_ne!(
+        empty,
+        super::file_hash_of(&path, content),
+        "空清单 = 空累加摘要（与任一非空内容可辨）"
+    );
+}

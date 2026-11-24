@@ -14,7 +14,8 @@
 //! 三件事纪律沿 `commands/config` 模板：参数转换 → 调用 → 错误映射。投影、诊断、
 //! diff 与待落盘产物全在 `archi`——命令层零领域规则（不建图、不解析、不推导）。
 //! 写命令两条（`archi_set_gate` / `archi_api_generate`）：前者的写前校验在
-//! `archi::edit::plan_set_gate` 且落盘经命令层共用原子写
+//! `archi::edit::plan_element_upsert`（写回原语族——gate 改档 = `ElementSpec { gate }`
+//! 的一次调用）且落盘经命令层共用原子写
 //! （`commands::atomic::write_atomic`），后者的写盘单点在
 //! `archi_runtime::api_artifacts::write_artifacts`（只增只改、从不删）；其余七条
 //! MUST NOT 写盘。
@@ -38,6 +39,7 @@ use archi::dto::{
     self, ArchiApiCheck, ArchiApiWriteOutcome, ArchiChangeSummary, ArchiFileTree, ArchiGraph,
     ArchiModuleDetail, ArchiRelationDetail,
 };
+use archi::edit::{plan_element_upsert, ElementSpec};
 use archi::GateTier;
 use foundation::cancel::CancelFlag;
 use orchestration::port::ArchiveVcsPort;
@@ -138,10 +140,16 @@ pub fn archi_set_gate(root: String, element: String, gate: GateTier) -> Result<(
 }
 
 /// [`archi_set_gate`] 的领域组装纯函数：root 检查 → 写前校验与待落盘产物（
-/// `archi::edit`）→ 原子写回。任一校验失败零写入。
+/// `archi::edit` 的写回原语族：gate 改档 = `ElementSpec { gate }` 的一次调用）→
+/// 原子写回。任一校验失败零写入。
 pub fn archi_set_gate_inner(root: &Path, element: &str, gate: GateTier) -> Result<(), String> {
     check_root(root)?;
-    let plan = archi::edit::plan_set_gate(root, element, gate)?;
+    let spec = ElementSpec {
+        fqn: element.to_owned(),
+        gate: Some(gate),
+        ..Default::default()
+    };
+    let plan = plan_element_upsert(root, &spec).map_err(|error| error.message())?;
     write_atomic(&plan.file, &plan.content)
 }
 

@@ -1,5 +1,6 @@
 //! 架构模型纯读域：解析 / 内存图 / 结构诊断 / 入口文档 / 检索 / 结构 diff /
-//! `gate` 写回纯函数 / 三面共用投影 / 关系详情 / 架构漂移判定（scan + drift）。
+//! 写回原语族（元素与关系的 upsert / delete）/ 三面共用投影 / 关系详情 / 架构漂移
+//! 判定（scan + drift）。
 //!
 //! 消费面同源（进程内结构校验、agent 工具 `archi_*`、IPC 命令面、画布、架构漂移
 //! 门禁），五条机械纪律：
@@ -46,12 +47,17 @@ pub use drift::report::{
     ApiFindingSeverity, ArchiApiFinding, ArchiApiFindingKind, ArchiCheckStatus, ArchiDriftKind,
     ArchiDriftMode, ArchiDriftReport, ArchiObservationKind,
 };
-pub use drift::{check, CheckError, CheckInput};
+pub use drift::{check, file_hash, file_hash_of, CheckError, CheckInput};
 pub use dto::{
     graph_diagnostics_error, ArchiApiCheck, ArchiApiMeta, ArchiApiWriteOutcome, ArchiChangeSummary,
     ArchiFileEntry, ArchiFileTree, ArchiGraph, ArchiModuleDetail, ArchiSearchResult,
     DiagnosticKind, EdgeMark, ElementKind, FileEntryKind, FileTreeMark, GateTier, NodeMark,
     SearchScope,
+};
+pub use edit::{
+    apply_element_delete, apply_element_spec, apply_relation_delete, apply_relation_upsert,
+    plan_element_delete, plan_element_upsert, plan_relation_delete, plan_relation_upsert,
+    EditError, EditErrorKind, ElementSpec, ModelWrite,
 };
 pub use model::{Diagnostic, Element, Model, Relation};
 pub use relation::relation_detail;
@@ -62,8 +68,6 @@ pub use tree::file_tree;
 mod diff_test;
 #[cfg(test)]
 mod dto_test;
-#[cfg(test)]
-mod edit_test;
 #[cfg(test)]
 mod graph_test;
 #[cfg(test)]

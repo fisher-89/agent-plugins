@@ -1,0 +1,5993 @@
+diff --git a/crates/core/archi/src/drift/mod.rs b/crates/core/archi/src/drift/mod.rs
+index 308f5b3aea96..8c175f43f89f 100644
+--- a/crates/core/archi/src/drift/mod.rs
++++ b/crates/core/archi/src/drift/mod.rs
+@@ -572,12 +572,15 @@ fn model_file_count(root: &Path) -> usize {
+ /// 目录迁移不改变哈希。
+ fn model_hash(root: &Path) -> String {
+     let dir = foundation::layout::archi_graph_model_dir(root);
+-    hash_files(&model_files(root), &dir)
++    hash_files(&model_files(root), &dir, &read_bytes)
+ }
+ 
+-/// 累加 helper（`model_hash` 与 [`assets_hash`] 共用）：按给定序逐文件累加「相对
+-/// `base` 的路径 + 字节」，空字节分隔，输出 `sha256:<hex>`；读失败按空字节参与。
+-fn hash_files(files: &[PathBuf], base: &Path) -> String {
++/// 累加核心（全 crate 唯一一处 `Sha256` 拼装）：按给定序逐文件累加「相对 `base` 的
++/// 路径 + 字节」，空字节分隔，输出 `sha256:<hex>`。
++///
++/// 「字节从哪来」由 `read` 单点决定——读盘面（[`read_bytes`]）与「字节由调用方给」面
++/// （[`file_hash_of`]）都落在这一个循环上，MUST NOT 另写一份拼装。
++fn hash_files(files: &[PathBuf], base: &Path, read: &dyn Fn(&Path) -> Vec<u8>) -> String {
+     let mut hasher = Sha256::new();
+     for file in files {
+         let name = file
+@@ -587,7 +590,7 @@ fn hash_files(files: &[PathBuf], base: &Path) -> String {
+             .replace('\\', "/");
+         hasher.update(name.as_bytes());
+         hasher.update([0u8]);
+-        let bytes = std::fs::read(file).unwrap_or_default();
++        let bytes = read(file);
+         hasher.update(&bytes);
+         hasher.update([0u8]);
+     }
+@@ -596,6 +599,35 @@ fn hash_files(files: &[PathBuf], base: &Path) -> String {
+     format!("sha256:{hex}")
+ }
+ 
++/// 读盘面的字节来源（读失败按空字节参与累加，哈希仍确定）。
++fn read_bytes(path: &Path) -> Vec<u8> {
++    std::fs::read(path).unwrap_or_default()
++}
++
++/// 单文件哈希的累加基（`base` 取父目录 ⇒ 累加的名字分量即文件名本身）。
++fn parent_of(path: &Path) -> &Path {
++    path.parent().unwrap_or_else(|| Path::new(""))
++}
++
++/// 单文件内容哈希（`sha256:` + 64 位小写 hex）：读盘后累加，读失败按空字节参与。
++///
++/// 用途单一是写面乐观锁——`plan_*` 以本值校验 `expect`。**文件名参与累加** ⇒ 与
++/// 报告的 `modelHash` / [`assets_hash`] 的数值**不可比**（异名同内容两文件得不同值），
++/// 唯一可比对象是同一路径的前后取值。
++pub fn file_hash(path: &Path) -> String {
++    hash_files(&[path.to_path_buf()], parent_of(path), &read_bytes)
++}
++
++/// 单文件内容哈希（字节由调用方给出）——[`file_hash`] 的「尚未落盘」同构形态。
++///
++/// 写后等价锚：本值逐字等于「把 `content` 落盘到 `path` 后的 [`file_hash`]」。写面
++/// 据此把该值作为 `ModelWrite.hash` 交付，调用方可直接拿去作下一次 `expect`。
++pub fn file_hash_of(path: &Path, content: &str) -> String {
++    hash_files(&[path.to_path_buf()], parent_of(path), &|_: &Path| {
++        content.as_bytes().to_vec()
++    })
++}
++
+ /// 架构资产聚合哈希（四类覆盖面：`graph/model/*.toml`、`models/**/*.md`、
+ /// `models/**/*.schema.json`、`graph/INDEX.toml`）。
+ ///
+@@ -604,7 +636,7 @@ fn hash_files(files: &[PathBuf], base: &Path) -> String {
+ /// ——故遍历**不走 `ignore`**（`.gitignore` 状态不得污染哈希）。缺失目录不参与、
+ /// 单文件读失败按空字节；纯读盘、零写盘、零 spawn。
+ pub fn assets_hash(root: &Path) -> String {
+-    hash_files(&collect_assets(root), root)
++    hash_files(&collect_assets(root), root, &read_bytes)
+ }
+ 
+ /// 四类资产的盘面清单（相对 `root` 的路径字典序——稳定序是哈希确定性的前提）。
+diff --git a/crates/core/archi/src/drift/mod_test.rs b/crates/core/archi/src/drift/mod_test.rs
+index d52c07327c1e..feaddc4ceb28 100644
+--- a/crates/core/archi/src/drift/mod_test.rs
++++ b/crates/core/archi/src/drift/mod_test.rs
+@@ -3712,3 +3712,293 @@ fn 语料金样零新词面() {
+     assert_eq!(baseline, 16, "既有语料金样 16 份零噪声");
+     assert_eq!(added, 4, "新增两桶语料 4 份");
+ }
++
++// ---------------------------------------------------------------------------
++// 单文件哈希（写面乐观锁口径）：`file_hash` / `file_hash_of` / 累加核心
++// ---------------------------------------------------------------------------
++
++/// 形态：`sha256:` + 64 位小写 hex。
++fn assert_single_file_hash_shape(value: &str) {
++    assert!(value.starts_with("sha256:"), "前缀 sha256：{value}");
++    let hex = value.trim_start_matches("sha256:");
++    assert_eq!(hex.len(), 64, "64 位十六进制：{value}");
++    assert!(
++        hex.chars()
++            .all(|ch| ch.is_ascii_digit() || ('a'..='f').contains(&ch)),
++        "小写 hex（无大写）：{value}"
++    );
++}
++
++/// 正向：同一模型文件连续两次取值逐字相等，形态固定。
++#[test]
++fn file_hash形态与同盘稳定() {
++    let temp = TempDir::new("file-hash-stable");
++    temp.write_model("[element.\"App\"]\nkind = \"package\"\n");
++    let path = temp
++        .root()
++        .join(".dev-team/architecture/graph/model/01-test.toml");
++
++    let first = super::file_hash(&path);
++    assert_single_file_hash_shape(&first);
++    assert_eq!(first, super::file_hash(&path), "同盘稳定");
++}
++
++/// 正向：改动文件一个字节后再取 → 与上次不等（同一路径前后取值可比）。
++#[test]
++fn 文件变即哈希变() {
++    let temp = TempDir::new("file-hash-sensitive");
++    temp.write(".dev-team/architecture/graph/model/01.toml", "x = 1\n");
++    let path = temp
++        .root()
++        .join(".dev-team/architecture/graph/model/01.toml");
++    let before = super::file_hash(&path);
++
++    std::fs::write(&path, "x = 2\n").expect("改写文件");
++    assert_ne!(before, super::file_hash(&path), "内容变即变");
++}
++
++/// 正向（组合：`file_hash_of` ↔ `hash_files` 读盘）：写后等价锚。
++#[test]
++fn file_hash_of等于落盘后file_hash() {
++    let temp = TempDir::new("file-hash-of");
++    let path = temp.root().join("draft.toml");
++    let content = "[element.\"App\"]\nkind = \"package\"\n";
++
++    let computed = super::file_hash_of(&path, content);
++    assert_single_file_hash_shape(&computed);
++    assert_eq!(
++        computed,
++        super::file_hash_of(&path, content),
++        "同内容两次相等"
++    );
++
++    std::fs::write(&path, content).expect("落盘");
++    assert_eq!(
++        computed,
++        super::file_hash(&path),
++        "逐字等于落盘后的 file_hash"
++    );
++}
++
++/// 异常：同名同内容跨目录相等；异名同内容不等（文件名分量进摘要）。
++#[test]
++fn 文件名参与累加() {
++    let first = TempDir::new("file-hash-name-a");
++    first.write(".dev-team/architecture/graph/model/01-x.toml", "x = 1\n");
++    let second = TempDir::new("file-hash-name-b");
++    second.write(".dev-team/architecture/graph/model/01-x.toml", "x = 1\n");
++    assert_eq!(
++        super::file_hash(
++            &first
++                .root()
++                .join(".dev-team/architecture/graph/model/01-x.toml")
++        ),
++        super::file_hash(
++            &second
++                .root()
++                .join(".dev-team/architecture/graph/model/01-x.toml")
++        ),
++        "同名同内容跨目录相等（累积基只取文件名）"
++    );
++
++    let same_dir = TempDir::new("file-hash-name-same-dir");
++    same_dir.write(".dev-team/architecture/graph/model/01-x.toml", "x = 1\n");
++    same_dir.write(".dev-team/architecture/graph/model/02-x.toml", "x = 1\n");
++    assert_ne!(
++        super::file_hash(
++            &same_dir
++                .root()
++                .join(".dev-team/architecture/graph/model/01-x.toml")
++        ),
++        super::file_hash(
++            &same_dir
++                .root()
++                .join(".dev-team/architecture/graph/model/02-x.toml")
++        ),
++        "异名同内容不等"
++    );
++}
++
++/// 异常：单文件值只与「同一路径的前后取值」可比——目录粒度值（`model_hash` /
++/// `assets_hash`）是聚合口径，数值不可比（双文件目录下聚合值累加两条「文件名 + 字节」，
++/// 单文件值只有一条）。
++#[test]
++fn 不可与目录粒度哈希互比() {
++    let temp = TempDir::new("file-hash-scope");
++    temp.write_model(
++        "[element.\"App\"]
++kind = \"package\"
++",
++    );
++    temp.write(
++        ".dev-team/architecture/graph/model/02-more.toml",
++        "[element.\"App.Auth\"]
++kind = \"domain\"
++",
++    );
++    let path = temp
++        .root()
++        .join(".dev-team/architecture/graph/model/01-test.toml");
++
++    let single = super::file_hash(&path);
++    let model = super::model_hash(temp.root());
++    let assets = super::assets_hash(temp.root());
++    for value in [&single, &model, &assets] {
++        assert_single_file_hash_shape(value);
++    }
++    assert_ne!(single, model, "与 modelHash 不可比（聚合口径累加多条）");
++    assert_ne!(
++        single, assets,
++        "与 assets_hash 不可比（相对根路径 + 四类资产）"
++    );
++}
++
++/// 边界（矩阵：不存在路径 / 目录路径）：读失败按空字节参与，且与 `file_hash_of(…, "")`
++/// 同值。
++#[test]
++fn 读失败按空字节参与() {
++    let temp = TempDir::new("file-hash-read-fail");
++    let missing = temp.root().join("no-such.toml");
++    let directory = temp.root().join("a-directory");
++    std::fs::create_dir_all(&directory).expect("建目录");
++
++    for path in [&missing, &directory] {
++        let value = super::file_hash(path);
++        assert_single_file_hash_shape(&value);
++        assert_eq!(value, super::file_hash(path), "读失败仍确定");
++        assert_eq!(
++            value,
++            super::file_hash_of(path, ""),
++            "读失败两函数同值（同一累加核心）"
++        );
++    }
++}
++
++/// 边界（矩阵：空串 / CRLF / emoji / 超长）：各 content 稳定且互异，零 panic。
++#[test]
++fn content边界稳定且互异() {
++    let temp = TempDir::new("file-hash-of-content");
++    let path = temp.root().join("draft.toml");
++    let long = "长".repeat(1200);
++    let cases = ["", "a\r\nb\r\n", "🚀 元素", long.as_str()];
++
++    let mut seen: Vec<String> = Vec::new();
++    for content in cases {
++        let value = super::file_hash_of(&path, content);
++        assert_single_file_hash_shape(&value);
++        assert_eq!(value, super::file_hash_of(&path, content), "稳定");
++        assert!(!seen.contains(&value), "不同 content 互异：{value}");
++        seen.push(value);
++    }
++    assert_eq!(seen.len(), 4);
++}
++
++/// 边界：`hash_files(&[file], parent, &read_bytes)` 与 `file_hash(file)` 同值（口径单锚），且
++/// `hash_files` 保持私有。
++#[test]
++fn hash_files是file_hash的口径单点() {
++    let temp = TempDir::new("file-hash-anchor");
++    temp.write(".dev-team/architecture/graph/model/01.toml", "x = 1\n");
++    let path = temp
++        .root()
++        .join(".dev-team/architecture/graph/model/01.toml");
++    let parent = path.parent().expect("父目录");
++
++    assert_eq!(
++        super::hash_files(std::slice::from_ref(&path), parent, &super::read_bytes),
++        super::file_hash(&path),
++        "两个入口必得同一值"
++    );
++    assert!(
++        !include_str!("mod.rs").contains("pub fn hash_files"),
++        "hash_files 仍非 pub"
++    );
++}
++
++/// 边界（矩阵：3 形态）：`read_bytes` 是「读失败按空字节」的字节来源单点——正常文件与
++/// `std::fs::read` 等值，缺席 / 目录两形态取空字节（不 panic、不报错），且与 `file_hash`
++/// 同口径。
++#[test]
++fn read_bytes读失败按空字节() {
++    let temp = TempDir::new("read-bytes");
++    temp.write(".dev-team/architecture/graph/model/01.toml", "x = 1\n");
++    let path = temp
++        .root()
++        .join(".dev-team/architecture/graph/model/01.toml");
++    assert_eq!(
++        super::read_bytes(&path),
++        std::fs::read(&path).expect("读文件"),
++        "正常文件与 std::fs::read 等值"
++    );
++
++    let missing = temp.root().join("no-such.toml");
++    assert!(
++        super::read_bytes(&missing).is_empty(),
++        "缺席按空字节（不 panic）"
++    );
++    let directory = temp.root().join("a-directory");
++    std::fs::create_dir_all(&directory).expect("建目录");
++    assert!(
++        super::read_bytes(&directory).is_empty(),
++        "目录按空字节（不 panic）"
++    );
++
++    assert_eq!(
++        super::hash_files(
++            std::slice::from_ref(&missing),
++            super::parent_of(&missing),
++            &super::read_bytes
++        ),
++        super::file_hash(&missing),
++        "字节来源单点：两入口同值"
++    );
++}
++
++/// 异常（源码锚）：全 crate 唯一一处 `Sha256` 拼装（唯一累加核心 = `hash_files`，
++/// 撤回的 `hash_with` 不得复活）；`edit/` 内零 `Sha256` / `sha2`。
++#[test]
++fn 唯一sha256拼装点() {
++    let source = include_str!("mod.rs");
++    assert_eq!(
++        source.matches("Sha256::new()").count(),
++        1,
++        "唯一累加核心 = hash_files"
++    );
++    assert!(
++        !source.contains("fn hash_with"),
++        "撤回的 hash_with 不得复活"
++    );
++    for edit_source in [
++        include_str!("../edit/mod.rs"),
++        include_str!("../edit/messages.rs"),
++    ] {
++        for forbidden in ["Sha256", "sha2"] {
++            assert!(!edit_source.contains(forbidden), "edit/ 内零 {forbidden}");
++        }
++    }
++}
++
++/// 边界（矩阵：注入闭包 / 空清单）：字节由 `read` 单点决定；空清单输出为空累加摘要。
++#[test]
++fn 注入reader与空清单() {
++    let temp = TempDir::new("file-hash-inject");
++    let path = temp.root().join("draft.toml");
++    let content = "x = 1\n";
++    let parent = path.parent().expect("父目录");
++
++    assert_eq!(
++        super::hash_files(std::slice::from_ref(&path), parent, &|_: &Path| {
++            content.as_bytes().to_vec()
++        }),
++        super::file_hash_of(&path, content),
++        "注入字节与 file_hash_of 同值"
++    );
++
++    let empty = super::hash_files(&[], Path::new("/base"), &|_: &Path| Vec::new());
++    assert_single_file_hash_shape(&empty);
++    assert_ne!(
++        empty,
++        super::file_hash_of(&path, content),
++        "空清单 = 空累加摘要（与任一非空内容可辨）"
++    );
++}
+diff --git a/crates/core/archi/src/edit.rs b/crates/core/archi/src/edit.rs
+deleted file mode 100644
+index 5f534b5b5931..000000000000
+--- a/crates/core/archi/src/edit.rs
++++ /dev/null
+@@ -1,89 +0,0 @@
+-use std::path::{Path, PathBuf};
+-
+-use crate::dto::GateTier;
+-use crate::parse::toml::TomlParser;
+-use crate::parse::{self, SourceParser};
+-
+-/// 待落盘产物（绝对路径 + 全文）。
+-#[derive(Debug, Clone, PartialEq, Eq)]
+-pub struct GateWrite {
+-    /// 目标模型文件（绝对路径）
+-    pub file: PathBuf,
+-    /// 待落盘全文
+-    pub content: String,
+-}
+-
+-/// `gate` 写回纯函数：元素存在性 + 渲染自证两道校验，任一失败即 `Err` 且零文本
+-/// 产出（MUST NOT 把坏文本交给调用方落盘）。无显式 `gate` 行的元素允许插入该行
+-/// （缺省 `off` 的显式化是 ratchet 的正当动作）。
+-pub fn set_gate(source: &str, fqn: &str, gate: GateTier) -> Result<String, String> {
+-    let mut document = source
+-        .parse::<toml_edit::DocumentMut>()
+-        .map_err(|error| format!("模型源解析失败：{error}"))?;
+-    {
+-        let table = document
+-            .as_table_mut()
+-            .get_mut("element")
+-            .and_then(toml_edit::Item::as_table_like_mut)
+-            .ok_or_else(|| "模型源缺少 element 表：无从定位元素".to_owned())?;
+-        if !table.contains_key(fqn) {
+-            let existing: Vec<String> = table.iter().map(|(key, _)| key.to_owned()).collect();
+-            return Err(format!(
+-                "元素不存在：{fqn}（现有元素：{}）",
+-                existing.join(" / ")
+-            ));
+-        }
+-        let entry = table
+-            .get_mut(fqn)
+-            .and_then(toml_edit::Item::as_table_like_mut)
+-            .ok_or_else(|| format!("元素 {fqn} 的声明不是表形态：无法改档"))?;
+-        entry.insert("gate", toml_edit::value(gate.as_str()));
+-    }
+-    let rendered = document.to_string();
+-    // 自证可解析：重解析零诊断且目标档位回读一致（否则零文本产出）
+-    let outcome = TomlParser::parse(&rendered);
+-    if !outcome.diagnostics.is_empty() {
+-        return Err(format!(
+-            "改档渲染自证失败（重解析出 {} 条诊断），未产出文本",
+-            outcome.diagnostics.len()
+-        ));
+-    }
+-    match outcome.model.element(fqn) {
+-        Some(element) if element.gate == gate => Ok(rendered),
+-        Some(element) => Err(format!(
+-            "改档渲染自证失败：回读档位为 {}，目标为 {}",
+-            element.gate.as_str(),
+-            gate.as_str()
+-        )),
+-        None => Err(format!("改档渲染自证失败：回读找不到元素 {fqn}")),
+-    }
+-}
+-
+-/// 模型定位 + 源读取 + [`set_gate`]：结构错模型不写（与「写坏模型 = 读出错」同
+-/// 构）→ 元素缺席即 `Err` → 返回待落盘产物。**零写盘**。
+-pub fn plan_set_gate(root: &Path, fqn: &str, gate: GateTier) -> Result<GateWrite, String> {
+-    let outcome = parse::parse_dir(root);
+-    if !outcome.diagnostics.is_empty() {
+-        return Err(format!(
+-            "模型存在 {} 条结构诊断，拒绝改档（先修好模型）：{}",
+-            outcome.diagnostics.len(),
+-            outcome
+-                .diagnostics
+-                .iter()
+-                .map(|diagnostic| diagnostic.kind.as_str())
+-                .collect::<Vec<&str>>()
+-                .join(" / ")
+-        ));
+-    }
+-    let element = outcome.model.element(fqn).ok_or_else(|| {
+-        format!(
+-            "元素不存在：{fqn}（模型共 {} 个元素）",
+-            outcome.model.elements.len()
+-        )
+-    })?;
+-    let file = root.join(&element.file);
+-    let source = std::fs::read_to_string(&file)
+-        .map_err(|error| format!("模型文件读取失败（{}）：{error}", file.display()))?;
+-    let content = set_gate(&source, fqn, gate)?;
+-    Ok(GateWrite { file, content })
+-}
+diff --git a/crates/core/archi/src/edit/messages.rs b/crates/core/archi/src/edit/messages.rs
+new file mode 100644
+index 000000000000..0ceabe5cf64e
+--- /dev/null
++++ b/crates/core/archi/src/edit/messages.rs
+@@ -0,0 +1,129 @@
++//! 写面文案族：判据句（[`EditErrorKind::criterion`]）+ 事实段（[`EditError::facts`]）。
++//!
++//! 判据句是**操作中立**的封闭词表（同一族里元素写回与关系写回共用这些句子，不出现
++//! 「本操作专属」的词），事实段承载「当前事实 + 下一步」（缺席清单、回读到的值、阻塞
++//! 删除的子元素 / 关系对、期望与实际摘要）。
++//!
++//! 错误渲染只有 [`EditError::message`] 一个出口：`EditError` MUST NOT 实现 `Display` /
++//! `Error`——第二条渲染路径会让「变体集合 == 文案集合」不可对拍。构造同理只有私有
++//! [`error`] 一个入口。
++//!
++//! 机械判据：[`EditErrorKind::ALL`] 与 `criterion()` 的穷尽 `match` 分支集合逐值相等
++//! （新增变体未同批补 `ALL` 即数字面不符），`criterion()` 逐值非空且互异。
++
++/// 写面错误：失败的判据（封闭枚举）+ 当前事实。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct EditError {
++    /// 失败的是哪条判据
++    pub kind: EditErrorKind,
++    /// 当前事实 + 下一步
++    pub facts: String,
++}
++
++impl EditError {
++    /// 唯一渲染出口，恒为「判据句：事实」。
++    pub fn message(&self) -> String {
++        format!("{}：{}", self.kind.criterion(), self.facts)
++    }
++}
++
++/// 写面判据（封闭十九值：前置组十七 + 自证组二）。
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum EditErrorKind {
++    /// 模型结构诊断非空（写坏模型 = 读出错）
++    ModelHasDiagnostics,
++    /// 目标元素不在案
++    ElementNotFound,
++    /// 元素声明不是表形态
++    ElementNotTable,
++    /// 新建元素的父元素未声明（祖先须显式声明）
++    ParentMissing,
++    /// 关系端点元素未声明
++    RelationEndpointMissing,
++    /// 落点非法（缺 `file` / 逃出模型声明目录一级 / 目录缺席 / 改既有元素落点）
++    TargetInvalid,
++    /// 新建元素缺 `kind`
++    ElementKindMissing,
++    /// 元素已在案（给 `kind` 即新建意图，与在案冲突）
++    ElementAlreadyExists,
++    /// 新建元素的 FQN 形态非法（含空白 / 引号 / 方括号 / `#` / 换行）
++    FqnInvalid,
++    /// 模型文件读取失败
++    SourceReadFailed,
++    /// 模型源不可解析
++    SourceParseFailed,
++    /// 模型源缺少 `element` 表
++    ElementTableMissing,
++    /// 目标文件已变（`expect` 乐观锁不匹配）
++    ExpectMismatch,
++    /// 元素仍有已声明子元素，拒绝删除
++    DeleteHasChildren,
++    /// 元素仍被关系引用，拒绝删除
++    DeleteHasRelations,
++    /// 目标关系不在案
++    RelationNotFound,
++    /// 同一 `(from, to)` 多处声明（模型面跨文件 / 文件面同源，fail-closed）
++    RelationDuplicated,
++    /// 渲染后重解析出诊断（自证失败，零文本产出）
++    RenderSelfCheck,
++    /// 回读值与规格不一致（零文本产出）
++    ReadBackMismatch,
++}
++
++impl EditErrorKind {
++    /// 判据句（操作中立、逐值非空且互异）。
++    pub fn criterion(self) -> &'static str {
++        match self {
++            EditErrorKind::ModelHasDiagnostics => "模型存在结构诊断，拒绝写回",
++            EditErrorKind::ElementNotFound => "元素不存在",
++            EditErrorKind::ElementNotTable => "元素声明不是表形态",
++            EditErrorKind::ParentMissing => "父元素不在案",
++            EditErrorKind::RelationEndpointMissing => "关系端点元素不存在",
++            EditErrorKind::TargetInvalid => "落点非法",
++            EditErrorKind::ElementKindMissing => "新建元素缺 kind",
++            EditErrorKind::ElementAlreadyExists => "元素已在案",
++            EditErrorKind::FqnInvalid => "元素 FQN 形态非法",
++            EditErrorKind::SourceReadFailed => "模型文件读取失败",
++            EditErrorKind::SourceParseFailed => "模型源解析失败",
++            EditErrorKind::ElementTableMissing => "模型源缺少 element 表",
++            EditErrorKind::ExpectMismatch => "目标文件已变",
++            EditErrorKind::DeleteHasChildren => "元素仍有已声明子元素，拒绝删除",
++            EditErrorKind::DeleteHasRelations => "元素仍被关系引用，拒绝删除",
++            EditErrorKind::RelationNotFound => "关系不存在",
++            EditErrorKind::RelationDuplicated => "关系多处声明",
++            EditErrorKind::RenderSelfCheck => "写回渲染自证失败",
++            EditErrorKind::ReadBackMismatch => "回读不一致",
++        }
++    }
++
++    /// 全部判据（与 `criterion()` 的分支集合逐值相等——长度即对拍判据）。
++    pub const ALL: [EditErrorKind; 19] = [
++        EditErrorKind::ModelHasDiagnostics,
++        EditErrorKind::ElementNotFound,
++        EditErrorKind::ElementNotTable,
++        EditErrorKind::ParentMissing,
++        EditErrorKind::RelationEndpointMissing,
++        EditErrorKind::TargetInvalid,
++        EditErrorKind::ElementKindMissing,
++        EditErrorKind::ElementAlreadyExists,
++        EditErrorKind::FqnInvalid,
++        EditErrorKind::SourceReadFailed,
++        EditErrorKind::SourceParseFailed,
++        EditErrorKind::ElementTableMissing,
++        EditErrorKind::ExpectMismatch,
++        EditErrorKind::DeleteHasChildren,
++        EditErrorKind::DeleteHasRelations,
++        EditErrorKind::RelationNotFound,
++        EditErrorKind::RelationDuplicated,
++        EditErrorKind::RenderSelfCheck,
++        EditErrorKind::ReadBackMismatch,
++    ];
++}
++
++/// 全 crate 的 `EditError` 构造单点（MUST NOT 在别处另有第二种拼装）。
++pub(super) fn error(kind: EditErrorKind, facts: impl Into<String>) -> EditError {
++    EditError {
++        kind,
++        facts: facts.into(),
++    }
++}
+diff --git a/crates/core/archi/src/edit/messages_test.rs b/crates/core/archi/src/edit/messages_test.rs
+new file mode 100644
+index 000000000000..f62178e48287
+--- /dev/null
++++ b/crates/core/archi/src/edit/messages_test.rs
+@@ -0,0 +1,225 @@
++//! `messages` 的单元测试：`EditErrorKind::ALL` ↔ `criterion()` 的穷尽对拍、19 条判据句
++//! 文案表（逐字）、`message()` 的「判据句：事实」形态与 facts 边界，以及 `EditError`
++//! 的两字段可比性与「只有一条渲染出口」。
++//!
++//! 零 mock：纯数据面（枚举 + 两字段结构体），零 IO 零进程边界。构造单点走
++//! `super::messages::error`（`pub(super)`，全 crate 唯一的 `EditError` 拼装入口，
++//! 故不为测试新增导出）。
++
++use std::collections::BTreeSet;
++
++use super::messages::error;
++use super::{EditError, EditErrorKind};
++
++/// 判据变体的 ASCII 名：穷尽 `match`，新增变体而未在本处补分支即编译失败
++/// （编译期守卫，不复述判据句文案）。
++fn variant(kind: EditErrorKind) -> &'static str {
++    match kind {
++        EditErrorKind::ModelHasDiagnostics => "ModelHasDiagnostics",
++        EditErrorKind::ElementNotFound => "ElementNotFound",
++        EditErrorKind::ElementNotTable => "ElementNotTable",
++        EditErrorKind::ParentMissing => "ParentMissing",
++        EditErrorKind::RelationEndpointMissing => "RelationEndpointMissing",
++        EditErrorKind::TargetInvalid => "TargetInvalid",
++        EditErrorKind::ElementKindMissing => "ElementKindMissing",
++        EditErrorKind::ElementAlreadyExists => "ElementAlreadyExists",
++        EditErrorKind::FqnInvalid => "FqnInvalid",
++        EditErrorKind::SourceReadFailed => "SourceReadFailed",
++        EditErrorKind::SourceParseFailed => "SourceParseFailed",
++        EditErrorKind::ElementTableMissing => "ElementTableMissing",
++        EditErrorKind::ExpectMismatch => "ExpectMismatch",
++        EditErrorKind::DeleteHasChildren => "DeleteHasChildren",
++        EditErrorKind::DeleteHasRelations => "DeleteHasRelations",
++        EditErrorKind::RelationNotFound => "RelationNotFound",
++        EditErrorKind::RelationDuplicated => "RelationDuplicated",
++        EditErrorKind::RenderSelfCheck => "RenderSelfCheck",
++        EditErrorKind::ReadBackMismatch => "ReadBackMismatch",
++    }
++}
++
++/// 判据句文案表（design 数据模型表第二列，19 条逐字；变体名 → 判据句）。
++const CRITERIA: [(&str, &str); 19] = [
++    ("ModelHasDiagnostics", "模型存在结构诊断，拒绝写回"),
++    ("ElementNotFound", "元素不存在"),
++    ("ElementNotTable", "元素声明不是表形态"),
++    ("ParentMissing", "父元素不在案"),
++    ("RelationEndpointMissing", "关系端点元素不存在"),
++    ("TargetInvalid", "落点非法"),
++    ("ElementKindMissing", "新建元素缺 kind"),
++    ("ElementAlreadyExists", "元素已在案"),
++    ("FqnInvalid", "元素 FQN 形态非法"),
++    ("SourceReadFailed", "模型文件读取失败"),
++    ("SourceParseFailed", "模型源解析失败"),
++    ("ElementTableMissing", "模型源缺少 element 表"),
++    ("ExpectMismatch", "目标文件已变"),
++    ("DeleteHasChildren", "元素仍有已声明子元素，拒绝删除"),
++    ("DeleteHasRelations", "元素仍被关系引用，拒绝删除"),
++    ("RelationNotFound", "关系不存在"),
++    ("RelationDuplicated", "关系多处声明"),
++    ("RenderSelfCheck", "写回渲染自证失败"),
++    ("ReadBackMismatch", "回读不一致"),
++];
++
++/// 文案表里某变体对应的判据句（表覆盖不到的变体即测试自身的缺陷）。
++fn expected_criterion(kind: EditErrorKind) -> &'static str {
++    CRITERIA
++        .iter()
++        .find(|(name, _)| *name == variant(kind))
++        .map(|(_, criterion)| *criterion)
++        .unwrap_or_else(|| panic!("文案表应覆盖变体 {}", variant(kind)))
++}
++
++/// 正向：`ALL` 恰 19 值、逐值无重复；文案表覆盖的变体集合与 `ALL` 逐值相等。
++#[test]
++#[allow(non_snake_case)]
++fn ALL与criterion分支集合逐值相等() {
++    assert_eq!(EditErrorKind::ALL.len(), 19, "ALL 恰 19 值");
++
++    let names: BTreeSet<&str> = EditErrorKind::ALL
++        .iter()
++        .map(|kind| variant(*kind))
++        .collect();
++    assert_eq!(names.len(), 19, "ALL 无重复变体");
++    assert_eq!(
++        names,
++        CRITERIA
++            .iter()
++            .map(|(name, _)| *name)
++            .collect::<BTreeSet<&str>>(),
++        "文案表的变体集合与 ALL 逐值相等"
++    );
++
++    let criteria: BTreeSet<&str> = EditErrorKind::ALL
++        .iter()
++        .map(|kind| kind.criterion())
++        .collect();
++    assert_eq!(
++        criteria.len(),
++        19,
++        "criterion 逐值互异（ALL 无重复的等价证明）"
++    );
++}
++
++/// 正向：逐值与文案表逐字相等（19 条 needle 表驱动）。
++#[test]
++fn criterion逐值逐字对齐文案表() {
++    for kind in EditErrorKind::ALL {
++        assert_eq!(
++            kind.criterion(),
++            expected_criterion(kind),
++            "判据句逐字对齐：{}",
++            variant(kind)
++        );
++    }
++}
++
++/// 正向：逐值非空、首尾无空白、互异。
++#[test]
++fn 判据句逐值非空且互异() {
++    let mut seen: BTreeSet<&str> = BTreeSet::new();
++    for kind in EditErrorKind::ALL {
++        let criterion = kind.criterion();
++        assert!(!criterion.is_empty(), "{} 的判据句非空", variant(kind));
++        assert_eq!(criterion, criterion.trim(), "{} 首尾无空白", variant(kind));
++        assert!(seen.insert(criterion), "判据句互异：{criterion}");
++    }
++    assert_eq!(seen.len(), 19);
++}
++
++/// 异常：逐值零「改档」（操作中立）、零动态占位（判据句恒为 `&'static str`，
++/// 事实只能进 `facts`）。
++#[test]
++fn 判据句零改档且零占位() {
++    for kind in EditErrorKind::ALL {
++        let criterion = kind.criterion();
++        assert!(!criterion.contains("改档"), "判据句操作中立：{criterion}");
++        assert!(
++            !criterion.contains('{') && !criterion.contains('}'),
++            "零占位：{criterion}"
++        );
++    }
++}
++
++/// 正向：遍历 `ALL`，`message()` 恒为「判据句：事实」，恰一个全角冒号分隔。
++#[test]
++fn message恒为判据句加事实() {
++    for kind in EditErrorKind::ALL {
++        let message = error(kind, "事实段").message();
++        assert_eq!(message, format!("{}：{}", kind.criterion(), "事实段"));
++        assert!(
++            message.starts_with(kind.criterion()),
++            "以判据句起始：{message}"
++        );
++        assert_eq!(
++            message.matches('：').count(),
++            1,
++            "恰一个全角冒号：{message}"
++        );
++        let (criterion, facts) = message.split_once('：').expect("含分隔符");
++        assert_eq!(criterion, kind.criterion());
++        assert_eq!(facts, "事实段", "分隔后即 facts 原文");
++    }
++}
++
++/// 边界：`facts` 四形态逐字保留（不归一、不截断、不二次转义）。
++#[test]
++fn facts边界逐字保留() {
++    let kind = EditErrorKind::ElementNotFound;
++    let long = "长".repeat(1200);
++    let cases: [String; 4] = [
++        String::new(),
++        "第一行\n第二行".to_owned(),
++        "🚀 元素不存在".to_owned(),
++        long,
++    ];
++    for facts in &cases {
++        let message = error(kind, facts.clone()).message();
++        let (criterion, tail) = message.split_once('：').expect("含分隔符");
++        assert_eq!(criterion, kind.criterion());
++        assert_eq!(tail, facts.as_str(), "facts 逐字保留");
++    }
++
++    let empty = error(kind, "").message();
++    assert!(empty.ends_with('：'), "空 facts 以分隔符收尾：{empty}");
++    assert!(empty.starts_with(kind.criterion()), "仍以判据句起始");
++}
++
++/// 边界：同 `kind` + 同 `facts` 两值相等；任一字段差一即不等；`Debug` 含两字段名。
++#[test]
++#[allow(non_snake_case)]
++fn EditError逐字段可比() {
++    let base = error(EditErrorKind::ExpectMismatch, "同一事实");
++    assert_eq!(base, error(EditErrorKind::ExpectMismatch, "同一事实"));
++    assert_ne!(
++        base,
++        error(EditErrorKind::ExpectMismatch, "同一事实!"),
++        "facts 差一字符即不等"
++    );
++    assert_ne!(
++        base,
++        error(EditErrorKind::RelationNotFound, "同一事实"),
++        "kind 差一值即不等"
++    );
++
++    let debug = format!("{base:?}");
++    assert!(debug.contains("kind"), "Debug 含 kind：{debug}");
++    assert!(debug.contains("facts"), "Debug 含 facts：{debug}");
++}
++
++/// 异常（源码锚）：错误渲染只有 `message()` 一个出口——零 `Display` / 零 `Error` 实现。
++#[test]
++#[allow(non_snake_case)]
++fn 零Display与Error实现() {
++    let source = include_str!("messages.rs");
++    assert!(!source.contains("Display for"), "零 Display 实现");
++    assert!(!source.contains("Error for"), "零 std::error::Error 实现");
++    assert!(!source.contains("impl std::error"), "零 Error trait 实现");
++}
++
++/// 边界：`error(kind, "字面量")` 与 `error(kind, String)` 两入参形态产出的值相等。
++#[test]
++fn 构造单点两入参形态同值() {
++    let from_literal: EditError = error(EditErrorKind::TargetInvalid, "落点事实");
++    let from_string = error(EditErrorKind::TargetInvalid, String::from("落点事实"));
++    assert_eq!(from_literal, from_string, "`impl Into<String>` 两臂同值");
++}
+diff --git a/crates/core/archi/src/edit/mod.rs b/crates/core/archi/src/edit/mod.rs
+new file mode 100644
+index 000000000000..93594f1ff1d9
+--- /dev/null
++++ b/crates/core/archi/src/edit/mod.rs
+@@ -0,0 +1,1028 @@
++//! 写回原语族：纯函数 `apply_*`（源文本进、改写后的完整源文本出）与计划函数
++//! `plan_*`（读盘定位 + 纯函数 + 待落盘产物 [`ModelWrite`]）。
++//!
++//! 两层沿同一个固定形状：`apply_*` 只碰文本（零文件系统），`plan_*` 只读盘
++//! （`parse_dir` 结构诊断前置 → 存在性 / 落点 / 端点前置 → 读源 → `expect` → `apply_*`
++//! → 填 `hash`）。**零写盘、零子进程、零 Tauri**——模型落盘不在本模块（写盘单点在
++//! 壳层的原子写）。
++//!
++//! 产出顺序固定为「改 AST → 渲染 → 表头计数回填 → 重解析自证零诊断 → 回读逐字段
++//! 一致」，且被自证 / 被回读的文本**逐字等于**交出的 `content`（MUST NOT 先验后改）。
++//! 渲染经 `toml_edit`：既有键原位不动（更新时沿用原值的 decor），新键追加到元素表尾，
++//! 新建元素按 `kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata`
++//! 规范序整表写出。
++//!
++//! 关系面的落点 = 既有 `(from, to)` 的**声明文件**（可以不是 `from` 元素文件）、新增
++//! 关系的 `from` 元素文件；同一 `(from, to)` 多处声明（模型面跨文件 / 同一源内）即
++//! fail-closed——改哪条、删哪条都是静默裁决。
++//!
++//! 三态语义：可清空位以 `Option<Option<T>>`（或「`Some` 空集合」同构）表达——`None`
++//! 不动、`Some(None)` 删键（`path` / `metadata` / `apis` 以 `Some(空集合)` 表同一意图）、
++//! `Some(Some(v))` 设值；封闭枚举位（`kind` / `gate` / `api`）无清空臂。写面 MUST NOT
++//! 产出被 parser 判 `invalidValue` 的形态（渲染空数组即一例）——值面 / 形态判据全归
++//! parser，越界值经自证链变成 `RenderSelfCheck`。
++
++mod messages;
++
++use std::collections::{BTreeMap, BTreeSet};
++use std::path::{Path, PathBuf};
++
++use foundation::layout::archi_graph_model_dir;
++use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, TableLike, Value};
++
++use crate::drift::file_hash_of;
++use crate::dto::{ApiStatus, ElementKind, GateTier};
++use crate::graph::ModelGraph;
++use crate::model::{Diagnostic, Element, Model, Relation};
++use crate::parse::{self, SourceParser, TomlParser};
++
++pub use messages::{EditError, EditErrorKind};
++
++use messages::error;
++
++/// 待落盘产物（绝对路径 + 全文 + 写后内容哈希）。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ModelWrite {
++    /// 目标模型文件（绝对路径）
++    pub file: PathBuf,
++    /// 待落盘全文（自证与回读的对象逐字等于它）
++    pub content: String,
++    /// 写后内容哈希（与 [`crate::drift::file_hash`] 同口径，可直接作下一次 `expect`）
++    pub hash: String,
++}
++
++/// 元素写回规格：`fqn` + 可写字段的三态 + `kind`（新建判别）+ 落点 + 乐观锁。
++#[derive(Debug, Clone, Default)]
++pub struct ElementSpec {
++    /// 目标元素完整限定名
++    pub fqn: String,
++    /// **新建意图**（新建必填）：在案元素给了即 `ElementAlreadyExists`
++    pub kind: Option<ElementKind>,
++    /// gate 档位（无清空臂：`Some(Off)` 是显式化缺省）
++    pub gate: Option<GateTier>,
++    /// 契约状态指针（无清空臂）
++    pub api: Option<ApiStatus>,
++    /// 实现入口指针：`Some(None)` 删键
++    pub entry: Option<Option<String>>,
++    /// 覆盖路径：`Some(空集合)` 删键
++    pub path: Option<Vec<String>>,
++    /// 入口文档指针：`Some(None)` 删键
++    pub doc: Option<Option<String>>,
++    /// 一行摘要：`Some(None)` 删键
++    pub summary: Option<Option<String>>,
++    /// 自由元数据（内联表写出）：`Some(空集合)` 删键
++    pub metadata: Option<BTreeMap<String, String>>,
++    /// 新建落点（repo 相对、模型声明目录一级 `*.toml`）；既有元素只允许同值
++    pub file: Option<String>,
++    /// 目标文件**当前**内容哈希（`None` = 不校验）
++    pub expect: Option<String>,
++}
++
++// ---------------------------------------------------------------------------
++// 纯函数层（零文件系统触碰）
++// ---------------------------------------------------------------------------
++
++/// 单文件元素 upsert：元素缺席 ⇒ 按 `kind` 新建；在案 + `kind` 有值 ⇒
++/// `ElementAlreadyExists`；在案则逐位三态改写（既有键序与既有键的 decor 不动）。
++pub fn apply_element_spec(source: &str, spec: &ElementSpec) -> Result<String, EditError> {
++    let mut document = parse_source(source)?;
++    let declared = document
++        .as_table()
++        .get("element")
++        .and_then(Item::as_table_like)
++        .is_some_and(|table| table.contains_key(&spec.fqn));
++    if declared {
++        if spec.kind.is_some() {
++            return Err(error(
++                EditErrorKind::ElementAlreadyExists,
++                format!("{} 已声明——改既有元素请省去 kind", spec.fqn),
++            ));
++        }
++    } else {
++        check_create(&spec.fqn, spec.kind)?;
++    }
++    let table = element_table_mut(&mut document)?;
++    if declared {
++        let entry = table
++            .get_mut(&spec.fqn)
++            .and_then(Item::as_table_like_mut)
++            .ok_or_else(|| {
++                error(
++                    EditErrorKind::ElementNotTable,
++                    format!("{}（无法写回）", spec.fqn),
++                )
++            })?;
++        write_element_fields(entry, spec);
++    } else {
++        let mut entry = Table::new();
++        write_element_fields(&mut entry, spec);
++        table.insert(&spec.fqn, Item::Table(entry));
++    }
++    finish(document, |model| verify_element(model, spec))
++}
++
++/// 单文件删元素表：缺 `element` 表 ⇒ `ElementTableMissing`、元素缺席 ⇒
++/// `ElementNotFound`（事实段列该文件现有元素）。子元素 / 关系前置归
++/// [`plan_element_delete`]（跨文件）。
++pub fn apply_element_delete(source: &str, fqn: &str) -> Result<String, EditError> {
++    let mut document = parse_source(source)?;
++    let table = document
++        .as_table_mut()
++        .get_mut("element")
++        .and_then(Item::as_table_like_mut)
++        .ok_or_else(|| error(EditErrorKind::ElementTableMissing, "无从定位元素"))?;
++    if table.remove(fqn).is_none() {
++        let existing: Vec<&str> = table.iter().map(|(key, _)| key).collect();
++        return Err(error(
++            EditErrorKind::ElementNotFound,
++            format!("{fqn}（现有元素：{}）", existing.join(" / ")),
++        ));
++    }
++    finish(document, |model| match model.element(fqn) {
++        None => Ok(()),
++        Some(_) => Err(error(
++            EditErrorKind::ReadBackMismatch,
++            format!("{fqn} 仍可回读——未删净"),
++        )),
++    })
++}
++
++/// 单文件关系 upsert：命中 `(from, to)` 走原地三态改写（条数不变），缺席则追加一条
++/// `[[relation]]`（键缺席 ⇒ 新建条目数组，不报缺表）。同一源内该对多处声明 ⇒
++/// `RelationDuplicated`（改哪条都是静默裁决）。`apis` 的 `Some(&[])` 翻成删键
++/// （MUST NOT 渲染空数组——空数组与省略同义，parser 判 `invalidValue`）。
++pub fn apply_relation_upsert(
++    source: &str,
++    from: &str,
++    to: &str,
++    desc: Option<Option<&str>>,
++    apis: Option<&[String]>,
++) -> Result<String, EditError> {
++    let mut document = parse_source(source)?;
++    let entries = relation_entries_mut(&mut document)?;
++    let before = entries.len();
++    let hits = relation_indexes(entries, from, to);
++    if hits.len() >= 2 {
++        return Err(relation_duplicated_in_source(from, to, hits.len()));
++    }
++    let expected = match hits.first() {
++        Some(&index) => {
++            if let Some(table) = entries.get_mut(index) {
++                write_relation_fields(table, desc, apis);
++            }
++            before
++        }
++        None => {
++            entries.push(new_relation_table(from, to, desc, apis));
++            before + 1
++        }
++    };
++    finish(document, |model| {
++        verify_relation_upsert(model, from, to, desc, apis)?;
++        verify_relation_count(model, expected)
++    })
++}
++
++/// 单文件删关系条目：命中**唯一**条目即删该条，缺席 ⇒ `RelationNotFound`（事实段列该
++/// 文件现有关系对）；同一源内该对多处声明 ⇒ `RelationDuplicated`（一次删多条是静默
++/// 裁决）。
++pub fn apply_relation_delete(source: &str, from: &str, to: &str) -> Result<String, EditError> {
++    let mut document = parse_source(source)?;
++    let entries = relation_entries_mut(&mut document)?;
++    let before = entries.len();
++    let hits = relation_indexes(entries, from, to);
++    if hits.len() >= 2 {
++        return Err(relation_duplicated_in_source(from, to, hits.len()));
++    }
++    let Some(index) = hits.first().copied() else {
++        let existing: Vec<String> = entries.iter().map(table_pair).collect();
++        let listed = if existing.is_empty() {
++            "（该文件没有关系）".to_owned()
++        } else {
++            format!("（该文件现有关系：{}）", existing.join(" / "))
++        };
++        return Err(error(
++            EditErrorKind::RelationNotFound,
++            format!("{from} → {to}{listed}"),
++        ));
++    };
++    entries.remove(index);
++    finish(document, |model| {
++        verify_relation_absent(model, from, to)?;
++        verify_relation_count(model, before - 1)
++    })
++}
++
++// ---------------------------------------------------------------------------
++// 计划层（读盘、零写盘）
++// ---------------------------------------------------------------------------
++
++/// 元素 upsert 的计划：定位 + 前置 + 读源 + `expect` + [`apply_element_spec`] + `hash`。
++pub fn plan_element_upsert(root: &Path, spec: &ElementSpec) -> Result<ModelWrite, EditError> {
++    let graph = load_model(root)?;
++    let model = graph.model();
++    let existing = model.element(&spec.fqn);
++    if let (Some(element), Some(_)) = (existing, spec.kind) {
++        return Err(error(
++            EditErrorKind::ElementAlreadyExists,
++            format!(
++                "{} 已声明于 {}——改既有元素请省去 kind",
++                spec.fqn, element.file
++            ),
++        ));
++    }
++    let creating = existing.is_none();
++    if creating {
++        check_create(&spec.fqn, spec.kind)?;
++    }
++    let file = check_target(root, &spec.fqn, spec.file.as_deref(), existing)?;
++    if creating {
++        if let Some((parent, _)) = spec.fqn.rsplit_once('.') {
++            if model.element(parent).is_none() {
++                return Err(error(
++                    EditErrorKind::ParentMissing,
++                    format!(
++                        "{} 的父 {parent} 未声明——祖先须显式声明，先声明父元素",
++                        spec.fqn
++                    ),
++                ));
++            }
++        }
++    }
++    let source = read_source(&file, creating)?;
++    check_expect(&file, &source, spec.expect.as_deref())?;
++    let content = apply_element_spec(&source, spec)?;
++    Ok(write_of(file, &content))
++}
++
++/// 元素删除的计划：元素必须存在，且有直接子元素 / 被任一关系引用即拒绝（fail-closed）。
++pub fn plan_element_delete(
++    root: &Path,
++    fqn: &str,
++    expect: Option<&str>,
++) -> Result<ModelWrite, EditError> {
++    let graph = load_model(root)?;
++    let model = graph.model();
++    let element = model.element(fqn).ok_or_else(|| {
++        error(
++            EditErrorKind::ElementNotFound,
++            format!("{fqn}（模型共 {} 个元素）", model.elements.len()),
++        )
++    })?;
++    let children = graph.children(fqn);
++    if !children.is_empty() {
++        return Err(error(
++            EditErrorKind::DeleteHasChildren,
++            format!("{fqn} 的子元素：{}", children.join(" / ")),
++        ));
++    }
++    let blocking: BTreeSet<String> = graph
++        .depends_on(fqn)
++        .into_iter()
++        .chain(graph.depended_by(fqn))
++        .map(relation_pair)
++        .collect();
++    if !blocking.is_empty() {
++        return Err(error(
++            EditErrorKind::DeleteHasRelations,
++            format!(
++                "{fqn}：{}",
++                blocking.into_iter().collect::<Vec<String>>().join(" / ")
++            ),
++        ));
++    }
++    let file = root.join(&element.file);
++    let source = read_source(&file, false)?;
++    check_expect(&file, &source, expect)?;
++    let content = apply_element_delete(&source, fqn)?;
++    Ok(write_of(file, &content))
++}
++
++/// 关系 upsert 的计划：两端点须在案；落点 = 既有 `(from, to)` 的**声明文件**（可以
++/// 不是 `from` 元素文件）、新增关系落 `from` 元素声明文件；模型面多处声明 fail-closed。
++pub fn plan_relation_upsert(
++    root: &Path,
++    from: &str,
++    to: &str,
++    desc: Option<Option<&str>>,
++    apis: Option<&[String]>,
++    expect: Option<&str>,
++) -> Result<ModelWrite, EditError> {
++    let graph = load_model(root)?;
++    let (from_element, _) = endpoints(graph.model(), from, to)?;
++    let hits = relation_hits(graph.model(), from, to);
++    check_relation_unique(&hits)?;
++    let file = match hits.first() {
++        Some(relation) => root.join(&relation.file),
++        None => root.join(&from_element.file),
++    };
++    let source = read_source(&file, false)?;
++    check_expect(&file, &source, expect)?;
++    let content = apply_relation_upsert(&source, from, to, desc, apis)?;
++    Ok(write_of(file, &content))
++}
++
++/// 关系删除的计划：两端点须在案；既有 `(from, to)` 的**声明文件**即落点（可以不是
++/// `from` 元素文件）；模型面缺席 / 多处声明都在读盘前 fail-closed。
++pub fn plan_relation_delete(
++    root: &Path,
++    from: &str,
++    to: &str,
++    expect: Option<&str>,
++) -> Result<ModelWrite, EditError> {
++    let graph = load_model(root)?;
++    endpoints(graph.model(), from, to)?;
++    let hits = relation_hits(graph.model(), from, to);
++    check_relation_unique(&hits)?;
++    let Some(relation) = hits.first() else {
++        let existing: Vec<String> = graph
++            .depends_on(from)
++            .into_iter()
++            .map(relation_pair)
++            .collect();
++        let listed = if existing.is_empty() {
++            "（该元素没有出边关系）".to_owned()
++        } else {
++            format!("（现有关系：{}）", existing.join(" / "))
++        };
++        return Err(error(
++            EditErrorKind::RelationNotFound,
++            format!("{from} → {to}{listed}"),
++        ));
++    };
++    let file = root.join(&relation.file);
++    let source = read_source(&file, false)?;
++    check_expect(&file, &source, expect)?;
++    let content = apply_relation_delete(&source, from, to)?;
++    Ok(write_of(file, &content))
++}
++
++// ---------------------------------------------------------------------------
++// 私有 helper
++// ---------------------------------------------------------------------------
++
++/// 源文本 → AST（唯一解析点）。
++fn parse_source(source: &str) -> Result<DocumentMut, EditError> {
++    source
++        .parse::<DocumentMut>()
++        .map_err(|parse_error| error(EditErrorKind::SourceParseFailed, parse_error.to_string()))
++}
++
++/// 待落盘产物装配（`hash` 在文本定稿后算，MUST NOT 让执行体写完再读盘）。
++fn write_of(file: PathBuf, content: &str) -> ModelWrite {
++    ModelWrite {
++        hash: file_hash_of(&file, content),
++        file,
++        content: content.to_owned(),
++    }
++}
++
++/// 自证链收口：渲染 → 重解析取计数（诊断非空即早失败）→ 表头回填 → 重解析自证 →
++/// `verify` 回读。被自证 / 被回读的文本逐字等于返回值。
++fn finish(
++    document: DocumentMut,
++    verify: impl FnOnce(&Model) -> Result<(), EditError>,
++) -> Result<String, EditError> {
++    let rendered = document.to_string();
++    let counted = TomlParser::parse(&rendered);
++    if !counted.diagnostics.is_empty() {
++        return Err(self_check_failure(&counted.diagnostics));
++    }
++    let content = backfill_header_counts(
++        &rendered,
++        counted.model.elements.len(),
++        counted.model.relations.len(),
++    );
++    let verified = TomlParser::parse(&content);
++    if !verified.diagnostics.is_empty() {
++        return Err(self_check_failure(&verified.diagnostics));
++    }
++    verify(&verified.model)?;
++    Ok(content)
++}
++
++/// 自证失败（重解析出诊断）：零文本产出。
++fn self_check_failure(diagnostics: &[Diagnostic]) -> EditError {
++    error(
++        EditErrorKind::RenderSelfCheck,
++        format!(
++            "重解析出 {} 条诊断，未产出文本：{}",
++            diagnostics.len(),
++            diagnostic_kinds(diagnostics)
++        ),
++    )
++}
++
++/// 诊断种类清单（稳定声明序，` / ` 分隔）。
++fn diagnostic_kinds(diagnostics: &[Diagnostic]) -> String {
++    diagnostics
++        .iter()
++        .map(|diagnostic| diagnostic.kind.as_str())
++        .collect::<Vec<&str>>()
++        .join(" / ")
++}
++
++/// 首部注释块（从首行起连续的空行 / `#` 注释行）内的**第一处**
++/// `（<数字> 元素 / <数字> 关系）` 回填两个数字；无该括号即原样返回（MUST NOT 新增），
++/// 块外零改动。
++fn backfill_header_counts(rendered: &str, elements: usize, relations: usize) -> String {
++    let header = &rendered[..header_block_end(rendered)];
++    let mut cursor = 0;
++    while let Some(offset) = header[cursor..].find('（') {
++        let open = cursor + offset;
++        let body = open + '（'.len_utf8();
++        let Some(element_end) = digit_end(header, body) else {
++            cursor = body;
++            continue;
++        };
++        let Some(after_mark) = header[element_end..]
++            .strip_prefix(" 元素 / ")
++            .map(|_| element_end + " 元素 / ".len())
++        else {
++            cursor = body;
++            continue;
++        };
++        let Some(relation_end) = digit_end(header, after_mark) else {
++            cursor = body;
++            continue;
++        };
++        if !header[relation_end..].starts_with(" 关系）") {
++            cursor = body;
++            continue;
++        }
++        // 拼接域是**整份渲染文本**：`header` 只是它的前缀，尾段从 `relation_end` 一路
++        // 带出首部注释块之后的全部正文（只收窄到 `header` 会截断整个模型表）。
++        let mut output = String::with_capacity(rendered.len() + 8);
++        output.push_str(&rendered[..body]);
++        output.push_str(&elements.to_string());
++        output.push_str(" 元素 / ");
++        output.push_str(&relations.to_string());
++        output.push_str(&rendered[relation_end..]);
++        return output;
++    }
++    rendered.to_owned()
++}
++
++/// 首部注释块的结束字节偏移（首行起连续的空行 / `#` 注释行；遇首个其它行即止）。
++fn header_block_end(rendered: &str) -> usize {
++    let mut end = 0;
++    for line in rendered.split_inclusive('\n') {
++        let trimmed = line.trim_start();
++        if !(trimmed.is_empty() || trimmed.starts_with('#')) {
++            break;
++        }
++        end += line.len();
++    }
++    end
++}
++
++/// 从 `start` 起连续 ASCII 数字的结束偏移（零个数字即 `None`）。
++fn digit_end(text: &str, start: usize) -> Option<usize> {
++    let bytes = text.as_bytes();
++    let mut index = start;
++    while index < bytes.len() && bytes[index].is_ascii_digit() {
++        index += 1;
++    }
++    (index > start).then_some(index)
++}
++
++/// `element` 表（缺席即建隐式外层表，渲染成 `[element."<FQN>"]` 单层表头）。
++fn element_table_mut(document: &mut DocumentMut) -> Result<&mut dyn TableLike, EditError> {
++    document
++        .as_table_mut()
++        .entry("element")
++        .or_insert_with(|| {
++            let mut table = Table::new();
++            table.set_implicit(true);
++            Item::Table(table)
++        })
++        .as_table_like_mut()
++        .ok_or_else(|| error(EditErrorKind::SourceParseFailed, "element 键不是表"))
++}
++
++/// `relation` 条目数组（键缺席即建空数组——零关系文件不是「缺表」）。
++fn relation_entries_mut(document: &mut DocumentMut) -> Result<&mut ArrayOfTables, EditError> {
++    document
++        .as_table_mut()
++        .entry("relation")
++        .or_insert_with(|| Item::ArrayOfTables(ArrayOfTables::new()))
++        .as_array_of_tables_mut()
++        .ok_or_else(|| error(EditErrorKind::SourceParseFailed, "relation 键不是条目数组"))
++}
++
++/// 元素表逐字段三态改写（既有键沿原 decor 原位改，新键追加到表尾）。
++///
++/// 调用序即新建元素的规范字段序——MUST NOT 另立第二份字段序常量。
++fn write_element_fields(table: &mut dyn TableLike, spec: &ElementSpec) {
++    if let Some(kind) = spec.kind {
++        write_value(table, "kind", Value::from(kind.as_str()));
++    }
++    if let Some(gate) = spec.gate {
++        write_value(table, "gate", Value::from(gate.as_str()));
++    }
++    if let Some(api) = spec.api {
++        write_value(table, "api", Value::from(api.as_str()));
++    }
++    write_optional_string(table, "entry", spec.entry.as_ref());
++    match spec.path.as_ref() {
++        None => {}
++        Some(values) if values.is_empty() => {
++            table.remove("path");
++        }
++        Some(values) => write_value(table, "path", string_array(values)),
++    }
++    write_optional_string(table, "doc", spec.doc.as_ref());
++    write_optional_string(table, "summary", spec.summary.as_ref());
++    match spec.metadata.as_ref() {
++        None => {}
++        Some(values) if values.is_empty() => {
++            table.remove("metadata");
++        }
++        Some(values) => write_value(table, "metadata", inline_table(values)),
++    }
++}
++
++/// 关系条目逐字段三态改写（`apis = Some(&[])` 翻成删键）。
++fn write_relation_fields(
++    table: &mut dyn TableLike,
++    desc: Option<Option<&str>>,
++    apis: Option<&[String]>,
++) {
++    match desc {
++        None => {}
++        Some(None) => {
++            table.remove("desc");
++        }
++        Some(Some(description)) => write_value(table, "desc", Value::from(description)),
++    }
++    match apis {
++        None => {}
++        Some([]) => {
++            table.remove("apis");
++        }
++        Some(names) => write_value(table, "apis", string_array(names)),
++    }
++}
++
++/// 可清空字符串键的三态改写。
++fn write_optional_string(table: &mut dyn TableLike, key: &str, change: Option<&Option<String>>) {
++    match change {
++        None => {}
++        Some(None) => {
++            table.remove(key);
++        }
++        Some(Some(text)) => write_value(table, key, Value::from(text.as_str())),
++    }
++}
++
++/// 写一个值：既有键沿用原值的 decor（行内注释 / 缩进 / 相对位置零重排），新键用默认
++/// decor 追加到表尾。
++fn write_value(table: &mut dyn TableLike, key: &str, value: Value) {
++    let Some((mut existing_key, existing_item)) = table.get_key_value_mut(key) else {
++        table.insert(key, Item::Value(value));
++        return;
++    };
++    let leaf_decor = existing_key.leaf_decor().clone();
++    let dotted_decor = existing_key.dotted_decor().clone();
++    let value_decor = existing_item.as_value().map(|value| value.decor().clone());
++    *existing_item = Item::Value(value);
++    if let (Some(decor), Some(updated)) = (value_decor, existing_item.as_value_mut()) {
++        *updated.decor_mut() = decor;
++    }
++    *existing_key.leaf_decor_mut() = leaf_decor;
++    *existing_key.dotted_decor_mut() = dotted_decor;
++}
++
++/// 字符串清单 → 内联数组值。
++fn string_array(items: &[String]) -> Value {
++    let mut array = Array::new();
++    for item in items {
++        array.push(item.as_str());
++    }
++    Value::Array(array)
++}
++
++/// 字符串表 → 内联表值（语料同形；子表形态会新增一层表头并改变后续键的相对序）。
++fn inline_table(values: &BTreeMap<String, String>) -> Value {
++    let mut table = InlineTable::new();
++    for (key, value) in values {
++        table.insert(key, Value::from(value.as_str()));
++    }
++    Value::InlineTable(table)
++}
++
++/// 新关系条目（键序 `from` / `to` / `desc` / `apis`，表头前缀与既有条目同形）。
++fn new_relation_table(
++    from: &str,
++    to: &str,
++    desc: Option<Option<&str>>,
++    apis: Option<&[String]>,
++) -> Table {
++    let mut table = Table::new();
++    table.insert("from", toml_edit::value(from));
++    table.insert("to", toml_edit::value(to));
++    if let Some(Some(description)) = desc {
++        table.insert("desc", toml_edit::value(description));
++    }
++    if let Some(names) = apis.filter(|names| !names.is_empty()) {
++        table.insert("apis", Item::Value(string_array(names)));
++    }
++    table.decor_mut().set_prefix("\n");
++    table
++}
++
++/// 关系条目是否命中 `(from, to)`。
++fn relation_matches(table: &Table, from: &str, to: &str) -> bool {
++    table.get("from").and_then(Item::as_str) == Some(from)
++        && table.get("to").and_then(Item::as_str) == Some(to)
++}
++
++/// 同一源内的命中条目下标（文件面的多处声明判据取它的长度）。
++fn relation_indexes(entries: &ArrayOfTables, from: &str, to: &str) -> Vec<usize> {
++    entries
++        .iter()
++        .enumerate()
++        .filter(|(_, table)| relation_matches(table, from, to))
++        .map(|(index, _)| index)
++        .collect()
++}
++
++/// 文件面重复声明（同一源内多处）：零文本产出的判据。
++fn relation_duplicated_in_source(from: &str, to: &str, count: usize) -> EditError {
++    error(
++        EditErrorKind::RelationDuplicated,
++        format!(
++            "{} 在同一源内多处声明（{count} 处）——先删除重复条目",
++            relation_pair_of(from, to)
++        ),
++    )
++}
++
++/// 模型面按 `(from, to)` 取全部声明（身份键 = `from` / `to` 双等，与 `diff` 的关系
++/// 身份键同口径）。
++fn relation_hits<'a>(model: &'a Model, from: &str, to: &str) -> Vec<&'a Relation> {
++    model
++        .relations
++        .iter()
++        .filter(|relation| relation.from == from && relation.to == to)
++        .collect()
++}
++
++/// 模型面重复声明的唯一性判据：跨文件多处即 fail-closed（不静默裁决改 / 删哪条）。
++fn check_relation_unique(hits: &[&Relation]) -> Result<(), EditError> {
++    let Some((first, rest)) = hits.split_first() else {
++        return Ok(());
++    };
++    if rest.is_empty() {
++        return Ok(());
++    }
++    let files: Vec<&str> = hits.iter().map(|relation| relation.file.as_str()).collect();
++    Err(error(
++        EditErrorKind::RelationDuplicated,
++        format!(
++            "{} 在 {} 多处声明（{} 处）——先删除重复条目",
++            relation_pair(first),
++            files.join(" / "),
++            hits.len()
++        ),
++    ))
++}
++
++/// 关系条目 → 「from → to」（诊断与事实段的展示形态）。
++fn relation_pair(relation: &Relation) -> String {
++    relation_pair_of(&relation.from, &relation.to)
++}
++
++/// 关系条目表 → 「from → to」（条目数组里取同形展示，含 `relation` 键缺席的空面）。
++fn table_pair(table: &Table) -> String {
++    let from = table.get("from").and_then(Item::as_str).unwrap_or_default();
++    let to = table.get("to").and_then(Item::as_str).unwrap_or_default();
++    relation_pair_of(from, to)
++}
++
++/// 关系对展示形态（无 `Relation` 在手时的同形装配）。
++fn relation_pair_of(from: &str, to: &str) -> String {
++    format!("{from} → {to}")
++}
++
++/// 模型面按 `(from, to)` 取关系（回读用；身份键与 [`relation_hits`] 同一处）。
++fn find_relation<'a>(model: &'a Model, from: &str, to: &str) -> Option<&'a Relation> {
++    relation_hits(model, from, to).into_iter().next()
++}
++
++/// 回读逐字段比对的错误装配。
++fn read_back(
++    field: &str,
++    actual: impl std::fmt::Display,
++    expected: impl std::fmt::Display,
++) -> EditError {
++    error(
++        EditErrorKind::ReadBackMismatch,
++        format!("{field}为 {actual}，目标为 {expected}"),
++    )
++}
++
++/// 关系条数回读：区分「原条目更新」与「追加了一条副本」（既有 ⇒ 不变 / 追加 ⇒ +1 /
++/// 删除 ⇒ −1）。
++fn verify_relation_count(model: &Model, expected: usize) -> Result<(), EditError> {
++    if model.relations.len() == expected {
++        return Ok(());
++    }
++    Err(read_back("关系条数", model.relations.len(), expected))
++}
++
++/// 可空字符串的展示形态。
++fn show_optional(text: &Option<String>) -> String {
++    match text {
++        Some(text) => format!("\"{text}\""),
++        None => "（未写）".to_owned(),
++    }
++}
++
++/// 字符串清单的展示形态。
++fn show_list(items: &[String]) -> String {
++    let quoted: Vec<String> = items.iter().map(|item| format!("\"{item}\"")).collect();
++    format!("[{}]", quoted.join(", "))
++}
++
++/// 自由元数据表的展示形态。
++fn show_metadata(values: &BTreeMap<String, String>) -> String {
++    if values.is_empty() {
++        return "（未写）".to_owned();
++    }
++    let pairs: Vec<String> = values
++        .iter()
++        .map(|(key, value)| format!("{key}=\"{value}\""))
++        .collect();
++    format!("{{{}}}", pairs.join(", "))
++}
++
++/// 元素回读：逐**指定字段**比对（未指定的位不动，也就无从比对）。
++fn verify_element(model: &Model, spec: &ElementSpec) -> Result<(), EditError> {
++    let Some(element) = model.element(&spec.fqn) else {
++        return Err(error(
++            EditErrorKind::ReadBackMismatch,
++            format!("找不到元素 {}", spec.fqn),
++        ));
++    };
++    if let Some(kind) = spec.kind {
++        if element.kind != kind {
++            return Err(read_back("kind", element.kind.as_str(), kind.as_str()));
++        }
++    }
++    if let Some(gate) = spec.gate {
++        if element.gate != gate {
++            return Err(read_back("档位", element.gate.as_str(), gate.as_str()));
++        }
++    }
++    if let Some(api) = spec.api {
++        if element.api != api {
++            return Err(read_back("api", element.api.as_str(), api.as_str()));
++        }
++    }
++    if let Some(entry) = &spec.entry {
++        if &element.entry != entry {
++            return Err(read_back(
++                "entry",
++                show_optional(&element.entry),
++                show_optional(entry),
++            ));
++        }
++    }
++    if let Some(path) = &spec.path {
++        if &element.path != path {
++            return Err(read_back("path", show_list(&element.path), show_list(path)));
++        }
++    }
++    if let Some(doc) = &spec.doc {
++        if &element.doc != doc {
++            return Err(read_back(
++                "doc",
++                show_optional(&element.doc),
++                show_optional(doc),
++            ));
++        }
++    }
++    if let Some(summary) = &spec.summary {
++        if &element.summary != summary {
++            return Err(read_back(
++                "summary",
++                show_optional(&element.summary),
++                show_optional(summary),
++            ));
++        }
++    }
++    if let Some(metadata) = &spec.metadata {
++        if &element.metadata != metadata {
++            return Err(read_back(
++                "metadata",
++                show_metadata(&element.metadata),
++                show_metadata(metadata),
++            ));
++        }
++    }
++    Ok(())
++}
++
++/// 关系回读：`(from, to)` 必须在案，`desc` / `apis` 按指定值比对。
++fn verify_relation_upsert(
++    model: &Model,
++    from: &str,
++    to: &str,
++    desc: Option<Option<&str>>,
++    apis: Option<&[String]>,
++) -> Result<(), EditError> {
++    let Some(relation) = find_relation(model, from, to) else {
++        return Err(error(
++            EditErrorKind::ReadBackMismatch,
++            format!("找不到关系 {}", relation_pair_of(from, to)),
++        ));
++    };
++    if let Some(desc) = desc {
++        let expected = desc.map(str::to_owned);
++        if relation.description.as_deref() != expected.as_deref() {
++            return Err(read_back(
++                "关系说明",
++                show_optional(&relation.description),
++                show_optional(&expected),
++            ));
++        }
++    }
++    if let Some(apis) = apis {
++        if relation.apis.as_slice() != apis {
++            return Err(read_back(
++                "关系的 apis",
++                show_list(&relation.apis),
++                show_list(apis),
++            ));
++        }
++    }
++    Ok(())
++}
++
++/// 关系回读：`(from, to)` 必须缺席。
++fn verify_relation_absent(model: &Model, from: &str, to: &str) -> Result<(), EditError> {
++    match find_relation(model, from, to) {
++        None => Ok(()),
++        Some(_) => Err(error(
++            EditErrorKind::ReadBackMismatch,
++            format!("关系 {} 仍可回读——未删净", relation_pair_of(from, to)),
++        )),
++    }
++}
++
++/// 结构诊断前置 + 建图（层级与邻接判据全走 [`ModelGraph`]，MUST NOT 自写前缀扫描）。
++fn load_model(root: &Path) -> Result<ModelGraph, EditError> {
++    let outcome = parse::parse_dir(root);
++    if !outcome.diagnostics.is_empty() {
++        return Err(error(
++            EditErrorKind::ModelHasDiagnostics,
++            format!(
++                "{} 条（先修好模型）：{}",
++                outcome.diagnostics.len(),
++                diagnostic_kinds(&outcome.diagnostics)
++            ),
++        ));
++    }
++    Ok(ModelGraph::build(outcome.model))
++}
++
++/// 新建元素的写面卫生前置：FQN 形态（要渲染成键，含这些字符会产出不可读的键）→
++/// `kind` 必填。只作用于**新建**——既有元素的 FQN 形态仍只由 parser 判。
++fn check_create(fqn: &str, kind: Option<ElementKind>) -> Result<(), EditError> {
++    let invalid = fqn.is_empty()
++        || fqn
++            .chars()
++            .any(|ch| ch.is_whitespace() || matches!(ch, '"' | '[' | ']' | '#'));
++    if invalid {
++        return Err(error(
++            EditErrorKind::FqnInvalid,
++            format!("{fqn:?} 含空白 / 引号 / 方括号 / # / 换行（写面要把它渲染成键）"),
++        ));
++    }
++    if kind.is_none() {
++        return Err(error(
++            EditErrorKind::ElementKindMissing,
++            format!("{fqn} 不在案——新建必须给出 kind"),
++        ));
++    }
++    Ok(())
++}
++
++/// 落点判据（最小版）：既有元素落其声明文件（给了不同 `file` 即拒绝），新建元素落
++/// 调用方显式给出的模型声明目录一级 `*.toml`（目录缺席不代建）。
++fn check_target(
++    root: &Path,
++    fqn: &str,
++    file: Option<&str>,
++    existing: Option<&Element>,
++) -> Result<PathBuf, EditError> {
++    if let Some(element) = existing {
++        if let Some(given) = file {
++            if given != element.file {
++                return Err(error(
++                    EditErrorKind::TargetInvalid,
++                    format!(
++                        "{fqn} 现声明于 {}，不接受改落点 {given}（迁文件属独立语义）",
++                        element.file
++                    ),
++                ));
++            }
++        }
++        return Ok(root.join(&element.file));
++    }
++    let Some(file) = file else {
++        return Err(error(
++            EditErrorKind::TargetInvalid,
++            format!("{fqn} 未给 file——新建必须显式给出模型声明目录一级的 *.toml"),
++        ));
++    };
++    if !is_single_model_file_name(file) {
++        return Err(error(
++            EditErrorKind::TargetInvalid,
++            format!("{file} 不在模型声明目录一级"),
++        ));
++    }
++    let dir = archi_graph_model_dir(root);
++    if !dir.is_dir() {
++        return Err(error(
++            EditErrorKind::TargetInvalid,
++            format!("{} 不存在（写面不代建目录）", dir.display()),
++        ));
++    }
++    Ok(dir.join(file))
++}
++
++/// 名称是否「模型声明目录一级的 `*.toml`」（单段、非绝对）。
++fn is_single_model_file_name(file: &str) -> bool {
++    let path = Path::new(file);
++    !file.is_empty()
++        && file.ends_with(".toml")
++        && !path.is_absolute()
++        && !file.contains('/')
++        && !file.contains('\\')
++        && path.components().count() == 1
++}
++
++/// 读源：新建且目标文件尚不存在 ⇒ 空源（新文件的合法起点）；其余读失败即
++/// `SourceReadFailed`。
++fn read_source(file: &Path, allow_missing: bool) -> Result<String, EditError> {
++    match std::fs::read_to_string(file) {
++        Ok(source) => Ok(source),
++        Err(_) if allow_missing && !file.exists() => Ok(String::new()),
++        Err(read_error) => Err(error(
++            EditErrorKind::SourceReadFailed,
++            format!("{}（{read_error}）", file.display()),
++        )),
++    }
++}
++
++/// 乐观锁：`None` 不校验；给了 `expect` 而目标文件缺席同判不匹配（不存在「期望缺席」
++/// 这一臂）；否则拿**本次读到的字节**比对（不另读一次盘）。
++fn check_expect(file: &Path, source: &str, expect: Option<&str>) -> Result<(), EditError> {
++    let Some(expected) = expect else {
++        return Ok(());
++    };
++    if !file.exists() {
++        return Err(error(
++            EditErrorKind::ExpectMismatch,
++            format!("{} 不存在（期望 {expected}）", file.display()),
++        ));
++    }
++    let actual = file_hash_of(file, source);
++    if actual != expected {
++        return Err(error(
++            EditErrorKind::ExpectMismatch,
++            format!("期望 {expected}，实际 {actual}——重读后再试"),
++        ));
++    }
++    Ok(())
++}
++
++/// 关系两端点在案即返回两侧元素，否则点名缺失端。
++fn endpoints<'a>(
++    model: &'a Model,
++    from: &str,
++    to: &str,
++) -> Result<(&'a Element, &'a Element), EditError> {
++    match (model.element(from), model.element(to)) {
++        (Some(from_element), Some(to_element)) => Ok((from_element, to_element)),
++        (left, right) => {
++            let missing: Vec<&str> = [(from, left.is_some()), (to, right.is_some())]
++                .into_iter()
++                .filter(|(_, declared)| !declared)
++                .map(|(fqn, _)| fqn)
++                .collect();
++            Err(error(
++                EditErrorKind::RelationEndpointMissing,
++                format!("{from} → {to}：{} 未声明", missing.join(" / ")),
++            ))
++        }
++    }
++}
++
++#[cfg(test)]
++mod mod_test;
++
++#[cfg(test)]
++mod messages_test;
+diff --git a/crates/core/archi/src/edit/mod_test.rs b/crates/core/archi/src/edit/mod_test.rs
+new file mode 100644
+index 000000000000..a1a8d9f8ccc7
+--- /dev/null
++++ b/crates/core/archi/src/edit/mod_test.rs
+@@ -0,0 +1,3315 @@
++//! `edit` 写回原语族的单元测试：4 × `apply_*`（源文本进、改写后的完整源文本出）与
++//! 4 × `plan_*`（读盘定位 + 纯函数 + 待落盘产物）。覆盖三态语义（可清空位 / 封闭枚举
++//! 位）、表头计数回填、自证链（渲染 → 重解析取计数 → 回填 → 重解析自证 → 回读）、
++//! 删除 fail-closed、关系原语的落点（既有关系的声明文件 / 新增关系的 `from` 文件）与
++//! 多处声明 fail-closed、`expect` 乐观锁，以及 crate 根出口面与「零写盘 / 零哈希拼装」
++//! 两条源码锚。
++//!
++//! 零 mock：真实 `toml_edit`（排版与 decor 保留即被测能力）+ 真实 `TomlParser`（自证与
++//! 回读判据与解析层同源）+ 真实 `ModelGraph`（层级 / 邻接判据单点，不自写前缀扫描）+
++//! 真实 `drift::file_hash_of`；临时目录由 std 自建（`TempDir` RAII + `AtomicU64` 唯一
++//! 命名，沿 `drift/mod_test.rs` 先例）。私有 helper（`backfill_header_counts` /
++//! `finish` / `check_create` / `check_target` / `read_source` / `check_expect` /
++//! `relation_hits` / `check_relation_unique`）经 `super::…` 直调（子模块可见父模块私有
++//! 项），不为测试新增导出。
++
++use std::collections::BTreeMap;
++use std::fs;
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicU64, Ordering};
++
++use foundation::layout::archi_graph_model_dir;
++use toml_edit::DocumentMut;
++
++use crate::dto::{ApiStatus, ElementKind, GateTier};
++use crate::model::{Element, Model};
++use crate::parse::{self, SourceParser, TomlParser};
++use crate::{
++    apply_element_delete, apply_element_spec, apply_relation_delete, apply_relation_upsert,
++    file_hash, file_hash_of, plan_element_delete, plan_element_upsert, plan_relation_delete,
++    plan_relation_upsert, EditError, EditErrorKind, ElementSpec, ModelWrite,
++};
++
++use super::{
++    backfill_header_counts, check_create, check_expect, check_relation_unique, check_target,
++    finish, messages, read_source, relation_hits,
++};
++
++// ---------------------------------------------------------------------------
++// 真实临时目录（本 crate 零 dev-dependency，故用 std 自建）
++// ---------------------------------------------------------------------------
++
++static COUNTER: AtomicU64 = AtomicU64::new(0);
++
++struct TempDir(PathBuf);
++
++impl TempDir {
++    fn new(tag: &str) -> Self {
++        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
++        let dir = std::env::temp_dir().join(format!(
++            "archi-edit-test-{}-{}-{}",
++            std::process::id(),
++            unique,
++            tag
++        ));
++        let _ = fs::remove_dir_all(&dir);
++        fs::create_dir_all(&dir).expect("创建临时目录失败");
++        TempDir(dir)
++    }
++
++    fn root(&self) -> &Path {
++        &self.0
++    }
++
++    /// 落一个模型文件并返回其绝对路径。
++    fn write_model(&self, name: &str, content: &str) -> PathBuf {
++        let dir = archi_graph_model_dir(&self.0);
++        fs::create_dir_all(&dir).expect("创建模型声明目录失败");
++        let path = dir.join(name);
++        fs::write(&path, content).expect("写模型文件失败");
++        path
++    }
++
++    /// 全量字节快照（相对路径 → 字节；用于「零写盘」对拍）。
++    fn snapshot(&self) -> Vec<(String, Vec<u8>)> {
++        let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
++        let mut frontier: Vec<PathBuf> = vec![self.0.clone()];
++        while let Some(dir) = frontier.pop() {
++            let Ok(read) = fs::read_dir(&dir) else {
++                continue;
++            };
++            for entry in read.flatten() {
++                let path = entry.path();
++                if path.is_dir() {
++                    frontier.push(path);
++                    continue;
++                }
++                let relative = path
++                    .strip_prefix(&self.0)
++                    .expect("相对路径")
++                    .to_string_lossy()
++                    .replace('\\', "/");
++                entries.push((relative, fs::read(&path).expect("读文件")));
++            }
++        }
++        entries.sort();
++        entries
++    }
++}
++
++impl Drop for TempDir {
++    fn drop(&mut self) {
++        let _ = fs::remove_dir_all(&self.0);
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 回读 / 断言 helper
++// ---------------------------------------------------------------------------
++
++/// 解析并断言零诊断（自证判据与解析层同源）。
++fn model_of(source: &str) -> Model {
++    let outcome = TomlParser::parse(source);
++    assert!(
++        outcome.diagnostics.is_empty(),
++        "源应可解析：{:?}",
++        outcome.diagnostics
++    );
++    outcome.model
++}
++
++/// 回读某元素（缺席即测试自身缺陷）。
++fn element_of(source: &str, fqn: &str) -> Element {
++    model_of(source)
++        .element(fqn)
++        .cloned()
++        .unwrap_or_else(|| panic!("回读应含元素 {fqn}：\n{source}"))
++}
++
++/// 回读某关系（缺席即测试自身缺陷）。
++fn relation_of<'a>(model: &'a Model, from: &str, to: &str) -> &'a crate::model::Relation {
++    model
++        .relations
++        .iter()
++        .find(|relation| relation.from == from && relation.to == to)
++        .unwrap_or_else(|| panic!("回读应含关系 {from} → {to}"))
++}
++
++/// 某键的整行（`key = …`，容忍键与 `=` 之间的空白；缺席即 `None`）。
++fn key_line<'a>(source: &'a str, key: &str) -> Option<&'a str> {
++    source.lines().find(|line| {
++        line.trim_start()
++            .strip_prefix(key)
++            .is_some_and(|rest| rest.trim_start().starts_with('='))
++    })
++}
++
++/// 按行 diff 的变化行下标（行数必须不变）。
++fn changed_lines(before: &str, after: &str) -> Vec<usize> {
++    let left: Vec<&str> = before.lines().collect();
++    let right: Vec<&str> = after.lines().collect();
++    assert_eq!(left.len(), right.len(), "行数应不变（就地改值）");
++    left.iter()
++        .zip(right.iter())
++        .enumerate()
++        .filter(|(_, (old, new))| old != new)
++        .map(|(index, _)| index)
++        .collect()
++}
++
++/// 表头注释块内第一处 `（N 元素 / M 关系）` 的两个数字。
++fn header_counts(source: &str) -> Option<(usize, usize)> {
++    for line in source.lines() {
++        let Some(open) = line.find('（') else {
++            continue;
++        };
++        let body = &line[open + '（'.len_utf8()..];
++        let Some(split) = body.find(" 元素 / ") else {
++            continue;
++        };
++        let elements = body[..split].parse::<usize>().ok()?;
++        let tail = &body[split + " 元素 / ".len()..];
++        let Some(end) = tail.find(" 关系）") else {
++            continue;
++        };
++        let relations = tail[..end].parse::<usize>().ok()?;
++        return Some((elements, relations));
++    }
++    None
++}
++
++/// 判据 + 事实（两入口对拍用）。
++fn verdict(failure: &EditError) -> (EditErrorKind, &str) {
++    (failure.kind, failure.facts.as_str())
++}
++
++/// gate 退化调用（改档 = `ElementSpec { gate }` 的一次调用）。
++fn gate_spec(fqn: &str, gate: GateTier) -> ElementSpec {
++    ElementSpec {
++        fqn: fqn.to_owned(),
++        gate: Some(gate),
++        ..Default::default()
++    }
++}
++
++fn spec_entry(fqn: &str, change: Option<Option<&str>>) -> ElementSpec {
++    ElementSpec {
++        fqn: fqn.to_owned(),
++        entry: change.map(|value| value.map(str::to_owned)),
++        ..Default::default()
++    }
++}
++
++fn spec_doc(fqn: &str, change: Option<Option<&str>>) -> ElementSpec {
++    ElementSpec {
++        fqn: fqn.to_owned(),
++        doc: change.map(|value| value.map(str::to_owned)),
++        ..Default::default()
++    }
++}
++
++fn spec_summary(fqn: &str, change: Option<Option<&str>>) -> ElementSpec {
++    ElementSpec {
++        fqn: fqn.to_owned(),
++        summary: change.map(|value| value.map(str::to_owned)),
++        ..Default::default()
++    }
++}
++
++fn read_entry(element: &Element) -> Option<String> {
++    element.entry.clone()
++}
++
++fn read_doc(element: &Element) -> Option<String> {
++    element.doc.clone()
++}
++
++fn read_summary(element: &Element) -> Option<String> {
++    element.summary.clone()
++}
++
++// ---------------------------------------------------------------------------
++// 盘面 fixture
++// ---------------------------------------------------------------------------
++
++const CORE_SOURCE: &str = concat!(
++    "# 核心包（注释须逐字保留）\n",
++    "[element.\"App\"]\n",
++    "kind = \"package\"\n",
++    "\n",
++    "# 计费域\n",
++    "[element.\"App.Billing\"]\n",
++    "kind = \"module\"\n",
++    "gate = \"off\"\n",
++    "\n",
++    "[element.\"App.Auth\"]\n",
++    "kind = \"domain\"\n",
++    "gate = \"warn\"\n",
++);
++
++/// 表头计数准确的源（3 元素 / 1 关系）：改成本值即零字节差异。
++const HEADER_SOURCE: &str = concat!(
++    "# 01 · 核心（3 元素 / 1 关系）\n",
++    "[element.\"App\"]\n",
++    "kind = \"package\"\n",
++    "\n",
++    "[element.\"App.Auth\"]\n",
++    "kind = \"domain\"\n",
++    "gate = \"off\"\n",
++    "\n",
++    "[element.\"App.Billing\"]\n",
++    "kind = \"module\"\n",
++    "gate = \"warn\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"App.Auth\"\n",
++    "to = \"App.Billing\"\n",
++);
++
++/// 六个可清空位齐备（`entry` / `doc` / `summary`）。
++const FIELDS_SOURCE: &str = concat!(
++    "[element.\"App.Auth\"]\n",
++    "kind = \"domain\"\n",
++    "gate = \"warn\"\n",
++    "entry = \"src/auth/token.ts\"\n",
++    "doc = \"docs/auth.md\"\n",
++    "summary = \"认证\"\n",
++);
++
++/// 集合位齐备（`path` / `metadata`）。
++const COLLECTION_SOURCE: &str = concat!(
++    "[element.\"App.Auth\"]\n",
++    "kind = \"domain\"\n",
++    "path = [\"src/auth\"]\n",
++    "metadata = { owner = \"core\" }\n",
++);
++
++/// 三元素一关系（关系不碰被删元素，删除面可成功）。
++const DELETE_SOURCE: &str = concat!(
++    "# 01 · 核心（3 元素 / 1 关系）\n",
++    "[element.\"App\"]\n",
++    "kind = \"package\"\n",
++    "\n",
++    "[element.\"App.Auth\"]\n",
++    "kind = \"domain\"\n",
++    "\n",
++    "[element.\"App.Billing\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"App.Billing\"\n",
++    "to = \"App\"\n",
++);
++
++/// 三条关系（含空行与一条 `desc`）：更新 / 删除只动命中条。
++const RELATIONS_SOURCE: &str = concat!(
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"C\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"B\"\n",
++    "desc = \"旧说明\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"B\"\n",
++    "to = \"C\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"C\"\n",
++);
++
++/// 一条带 `apis` 的关系（三态判据面）。
++const APIS_SOURCE: &str = concat!(
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"B\"\n",
++    "apis = [\"open\", \"close\"]\n",
++);
++
++/// 两元素两关系 + 准确表头（关系删除计数随动面）。
++const RELATION_PLAN_SOURCE: &str = concat!(
++    "# 01 · 核心（2 元素 / 2 关系）\n",
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"B\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"B\"\n",
++    "to = \"A\"\n",
++);
++
++/// 简单两元素一关系模型（plan 面通用起点）。
++const TWO_ELEMENTS_SOURCE: &str = concat!(
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"B\"\n",
++);
++
++/// parser 面结构诊断源（`package` 至多一条包根 ⇒ `invalidValue`）。
++const DIAGNOSTIC_SOURCE: &str = "[element.\"App\"]\nkind = \"package\"\npath = [\"a\", \"b\"]\n";
++
++/// 跨文件关系的 `from` 侧文件（复刻本仓 `Desktop → Desktop.Components.Ui` 的形态：
++/// `from` 元素在 `01-app.toml`、该关系声明在 `06-frontend.toml`）。
++const SPLIT_FROM_SOURCE: &str = concat!(
++    "# 01 · app（1 元素 / 0 关系）\n",
++    "[element.\"Desktop\"]\n",
++    "kind = \"package\"\n",
++);
++
++/// 跨文件关系的声明侧文件（表头计数准确；两条关系都是祖先 → 后代，无结构诊断）。
++const SPLIT_RELATION_SOURCE: &str = concat!(
++    "# 06 · frontend（2 元素 / 2 关系）\n",
++    "[element.\"Desktop.Components\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"Desktop.Components.Ui\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"Desktop\"\n",
++    "to = \"Desktop.Components.Ui\"\n",
++    "desc = \"旧说明\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"Desktop\"\n",
++    "to = \"Desktop.Components\"\n",
++);
++
++/// 同一源内 `(from, to)` 两处声明（文件面 `RelationDuplicated` 的起点）。
++const DUPLICATED_IN_SOURCE: &str = concat!(
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"B\"\n",
++    "desc = \"第一处\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"B\"\n",
++    "desc = \"第二处\"\n",
++);
++
++/// 模型面重复声明的元素侧文件（`01-app.toml`）。
++const DUPLICATED_APP_SOURCE: &str = concat!(
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"B\"\n",
++);
++
++/// 模型面重复声明的第二处（`06-frontend.toml`：跨文件同一对再声明一次）。
++const DUPLICATED_FRONTEND_SOURCE: &str = "[[relation]]\nfrom = \"A\"\nto = \"B\"\n";
++
++/// 关系身份键的元素侧 + 同对第一处（`01-app.toml`）。
++const IDENTITY_APP_SOURCE: &str = concat!(
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"C\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"B\"\n",
++);
++
++/// 关系身份键的跨文件第二处 + 两个近似形态（同 `from` 不同 `to` / 同 `to` 不同 `from`）。
++const IDENTITY_FRONTEND_SOURCE: &str = concat!(
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"B\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"C\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"C\"\n",
++    "to = \"B\"\n",
++);
++
++// ---------------------------------------------------------------------------
++// `apply_element_spec`：正向
++// ---------------------------------------------------------------------------
++
++/// 正向（矩阵：三档）：改档只动目标行，其余元素 / 注释逐字保留、读回为新档位。
++#[test]
++fn 改档只动目标行且其余逐字保留() {
++    let before = model_of(CORE_SOURCE);
++    let cases = [
++        (GateTier::Off, "App.Auth"),
++        (GateTier::Warn, "App.Billing"),
++        (GateTier::Strict, "App.Auth"),
++    ];
++    for (gate, fqn) in cases {
++        let rendered = apply_element_spec(CORE_SOURCE, &gate_spec(fqn, gate))
++            .unwrap_or_else(|failure| panic!("{fqn} 改到 {} 应成功：{failure:?}", gate.as_str()));
++
++        let changed = changed_lines(CORE_SOURCE, &rendered);
++        assert_eq!(changed.len(), 1, "{fqn} 按行 diff 恰 1 行：{changed:?}");
++        let target = rendered.lines().nth(changed[0]).expect("目标行");
++        assert!(
++            target.contains(&format!("gate = \"{}\"", gate.as_str())),
++            "目标行为新档位：{target}"
++        );
++        assert!(
++            rendered.contains("# 核心包（注释须逐字保留）") && rendered.contains("# 计费域"),
++            "注释逐字保留：\n{rendered}"
++        );
++
++        for element in &before.elements {
++            let reread = element_of(&rendered, &element.fqn);
++            if element.fqn == fqn {
++                assert_eq!(reread.gate, gate, "{fqn} 读回新档位");
++            } else {
++                assert_eq!(
++                    reread.gate, element.gate,
++                    "非目标元素档位不变：{}",
++                    element.fqn
++                );
++            }
++        }
++    }
++}
++
++/// 正向：把 `gate` 改成其当前值 ⇒ 与源逐字节相等（回填 no-op + decor 沿用）。
++#[test]
++fn gate改成当前值产出零字节差异() {
++    for (fqn, gate) in [("App.Auth", GateTier::Off), ("App.Billing", GateTier::Warn)] {
++        let rendered = apply_element_spec(HEADER_SOURCE, &gate_spec(fqn, gate))
++            .unwrap_or_else(|failure| panic!("{fqn} 改成当前值应成功：{failure:?}"));
++        assert_eq!(rendered, HEADER_SOURCE, "{fqn} 改成当前值应与源逐字节相等");
++    }
++}
++
++/// 可清空位的一臂：键名 + 「构造带该位三态的 spec」+ 「回读该位」。
++type ClearableArm = (
++    &'static str,
++    fn(&str, Option<Option<&str>>) -> ElementSpec,
++    fn(&Element) -> Option<String>,
++);
++
++/// 正向（矩阵：3 位 × 3 态）：`entry` / `doc` / `summary` 的三态逐位可辨。
++#[test]
++fn 三态逐位可辨() {
++    let cases: [ClearableArm; 3] = [
++        ("entry", spec_entry, read_entry),
++        ("doc", spec_doc, read_doc),
++        ("summary", spec_summary, read_summary),
++    ];
++    for (key, build, read) in cases {
++        const FQN: &str = "App.Auth";
++
++        let untouched = apply_element_spec(FIELDS_SOURCE, &build(FQN, None)).expect("不动臂应成功");
++        assert_eq!(untouched, FIELDS_SOURCE, "{key} 的 None 臂整份零差异");
++        assert_eq!(key_line(&untouched, key), key_line(FIELDS_SOURCE, key));
++
++        let cleared =
++            apply_element_spec(FIELDS_SOURCE, &build(FQN, Some(None))).expect("清空臂应成功");
++        assert!(
++            key_line(&cleared, key).is_none(),
++            "{key} 清空臂删键：\n{cleared}"
++        );
++        assert_eq!(read(&element_of(&cleared, FQN)), None, "{key} 回读 None");
++
++        let written = apply_element_spec(FIELDS_SOURCE, &build(FQN, Some(Some("新值"))))
++            .expect("设值臂应成功");
++        assert_eq!(
++            read(&element_of(&written, FQN)),
++            Some("新值".to_owned()),
++            "{key} 回读新值"
++        );
++    }
++}
++
++/// 正向（矩阵：2 位 × 3 态）：集合位清空即删键，MUST NOT 写出空数组 / 空表。
++#[test]
++fn 集合位清空即删键不写空集合() {
++    const FQN: &str = "App.Auth";
++
++    let untouched = apply_element_spec(
++        COLLECTION_SOURCE,
++        &ElementSpec {
++            fqn: FQN.to_owned(),
++            ..Default::default()
++        },
++    )
++    .expect("不动臂应成功");
++    assert_eq!(untouched, COLLECTION_SOURCE, "两位的 None 臂整份零差异");
++
++    let cleared = apply_element_spec(
++        COLLECTION_SOURCE,
++        &ElementSpec {
++            fqn: FQN.to_owned(),
++            path: Some(Vec::new()),
++            metadata: Some(BTreeMap::new()),
++            ..Default::default()
++        },
++    )
++    .expect("清空臂应成功");
++    assert!(
++        key_line(&cleared, "path").is_none(),
++        "path 键删净：\n{cleared}"
++    );
++    assert!(
++        key_line(&cleared, "metadata").is_none(),
++        "metadata 键删净：\n{cleared}"
++    );
++    assert!(!cleared.contains("path = []"), "零空数组形态");
++    assert!(!cleared.contains("metadata = {"), "零空表形态");
++    let reread = element_of(&cleared, FQN);
++    assert!(reread.path.is_empty() && reread.metadata.is_empty());
++
++    let mut metadata = BTreeMap::new();
++    metadata.insert("owner".to_owned(), "auth".to_owned());
++    let written = apply_element_spec(
++        COLLECTION_SOURCE,
++        &ElementSpec {
++            fqn: FQN.to_owned(),
++            path: Some(vec!["src/auth".to_owned(), "src/token".to_owned()]),
++            metadata: Some(metadata),
++            ..Default::default()
++        },
++    )
++    .expect("设值臂应成功");
++    let reread = element_of(&written, FQN);
++    assert_eq!(
++        reread.path,
++        vec!["src/auth".to_owned(), "src/token".to_owned()]
++    );
++    assert_eq!(
++        reread.metadata.get("owner").map(String::as_str),
++        Some("auth"),
++        "内联表逐项回读"
++    );
++    assert!(written.contains("path = ["), "写内联数组：\n{written}");
++}
++
++/// 正向（矩阵：`gate` / `api` 两值）：封闭枚举位显式化缺省不是清空——插入键、无删键路径。
++#[test]
++fn 封闭枚举位显式化缺省不是清空() {
++    let source = concat!("[element.\"App.Auth\"]\n", "kind = \"domain\"\n");
++
++    let inserted = apply_element_spec(source, &gate_spec("App.Auth", GateTier::Off))
++        .expect("显式化缺省应成功");
++    assert_eq!(
++        key_line(&inserted, "gate"),
++        Some("gate = \"off\""),
++        "显式化缺省即插入该行：\n{inserted}"
++    );
++    assert_eq!(element_of(&inserted, "App.Auth").gate, GateTier::Off);
++
++    let api_written = apply_element_spec(
++        source,
++        &ElementSpec {
++            fqn: "App.Auth".to_owned(),
++            api: Some(ApiStatus::None),
++            ..Default::default()
++        },
++    )
++    .expect("写 api 应成功");
++    assert_eq!(key_line(&api_written, "api"), Some("api = \"none\""));
++    assert_eq!(element_of(&api_written, "App.Auth").api, ApiStatus::None);
++
++    let closed = apply_element_spec(
++        &inserted,
++        &ElementSpec {
++            fqn: "App.Auth".to_owned(),
++            ..Default::default()
++        },
++    )
++    .expect("封闭枚举位不动臂应成功");
++    assert_eq!(closed, inserted, "封闭枚举位无清空臂：None 即不动");
++
++    let strict = apply_element_spec(source, &gate_spec("App.Auth", GateTier::Strict))
++        .expect("设 strict 应成功");
++    let reverted = apply_element_spec(&strict, &gate_spec("App.Auth", GateTier::Off))
++        .expect("改回 off 应成功");
++    assert_eq!(
++        key_line(&reverted, "gate"),
++        Some("gate = \"off\""),
++        "改回缺省档位后行仍在（幂等可逆）"
++    );
++}
++
++/// 正向：新建元素按 `kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` /
++/// `metadata` 规范字段序整表写出，逐字段回读相符。
++#[test]
++fn 新建元素按规范字段序整表写出() {
++    let source = concat!("# 核心包\n", "[element.\"App\"]\n", "kind = \"package\"\n");
++    let mut metadata = BTreeMap::new();
++    metadata.insert("owner".to_owned(), "core".to_owned());
++    let spec = ElementSpec {
++        fqn: "App.New".to_owned(),
++        kind: Some(ElementKind::Module),
++        gate: Some(GateTier::Warn),
++        api: Some(ApiStatus::Declared),
++        entry: Some(Some("src/new/index.ts".to_owned())),
++        path: Some(vec!["src/new".to_owned()]),
++        doc: Some(Some("docs/new.md".to_owned())),
++        summary: Some(Some("新模块".to_owned())),
++        metadata: Some(metadata),
++        file: None,
++        expect: None,
++    };
++    let rendered = apply_element_spec(source, &spec).expect("新建应成功");
++    let header = rendered
++        .find("[element.\"App.New\"]")
++        .expect("新增单层表头");
++    assert!(header > 0, "新表追加在既有元素之后：\n{rendered}");
++
++    let body = &rendered[header..];
++    let order = [
++        "kind", "gate", "api", "entry", "path", "doc", "summary", "metadata",
++    ];
++    let mut previous = 0;
++    for key in order {
++        let index = body
++            .find(&format!("\n{key} = "))
++            .unwrap_or_else(|| panic!("{key} 应在新建表内：\n{body}"));
++        assert!(index >= previous, "字段序固定，{key} 越位：\n{body}");
++        previous = index;
++    }
++
++    let reread = element_of(&rendered, "App.New");
++    assert_eq!(reread.kind, ElementKind::Module);
++    assert_eq!(reread.gate, GateTier::Warn);
++    assert_eq!(reread.api, ApiStatus::Declared);
++    assert_eq!(reread.entry.as_deref(), Some("src/new/index.ts"));
++    assert_eq!(reread.path, vec!["src/new".to_owned()]);
++    assert_eq!(reread.doc.as_deref(), Some("docs/new.md"));
++    assert_eq!(reread.summary.as_deref(), Some("新模块"));
++    assert_eq!(
++        reread.metadata.get("owner").map(String::as_str),
++        Some("core")
++    );
++}
++
++/// 正向（矩阵：3 形态）：写面零重排——既有键沿用原 decor，新键追加表尾，
++/// `entry` / `api` 的相对序逐字保留。
++#[test]
++fn 写面零重排且沿用原decor() {
++    let decorated = concat!(
++        "[element.\"App.Auth\"]\n",
++        "kind = \"domain\"\n",
++        "  gate   =   \"warn\"   # 档位说明\n",
++    );
++    let rendered = apply_element_spec(decorated, &gate_spec("App.Auth", GateTier::Strict))
++        .expect("改档应成功");
++    assert_eq!(
++        key_line(&rendered, "gate"),
++        Some("  gate   =   \"strict\"   # 档位说明"),
++        "沿用原 decor（缩进 / 行内注释逐字）：\n{rendered}"
++    );
++
++    let appendable = concat!(
++        "[element.\"App.Auth\"]\n",
++        "kind = \"domain\"\n",
++        "gate = \"warn\"\n",
++        "path = [\"src/auth\"]\n",
++    );
++    let rendered = apply_element_spec(
++        appendable,
++        &ElementSpec {
++            fqn: "App.Auth".to_owned(),
++            summary: Some(Some("认证".to_owned())),
++            ..Default::default()
++        },
++    )
++    .expect("追加新键应成功");
++    let summary_index = rendered.find("summary = ").expect("新键在场");
++    assert!(
++        summary_index > rendered.find("path = ").expect("path 在案"),
++        "新键追加到元素表尾（不按规范序插队）：\n{rendered}"
++    );
++
++    let before_api = concat!(
++        "[element.\"App.Auth\"]\n",
++        "kind = \"domain\"\n",
++        "gate = \"warn\"\n",
++        "entry = \"./packages/desktop/src/auth/token.ts\"\n",
++        "api = \"declared\"\n",
++    );
++    let after_api = concat!(
++        "[element.\"App.Auth\"]\n",
++        "kind = \"domain\"\n",
++        "gate = \"warn\"\n",
++        "api = \"declared\"\n",
++        "entry = \"./packages/desktop/src/auth/token.ts\"\n",
++    );
++    for source in [before_api, after_api] {
++        let rendered =
++            apply_element_spec(source, &gate_spec("App.Auth", GateTier::Off)).expect("改档应成功");
++        assert!(
++            rendered.contains("entry = \"./packages/desktop/src/auth/token.ts\""),
++            "`entry` 行逐字保留（`./` 前缀不归一、不重排）：\n{rendered}"
++        );
++        let entry_line = rendered
++            .lines()
++            .position(|line| line.starts_with("entry = "))
++            .expect("entry 行在案");
++        let api_line = rendered
++            .lines()
++            .position(|line| line.starts_with("api = "))
++            .expect("api 行在案");
++        assert_eq!(
++            entry_line < api_line,
++            source.find("entry = ").expect("源含 entry") < source.find("api = ").expect("源含 api"),
++            "相对序逐字保留（写面零重排）：\n{rendered}"
++        );
++        assert_eq!(
++            element_of(&rendered, "App.Auth").entry.as_deref(),
++            Some("./packages/desktop/src/auth/token.ts"),
++            "读回 `entry` 逐字相等"
++        );
++    }
++
++    let plain = concat!(
++        "[element.\"App.Auth\"]\n",
++        "kind = \"domain\"\n",
++        "gate = \"warn\"\n",
++        "path = [\"src/auth\"]\n",
++    );
++    let rendered =
++        apply_element_spec(plain, &gate_spec("App.Auth", GateTier::Strict)).expect("改档应成功");
++    assert!(
++        !rendered.contains("entry"),
++        "无 `entry` 的源改档后仍无该键（不臆造字段）：\n{rendered}"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// `apply_element_spec`：异常（零文本产出即 `Err` 的返回类型保证）
++// ---------------------------------------------------------------------------
++
++/// 异常：元素在案且给了 `kind`（新建意图）⇒ `ElementAlreadyExists`。
++#[test]
++fn 在案元素给kind即拒() {
++    let spec = ElementSpec {
++        fqn: "App.Auth".to_owned(),
++        kind: Some(ElementKind::Domain),
++        ..Default::default()
++    };
++    let failure = apply_element_spec(CORE_SOURCE, &spec).expect_err("在案 + kind 应拒");
++    assert_eq!(failure.kind, EditErrorKind::ElementAlreadyExists);
++    assert!(
++        failure.facts.contains("App.Auth"),
++        "facts 点名元素：{}",
++        failure.facts
++    );
++    assert!(
++        failure.facts.contains("省去 kind"),
++        "facts 给出路：{}",
++        failure.facts
++    );
++    assert_eq!(failure.message(), format!("元素已在案：{}", failure.facts));
++}
++
++/// 异常：元素缺席且缺 `kind`（含全缺省 `ElementSpec`）⇒ `ElementKindMissing`。
++#[test]
++fn 缺席元素缺kind即拒() {
++    let spec = ElementSpec {
++        fqn: "App.Missing".to_owned(),
++        ..Default::default()
++    };
++    let failure = apply_element_spec(CORE_SOURCE, &spec).expect_err("缺席 + 缺 kind 应拒");
++    assert_eq!(failure.kind, EditErrorKind::ElementKindMissing);
++    assert!(
++        failure.facts.contains("App.Missing") && failure.facts.contains("不在案"),
++        "facts 点名 FQN 不在案：{}",
++        failure.facts
++    );
++}
++
++/// 异常：元素声明非表形态 ⇒ `ElementNotTable`。
++#[test]
++fn 元素声明非表形态即拒() {
++    let source = "element.\"App\" = \"x\"\n";
++    let failure = apply_element_spec(
++        source,
++        &ElementSpec {
++            fqn: "App".to_owned(),
++            ..Default::default()
++        },
++    )
++    .expect_err("非表形态应拒");
++    assert_eq!(failure.kind, EditErrorKind::ElementNotTable);
++    assert!(
++        failure.facts.contains("App") && failure.facts.contains("无法写回"),
++        "facts 含 FQN 与「无法写回」：{}",
++        failure.facts
++    );
++}
++
++/// 异常：源不可解析 ⇒ `SourceParseFailed`（facts 为 parser 原文，零加工）。
++#[test]
++fn 坏源解析失败零文本() {
++    let failure = apply_element_spec(
++        "[element.\"App]\nkind = \"package\"\n",
++        &ElementSpec {
++            fqn: "App".to_owned(),
++            ..Default::default()
++        },
++    )
++    .expect_err("坏源应 Err");
++    assert_eq!(failure.kind, EditErrorKind::SourceParseFailed);
++    assert!(!failure.facts.is_empty(), "facts 为 parser 原文");
++}
++
++/// 异常：越界值只由重解析自证拒绝（写面零第二份值域判据）。
++#[test]
++fn 越界值只由重解析自证拒绝() {
++    let failure = apply_element_spec(
++        "[element.\"App\"]\nkind = \"package\"\n",
++        &ElementSpec {
++            fqn: "App".to_owned(),
++            path: Some(vec!["a".to_owned(), "b".to_owned()]),
++            ..Default::default()
++        },
++    )
++    .expect_err("package 两条 path 应被自证拒绝");
++    assert_eq!(failure.kind, EditErrorKind::RenderSelfCheck);
++    assert!(
++        failure.facts.contains("重解析出 1 条诊断"),
++        "facts 含诊断条数：{}",
++        failure.facts
++    );
++    assert!(
++        failure.facts.contains("invalidValue"),
++        "拒绝理由是 parser 诊断（非写面自写规则）：{}",
++        failure.facts
++    );
++}
++
++/// 异常（矩阵：7 形态 + 1 对照）：新建 FQN 七形态皆拒；既有元素的同形态 FQN 不重做校验。
++#[test]
++fn 新建fqn七形态皆拒() {
++    let rejects = [
++        "",
++        "App Auth",
++        "App\"Auth",
++        "App[",
++        "App]",
++        "App#x",
++        "App\n.Auth",
++    ];
++    for fqn in rejects {
++        let spec = ElementSpec {
++            fqn: fqn.to_owned(),
++            kind: Some(ElementKind::Module),
++            ..Default::default()
++        };
++        let Err(failure) = apply_element_spec(CORE_SOURCE, &spec) else {
++            panic!("{fqn:?} 应被拒（写面要把它渲染成键）")
++        };
++        assert_eq!(
++            failure.kind,
++            EditErrorKind::FqnInvalid,
++            "{fqn:?} 应 FqnInvalid"
++        );
++        assert!(
++            failure.facts.contains(&format!("{fqn:?}")),
++            "facts 含形态：{}",
++            failure.facts
++        );
++    }
++
++    let existing = "[element.\"App.🚀Auth\"]\nkind = \"module\"\ngate = \"off\"\n";
++    let rendered = apply_element_spec(existing, &gate_spec("App.🚀Auth", GateTier::Warn))
++        .expect("既有元素只由 parser 判形态（合法键即写回）");
++    assert_eq!(element_of(&rendered, "App.🚀Auth").gate, GateTier::Warn);
++}
++
++/// 边界：`apply_*` 不读 `file` 与 `expect`（两者是 plan 层旋钮）。
++#[test]
++fn apply不读file与expect() {
++    let plain = gate_spec("App.Auth", GateTier::Strict);
++    let with_knobs = ElementSpec {
++        file: Some("99-other.toml".to_owned()),
++        expect: Some("sha256:错值".to_owned()),
++        ..plain.clone()
++    };
++    assert_eq!(
++        apply_element_spec(CORE_SOURCE, &plain).expect("plain 臂应成功"),
++        apply_element_spec(CORE_SOURCE, &with_knobs).expect("带旋钮臂应成功"),
++        "两臂产出逐字节相等（apply 不读落点与锁）"
++    );
++    assert_eq!(with_knobs.expect.as_deref(), Some("sha256:错值"));
++}
++
++/// 边界（矩阵：空源 / 超长与 emoji FQN / 排版五形态 / 500 元素规模）。
++#[test]
++fn 特殊字符与排版与规模边界() {
++    let minimal = apply_element_spec(
++        "",
++        &ElementSpec {
++            fqn: "App".to_owned(),
++            kind: Some(ElementKind::Package),
++            ..Default::default()
++        },
++    )
++    .expect("空源新建应成功");
++    assert!(
++        minimal.contains("[element.") && minimal.contains("kind = \"package\""),
++        "最小文件：\n{minimal}"
++    );
++    assert_eq!(model_of(&minimal).elements.len(), 1);
++
++    for fqn in ["X".repeat(1200), "App.🚀Auth".to_owned()] {
++        let spec = ElementSpec {
++            fqn: fqn.clone(),
++            kind: Some(ElementKind::Module),
++            ..Default::default()
++        };
++        let rendered = apply_element_spec(CORE_SOURCE, &spec)
++            .unwrap_or_else(|failure| panic!("特殊 FQN {fqn:?} 应可写回：{failure:?}"));
++        assert_eq!(
++            element_of(&rendered, &fqn).kind,
++            ElementKind::Module,
++            "读回 {fqn:?}"
++        );
++    }
++
++    let spaced = concat!(
++        "[element.\"App\"]\n",
++        "  kind   =   \"package\"   # 缩进与行内注释\n",
++        "\n",
++        "\n",
++        "[element.\"App.Billing\"]\n",
++        "kind = \"module\"\n",
++        "gate = \"off\"\n",
++    );
++    let rendered = apply_element_spec(spaced, &gate_spec("App.Billing", GateTier::Strict))
++        .expect("改档应成功");
++    assert!(
++        rendered.contains("  kind   =   \"package\"   # 缩进与行内注释"),
++        "缩进与行内注释逐字保留：\n{rendered}"
++    );
++    assert_eq!(
++        rendered.matches('\n').count(),
++        spaced.matches('\n').count(),
++        "空行不增删"
++    );
++    assert_eq!(element_of(&rendered, "App.Billing").gate, GateTier::Strict);
++
++    let no_trailing = "[element.\"App\"]\nkind = \"package\"";
++    let rendered =
++        apply_element_spec(no_trailing, &gate_spec("App", GateTier::Warn)).expect("改档应成功");
++    assert_eq!(element_of(&rendered, "App").gate, GateTier::Warn);
++    assert!(
++        rendered.starts_with("[element.\"App\"]\nkind = \"package\"\n"),
++        "无尾换行源的正文逐字保留：{rendered:?}"
++    );
++
++    let crlf = "[element.\"App\"]\r\nkind = \"package\"\r\ngate = \"off\"\r\n";
++    let rendered =
++        apply_element_spec(crlf, &gate_spec("App", GateTier::Strict)).expect("CRLF 源改档应成功");
++    assert_eq!(
++        element_of(&rendered, "App").gate,
++        GateTier::Strict,
++        "CRLF 下值正确"
++    );
++
++    let mut large = String::new();
++    for index in 0..500 {
++        large.push_str(&format!(
++            "[element.\"App.Mod{index:03}\"]\nkind = \"module\"\ngate = \"off\"\n\n"
++        ));
++    }
++    let rendered = apply_element_spec(&large, &gate_spec("App.Mod250", GateTier::Strict))
++        .expect("规模面改档应成功");
++    assert_eq!(changed_lines(&large, &rendered).len(), 1, "只有目标行变化");
++    assert_eq!(
++        element_of(&rendered, "App.Mod249").gate,
++        GateTier::Off,
++        "邻行不变"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// `apply_element_delete`
++// ---------------------------------------------------------------------------
++
++/// 正向：删中间元素 ⇒ 该表离场、其余元素逐字、表头计数随动下降。
++#[test]
++fn 删除叶元素其余逐字且计数随动() {
++    let rendered = apply_element_delete(DELETE_SOURCE, "App.Auth").expect("删除应成功");
++    assert!(
++        !rendered.contains("[element.\"App.Auth\"]"),
++        "目标元素离场：\n{rendered}"
++    );
++    assert!(
++        rendered.contains("[element.\"App\"]\nkind = \"package\""),
++        "首元素逐字保留：\n{rendered}"
++    );
++    assert!(
++        rendered.contains("[element.\"App.Billing\"]\nkind = \"module\""),
++        "尾元素逐字保留：\n{rendered}"
++    );
++    assert_eq!(header_counts(&rendered), Some((2, 1)), "表头计数随动下降");
++    let model = model_of(&rendered);
++    assert_eq!(model.elements.len(), 2);
++    assert_eq!(model.relations.len(), 1);
++}
++
++/// 异常（矩阵：空源 / 只有关系）⇒ `ElementTableMissing`。
++#[test]
++fn 无element表无从定位() {
++    for source in ["", "[[relation]]\nfrom = \"A\"\nto = \"B\"\n"] {
++        let failure = apply_element_delete(source, "A").expect_err("无 element 表应 Err");
++        assert_eq!(failure.kind, EditErrorKind::ElementTableMissing);
++        assert!(
++            failure.facts.contains("无从定位元素"),
++            "facts 说明逻辑落点缺席：{}",
++            failure.facts
++        );
++    }
++}
++
++/// 异常：元素缺席 ⇒ `ElementNotFound`，facts 列该文件现有元素。
++#[test]
++fn 元素缺席列出该文件现有元素() {
++    let failure = apply_element_delete(CORE_SOURCE, "App.Missing").expect_err("元素缺席应 Err");
++    assert_eq!(failure.kind, EditErrorKind::ElementNotFound);
++    for existing in ["App", "App.Billing", "App.Auth"] {
++        assert!(
++            failure.facts.contains(existing),
++            "facts 附现有元素 {existing}：{}",
++            failure.facts
++        );
++    }
++    assert!(
++        failure.facts.contains(" / "),
++        "现有元素以 ` / ` 连接：{}",
++        failure.facts
++    );
++}
++
++/// 边界（矩阵：删 `App.A` / 删 `App` 两臂）：删除按完整 FQN 精确匹配，前缀近似不误删。
++#[test]
++fn 删除按完整fqn精确匹配() {
++    let source = concat!(
++        "[element.\"App\"]\n",
++        "kind = \"package\"\n",
++        "\n",
++        "[element.\"App.AB\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"App.A\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"App.A.B\"]\n",
++        "kind = \"module\"\n",
++    );
++
++    let rendered = apply_element_delete(source, "App.A").expect("删 App.A 应成功");
++    assert!(!rendered.contains("[element.\"App.A\"]"), "命中条离场");
++    assert!(rendered.contains("[element.\"App.AB\"]"), "前缀近似不误删");
++    assert!(rendered.contains("[element.\"App.A.B\"]"), "后代元素不误删");
++
++    let rendered = apply_element_delete(source, "App").expect("删 App 应成功");
++    assert!(!rendered.contains("[element.\"App\"]"));
++    assert!(
++        rendered.contains("[element.\"App.A.B\"]"),
++        "删祖先不连带后代"
++    );
++}
++
++/// 边界（矩阵：唯一元素 / emoji / 超长 FQN）：删净后产出仍可解析。
++#[test]
++fn 删净唯一元素仍可解析() {
++    let long = "X".repeat(1200);
++    let cases = [
++        (
++            "App".to_owned(),
++            "[element.\"App\"]\nkind = \"package\"\n".to_owned(),
++        ),
++        (
++            "App.🚀Auth".to_owned(),
++            "[element.\"App.🚀Auth\"]\nkind = \"module\"\n".to_owned(),
++        ),
++        (
++            long.clone(),
++            format!("[element.\"{long}\"]\nkind = \"module\"\n"),
++        ),
++    ];
++    for (fqn, source) in cases {
++        let rendered = apply_element_delete(&source, &fqn)
++            .unwrap_or_else(|failure| panic!("删除 {fqn:?} 应成功：{failure:?}"));
++        assert_eq!(model_of(&rendered).elements.len(), 0, "元素数 0 且可解析");
++    }
++}
++
++// ---------------------------------------------------------------------------
++// `apply_relation_upsert`
++// ---------------------------------------------------------------------------
++
++/// 正向：既有 `(from, to)` 改 `desc` ⇒ 条数不变，其余条目（含空行与注释）逐字保留。
++#[test]
++fn 关系命中走更新条数不变() {
++    let rendered = apply_relation_upsert(RELATIONS_SOURCE, "A", "B", Some(Some("新说明")), None)
++        .expect("更新应成功");
++    let model = model_of(&rendered);
++    assert_eq!(model.relations.len(), 3, "条数不变");
++    assert_eq!(
++        relation_of(&model, "A", "B").description.as_deref(),
++        Some("新说明")
++    );
++    assert_eq!(
++        relation_of(&model, "B", "C").description,
++        None,
++        "其余条目不动"
++    );
++    assert!(
++        rendered.contains("[[relation]]\nfrom = \"B\"\nto = \"C\"\n"),
++        "其余条目逐字保留：\n{rendered}"
++    );
++}
++
++/// 正向（矩阵：4 形态）：`desc` 三态逐位可辨，空串仍可解析。
++#[test]
++fn 关系desc三态逐位可辨() {
++    let untouched =
++        apply_relation_upsert(RELATIONS_SOURCE, "A", "B", None, None).expect("不动臂应成功");
++    assert_eq!(untouched, RELATIONS_SOURCE, "desc None 即整份零差异");
++
++    let cleared =
++        apply_relation_upsert(RELATIONS_SOURCE, "A", "B", Some(None), None).expect("清空臂应成功");
++    assert!(
++        key_line(&cleared, "desc").is_none(),
++        "desc 键消失：\n{cleared}"
++    );
++    assert_eq!(
++        relation_of(&model_of(&cleared), "A", "B").description,
++        None,
++        "回读 None"
++    );
++
++    let written = apply_relation_upsert(RELATIONS_SOURCE, "A", "B", Some(Some("说明")), None)
++        .expect("设值臂应成功");
++    assert_eq!(
++        relation_of(&model_of(&written), "A", "B")
++            .description
++            .as_deref(),
++        Some("说明")
++    );
++
++    let empty = apply_relation_upsert(RELATIONS_SOURCE, "A", "B", Some(Some("")), None)
++        .expect("空串应可写回");
++    assert_eq!(
++        relation_of(&model_of(&empty), "A", "B")
++            .description
++            .as_deref(),
++        Some("")
++    );
++}
++
++/// 正向（矩阵：3 态）：`apis` 清空即删键（MUST NOT 写空数组），设值逐项回读。
++#[test]
++fn 关系apis清空即删键() {
++    let untouched = apply_relation_upsert(APIS_SOURCE, "A", "B", None, None).expect("不动臂应成功");
++    assert_eq!(untouched, APIS_SOURCE, "apis None 即整份零差异");
++
++    let empty: Vec<String> = Vec::new();
++    let cleared = apply_relation_upsert(APIS_SOURCE, "A", "B", None, Some(empty.as_slice()))
++        .expect("清空臂应成功");
++    assert!(!cleared.contains("apis"), "apis 键消失：\n{cleared}");
++    assert!(
++        relation_of(&model_of(&cleared), "A", "B").apis.is_empty(),
++        "回读为空"
++    );
++
++    let names = vec!["open".to_owned(), "close".to_owned()];
++    let written = apply_relation_upsert(APIS_SOURCE, "A", "B", None, Some(names.as_slice()))
++        .expect("设值臂应成功");
++    assert_eq!(
++        relation_of(&model_of(&written), "A", "B").apis,
++        names,
++        "原文序逐项回读"
++    );
++}
++
++/// 正向（矩阵：追加 / 零关系文件）：缺席即追加条目；`relation` 键缺席即新建条目数组。
++#[test]
++fn 关系缺席追加且缺键即建数组() {
++    let rendered = apply_relation_upsert(RELATIONS_SOURCE, "A", "A", Some(Some("自述")), None)
++        .expect("追加应成功");
++    let model = model_of(&rendered);
++    assert_eq!(model.relations.len(), 4, "追加一条");
++    assert_eq!(
++        relation_of(&model, "A", "A").description.as_deref(),
++        Some("自述")
++    );
++    assert_eq!(
++        rendered.matches("[[relation]]").count(),
++        4,
++        "每条一个表头（不合并）"
++    );
++
++    let block = &rendered[rendered.rfind("[[relation]]").expect("新条目在尾")..];
++    let from_index = block.find("from = ").expect("from 在场");
++    let to_index = block.find("to = ").expect("to 在场");
++    let desc_index = block.find("desc = ").expect("desc 在场");
++    assert!(
++        from_index < to_index && to_index < desc_index,
++        "键序 from / to / desc：\n{block}"
++    );
++
++    let zero_relation = concat!(
++        "[element.\"A\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"B\"]\n",
++        "kind = \"module\"\n",
++    );
++    let rendered =
++        apply_relation_upsert(zero_relation, "A", "B", None, None).expect("缺 relation 键即建数组");
++    assert!(
++        rendered.contains("[[relation]]"),
++        "新建条目数组：\n{rendered}"
++    );
++    assert_eq!(model_of(&rendered).relations.len(), 1);
++}
++
++/// 异常（矩阵：3 值）：越界 `apis` 值只由重解析自证拒绝。
++#[test]
++fn apis越界值只由自证拒绝() {
++    let cases = [
++        vec!["A".to_owned(), "A".to_owned()],
++        vec![String::new()],
++        vec!["a::b".to_owned()],
++    ];
++    for names in cases {
++        let failure = apply_relation_upsert(APIS_SOURCE, "A", "B", None, Some(names.as_slice()))
++            .expect_err("越界 apis 应被自证拒绝");
++        assert_eq!(failure.kind, EditErrorKind::RenderSelfCheck);
++        assert!(
++            failure.facts.contains("invalidValue"),
++            "拒绝理由来自 parser 诊断：{}",
++            failure.facts
++        );
++    }
++}
++
++/// 异常：源不可解析 ⇒ `SourceParseFailed`（零文本）。
++#[test]
++fn 关系写入坏源零文本() {
++    let failure =
++        apply_relation_upsert("[element.\"A\"\nkind = \"module\"\n", "A", "B", None, None)
++            .expect_err("坏源应 Err");
++    assert_eq!(failure.kind, EditErrorKind::SourceParseFailed);
++}
++
++/// 边界（矩阵：多条中间条 / 特殊字符端点）：更新只动命中条。
++#[test]
++fn 多条目更新只动命中条() {
++    let rendered = apply_relation_upsert(RELATIONS_SOURCE, "B", "C", Some(Some("中间条")), None)
++        .expect("更新中间条应成功");
++    let model = model_of(&rendered);
++    assert_eq!(model.relations.len(), 3);
++    assert_eq!(
++        relation_of(&model, "B", "C").description.as_deref(),
++        Some("中间条")
++    );
++    assert_eq!(
++        relation_of(&model, "A", "B").description.as_deref(),
++        Some("旧说明"),
++        "其余条目保持原值"
++    );
++
++    let emoji = "App.🚀Auth";
++    let long = "Y".repeat(1200);
++    let source = format!(
++        "[element.\"{emoji}\"]\nkind = \"module\"\n\n\
++         [element.\"{long}\"]\nkind = \"module\"\n\n\
++         [[relation]]\nfrom = \"{emoji}\"\nto = \"{long}\"\n"
++    );
++    let rendered = apply_relation_upsert(&source, emoji, &long, Some(Some("跨语言")), None)
++        .expect("特殊端点应可写回");
++    assert_eq!(
++        relation_of(&model_of(&rendered), emoji, &long)
++            .description
++            .as_deref(),
++        Some("跨语言")
++    );
++}
++
++// ---------------------------------------------------------------------------
++// `apply_relation_delete`
++// ---------------------------------------------------------------------------
++
++/// 正向：三条关系中删中间一条 ⇒ 该条目离场，其余条目与元素逐字保留。
++#[test]
++fn 关系删除只动命中条() {
++    let rendered = apply_relation_delete(RELATIONS_SOURCE, "B", "C").expect("删除应成功");
++    let model = model_of(&rendered);
++    assert_eq!(model.relations.len(), 2, "关系回读条数 −1");
++    assert!(
++        !model
++            .relations
++            .iter()
++            .any(|relation| relation.from == "B" && relation.to == "C"),
++        "命中条离场"
++    );
++    assert_eq!(model.elements.len(), 3, "元素逐字保留");
++    assert!(
++        rendered.contains("[element.\"C\"]\nkind = \"module\""),
++        "元素表不重排：\n{rendered}"
++    );
++}
++
++/// 异常：关系缺席 ⇒ `RelationNotFound`，facts 列该文件现有 `from → to` 对。
++#[test]
++fn 关系缺席列出该文件现有对() {
++    let failure = apply_relation_delete(RELATIONS_SOURCE, "C", "A").expect_err("关系缺席应 Err");
++    assert_eq!(failure.kind, EditErrorKind::RelationNotFound);
++    assert!(
++        failure.facts.contains("C → A"),
++        "facts 点名目标对：{}",
++        failure.facts
++    );
++    for pair in ["A → B", "B → C", "A → C"] {
++        assert!(
++            failure.facts.contains(pair),
++            "facts 列现有对 {pair}：{}",
++            failure.facts
++        );
++    }
++}
++
++/// 边界（矩阵：删净 / 同 from 不同 to / 同 to 不同 from）：`(from, to)` 双等是唯一口径。
++#[test]
++fn 关系删除双等匹配与删净() {
++    let only = concat!(
++        "[element.\"A\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"B\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[[relation]]\n",
++        "from = \"A\"\n",
++        "to = \"B\"\n",
++    );
++    let rendered = apply_relation_delete(only, "A", "B").expect("删净应成功");
++    assert_eq!(model_of(&rendered).relations.len(), 0, "关系数归零且可解析");
++
++    let rendered = apply_relation_delete(RELATIONS_SOURCE, "A", "B").expect("删命中条应成功");
++    let model = model_of(&rendered);
++    assert_eq!(model.relations.len(), 2);
++    assert!(
++        model
++            .relations
++            .iter()
++            .any(|relation| relation.from == "A" && relation.to == "C"),
++        "同 from 的另一条保留"
++    );
++
++    let rendered = apply_relation_delete(RELATIONS_SOURCE, "A", "C").expect("删命中条应成功");
++    let model = model_of(&rendered);
++    assert!(
++        model
++            .relations
++            .iter()
++            .any(|relation| relation.from == "B" && relation.to == "C"),
++        "同 to 的另一条保留"
++    );
++    assert_eq!(model.relations.len(), 2);
++}
++
++/// 异常（矩阵：2 入口）：同一源内 `(from, to)` 两处声明 ⇒ 两函数均
++/// `RelationDuplicated`（文件面 facts 点名处数与「同一源内多处声明」），零文本产出。
++#[test]
++fn 同源重复声明fail_closed() {
++    let upsert_failure =
++        apply_relation_upsert(DUPLICATED_IN_SOURCE, "A", "B", Some(Some("改")), None)
++            .expect_err("同源两处 upsert 应拒");
++    let delete_failure =
++        apply_relation_delete(DUPLICATED_IN_SOURCE, "A", "B").expect_err("同源两处 delete 应拒");
++
++    for failure in [&upsert_failure, &delete_failure] {
++        assert_eq!(failure.kind, EditErrorKind::RelationDuplicated);
++        assert!(
++            failure.facts.contains("A → B 在同一源内多处声明（2 处）"),
++            "文件面 facts 点名目标对与处数：{}",
++            failure.facts
++        );
++        assert!(
++            failure.facts.contains("先删除重复条目"),
++            "facts 给出下一步：{}",
++            failure.facts
++        );
++        let message = failure.message();
++        assert!(
++            message.starts_with("关系多处声明："),
++            "判据句与文案族同源：{message}"
++        );
++        assert!(!message.contains("改档"), "判据句操作中立：{message}");
++    }
++
++    // 对照臂：同一源内该对只有一处 ⇒ 走各自规则（不报 RelationDuplicated）。
++    let rendered = apply_relation_delete(RELATIONS_SOURCE, "A", "B").expect("唯一命中应删成功");
++    assert_eq!(model_of(&rendered).relations.len(), 2, "只删该条");
++}
++
++/// 边界（矩阵：既有 / 新增 / 删除三臂）：重解析的关系条数分别不变 / +1 / −1——
++/// 「更新而非追加副本」与「只删一条」的结构性判据（不符即 `ReadBackMismatch`）。
++#[test]
++fn 关系回读条数三臂各成立() {
++    let base = concat!(
++        "# 01 · 核心（3 元素 / 2 关系）\n",
++        "[element.\"A\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"B\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"C\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[[relation]]\n",
++        "from = \"A\"\n",
++        "to = \"B\"\n",
++        "\n",
++        "[[relation]]\n",
++        "from = \"A\"\n",
++        "to = \"C\"\n",
++    );
++    let before = model_of(base).relations.len();
++    assert_eq!(before, 2);
++
++    let updated =
++        apply_relation_upsert(base, "A", "B", Some(Some("改")), None).expect("更新应成功");
++    assert_eq!(
++        model_of(&updated).relations.len(),
++        before,
++        "既有 ⇒ 条数不变（更新而非追加副本）"
++    );
++
++    let appended = apply_relation_upsert(base, "B", "C", None, None).expect("追加应成功");
++    assert_eq!(
++        model_of(&appended).relations.len(),
++        before + 1,
++        "新增 ⇒ 条数 +1"
++    );
++
++    let deleted = apply_relation_delete(base, "A", "C").expect("删除应成功");
++    assert_eq!(
++        model_of(&deleted).relations.len(),
++        before - 1,
++        "删除 ⇒ 条数 −1"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// `plan_element_upsert`
++// ---------------------------------------------------------------------------
++
++/// 正向：两文件模型（目标元素在 `02-auth.toml`）⇒ 定位该文件、待落盘全文含新档位、
++/// 调用前后盘面字节全等（`plan_*` 零写盘）。
++#[test]
++fn 定位目标文件并零写盘() {
++    let temp = TempDir::new("plan-locate");
++    temp.write_model("01-core.toml", "[element.\"App\"]\nkind = \"package\"\n");
++    let auth_path = temp.write_model(
++        "02-auth.toml",
++        "[element.\"App.Auth\"]\nkind = \"domain\"\ngate = \"off\"\n",
++    );
++    let before = temp.snapshot();
++
++    let plan = plan_element_upsert(temp.root(), &gate_spec("App.Auth", GateTier::Strict))
++        .expect("定位应成功");
++    assert_eq!(plan.file, auth_path, "定位到声明所在文件的绝对路径");
++    assert!(
++        plan.content.contains("gate = \"strict\""),
++        "待落盘全文含新档位：\n{}",
++        plan.content
++    );
++    assert!(plan.hash.starts_with("sha256:"), "hash 形态：{}", plan.hash);
++    assert_eq!(temp.snapshot(), before, "plan 零写盘");
++}
++
++/// 正向：主题元素缺席 + 显式 `file`（目标文件尚不存在）⇒ 可落新文件且不落盘。
++#[test]
++fn 新建可落新文件且不落盘() {
++    let temp = TempDir::new("plan-new-file");
++    temp.write_model("01-core.toml", "[element.\"App\"]\nkind = \"package\"\n");
++    let spec = ElementSpec {
++        fqn: "App.New".to_owned(),
++        kind: Some(ElementKind::Module),
++        file: Some("07-new.toml".to_owned()),
++        ..Default::default()
++    };
++    let plan = plan_element_upsert(temp.root(), &spec).expect("新建应成功");
++    assert_eq!(
++        plan.file,
++        archi_graph_model_dir(temp.root()).join("07-new.toml"),
++        "落点为模型声明目录下该文件"
++    );
++    assert!(
++        plan.content.contains("[element.\"App.New\"]"),
++        "待落盘全文含新表：\n{}",
++        plan.content
++    );
++    assert!(!plan.file.exists(), "plan 零写盘（新文件仍不存在）");
++}
++
++/// 正向（组合：plan → apply → drift::file_hash_of / file_hash）：写后哈希可作下一次
++/// `expect`。
++#[test]
++fn 写后哈希可作下一次expect() {
++    let temp = TempDir::new("hash-chain");
++    temp.write_model(
++        "01-core.toml",
++        "[element.\"App\"]\nkind = \"package\"\ngate = \"off\"\n",
++    );
++    let plan =
++        plan_element_upsert(temp.root(), &gate_spec("App", GateTier::Warn)).expect("计划应成功");
++    assert_eq!(
++        plan.hash,
++        file_hash_of(&plan.file, &plan.content),
++        "hash 为写后内容哈希"
++    );
++
++    fs::write(&plan.file, &plan.content).expect("模拟壳层落盘");
++    assert_eq!(
++        plan.hash,
++        file_hash(&plan.file),
++        "落盘后 file_hash 逐字相等"
++    );
++
++    let next = plan_element_upsert(
++        temp.root(),
++        &ElementSpec {
++            fqn: "App".to_owned(),
++            gate: Some(GateTier::Strict),
++            expect: Some(plan.hash.clone()),
++            ..Default::default()
++        },
++    )
++    .expect("写后哈希作 expect 应 Ok");
++    assert!(next.content.contains("gate = \"strict\""));
++}
++
++/// 异常：既有元素给不同 `file` ⇒ `TargetInvalid`（迁文件属独立语义）。
++#[test]
++fn 既有元素不接受改落点() {
++    let temp = TempDir::new("plan-move");
++    temp.write_model("01-core.toml", "[element.\"App\"]\nkind = \"package\"\n");
++    let spec = ElementSpec {
++        fqn: "App".to_owned(),
++        gate: Some(GateTier::Warn),
++        file: Some("02-other.toml".to_owned()),
++        ..Default::default()
++    };
++    let failure = plan_element_upsert(temp.root(), &spec).expect_err("改落点应拒");
++    assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
++    assert!(
++        failure.facts.contains("01-core.toml")
++            && failure.facts.contains("02-other.toml")
++            && failure.facts.contains("迁文件属独立语义"),
++        "facts 点名现声明文件与给定值：{}",
++        failure.facts
++    );
++}
++
++/// 异常（矩阵：4 臂）：落点四臂各点名成因。
++#[test]
++fn 落点四臂各点名成因() {
++    let temp = TempDir::new("plan-target-arms");
++    temp.write_model("01-core.toml", "[element.\"App\"]\nkind = \"package\"\n");
++
++    let failure = plan_element_upsert(
++        temp.root(),
++        &ElementSpec {
++            fqn: "App.New".to_owned(),
++            kind: Some(ElementKind::Module),
++            ..Default::default()
++        },
++    )
++    .expect_err("缺 file 应拒");
++    assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
++    assert!(
++        failure.facts.contains("未给 file"),
++        "facts 点名缺 file：{}",
++        failure.facts
++    );
++
++    for file in ["a/b.toml", "/abs.toml", "x.json"] {
++        let failure = plan_element_upsert(
++            temp.root(),
++            &ElementSpec {
++                fqn: "App.New".to_owned(),
++                kind: Some(ElementKind::Module),
++                file: Some(file.to_owned()),
++                ..Default::default()
++            },
++        )
++        .expect_err("非模型声明目录一级应拒");
++        assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
++        assert!(
++            failure.facts.contains("不在模型声明目录一级"),
++            "{file} 的 facts：{}",
++            failure.facts
++        );
++    }
++
++    let bare = TempDir::new("plan-target-bare");
++    let failure = plan_element_upsert(
++        bare.root(),
++        &ElementSpec {
++            fqn: "App".to_owned(),
++            kind: Some(ElementKind::Package),
++            file: Some("01-x.toml".to_owned()),
++            ..Default::default()
++        },
++    )
++    .expect_err("模型声明目录缺席应拒");
++    assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
++    assert!(
++        failure.facts.contains("不存在") && failure.facts.contains("不代建目录"),
++        "facts 点名目录缺席：{}",
++        failure.facts
++    );
++}
++
++/// 异常（矩阵：父缺席 / 单段跳过）：新建查直接父元素，单段 FQN 跳过父判据。
++#[test]
++fn 新建查直接父且单段跳过() {
++    let temp = TempDir::new("plan-parent");
++    temp.write_model("01-core.toml", "[element.\"App\"]\nkind = \"package\"\n");
++
++    let failure = plan_element_upsert(
++        temp.root(),
++        &ElementSpec {
++            fqn: "App.A.B".to_owned(),
++            kind: Some(ElementKind::Module),
++            file: Some("02-more.toml".to_owned()),
++            ..Default::default()
++        },
++    )
++    .expect_err("父缺席应拒");
++    assert_eq!(failure.kind, EditErrorKind::ParentMissing);
++    assert!(
++        failure.facts.contains("App.A") && failure.facts.contains("祖先须显式声明"),
++        "facts 点名父 FQN：{}",
++        failure.facts
++    );
++
++    let plan = plan_element_upsert(
++        temp.root(),
++        &ElementSpec {
++            fqn: "Store".to_owned(),
++            kind: Some(ElementKind::Package),
++            file: Some("02-more.toml".to_owned()),
++            ..Default::default()
++        },
++    )
++    .expect("单段 FQN 跳过父判据");
++    assert!(
++        model_of(&plan.content).element("Store").is_some(),
++        "新表写回该文件：
++{}",
++        plan.content
++    );
++}
++
++/// 异常（矩阵：4 形态）：`expect` 乐观锁四形态逐条成立。
++#[test]
++fn expect四形态逐条成立() {
++    let temp = TempDir::new("plan-expect");
++    let path = temp.write_model(
++        "01-core.toml",
++        "[element.\"App\"]\nkind = \"package\"\ngate = \"off\"\n",
++    );
++    let current = file_hash(&path);
++
++    plan_element_upsert(
++        temp.root(),
++        &ElementSpec {
++            fqn: "App".to_owned(),
++            gate: Some(GateTier::Warn),
++            expect: Some(current),
++            ..Default::default()
++        },
++    )
++    .expect("当前值匹配应 Ok");
++
++    let failure = plan_element_upsert(
++        temp.root(),
++        &ElementSpec {
++            fqn: "App".to_owned(),
++            gate: Some(GateTier::Warn),
++            expect: Some("sha256:错值".to_owned()),
++            ..Default::default()
++        },
++    )
++    .expect_err("错值应 Err");
++    assert_eq!(failure.kind, EditErrorKind::ExpectMismatch);
++    assert!(
++        failure.facts.contains("期望 sha256:错值")
++            && failure.facts.contains("实际 sha256:")
++            && failure.facts.contains("重读后再试"),
++        "facts 含期望与实际：{}",
++        failure.facts
++    );
++
++    let failure = plan_element_upsert(
++        temp.root(),
++        &ElementSpec {
++            fqn: "App.New".to_owned(),
++            kind: Some(ElementKind::Module),
++            file: Some("07-new.toml".to_owned()),
++            expect: Some("sha256:任意".to_owned()),
++            ..Default::default()
++        },
++    )
++    .expect_err("文件缺席 + expect 应 Err");
++    assert_eq!(failure.kind, EditErrorKind::ExpectMismatch);
++    assert!(
++        failure.facts.contains("不存在") && failure.facts.contains("期望 sha256:任意"),
++        "facts 点名文件缺席：{}",
++        failure.facts
++    );
++
++    let plan = plan_element_upsert(temp.root(), &gate_spec("App", GateTier::Warn))
++        .expect("None 不校验且照常产出");
++    assert!(plan.content.contains("gate = \"warn\""));
++}
++
++/// 异常（矩阵：2 形态）：新建与在案的判据次序固定。
++#[test]
++fn 新建与在案的判据次序固定() {
++    let temp = TempDir::new("plan-order");
++    temp.write_model("01-core.toml", "[element.\"App\"]\nkind = \"package\"\n");
++
++    let failure = plan_element_upsert(
++        temp.root(),
++        &ElementSpec {
++            fqn: "App.New".to_owned(),
++            file: Some("a/b.toml".to_owned()),
++            ..Default::default()
++        },
++    )
++    .expect_err("缺 kind 应早于落点判据");
++    assert_eq!(
++        failure.kind,
++        EditErrorKind::ElementKindMissing,
++        "判据句为新建缺 kind：{}",
++        failure.message()
++    );
++
++    let failure = plan_element_upsert(
++        temp.root(),
++        &ElementSpec {
++            fqn: "App".to_owned(),
++            kind: Some(ElementKind::Package),
++            file: Some("02-other.toml".to_owned()),
++            ..Default::default()
++        },
++    )
++    .expect_err("在案应早于落点判据");
++    assert_eq!(failure.kind, EditErrorKind::ElementAlreadyExists);
++}
++
++/// 异常：目标文件读不出（目录形态占位）⇒ `SourceReadFailed`，facts 为
++/// `{path}（{error}）` 语序落位形态。
++#[test]
++fn 源读取失败点名路径() {
++    let temp = TempDir::new("plan-read-fail");
++    let dir = archi_graph_model_dir(temp.root());
++    fs::create_dir_all(dir.join("02-dir.toml")).expect("建同名目录（读不出的目标文件）");
++
++    let failure = plan_element_upsert(
++        temp.root(),
++        &ElementSpec {
++            fqn: "App".to_owned(),
++            kind: Some(ElementKind::Package),
++            file: Some("02-dir.toml".to_owned()),
++            ..Default::default()
++        },
++    )
++    .expect_err("读源失败应 Err");
++    assert_eq!(failure.kind, EditErrorKind::SourceReadFailed);
++    assert!(
++        failure.facts.contains("02-dir.toml"),
++        "facts 点名路径：{}",
++        failure.facts
++    );
++    assert!(
++        failure.facts.contains("（") && failure.facts.ends_with('）'),
++        "语序落位 `{{path}}（{{error}}）`：{}",
++        failure.facts
++    );
++}
++
++/// 异常（矩阵：3 形态）：两入口共用同一判据措辞（`kind` 与 facts 同源）。
++#[test]
++fn 两入口共用同一判据措辞() {
++    let temp = TempDir::new("plan-same-wording");
++    temp.write_model("01-core.toml", CORE_SOURCE);
++
++    let invalid_fqn = ElementSpec {
++        fqn: "App Bad".to_owned(),
++        kind: Some(ElementKind::Module),
++        ..Default::default()
++    };
++    let from_plan = plan_element_upsert(temp.root(), &invalid_fqn).expect_err("plan 应拒");
++    let from_apply = apply_element_spec(CORE_SOURCE, &invalid_fqn).expect_err("apply 应拒");
++    assert_eq!(
++        verdict(&from_plan),
++        verdict(&from_apply),
++        "FQN 形态一份措辞"
++    );
++
++    let missing_kind = ElementSpec {
++        fqn: "App.Missing".to_owned(),
++        ..Default::default()
++    };
++    let from_plan = plan_element_upsert(temp.root(), &missing_kind).expect_err("plan 应拒");
++    let from_apply = apply_element_spec(CORE_SOURCE, &missing_kind).expect_err("apply 应拒");
++    assert_eq!(
++        verdict(&from_plan),
++        verdict(&from_apply),
++        "缺 kind 一份措辞"
++    );
++
++    let declared = ElementSpec {
++        fqn: "App.Auth".to_owned(),
++        kind: Some(ElementKind::Domain),
++        ..Default::default()
++    };
++    let from_plan = plan_element_upsert(temp.root(), &declared).expect_err("plan 应拒");
++    let from_apply = apply_element_spec(CORE_SOURCE, &declared).expect_err("apply 应拒");
++    assert_eq!(from_plan.kind, from_apply.kind, "在案判据同一变体");
++    assert!(
++        from_plan.facts.contains("已声明于") && from_plan.facts.contains("省去 kind"),
++        "plan 额外带声明文件事实：{}",
++        from_plan.facts
++    );
++    assert!(
++        from_apply.facts.contains("省去 kind"),
++        "两入口同一出路措辞：{}",
++        from_apply.facts
++    );
++}
++
++/// 边界：空白 / 不存在的 `root` 一律 `Err` 不 panic；空模型目录 + 单段 FQN 新建 ⇒ `Ok`；
++/// 既有 emoji 元素 ⇒ `Ok`。
++#[test]
++fn 空白与不存在root均err() {
++    let spec = ElementSpec {
++        fqn: "App".to_owned(),
++        kind: Some(ElementKind::Package),
++        file: Some("01-core.toml".to_owned()),
++        ..Default::default()
++    };
++    assert!(
++        plan_element_upsert(Path::new(""), &spec).is_err(),
++        "空白 root 应 Err"
++    );
++    assert!(
++        plan_element_upsert(Path::new("/nonexistent/archi/root"), &spec).is_err(),
++        "不存在 root 应 Err"
++    );
++    assert!(
++        plan_element_delete(Path::new(""), "App", None).is_err(),
++        "删除面空白 root 应 Err"
++    );
++
++    let empty = TempDir::new("plan-empty-models");
++    fs::create_dir_all(archi_graph_model_dir(empty.root())).expect("建空模型目录");
++    let plan = plan_element_upsert(empty.root(), &spec).expect("空模型目录 + 单段 FQN 应 Ok");
++    assert!(
++        model_of(&plan.content).element("App").is_some(),
++        "空模型目录下新建成功：
++{}",
++        plan.content
++    );
++
++    let emoji = TempDir::new("plan-emoji");
++    emoji.write_model(
++        "01-core.toml",
++        "[element.\"App.🚀Auth\"]\nkind = \"module\"\ngate = \"off\"\n",
++    );
++    let plan = plan_element_upsert(emoji.root(), &gate_spec("App.🚀Auth", GateTier::Warn))
++        .expect("既有 emoji 元素应 Ok");
++    assert!(plan.content.contains("gate = \"warn\""));
++}
++
++/// 异常（矩阵：4 入口）：结构诊断前置——四个 `plan_*` 全 `Err(ModelHasDiagnostics)`。
++#[test]
++fn 结构错模型四拒() {
++    let temp = TempDir::new("plan-diagnostics");
++    temp.write_model("01-bad.toml", DIAGNOSTIC_SOURCE);
++
++    let failures = [
++        plan_element_upsert(temp.root(), &gate_spec("App", GateTier::Strict))
++            .expect_err("元素 upsert 应拒"),
++        plan_element_delete(temp.root(), "App", None).expect_err("元素删除应拒"),
++        plan_relation_upsert(temp.root(), "App", "App", None, None, None)
++            .expect_err("关系 upsert 应拒"),
++        plan_relation_delete(temp.root(), "App", "App", None).expect_err("关系删除应拒"),
++    ];
++    for failure in &failures {
++        assert_eq!(failure.kind, EditErrorKind::ModelHasDiagnostics);
++        assert_eq!(
++            failure.kind.criterion(),
++            "模型存在结构诊断，拒绝写回",
++            "判据句操作中立"
++        );
++        assert!(
++            failure.facts.contains("invalidValue"),
++            "facts 含诊断种类：{}",
++            failure.facts
++        );
++        assert!(
++            failure.facts.contains("先修好模型"),
++            "facts 给出路：{}",
++            failure.facts
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// `plan_element_delete`
++// ---------------------------------------------------------------------------
++
++/// 正向：无从属叶元素 ⇒ `Ok`，content 不含该元素、其余逐字、表头计数下降、hash 自洽。
++#[test]
++fn 删除叶元素成功且计数随动() {
++    let temp = TempDir::new("plan-delete-leaf");
++    temp.write_model("01-core.toml", DELETE_SOURCE);
++    let plan = plan_element_delete(temp.root(), "App.Auth", None).expect("叶元素删除应 Ok");
++    assert!(
++        !plan.content.contains("[element.\"App.Auth\"]"),
++        "目标元素离场：\n{}",
++        plan.content
++    );
++    assert!(
++        plan.content
++            .contains("[element.\"App.Billing\"]\nkind = \"module\""),
++        "其余元素逐字保留"
++    );
++    assert_eq!(
++        header_counts(&plan.content),
++        Some((2, 1)),
++        "表头计数随动下降"
++    );
++    assert_eq!(
++        plan.hash,
++        file_hash_of(&plan.file, &plan.content),
++        "hash 与 content 自洽"
++    );
++}
++
++/// 异常：元素有已声明的直接子元素 ⇒ `DeleteHasChildren`，facts 列出子元素 FQN。
++#[test]
++fn 有子元素拒绝删除() {
++    let temp = TempDir::new("plan-delete-children");
++    temp.write_model(
++        "01-core.toml",
++        concat!(
++            "[element.\"App\"]\n",
++            "kind = \"package\"\n",
++            "\n",
++            "[element.\"App.Auth\"]\n",
++            "kind = \"domain\"\n",
++            "\n",
++            "[element.\"App.Auth.Token\"]\n",
++            "kind = \"module\"\n",
++        ),
++    );
++    let failure = plan_element_delete(temp.root(), "App", None).expect_err("有子元素应拒");
++    assert_eq!(failure.kind, EditErrorKind::DeleteHasChildren);
++    assert!(
++        failure.facts.contains("App.Auth"),
++        "facts 点名列出子元素：{}",
++        failure.facts
++    );
++}
++
++/// 异常：元素仍被出边引用 ⇒ `DeleteHasRelations`，facts 点名关系对。
++#[test]
++fn 出边引用拒绝删除() {
++    let temp = TempDir::new("plan-delete-out-edge");
++    temp.write_model("01-core.toml", TWO_ELEMENTS_SOURCE);
++    let failure = plan_element_delete(temp.root(), "A", None).expect_err("出边引用应拒");
++    assert_eq!(failure.kind, EditErrorKind::DeleteHasRelations);
++    assert!(
++        failure.facts.contains("A → B"),
++        "facts 点名关系对：{}",
++        failure.facts
++    );
++}
++
++/// 异常：元素仍被入边引用 ⇒ `DeleteHasRelations`（出 / 入两臂同源）。
++#[test]
++fn 入边引用拒绝删除() {
++    let temp = TempDir::new("plan-delete-in-edge");
++    temp.write_model("01-core.toml", TWO_ELEMENTS_SOURCE);
++    let failure = plan_element_delete(temp.root(), "B", None).expect_err("入边引用应拒");
++    assert_eq!(failure.kind, EditErrorKind::DeleteHasRelations);
++    assert!(
++        failure.facts.contains("A → B"),
++        "facts 点名关系对：{}",
++        failure.facts
++    );
++}
++
++/// 异常：元素缺席 ⇒ `ElementNotFound`，facts 为「`{fqn}（模型共 N 个元素）`」。
++#[test]
++fn 模型面缺席报元素总数() {
++    let temp = TempDir::new("plan-delete-absent");
++    temp.write_model("01-core.toml", TWO_ELEMENTS_SOURCE);
++    let failure = plan_element_delete(temp.root(), "App.Missing", None).expect_err("元素缺席应拒");
++    assert_eq!(failure.kind, EditErrorKind::ElementNotFound);
++    assert!(
++        failure.facts.contains("App.Missing（模型共 2 个元素）"),
++        "facts 为模型面形态：{}",
++        failure.facts
++    );
++}
++
++/// 异常：删除面同样受乐观锁保护（零文本产出）。
++#[test]
++fn 删除面同样受乐观锁保护() {
++    let temp = TempDir::new("plan-delete-expect");
++    temp.write_model("01-core.toml", DELETE_SOURCE);
++    let failure = plan_element_delete(temp.root(), "App.Auth", Some("sha256:错值"))
++        .expect_err("expect 不匹配应拒");
++    assert_eq!(failure.kind, EditErrorKind::ExpectMismatch);
++    assert!(
++        failure.facts.contains("期望 sha256:错值"),
++        "{}",
++        failure.facts
++    );
++}
++
++/// 边界（矩阵：2 形态）：删除判据次序固定——结构诊断先于一切，子元素先于关系。
++#[test]
++fn 删除判据次序固定() {
++    let diagnostic = TempDir::new("plan-delete-order-diagnostic");
++    diagnostic.write_model(
++        "01-bad.toml",
++        concat!(
++            "[element.\"App\"]\n",
++            "kind = \"package\"\n",
++            "path = [\"a\", \"b\"]\n",
++            "\n",
++            "[element.\"App.Auth\"]\n",
++            "kind = \"domain\"\n",
++        ),
++    );
++    let failure = plan_element_delete(diagnostic.root(), "App", None).expect_err("结构诊断先行");
++    assert_eq!(failure.kind, EditErrorKind::ModelHasDiagnostics);
++
++    let both = TempDir::new("plan-delete-order-both");
++    both.write_model(
++        "01-core.toml",
++        concat!(
++            "[element.\"App\"]\n",
++            "kind = \"package\"\n",
++            "\n",
++            "[element.\"App.Auth\"]\n",
++            "kind = \"domain\"\n",
++            "\n",
++            "[element.\"Other\"]\n",
++            "kind = \"module\"\n",
++            "\n",
++            "[[relation]]\n",
++            "from = \"Other\"\n",
++            "to = \"App\"\n",
++        ),
++    );
++    let failure = plan_element_delete(both.root(), "App", None).expect_err("子元素判据先");
++    assert_eq!(failure.kind, EditErrorKind::DeleteHasChildren);
++}
++
++/// 边界：删除模型唯一元素 ⇒ `Ok`、回读元素数 0；其余文件字节零变化。
++#[test]
++fn 删除唯一元素后模型可解析() {
++    let temp = TempDir::new("plan-delete-only");
++    temp.write_model("01-only.toml", "[element.\"App\"]\nkind = \"package\"\n");
++    let keep = temp.write_model("02-note.toml", "# 本文件暂无声明\n");
++    let keep_before = fs::read(&keep).expect("读旁文件");
++
++    let plan = plan_element_delete(temp.root(), "App", None).expect("删唯一元素应 Ok");
++    assert_eq!(model_of(&plan.content).elements.len(), 0, "回读元素数 0");
++    assert_eq!(
++        fs::read(&keep).expect("读旁文件"),
++        keep_before,
++        "其余文件零变化"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// `plan_relation_upsert` / `plan_relation_delete`
++// ---------------------------------------------------------------------------
++
++/// 正向：跨文件模型新增关系 ⇒ 落点 = `from` 元素声明文件，落盘后该关系的 `file` 命中它。
++#[test]
++fn 新关系落from元素所在文件() {
++    let temp = TempDir::new("plan-relation-target");
++    let core = temp.write_model("01-core.toml", "[element.\"App\"]\nkind = \"package\"\n");
++    let auth = temp.write_model(
++        "02-auth.toml",
++        concat!(
++            "[element.\"App.Auth\"]\n",
++            "kind = \"domain\"\n",
++            "\n",
++            "[element.\"App.Token\"]\n",
++            "kind = \"module\"\n",
++        ),
++    );
++    let core_before = fs::read(&core).expect("读 core");
++
++    let plan = plan_relation_upsert(
++        temp.root(),
++        "App.Auth",
++        "App",
++        Some(Some("入口")),
++        None,
++        None,
++    )
++    .expect("新增关系应 Ok");
++    assert_eq!(plan.file, auth, "落点 = from 元素声明文件");
++    fs::write(&plan.file, &plan.content).expect("模拟壳层落盘");
++
++    let outcome = parse::parse_dir(temp.root());
++    assert!(
++        outcome.diagnostics.is_empty(),
++        "落盘后零诊断：{:?}",
++        outcome.diagnostics
++    );
++    let relation = outcome
++        .model
++        .relations
++        .iter()
++        .find(|relation| relation.from == "App.Auth" && relation.to == "App")
++        .expect("关系在案");
++    assert_eq!(
++        relation.file, ".dev-team/architecture/graph/model/02-auth.toml",
++        "modelFile 命中 from 所在文件"
++    );
++    assert_eq!(
++        fs::read(&core).expect("读 core"),
++        core_before,
++        "非落点文件零变化"
++    );
++}
++
++/// 正向：既有 `(from, to)` 改 `desc` ⇒ `Ok`、条数不变、`description` 为新值。
++#[test]
++fn 既有关系对走更新() {
++    let temp = TempDir::new("plan-relation-update");
++    temp.write_model("01-core.toml", RELATION_PLAN_SOURCE);
++    let plan = plan_relation_upsert(temp.root(), "A", "B", Some(Some("新")), None, None)
++        .expect("更新应 Ok");
++    let model = model_of(&plan.content);
++    assert_eq!(model.relations.len(), 2, "条数不变");
++    assert_eq!(
++        relation_of(&model, "A", "B").description.as_deref(),
++        Some("新")
++    );
++}
++
++/// 正向（组合：`relation_hits` 的 `file` → `apply_relation_upsert`）：`from` 元素声明在
++/// `01-app.toml`、`(from, to)` 声明在 `06-frontend.toml`（`from` 元素文件 ≠ 关系文件）⇒
++/// 落点 = 关系的声明文件，只改该条 `desc`，`from` 元素文件零变化、回读条数不变。
++#[test]
++fn 既有关系声明于非from文件时原地更新() {
++    let temp = TempDir::new("plan-relation-split-upsert");
++    let app = temp.write_model("01-app.toml", SPLIT_FROM_SOURCE);
++    let frontend = temp.write_model("06-frontend.toml", SPLIT_RELATION_SOURCE);
++    let app_before = fs::read(&app).expect("读 01-app");
++
++    let plan = plan_relation_upsert(
++        temp.root(),
++        "Desktop",
++        "Desktop.Components.Ui",
++        Some(Some("新说明")),
++        None,
++        None,
++    )
++    .expect("既有关系更新应 Ok");
++
++    assert_eq!(
++        plan.file, frontend,
++        "落点 = 关系声明文件（不是 from 元素文件）"
++    );
++    assert_eq!(
++        plan.content,
++        SPLIT_RELATION_SOURCE.replace("旧说明", "新说明"),
++        "只改该条 desc，其余逐字"
++    );
++    assert_eq!(
++        fs::read(&app).expect("读 01-app"),
++        app_before,
++        "from 元素文件零变化"
++    );
++
++    let model = model_of(&plan.content);
++    assert_eq!(
++        model.relations.len(),
++        2,
++        "回读关系条数不变（更新而非追加副本）"
++    );
++    assert_eq!(
++        relation_of(&model, "Desktop", "Desktop.Components.Ui")
++            .description
++            .as_deref(),
++        Some("新说明")
++    );
++
++    fs::write(&plan.file, &plan.content).expect("模拟壳层落盘");
++    let outcome = parse::parse_dir(temp.root());
++    assert!(
++        outcome.diagnostics.is_empty(),
++        "落盘后零诊断：{:?}",
++        outcome.diagnostics
++    );
++    let relation = relation_of(&outcome.model, "Desktop", "Desktop.Components.Ui");
++    assert!(
++        relation.file.ends_with("06-frontend.toml"),
++        "modelFile 仍是关系声明文件：{}",
++        relation.file
++    );
++}
++
++/// 异常（矩阵：3 形态）：端点缺席点名缺失端。
++#[test]
++fn 端点缺席点名缺失端() {
++    let temp = TempDir::new("plan-relation-endpoints");
++    temp.write_model("01-core.toml", TWO_ELEMENTS_SOURCE);
++
++    for (from, to) in [("A", "Missing"), ("Missing", "B")] {
++        let failure = plan_relation_upsert(temp.root(), from, to, None, None, None)
++            .expect_err("端点缺席应拒");
++        assert_eq!(failure.kind, EditErrorKind::RelationEndpointMissing);
++        assert!(
++            failure.facts.contains(&format!("{from} → {to}")) && failure.facts.contains("未声明"),
++            "facts 点名目标对与缺失端：{}",
++            failure.facts
++        );
++        assert!(
++            failure.facts.contains("Missing"),
++            "facts 点名缺失端 FQN：{}",
++            failure.facts
++        );
++    }
++
++    let failure = plan_relation_upsert(temp.root(), "Missing", "Also", None, None, None)
++        .expect_err("双端点缺席应拒");
++    assert!(
++        failure.facts.contains("Missing") && failure.facts.contains("Also"),
++        "facts 点名两端：{}",
++        failure.facts
++    );
++}
++
++/// 异常（矩阵：2 臂）：关系 upsert 的两道前置（`expect` / 结构诊断）均 `Err`。
++#[test]
++fn 关系upsert两前置均err() {
++    let temp = TempDir::new("plan-relation-expect");
++    temp.write_model("01-core.toml", TWO_ELEMENTS_SOURCE);
++    let failure = plan_relation_upsert(temp.root(), "A", "B", None, None, Some("sha256:错值"))
++        .expect_err("expect 不匹配应拒");
++    assert_eq!(failure.kind, EditErrorKind::ExpectMismatch);
++
++    let diagnostic = TempDir::new("plan-relation-diagnostic");
++    diagnostic.write_model("01-bad.toml", DIAGNOSTIC_SOURCE);
++    let failure = plan_relation_upsert(diagnostic.root(), "A", "B", None, None, None)
++        .expect_err("结构诊断应拒");
++    assert_eq!(failure.kind, EditErrorKind::ModelHasDiagnostics);
++}
++
++/// 边界（矩阵：2 臂）：零关系文件新建条目数组；`apis = Some(&[])` ⇒ 落盘文本零该键。
++#[test]
++fn 零关系文件新建数组与apis清空() {
++    let temp = TempDir::new("plan-relation-zero");
++    temp.write_model("01-core.toml", TWO_ELEMENTS_SOURCE);
++
++    let plan = plan_relation_upsert(temp.root(), "B", "A", None, None, None)
++        .expect("零关系文件新建数组应 Ok");
++    assert!(
++        plan.content.contains("[[relation]]"),
++        "新建条目数组：\n{}",
++        plan.content
++    );
++
++    let empty: Vec<String> = Vec::new();
++    let plan = plan_relation_upsert(temp.root(), "B", "A", None, Some(empty.as_slice()), None)
++        .expect("apis 清空臂应 Ok");
++    assert!(
++        !plan.content.contains("apis"),
++        "apis 键不落盘（零空数组）：\n{}",
++        plan.content
++    );
++}
++
++/// 正向：在场关系删除 ⇒ 回读关系数 −1、表头计数随动、其余条目逐字。
++#[test]
++fn 关系删除成功计数随动() {
++    let temp = TempDir::new("plan-relation-delete");
++    temp.write_model("01-core.toml", RELATION_PLAN_SOURCE);
++    let plan = plan_relation_delete(temp.root(), "A", "B", None).expect("删除应 Ok");
++    let model = model_of(&plan.content);
++    assert_eq!(model.relations.len(), 1, "关系数 −1");
++    assert!(
++        model
++            .relations
++            .iter()
++            .any(|relation| relation.from == "B" && relation.to == "A"),
++        "其余条目逐字保留"
++    );
++    assert_eq!(header_counts(&plan.content), Some((2, 1)), "表头计数随动");
++}
++
++/// 异常（矩阵：2 形态）：关系缺席 ⇒ `RelationNotFound`；端点缺席先于关系缺席。
++#[test]
++fn 关系删除的双前置() {
++    let temp = TempDir::new("plan-relation-delete-pre");
++    temp.write_model("01-core.toml", TWO_ELEMENTS_SOURCE);
++
++    let failure = plan_relation_delete(temp.root(), "A", "A", None).expect_err("关系缺席应拒");
++    assert_eq!(failure.kind, EditErrorKind::RelationNotFound);
++    assert!(
++        failure.facts.contains("A → A") && failure.facts.contains("现有关系：A → B"),
++        "模型面 facts 列该 from 元素的出边对（不读 from 文件后由 apply 报「该文件没有关系」）：{}",
++        failure.facts
++    );
++
++    let failure =
++        plan_relation_delete(temp.root(), "A", "Missing", None).expect_err("端点缺席应拒");
++    assert_eq!(
++        failure.kind,
++        EditErrorKind::RelationEndpointMissing,
++        "端点判据先于关系判据：{}",
++        failure.message()
++    );
++}
++
++/// 异常（矩阵：2 入口 + 1 对照）：同一 `(from, to)` 在 `01-app.toml` / `06-frontend.toml`
++/// 各声明一次 ⇒ 两函数均 `RelationDuplicated`（模型面 facts 点名两文件与处数）、零文本
++/// 产出；单处声明不报该错（走各自落点规则）。
++#[test]
++fn 模型面重复声明fail_closed() {
++    let temp = TempDir::new("plan-relation-duplicated");
++    temp.write_model("01-app.toml", DUPLICATED_APP_SOURCE);
++    temp.write_model("06-frontend.toml", DUPLICATED_FRONTEND_SOURCE);
++    let before = temp.snapshot();
++
++    let upsert_failure = plan_relation_upsert(temp.root(), "A", "B", Some(Some("改")), None, None)
++        .expect_err("模型面两处 upsert 应拒");
++    let delete_failure =
++        plan_relation_delete(temp.root(), "A", "B", None).expect_err("模型面两处 delete 应拒");
++
++    for failure in [&upsert_failure, &delete_failure] {
++        assert_eq!(failure.kind, EditErrorKind::RelationDuplicated);
++        assert!(
++            failure.facts.contains("A → B 在 "),
++            "facts 点名目标对：{}",
++            failure.facts
++        );
++        for file in ["01-app.toml", "06-frontend.toml"] {
++            assert!(
++                failure.facts.contains(file),
++                "facts 点名声明文件 {file}：{}",
++                failure.facts
++            );
++        }
++        assert!(
++            failure.facts.contains("多处声明（2 处）"),
++            "facts 点名处数：{}",
++            failure.facts
++        );
++        assert!(
++            failure.facts.contains("先删除重复条目"),
++            "facts 给出下一步：{}",
++            failure.facts
++        );
++    }
++    assert_eq!(temp.snapshot(), before, "两臂均零写盘（零文本产出）");
++
++    let single = TempDir::new("plan-relation-single");
++    let app = single.write_model("01-app.toml", DUPLICATED_APP_SOURCE);
++    let plan = plan_relation_upsert(single.root(), "A", "B", Some(Some("唯一")), None, None)
++        .expect("单处声明应 Ok");
++    assert_eq!(plan.file, app, "走落点规则（= 关系声明文件）");
++    assert_eq!(
++        relation_of(&model_of(&plan.content), "A", "B")
++            .description
++            .as_deref(),
++        Some("唯一")
++    );
++}
++
++/// 边界（矩阵：2 形态）：删除落在**关系声明文件**（可以不是 `from` 元素文件），表头
++/// 计数随动、其余条目逐字；对照臂——关系声明在 `from` 元素文件内时落点仍是该文件。
++#[test]
++fn 既有关系声明于非from文件时删除落声明文件() {
++    let temp = TempDir::new("plan-relation-split-delete");
++    let app = temp.write_model("01-app.toml", SPLIT_FROM_SOURCE);
++    let frontend = temp.write_model("06-frontend.toml", SPLIT_RELATION_SOURCE);
++    let app_before = fs::read(&app).expect("读 01-app");
++
++    let plan = plan_relation_delete(temp.root(), "Desktop", "Desktop.Components.Ui", None)
++        .expect("既有关系删除应 Ok");
++    assert_eq!(plan.file, frontend, "落点 = 关系声明文件");
++    assert_eq!(
++        fs::read(&app).expect("读 01-app"),
++        app_before,
++        "from 元素文件零变化"
++    );
++
++    let model = model_of(&plan.content);
++    assert_eq!(model.relations.len(), 1, "关系数 −1");
++    assert!(
++        !model
++            .relations
++            .iter()
++            .any(|relation| relation.from == "Desktop" && relation.to == "Desktop.Components.Ui"),
++        "命中条目离场"
++    );
++    assert!(
++        model
++            .relations
++            .iter()
++            .any(|relation| relation.from == "Desktop" && relation.to == "Desktop.Components"),
++        "其余条目逐字保留"
++    );
++    assert_eq!(header_counts(&plan.content), Some((2, 1)), "表头计数随动");
++    assert!(
++        model.element("Desktop.Components.Ui").is_some(),
++        "元素表零改动"
++    );
++
++    let local = TempDir::new("plan-relation-same-file-delete");
++    let core = local.write_model("01-core.toml", RELATION_PLAN_SOURCE);
++    let plan = plan_relation_delete(local.root(), "A", "B", None).expect("同文件删除应 Ok");
++    assert_eq!(plan.file, core, "落点 = 声明文件（与 from 元素同文件）");
++    assert_eq!(model_of(&plan.content).relations.len(), 1);
++}
++
++/// 边界（矩阵：4 形态）：关系身份键 = `from` / `to` **双等**（与 `diff::model_diff` /
++/// `relation::relation_detail` 同口径），各命中条目携带其声明文件。
++#[test]
++fn 关系身份键双等且带落点() {
++    let temp = TempDir::new("relation-hits");
++    temp.write_model("01-app.toml", IDENTITY_APP_SOURCE);
++    temp.write_model("06-frontend.toml", IDENTITY_FRONTEND_SOURCE);
++    let model = parse::parse_dir(temp.root()).model;
++
++    let pair = relation_hits(&model, "A", "B");
++    assert_eq!(pair.len(), 2, "同一对跨两文件各成一命");
++    let mut files: Vec<&str> = pair.iter().map(|relation| relation.file.as_str()).collect();
++    files.sort_unstable();
++    assert!(
++        files[0].ends_with("01-app.toml"),
++        "命中条目带各自声明文件：{files:?}"
++    );
++    assert!(
++        files[1].ends_with("06-frontend.toml"),
++        "命中条目带各自声明文件：{files:?}"
++    );
++
++    let same_from = relation_hits(&model, "A", "C");
++    assert_eq!(same_from.len(), 1, "同 from 不同 to 只命中目标对");
++    assert!(same_from[0].file.ends_with("06-frontend.toml"));
++
++    let same_to = relation_hits(&model, "C", "B");
++    assert_eq!(same_to.len(), 1, "同 to 不同 from 只命中目标对");
++
++    assert!(relation_hits(&model, "B", "C").is_empty(), "零命中");
++}
++
++/// 异常（矩阵：2 / 1 / 0 三形态）：模型面唯一性判据与 `apply_*` 的文件面判据同一
++/// `EditErrorKind`（不引第三处）。
++#[test]
++fn 模型面唯一性两臂() {
++    let temp = TempDir::new("check-relation-unique");
++    temp.write_model("01-app.toml", IDENTITY_APP_SOURCE);
++    temp.write_model("06-frontend.toml", IDENTITY_FRONTEND_SOURCE);
++    let model = parse::parse_dir(temp.root()).model;
++
++    let duplicated =
++        check_relation_unique(&relation_hits(&model, "A", "B")).expect_err("跨两文件两处应拒");
++    assert_eq!(duplicated.kind, EditErrorKind::RelationDuplicated);
++    assert!(
++        duplicated.facts.contains("多处声明（2 处）"),
++        "facts 点名处数：{}",
++        duplicated.facts
++    );
++
++    let file_face =
++        apply_relation_upsert(DUPLICATED_IN_SOURCE, "A", "B", None, None).expect_err("同源两处");
++    assert_eq!(
++        file_face.kind, duplicated.kind,
++        "模型面与文件面同一判据（不引第三处）"
++    );
++
++    assert!(
++        check_relation_unique(&relation_hits(&model, "A", "C")).is_ok(),
++        "唯一命中不报"
++    );
++    assert!(
++        check_relation_unique(&relation_hits(&model, "C", "B")).is_ok(),
++        "唯一命中不报"
++    );
++    assert!(
++        check_relation_unique(&relation_hits(&model, "B", "C")).is_ok(),
++        "零命中不报"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 类型面
++// ---------------------------------------------------------------------------
++
++/// 正向：`ModelWrite` 三元组逐字段可读，`PartialEq` / `Eq` 按三字段成立。
++#[test]
++#[allow(non_snake_case)]
++fn ModelWrite三元组可比() {
++    let base = ModelWrite {
++        file: PathBuf::from("/root/01-core.toml"),
++        content: "a = 1\n".to_owned(),
++        hash: "sha256:aa".to_owned(),
++    };
++    assert_eq!(base, base.clone(), "同三元组相等");
++    assert!(!format!("{base:?}").is_empty(), "Debug 可用");
++
++    let other_content = ModelWrite {
++        content: "a = 2\n".to_owned(),
++        ..base.clone()
++    };
++    assert_ne!(base, other_content, "content 差一字节即不等");
++    let other_hash = ModelWrite {
++        hash: "sha256:bb".to_owned(),
++        ..base.clone()
++    };
++    assert_ne!(base, other_hash, "hash 差一即不等");
++    let other_file = ModelWrite {
++        file: PathBuf::from("/root/02-core.toml"),
++        ..base.clone()
++    };
++    assert_ne!(base, other_file, "file 差一即不等");
++}
++
++/// 边界：`ElementSpec::default()` 全字段缺省且不 panic；`..Default::default()` 简写可
++/// 构造壳层同形 spec。
++#[test]
++#[allow(non_snake_case)]
++fn ElementSpec缺省可构造且不panic() {
++    let spec = ElementSpec::default();
++    assert!(spec.fqn.is_empty(), "fqn 缺省空串");
++    assert!(spec.kind.is_none());
++    assert!(spec.gate.is_none());
++    assert!(spec.api.is_none());
++    assert!(spec.entry.is_none());
++    assert!(spec.path.is_none());
++    assert!(spec.doc.is_none());
++    assert!(spec.summary.is_none());
++    assert!(spec.metadata.is_none());
++    assert!(spec.file.is_none());
++    assert!(spec.expect.is_none());
++
++    let failure = apply_element_spec(CORE_SOURCE, &spec).expect_err("缺省 spec 应 Err");
++    assert_eq!(
++        failure.kind,
++        EditErrorKind::FqnInvalid,
++        "按判据次序先判 FQN 形态：{}",
++        failure.message()
++    );
++
++    let shell_shaped = ElementSpec {
++        fqn: "App.Auth".to_owned(),
++        gate: Some(GateTier::Warn),
++        ..Default::default()
++    };
++    assert_eq!(shell_shaped.gate, Some(GateTier::Warn));
++    assert!(shell_shaped.entry.is_none(), "其余位沿用缺省");
++}
++
++// ---------------------------------------------------------------------------
++// 表头回填（私有 helper）
++// ---------------------------------------------------------------------------
++
++/// 正向：表头两个数字按重解析结果回填，括号外整行逐字（含全角 `）` 与人工标题）。
++#[test]
++fn 表头两数按重解析回填() {
++    let source = concat!(
++        "# 01 · 核心（9 元素 / 10 关系）\n",
++        "[element.\"App\"]\n",
++        "kind = \"package\"\n",
++    );
++    let backfilled = backfill_header_counts(source, 8, 10);
++    assert_eq!(
++        backfilled.lines().next().expect("首行"),
++        "# 01 · 核心（8 元素 / 10 关系）",
++        "括号外整行逐字"
++    );
++    assert!(
++        backfilled.ends_with("[element.\"App\"]\nkind = \"package\"\n"),
++        "正文零改动：\n{backfilled}"
++    );
++}
++
++/// 边界（回归臂）：表头被回填后，首部注释块之后的正文**逐字保留**——回填的拼接域是整份
++/// 渲染文本，只收窄到首部块会把 `[element."…"]` / `[[relation]]` 全部截掉且自证仍是零诊断。
++#[test]
++fn 回填只替换两段数字且正文逐字保留() {
++    let source = concat!(
++        "# 06 · frontend（9 元素 / 10 关系）\n",
++        "\n",
++        "[element.\"Desktop.Components\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"Desktop.Components.Ui\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[[relation]]\n",
++        "from = \"Desktop\"\n",
++        "to = \"Desktop.Components.Ui\"\n",
++    );
++    let before = model_of(source);
++    let backfilled = backfill_header_counts(source, before.elements.len(), before.relations.len());
++
++    assert_eq!(
++        backfilled,
++        source.replace("（9 元素 / 10 关系）", "（2 元素 / 1 关系）"),
++        "只替换两段数字"
++    );
++    assert_eq!(
++        changed_lines(source, &backfilled),
++        vec![0],
++        "按行 diff 恰首行"
++    );
++
++    let body = |text: &str| text[text.find('[').expect("首部块之后有正文")..].to_owned();
++    assert_eq!(body(&backfilled), body(source), "正文逐字保留（不截断）");
++
++    let after = model_of(&backfilled);
++    let fqns = |model: &Model| {
++        model
++            .elements
++            .iter()
++            .map(|element| element.fqn.clone())
++            .collect::<Vec<String>>()
++    };
++    assert_eq!(fqns(&after), fqns(&before), "元素集合与改前相同");
++    assert_eq!(
++        after.relations.len(),
++        before.relations.len(),
++        "关系集合与改前相同"
++    );
++    assert_eq!(
++        after.relations[0].to, "Desktop.Components.Ui",
++        "关系条目逐字保留"
++    );
++}
++
++/// 正向：计数准确 ⇒ 原样返回（与输入逐字节相等）。
++#[test]
++fn 计数准确即零差异() {
++    let source = "# 02 · core 分层（3 元素 / 1 关系）\n[element.\"App\"]\n";
++    assert_eq!(backfill_header_counts(source, 3, 1), source);
++}
++
++/// 异常（矩阵：3 形态）：无该括号不新增；块外同形文本与块内第二处同形文本零改动。
++#[test]
++fn 无括号不新增且块外零改动() {
++    let plain = "# 01 · 核心\n[element.\"App\"]\nkind = \"package\"\n";
++    assert_eq!(backfill_header_counts(plain, 7, 9), plain, "不新增括号");
++
++    let outside = concat!(
++        "# 01 · 核心\n",
++        "[element.\"App\"]\n",
++        "kind = \"package\"\n",
++        "summary = \"（9 元素 / 10 关系）\"\n",
++    );
++    assert_eq!(
++        backfill_header_counts(outside, 1, 0),
++        outside,
++        "首部注释块之外的同形文本零改动"
++    );
++
++    let second = concat!(
++        "# 01 · 核心（9 元素 / 10 关系）\n",
++        "# 附注（9 元素 / 10 关系）\n",
++        "[element.\"App\"]\n",
++        "kind = \"package\"\n",
++    );
++    let backfilled = backfill_header_counts(second, 1, 0);
++    assert!(
++        backfilled.contains("# 01 · 核心（1 元素 / 0 关系）"),
++        "第一处回填：\n{backfilled}"
++    );
++    assert!(
++        backfilled.contains("# 附注（9 元素 / 10 关系）"),
++        "块内第二处零改动：\n{backfilled}"
++    );
++}
++
++/// 边界（矩阵：位数 / CRLF / 首部形态 / 无尾换行）：各形态只替换两段数字。
++#[test]
++fn 表头数字位数与换行边界() {
++    let grown = "# 01 · 核心（9 元素 / 9 关系）\n[element.\"App\"]\n";
++    assert!(
++        backfill_header_counts(grown, 10, 10).contains("（10 元素 / 10 关系）"),
++        "位数增加"
++    );
++
++    let shrunk = "# 01 · 核心（100 元素 / 100 关系）\n[element.\"App\"]\n";
++    assert!(
++        backfill_header_counts(shrunk, 99, 99).contains("（99 元素 / 99 关系）"),
++        "位数减少"
++    );
++
++    let crlf = "# 01 · 核心（3 元素 / 1 关系）\r\n[element.\"App\"]\r\nkind = \"package\"\r\n";
++    let backfilled = backfill_header_counts(crlf, 4, 2);
++    assert!(
++        backfilled.contains("（4 元素 / 2 关系）\r\n"),
++        "CRLF 首部只换两段数字：{backfilled:?}"
++    );
++    assert!(
++        backfilled.contains("[element.\"App\"]\r\nkind = \"package\"\r\n"),
++        "CRLF 正文零改动"
++    );
++
++    let mixed = "\n# 01 · 核心（3 元素 / 1 关系）\n\n[element.\"App\"]\n";
++    let backfilled = backfill_header_counts(mixed, 5, 6);
++    assert!(
++        backfilled.contains("（5 元素 / 6 关系）"),
++        "空行 + 注释混合首部"
++    );
++    assert_eq!(
++        backfilled.matches("\n\n[element.").count(),
++        1,
++        "空行与正文零改动：{backfilled:?}"
++    );
++
++    let no_newline = "# 01 · 核心（3 元素 / 1 关系）";
++    assert_eq!(
++        backfill_header_counts(no_newline, 4, 0),
++        "# 01 · 核心（4 元素 / 0 关系）",
++        "无尾换行形态"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 自证链（私有 helper）
++// ---------------------------------------------------------------------------
++
++/// 正向（源码锚）：先渲染取计数 → 回填 → 对交付文本自证；三个私有件各恰一处且非 `pub`。
++#[test]
++fn 自证链步骤序固定() {
++    let source = include_str!("mod.rs");
++    let first = source
++        .find("TomlParser::parse(&rendered)")
++        .expect("首次重解析取计数");
++    let second = source
++        .find("TomlParser::parse(&content)")
++        .expect("交付文本自证");
++    let backfill = source
++        .find("backfill_header_counts(")
++        .expect("回填调用在案");
++    assert!(
++        first < backfill && backfill < second,
++        "回填夹在两次重解析之间（先取计数 → 回填 → 对交付文本自证）"
++    );
++    assert_eq!(
++        source.matches("TomlParser::parse").count(),
++        2,
++        "恰两次重解析"
++    );
++    for private in ["fn parse_source", "fn finish(", "fn backfill_header_counts"] {
++        assert_eq!(source.matches(private).count(), 1, "{private} 恰一处");
++        assert!(
++            !source.contains(&format!("pub {private}")),
++            "{private} 非 pub"
++        );
++    }
++}
++
++/// 异常（矩阵：2 臂）：自证失败与回读失败均零文本产出。
++#[test]
++fn 自证与回读失败均零文本() {
++    let failure = apply_element_spec(
++        "[element.\"App\"]\nkind = \"package\"\n",
++        &ElementSpec {
++            fqn: "App".to_owned(),
++            path: Some(vec!["a".to_owned(), "b".to_owned()]),
++            ..Default::default()
++        },
++    )
++    .expect_err("越界值应自证失败");
++    assert_eq!(failure.kind, EditErrorKind::RenderSelfCheck);
++    assert!(
++        failure.facts.contains("未产出文本"),
++        "facts 明写零文本：{}",
++        failure.facts
++    );
++
++    let document = "[element.\"App\"]\nkind = \"package\"\n"
++        .parse::<DocumentMut>()
++        .expect("fixture 应可解析");
++    let failure = finish(document, |_| {
++        Err(messages::error(
++            EditErrorKind::ReadBackMismatch,
++            "注入回读不一致",
++        ))
++    })
++    .expect_err("回读失败应原样传出");
++    assert_eq!(failure.kind, EditErrorKind::ReadBackMismatch);
++    assert_eq!(failure.facts, "注入回读不一致", "无降级路径");
++}
++
++/// 边界：陈旧表头 + 删除 ⇒ 交付文本的表头两数 == 对交付文本重解析的计数。
++#[test]
++fn 回填后计数等于回读计数() {
++    let stale = concat!(
++        "# 01 · 核心（9 元素 / 0 关系）\n",
++        "[element.\"App\"]\n",
++        "kind = \"package\"\n",
++        "\n",
++        "[element.\"App.Auth\"]\n",
++        "kind = \"domain\"\n",
++        "\n",
++        "[[relation]]\n",
++        "from = \"App.Auth\"\n",
++        "to = \"App\"\n",
++    );
++    let content = apply_element_delete(stale, "App.Auth").expect("删除应成功");
++    let model = model_of(&content);
++    assert_eq!(
++        header_counts(&content),
++        Some((model.elements.len(), model.relations.len())),
++        "回填后计数 == 回读计数：\n{content}"
++    );
++    assert_eq!(header_counts(&content), Some((1, 1)));
++}
++
++// ---------------------------------------------------------------------------
++// 私有判据 helper
++// ---------------------------------------------------------------------------
++
++/// 异常（矩阵：7 拒 + 缺 kind + 合法臂）：新建判据的形态七拒与 `kind` 必填。
++#[test]
++fn 新建判据七拒与缺kind() {
++    let rejects = [
++        "",
++        "App Auth",
++        "App\"Auth",
++        "App[",
++        "App]",
++        "App#x",
++        "App\n.Auth",
++    ];
++    for fqn in rejects {
++        let Err(failure) = check_create(fqn, Some(ElementKind::Module)) else {
++            panic!("{fqn:?} 应被拒（写面要把它渲染成键）")
++        };
++        assert_eq!(failure.kind, EditErrorKind::FqnInvalid, "{fqn:?}");
++        assert!(
++            failure.facts.contains(&format!("{fqn:?}")),
++            "facts 含形态：{}",
++            failure.facts
++        );
++        assert!(
++            failure.facts.contains("空白 / 引号 / 方括号 / # / 换行"),
++            "facts 含字符清单：{}",
++            failure.facts
++        );
++    }
++
++    let failure = check_create("App.New", None).expect_err("缺 kind 应拒");
++    assert_eq!(failure.kind, EditErrorKind::ElementKindMissing);
++    assert!(
++        failure.facts.contains("App.New") && failure.facts.contains("新建必须给出 kind"),
++        "facts 点名 FQN 与缺 kind：{}",
++        failure.facts
++    );
++    assert!(
++        check_create("App.New", Some(ElementKind::Package)).is_ok(),
++        "合法形态 + kind ⇒ Ok"
++    );
++}
++
++/// 异常（矩阵：4 臂）：落点四臂 facts 逐条对齐。
++#[test]
++fn 落点四臂文案逐条对齐() {
++    let temp = TempDir::new("check-target");
++    fs::create_dir_all(archi_graph_model_dir(temp.root())).expect("建模型声明目录");
++    let existing = Element {
++        fqn: "App".to_owned(),
++        kind: ElementKind::Package,
++        gate: GateTier::Off,
++        api: ApiStatus::Declared,
++        entry: None,
++        path: Vec::new(),
++        doc: None,
++        summary: None,
++        metadata: BTreeMap::new(),
++        file: ".dev-team/architecture/graph/model/01-core.toml".to_owned(),
++        line: 1,
++    };
++
++    let failure = check_target(temp.root(), "App.New", None, None).expect_err("缺 file 应拒");
++    assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
++    assert!(failure.facts.contains("未给 file"), "{}", failure.facts);
++
++    for file in ["a/b.toml", "/abs.toml", "x.json"] {
++        let failure =
++            check_target(temp.root(), "App.New", Some(file), None).expect_err("非一级应拒");
++        assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
++        assert!(
++            failure.facts.contains("不在模型声明目录一级"),
++            "{file} 的 facts：{}",
++            failure.facts
++        );
++    }
++
++    let bare = TempDir::new("check-target-bare");
++    let failure =
++        check_target(bare.root(), "App.New", Some("01-x.toml"), None).expect_err("目录缺席应拒");
++    assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
++    assert!(
++        failure.facts.contains("不存在") && failure.facts.contains("不代建目录"),
++        "{}",
++        failure.facts
++    );
++
++    let failure = check_target(temp.root(), "App", Some("02-other.toml"), Some(&existing))
++        .expect_err("改落点应拒");
++    assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
++    assert!(
++        failure.facts.contains("01-core.toml") && failure.facts.contains("迁文件属独立语义"),
++        "{}",
++        failure.facts
++    );
++
++    assert_eq!(
++        check_target(temp.root(), "App", Some(&existing.file), Some(&existing))
++            .expect("既有元素同值落点应 Ok"),
++        temp.root().join(&existing.file),
++        "既有元素落其声明文件（repo 相对路径直挂 root）"
++    );
++    assert!(
++        check_target(temp.root(), "App.New", Some("07-new.toml"), None).is_ok(),
++        "新建一级 *.toml ⇒ Ok"
++    );
++}
++
++/// 边界（矩阵：3 形态）：读源单点两态——允许缺席 ⇒ 空源；其余读失败 ⇒ `SourceReadFailed`。
++#[test]
++fn 读源单点两态() {
++    let temp = TempDir::new("read-source");
++    let missing = temp.root().join("no-such.toml");
++    assert_eq!(
++        read_source(&missing, true).expect("允许缺席 ⇒ 空源"),
++        String::new()
++    );
++
++    let failure = read_source(&missing, false).expect_err("不允许缺席 ⇒ Err");
++    assert_eq!(failure.kind, EditErrorKind::SourceReadFailed);
++    assert!(
++        failure.facts.contains("no-such.toml"),
++        "facts 点名路径：{}",
++        failure.facts
++    );
++
++    let bad = temp.root().join("bad.toml");
++    fs::write(&bad, [0xff_u8, 0xfe, 0x80]).expect("写非 UTF-8 文件");
++    let failure = read_source(&bad, true).expect_err("非 UTF-8 ⇒ Err");
++    assert_eq!(failure.kind, EditErrorKind::SourceReadFailed);
++    assert!(
++        failure.facts.contains("bad.toml"),
++        "facts 点名路径：{}",
++        failure.facts
++    );
++}
++
++/// 边界（矩阵：4 形态）：`expect` 校验四形态。
++#[test]
++fn expect校验四形态() {
++    let temp = TempDir::new("check-expect");
++    let path = temp.root().join("01-core.toml");
++    fs::write(&path, CORE_SOURCE).expect("落源");
++    let current = file_hash(&path);
++
++    assert!(
++        check_expect(&path, CORE_SOURCE, None).is_ok(),
++        "None 不校验"
++    );
++    assert!(
++        check_expect(&path, CORE_SOURCE, Some(&current)).is_ok(),
++        "当前值匹配"
++    );
++
++    let failure = check_expect(&path, CORE_SOURCE, Some("sha256:错值")).expect_err("错值应 Err");
++    assert_eq!(failure.kind, EditErrorKind::ExpectMismatch);
++    assert!(
++        failure.facts.contains("期望 sha256:错值")
++            && failure.facts.contains("实际 sha256:")
++            && failure.facts.contains("重读后再试"),
++        "facts 含期望 / 实际 / 出路：{}",
++        failure.facts
++    );
++
++    let absent = temp.root().join("no-such.toml");
++    let failure = check_expect(&absent, "", Some("sha256:任意")).expect_err("文件缺席应 Err");
++    assert_eq!(failure.kind, EditErrorKind::ExpectMismatch);
++    assert!(
++        failure.facts.contains("不存在") && failure.facts.contains("sha256:任意"),
++        "facts 点名文件缺席：{}",
++        failure.facts
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 公开面 / 出口面 / 纪律锚
++// ---------------------------------------------------------------------------
++
++/// 异常（源码锚）：公开面恰 8 函数 + 2 类型，`messages` 为私有子模块（无第五路径）。
++#[test]
++fn 公开面恰八函数两类型且messages私有() {
++    let source = include_str!("mod.rs");
++
++    let public_functions: Vec<&str> = source
++        .lines()
++        .filter(|line| line.starts_with("pub fn "))
++        .collect();
++    assert_eq!(public_functions.len(), 8, "公开函数恰 8 个");
++    for name in [
++        "apply_element_spec",
++        "apply_element_delete",
++        "apply_relation_upsert",
++        "apply_relation_delete",
++        "plan_element_upsert",
++        "plan_element_delete",
++        "plan_relation_upsert",
++        "plan_relation_delete",
++    ] {
++        assert!(
++            source.contains(&format!("pub fn {name}(")),
++            "{name} 在公开面"
++        );
++    }
++
++    let public_types = source
++        .lines()
++        .filter(|line| line.starts_with("pub struct ") || line.starts_with("pub enum "))
++        .count();
++    assert_eq!(
++        public_types, 2,
++        "公开类型恰 2 个（ModelWrite / ElementSpec）"
++    );
++
++    let public_uses: Vec<&str> = source
++        .lines()
++        .filter(|line| line.starts_with("pub use "))
++        .collect();
++    assert_eq!(
++        public_uses,
++        vec!["pub use messages::{EditError, EditErrorKind};"],
++        "出口唯一且形态固定"
++    );
++    assert!(
++        source.lines().any(|line| line == "mod messages;"),
++        "messages 为私有子模块"
++    );
++    assert!(
++        !source.contains("pub mod messages"),
++        "无 edit::messages::… 第五路径"
++    );
++}
++
++/// 异常（源码锚）：`edit/` 零写盘、零子进程、零哈希拼装（写盘单点在壳层，哈希口径在
++/// `drift`）。
++#[test]
++fn edit零写盘零哈希拼装() {
++    for source in [include_str!("mod.rs"), include_str!("messages.rs")] {
++        for forbidden in ["fs::write", "write_atomic", "spawn", "Sha256", "sha2"] {
++            assert!(!source.contains(forbidden), "edit/ 内零 {forbidden}");
++        }
++    }
++}
++
++/// 正向（源码锚 + 编译期守卫）：crate 根 `edit` 出口含 12 个名字；本文件的 `use` 面
++/// 经 crate 根导入，任一名字离场即编译失败。
++#[test]
++fn crate根出口含十二个edit名字() {
++    let source = include_str!("../lib.rs");
++    assert!(source.contains("pub use edit::{"), "edit 出口分组块在案");
++    for name in [
++        "apply_element_spec",
++        "apply_element_delete",
++        "apply_relation_upsert",
++        "apply_relation_delete",
++        "plan_element_upsert",
++        "plan_element_delete",
++        "plan_relation_upsert",
++        "plan_relation_delete",
++        "EditError",
++        "EditErrorKind",
++        "ElementSpec",
++        "ModelWrite",
++    ] {
++        assert!(source.contains(name), "crate 根出口含 {name}");
++    }
++    assert_eq!(EditErrorKind::ALL.len(), 19, "经 crate 根可达的判据族完整");
++}
++
++/// 正向（源码锚）：crate 根 `drift` 出口三个既有名未丢 + 两个新名在场。
++#[test]
++fn crate根出口drift五名齐() {
++    let source = include_str!("../lib.rs");
++    assert!(source.contains("pub use drift::{"), "drift 出口分组块在案");
++    for name in [
++        "check",
++        "CheckError",
++        "CheckInput",
++        "file_hash",
++        "file_hash_of",
++    ] {
++        assert!(source.contains(name), "crate 根出口含 {name}");
++    }
++}
++
++/// 异常（源码锚）：退役测试声明已离场，`edit` 模块登记仍在。
++#[test]
++fn edit_test声明已离场() {
++    let source = include_str!("../lib.rs");
++    assert!(!source.contains("mod edit_test"), "退役测试声明零命中");
++    assert!(
++        source.lines().any(|line| line == "pub mod edit;"),
++        "edit 模块仍登记"
++    );
++}
++
++/// 边界（源码锚）：crate 头注释改「写回原语族」，旧「`gate` 写回纯函数」表述零命中。
++#[test]
++fn crate头注释改原语族() {
++    let source = include_str!("../lib.rs");
++    assert!(
++        source.contains("写回原语族（元素与关系的 upsert / delete）"),
++        "头注释指向原语族"
++    );
++    assert!(!source.contains("`gate` 写回纯函数"), "旧表述零命中");
++}
++
++/// 正向：12 个 `edit` 名字经 **crate 根**可达——本文件顶部的 `use crate::{…}` 即编译期
++/// 判据（任一名字离场即编译失败），此处再经每个原语各一次调用与四类型的使用钉住运行期
++/// 可用性，并复核 19 值判据集合与两哈希函数形态。
++#[test]
++fn 十二名经crate根可达() {
++    let spec = ElementSpec {
++        fqn: "App".to_owned(),
++        ..Default::default()
++    };
++    assert_eq!(
++        apply_element_spec("", &spec)
++            .expect_err("空源 + 缺 kind")
++            .kind,
++        EditErrorKind::ElementKindMissing,
++        "apply_element_spec 经 crate 根可达"
++    );
++    assert_eq!(
++        apply_element_delete("", "App")
++            .expect_err("无 element 表")
++            .kind,
++        EditErrorKind::ElementTableMissing,
++        "apply_element_delete 经 crate 根可达"
++    );
++    for failure in [
++        apply_relation_upsert("坏源 = [", "A", "B", None, None).expect_err("坏源"),
++        apply_relation_delete("坏源 = [", "A", "B").expect_err("坏源"),
++    ] {
++        assert_eq!(
++            failure.kind,
++            EditErrorKind::SourceParseFailed,
++            "关系原语两函数经 crate 根可达"
++        );
++    }
++
++    let blank = Path::new("  ");
++    assert!(
++        plan_element_upsert(blank, &gate_spec("App", GateTier::Off)).is_err(),
++        "plan_element_upsert 经 crate 根可达"
++    );
++    assert!(
++        plan_element_delete(blank, "App", None).is_err(),
++        "plan_element_delete 经 crate 根可达"
++    );
++    assert!(
++        plan_relation_upsert(blank, "A", "B", None, None, None).is_err(),
++        "plan_relation_upsert 经 crate 根可达"
++    );
++    assert!(
++        plan_relation_delete(blank, "A", "B", None).is_err(),
++        "plan_relation_delete 经 crate 根可达"
++    );
++
++    assert_eq!(EditErrorKind::ALL.len(), 19, "四类型之一：判据集合 19 值");
++    let error: EditError = messages::error(EditErrorKind::RelationDuplicated, "出口面");
++    assert!(
++        error.message().starts_with("关系多处声明："),
++        "EditError::message 经 crate 根可用：{}",
++        error.message()
++    );
++    let write = ModelWrite {
++        file: PathBuf::from("01-app.toml"),
++        content: String::new(),
++        hash: file_hash_of(Path::new("01-app.toml"), ""),
++    };
++    assert_eq!(
++        write.hash,
++        file_hash_of(Path::new("01-app.toml"), ""),
++        "ModelWrite.hash 与 file_hash_of 同源"
++    );
++
++    assert!(
++        file_hash(Path::new("不存在的单文件.toml")).starts_with("sha256:"),
++        "drift 两个新名经 crate 根可达"
++    );
++}
+diff --git a/crates/core/archi/src/edit_test.rs b/crates/core/archi/src/edit_test.rs
+deleted file mode 100644
+index faa29dfa2db0..000000000000
+--- a/crates/core/archi/src/edit_test.rs
++++ /dev/null
+@@ -1,506 +0,0 @@
+-//! `edit` 的单元测试：`set_gate` 纯函数的改 AST → 渲染 → 自证三道，以及
+-//! `plan_set_gate` 的「定位 + 读源 + 零写盘」产物语义。
+-//!
+-//! 零 mock：真实 `toml_edit`（注释与排版保留即被测能力）与真实 `TomlParser`
+-//! 读回校验（自证判据与解析层同源）。
+-
+-use std::fs;
+-use std::path::{Path, PathBuf};
+-use std::sync::atomic::{AtomicU64, Ordering};
+-
+-use foundation::layout::archi_graph_model_dir;
+-
+-use crate::dto::GateTier;
+-use crate::parse::{SourceParser, TomlParser};
+-
+-use crate::edit::{plan_set_gate, set_gate};
+-
+-// ---------------------------------------------------------------------------
+-// 真实临时目录（本 crate 无 dev-dependency，故用 std 自建）
+-// ---------------------------------------------------------------------------
+-
+-static COUNTER: AtomicU64 = AtomicU64::new(0);
+-
+-struct TempDir(PathBuf);
+-
+-impl TempDir {
+-    fn new(tag: &str) -> Self {
+-        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+-        let dir = std::env::temp_dir().join(format!(
+-            "archi-edit-test-{}-{}-{}",
+-            std::process::id(),
+-            unique,
+-            tag
+-        ));
+-        let _ = fs::remove_dir_all(&dir);
+-        fs::create_dir_all(&dir).expect("创建临时目录失败");
+-        TempDir(dir)
+-    }
+-
+-    fn root(&self) -> &Path {
+-        &self.0
+-    }
+-
+-    /// 落一个模型文件并返回其绝对路径。
+-    fn write_model(&self, name: &str, content: &str) -> PathBuf {
+-        let dir = archi_graph_model_dir(&self.0);
+-        fs::create_dir_all(&dir).expect("创建模型声明目录失败");
+-        let path = dir.join(name);
+-        fs::write(&path, content).expect("写模型文件失败");
+-        path
+-    }
+-}
+-
+-impl Drop for TempDir {
+-    fn drop(&mut self) {
+-        let _ = fs::remove_dir_all(&self.0);
+-    }
+-}
+-
+-/// 读回模型里某元素的档位（自证判据与解析层同源）。
+-fn gate_of(source: &str, fqn: &str) -> GateTier {
+-    let outcome = TomlParser::parse(source);
+-    assert!(
+-        outcome.diagnostics.is_empty(),
+-        "改档产物应可解析: {:?}",
+-        outcome.diagnostics
+-    );
+-    outcome
+-        .model
+-        .element(fqn)
+-        .unwrap_or_else(|| panic!("改档产物应含 {fqn}"))
+-        .gate
+-}
+-
+-const SOURCE: &str = concat!(
+-    "# 核心包（注释须逐字保留）\n",
+-    "[element.\"App\"]\n",
+-    "kind = \"package\"\n",
+-    "\n",
+-    "# 计费域\n",
+-    "[element.\"App.Billing\"]\n",
+-    "kind = \"module\"\n",
+-    "gate = \"off\"\n",
+-    "\n",
+-    "[element.\"App.Auth\"]\n",
+-    "kind = \"domain\"\n",
+-    "gate = \"warn\"\n",
+-);
+-
+-// ---------------------------------------------------------------------------
+-// `set_gate` 正向
+-// ---------------------------------------------------------------------------
+-
+-/// 正向：含注释 / 空行 / 多元素的源文本改 `App.Billing` 的档位 → 目标行为
+-/// `gate = "strict"`，其余行逐字保留，读回档位为新值且零诊断。
+-#[test]
+-fn 改档只动目标行且其余逐字保留() {
+-    let rendered = set_gate(SOURCE, "App.Billing", GateTier::Strict).expect("改档应成功");
+-
+-    let before: Vec<&str> = SOURCE.lines().collect();
+-    let after: Vec<&str> = rendered.lines().collect();
+-    assert_eq!(before.len(), after.len(), "行数不变（就地改值，不增删行）");
+-    let mut changed: Vec<usize> = Vec::new();
+-    for (index, (old, new)) in before.iter().zip(after.iter()).enumerate() {
+-        if old != new {
+-            changed.push(index);
+-        }
+-    }
+-    assert_eq!(changed.len(), 1, "只有一行不同（按行 diff）: {changed:?}");
+-    assert!(
+-        after[changed[0]].contains("gate = \"strict\""),
+-        "目标行为新档位: {}",
+-        after[changed[0]]
+-    );
+-    assert_eq!(
+-        gate_of(&rendered, "App.Billing"),
+-        GateTier::Strict,
+-        "读回档位为新值"
+-    );
+-    assert_eq!(
+-        gate_of(&rendered, "App.Auth"),
+-        GateTier::Warn,
+-        "其他元素档位不变"
+-    );
+-    assert!(
+-        rendered.contains("# 核心包（注释须逐字保留）") && rendered.contains("# 计费域"),
+-        "注释逐字保留"
+-    );
+-}
+-
+-/// 正向：目标元素无显式 `gate` 行 → 插入该行（缺省显式化）；再次调用改回 `off` →
+-/// 行仍在且值为 `off`（幂等可逆）。
+-#[test]
+-fn 无显式gate行插入并可逆() {
+-    let source = concat!(
+-        "[element.\"App\"]\n",
+-        "kind = \"package\"\n",
+-        "\n",
+-        "[element.\"App.Billing\"]\n",
+-        "kind = \"module\"\n",
+-        "summary = \"计费\"\n",
+-    );
+-    let inserted = set_gate(source, "App.Billing", GateTier::Strict).expect("插入应成功");
+-    assert!(
+-        inserted.contains("gate = \"strict\""),
+-        "插入显式档位行: {inserted}"
+-    );
+-    assert_eq!(gate_of(&inserted, "App.Billing"), GateTier::Strict);
+-    assert!(inserted.contains("summary = \"计费\""), "其余字段逐字保留");
+-
+-    let reverted = set_gate(&inserted, "App.Billing", GateTier::Off).expect("改回应成功");
+-    assert!(reverted.contains("gate = \"off\""), "行仍在且值回退");
+-    assert_eq!(gate_of(&reverted, "App.Billing"), GateTier::Off);
+-}
+-
+-/// 正向：三档逐值往返（`GateTier` 全 3 值覆盖）。
+-#[test]
+-fn 三档逐值往返读回一致() {
+-    for gate in GateTier::ALL {
+-        let rendered = set_gate(SOURCE, "App.Billing", gate)
+-            .unwrap_or_else(|error| panic!("改到 {} 应成功: {error}", gate.as_str()));
+-        assert_eq!(
+-            gate_of(&rendered, "App.Billing"),
+-            gate,
+-            "读回档位为 {}",
+-            gate.as_str()
+-        );
+-        assert!(
+-            rendered.contains(&format!("gate = \"{}\"", gate.as_str())),
+-            "渲染文本含线值字面量"
+-        );
+-    }
+-}
+-
+-// ---------------------------------------------------------------------------
+-// `set_gate` 异常：零文本产出
+-// ---------------------------------------------------------------------------
+-
+-/// 异常：元素缺席 → `Err` 且消息附现有 FQN 清单（零文本产出）。
+-#[test]
+-fn 元素缺席返回err并附现有元素清单() {
+-    let error = set_gate(SOURCE, "App.Missing", GateTier::Strict).expect_err("元素缺席应 Err");
+-    assert!(error.contains("元素不存在"), "文案点名缺席: {error}");
+-    assert!(error.contains("App.Missing"), "文案含目标 FQN: {error}");
+-    for existing in ["App", "App.Billing", "App.Auth"] {
+-        assert!(
+-            error.contains(existing),
+-            "文案附现有元素 {existing}: {error}"
+-        );
+-    }
+-}
+-
+-/// 异常：注入式 FQN（含 `"` / 换行 / `]`）→ 一律 `Err`，绝不产出待落盘文本
+-/// （自证纪律）。
+-#[test]
+-fn 注入式fqn一律err零文本产出() {
+-    for fqn in ["App\"]", "App\n.Auth", "App]", "App\"", ""] {
+-        let result = set_gate(SOURCE, fqn, GateTier::Strict);
+-        let error = result
+-            .err()
+-            .unwrap_or_else(|| panic!("注入形态 {fqn:?} 不得产出待落盘文本（自证纪律）"));
+-        assert!(!error.is_empty(), "错误文案非空: {fqn:?}");
+-    }
+-}
+-
+-/// 异常：源文本本身不可解析 / 无 `element` 表 → `Err`（零文本产出）。
+-#[test]
+-fn 坏源与无element表均err() {
+-    let broken = set_gate(
+-        "[element.\"App]\nkind = \"package\"\n",
+-        "App",
+-        GateTier::Strict,
+-    );
+-    assert!(broken.is_err(), "不可解析的源应 Err");
+-
+-    let no_table = set_gate("", "App", GateTier::Strict);
+-    assert!(no_table.is_err(), "无 element 表应 Err");
+-    assert!(
+-        no_table.unwrap_err().contains("element"),
+-        "文案点名元素表缺失"
+-    );
+-
+-    let only_relation = set_gate(
+-        "[[relation]]\nfrom = \"A\"\nto = \"B\"\n",
+-        "A",
+-        GateTier::Warn,
+-    );
+-    assert!(only_relation.is_err(), "只有关系表时无从定位元素");
+-}
+-
+-// ---------------------------------------------------------------------------
+-// `set_gate` 边界：排版 / str / 规模
+-// ---------------------------------------------------------------------------
+-
+-/// 边界：排版保留面——元素间空行 / 缩进 / 行内注释 / 无尾换行 / CRLF 换行 → 改值
+-/// 后各自保留（CRLF 只断言可解析与值正确，不断言换行字节；跨平台差异不入判据）。
+-#[test]
+-fn 排版保留面五形态() {
+-    // 空行 + 缩进 + 其余行行内注释
+-    let source = concat!(
+-        "[element.\"App\"]\n",
+-        "  kind   =   \"package\"   # 缩进与行内注释\n",
+-        "\n",
+-        "\n",
+-        "[element.\"App.Billing\"]\n",
+-        "kind = \"module\"\n",
+-        "gate = \"off\"\n",
+-    );
+-    let rendered = set_gate(source, "App.Billing", GateTier::Strict).expect("改档成功");
+-    assert!(
+-        rendered.contains("  kind   =   \"package\"   # 缩进与行内注释"),
+-        "缩进与行内注释逐字保留: {rendered}"
+-    );
+-    assert_eq!(rendered.matches('\n').count(), source.matches('\n').count());
+-    assert_eq!(gate_of(&rendered, "App.Billing"), GateTier::Strict);
+-
+-    // 无尾换行
+-    let no_trailing = "[element.\"App\"]\nkind = \"package\"";
+-    let rendered = set_gate(no_trailing, "App", GateTier::Warn).expect("改档成功");
+-    assert_eq!(gate_of(&rendered, "App"), GateTier::Warn);
+-
+-    // CRLF
+-    let crlf = "[element.\"App\"]\r\nkind = \"package\"\r\ngate = \"off\"\r\n";
+-    let rendered = set_gate(crlf, "App", GateTier::Strict).expect("CRLF 源改档成功");
+-    assert_eq!(gate_of(&rendered, "App"), GateTier::Strict, "CRLF 下值正确");
+-}
+-
+-/// 边界：`str` 面——`fqn` 为 `""` / 超长 / emoji 元素名：合法键形下正常改档，
+-/// 非法 / 缺席形态 `Err`，均不 panic。
+-#[test]
+-fn 特殊字符fqn改档与err两臂() {
+-    // 空串 → 缺席 Err
+-    assert!(
+-        set_gate(SOURCE, "", GateTier::Strict).is_err(),
+-        "空 FQN 应 Err"
+-    );
+-
+-    // 超长 FQN（作为合法键存在）→ 正常改档
+-    let long = "X".repeat(1200);
+-    let source = format!("[element.\"{long}\"]\nkind = \"module\"\ngate = \"off\"\n");
+-    let rendered = set_gate(&source, &long, GateTier::Warn).expect("超长 FQN 改档成功");
+-    assert_eq!(gate_of(&rendered, &long), GateTier::Warn);
+-
+-    // emoji 元素名（引号键内合法）→ 正常改档
+-    let source = "[element.\"App.🚀Auth\"]\nkind = \"module\"\ngate = \"off\"\n";
+-    let rendered = set_gate(source, "App.🚀Auth", GateTier::Strict).expect("emoji FQN 改档成功");
+-    assert_eq!(gate_of(&rendered, "App.🚀Auth"), GateTier::Strict);
+-
+-    // 超长 FQN 但模型中不存在 → Err
+-    assert!(
+-        set_gate(SOURCE, &long, GateTier::Strict).is_err(),
+-        "不存在的超长 FQN 应 Err"
+-    );
+-}
+-
+-/// 边界：规模面——500 元素文本仅目标行变化（其余行逐字相等）。
+-#[test]
+-fn 规模面五百元素仅目标行变化() {
+-    let mut source = String::new();
+-    for index in 0..500 {
+-        source.push_str(&format!(
+-            "[element.\"App.Mod{index:03}\"]\nkind = \"module\"\ngate = \"off\"\n\n"
+-        ));
+-    }
+-    let rendered = set_gate(&source, "App.Mod250", GateTier::Strict).expect("规模面改档成功");
+-    let before: Vec<&str> = source.lines().collect();
+-    let after: Vec<&str> = rendered.lines().collect();
+-    assert_eq!(before.len(), after.len(), "行数不变");
+-    let diffs: usize = before
+-        .iter()
+-        .zip(after.iter())
+-        .filter(|(old, new)| old != new)
+-        .count();
+-    assert_eq!(diffs, 1, "只有目标行变化");
+-    assert_eq!(gate_of(&rendered, "App.Mod250"), GateTier::Strict);
+-    assert_eq!(gate_of(&rendered, "App.Mod249"), GateTier::Off, "邻行不变");
+-}
+-
+-// ---------------------------------------------------------------------------
+-// `plan_set_gate`
+-// ---------------------------------------------------------------------------
+-
+-/// 正向：两文件模型（目标元素在 `02-auth.toml`）→ `GateWrite.file` 为该文件绝对
+-/// 路径、`content` 含新档位；调用后两文件字节全等原文（零写盘）。
+-#[test]
+-fn 定位目标文件并零写盘() {
+-    let temp = TempDir::new("plan");
+-    let core_path = temp.write_model("01-core.toml", "[element.\"App\"]\nkind = \"package\"\n");
+-    let auth_path = temp.write_model(
+-        "02-auth.toml",
+-        "[element.\"App.Auth\"]\nkind = \"domain\"\ngate = \"off\"\n",
+-    );
+-    let core_before = fs::read(&core_path).expect("读 core");
+-    let auth_before = fs::read(&auth_path).expect("读 auth");
+-
+-    let plan = plan_set_gate(temp.root(), "App.Auth", GateTier::Strict).expect("定位成功");
+-    assert_eq!(plan.file, auth_path, "定位到声明所在文件的绝对路径");
+-    assert!(
+-        plan.content.contains("gate = \"strict\""),
+-        "待落盘全文含新档位"
+-    );
+-    assert_eq!(
+-        fs::read(&core_path).expect("读 core"),
+-        core_before,
+-        "非目标文件零写入"
+-    );
+-    assert_eq!(
+-        fs::read(&auth_path).expect("读 auth"),
+-        auth_before,
+-        "目标文件零写入（plan 不落盘）"
+-    );
+-}
+-
+-/// 异常：元素缺席 / `models/` 目录缺席 / 模型结构错 / 坏文件读取 → 一律 `Err`
+-/// 不 panic。
+-#[test]
+-fn plan异常三形态均err() {
+-    let temp = TempDir::new("plan-err");
+-    temp.write_model("01-core.toml", "[element.\"App\"]\nkind = \"package\"\n");
+-    let absent = plan_set_gate(temp.root(), "App.Missing", GateTier::Strict);
+-    assert!(absent.is_err(), "元素缺席应 Err");
+-    assert!(absent.unwrap_err().contains("元素不存在"), "文案点名缺席");
+-
+-    let empty_root = TempDir::new("plan-empty-root");
+-    assert!(
+-        plan_set_gate(empty_root.root(), "App", GateTier::Strict).is_err(),
+-        "模型目录缺席应 Err"
+-    );
+-
+-    let broken = TempDir::new("plan-broken");
+-    broken.write_model("01-core.toml", "[element.\"App\"]\ngate = \"strict\"\n");
+-    let error = plan_set_gate(broken.root(), "App", GateTier::Warn).expect_err("结构错模型应 Err");
+-    assert!(
+-        error.contains("结构诊断") || error.contains("拒绝改档"),
+-        "文案说明模型结构坏: {error}"
+-    );
+-
+-    // 读盘失败（非 UTF-8 文件）→ 结构诊断路径亦 Err
+-    let unreadable = TempDir::new("plan-unreadable");
+-    let dir = archi_graph_model_dir(unreadable.root());
+-    fs::create_dir_all(&dir).expect("建模型声明目录");
+-    fs::write(dir.join("01-core.toml"), [0xff_u8, 0xfe, 0x80]).expect("写坏文件");
+-    assert!(
+-        plan_set_gate(unreadable.root(), "App", GateTier::Strict).is_err(),
+-        "读盘失败应 Err 不 panic"
+-    );
+-}
+-
+-/// 边界：空白 `root` / 不存在的 `root` → `Err`；`fqn` 含 emoji → 合法键形成功 /
+-/// 否则 `Err`（自证）。
+-#[test]
+-fn plan边界_空白root与不存在root与emoji() {
+-    assert!(
+-        plan_set_gate(Path::new(""), "App", GateTier::Strict).is_err(),
+-        "空白 root 应 Err"
+-    );
+-    assert!(
+-        plan_set_gate(
+-            Path::new("/nonexistent/archi/root"),
+-            "App",
+-            GateTier::Strict
+-        )
+-        .is_err(),
+-        "不存在 root 应 Err"
+-    );
+-
+-    let temp = TempDir::new("plan-emoji");
+-    temp.write_model(
+-        "01-core.toml",
+-        "[element.\"App.🚀Auth\"]\nkind = \"module\"\ngate = \"off\"\n",
+-    );
+-    let plan =
+-        plan_set_gate(temp.root(), "App.🚀Auth", GateTier::Warn).expect("emoji 元素改档成功");
+-    assert!(plan.content.contains("gate = \"warn\""));
+-    assert!(
+-        plan_set_gate(temp.root(), "App.不存在", GateTier::Warn).is_err(),
+-        "缺席元素仍 Err（不 panic）"
+-    );
+-}
+-
+-// ===========================================================================
+-// `entry` 在写面上的保留语义（`toml_edit` 保留未知 / 既有键，本层不重排不归一）
+-// ===========================================================================
+-
+-/// 正向：源含 `entry = "..."` → 改档后该行逐字保留，读回 `Element.entry` 逐字相等
+-/// （写面不吞新字段）。
+-#[test]
+-fn 改档保留entry行逐字不变() {
+-    let source = concat!(
+-        "[element.\"App.Auth\"]\n",
+-        "kind = \"domain\"\n",
+-        "gate = \"warn\"\n",
+-        "entry = \"./packages/desktop/src/auth/token.ts\"\n",
+-        "path = [\"./src/auth/\"]\n",
+-    );
+-    let rendered = set_gate(source, "App.Auth", GateTier::Strict).expect("改档应成功");
+-    assert!(
+-        rendered.contains("entry = \"./packages/desktop/src/auth/token.ts\""),
+-        "`entry` 行逐字保留（`./` 前缀不归一）：\n{rendered}"
+-    );
+-    let outcome = TomlParser::parse(&rendered);
+-    assert!(
+-        outcome.diagnostics.is_empty(),
+-        "改档产物可解析：{:?}",
+-        outcome.diagnostics
+-    );
+-    let element = outcome.model.element("App.Auth").expect("元素在案");
+-    assert_eq!(
+-        element.entry.as_deref(),
+-        Some("./packages/desktop/src/auth/token.ts"),
+-        "读回 `entry` 逐字相等"
+-    );
+-    assert_eq!(element.gate, GateTier::Strict, "档位已更新");
+-}
+-
+-/// 边界：`entry` 位于 `api` 之前 / 之后两种序均逐字保留（不重排）；无 `entry` 的源改档
+-/// 后仍无 `entry` 键（写面不臆造字段）。
+-#[test]
+-fn 改档保留entry位置且不臆造字段() {
+-    let before_api = concat!(
+-        "[element.\"App.Auth\"]\n",
+-        "kind = \"domain\"\n",
+-        "gate = \"warn\"\n",
+-        "entry = \"src/auth/token.ts\"\n",
+-        "api = \"declared\"\n",
+-    );
+-    let after_api = concat!(
+-        "[element.\"App.Auth\"]\n",
+-        "kind = \"domain\"\n",
+-        "gate = \"warn\"\n",
+-        "api = \"declared\"\n",
+-        "entry = \"src/auth/token.ts\"\n",
+-    );
+-    for source in [before_api, after_api] {
+-        let rendered = set_gate(source, "App.Auth", GateTier::Off).expect("改档应成功");
+-        assert!(
+-            rendered.contains("entry = \"src/auth/token.ts\""),
+-            "`entry` 行逐字保留（不重排）：\n{rendered}"
+-        );
+-        let entry_line = rendered
+-            .lines()
+-            .position(|line| line.starts_with("entry = "))
+-            .expect("entry 行在案");
+-        let api_line = rendered
+-            .lines()
+-            .position(|line| line.starts_with("api = "))
+-            .expect("api 行在案");
+-        assert_eq!(
+-            entry_line < api_line,
+-            source.find("entry = ").unwrap() < source.find("api = ").unwrap(),
+-            "相对序逐字保留（写面零重排）：\n{rendered}"
+-        );
+-    }
+-
+-    let plain = concat!(
+-        "[element.\"App.Auth\"]\n",
+-        "kind = \"domain\"\n",
+-        "gate = \"warn\"\n",
+-        "path = [\"src/auth/\"]\n",
+-    );
+-    let rendered = set_gate(plain, "App.Auth", GateTier::Strict).expect("改档应成功");
+-    assert!(
+-        !rendered.contains("entry"),
+-        "无 `entry` 的源改档后仍无该键（写面不臆造字段）：\n{rendered}"
+-    );
+-}
+diff --git a/crates/core/archi/src/lib.rs b/crates/core/archi/src/lib.rs
+index cd2512b292b9..6463869bd49f 100644
+--- a/crates/core/archi/src/lib.rs
++++ b/crates/core/archi/src/lib.rs
+@@ -1,5 +1,6 @@
+ //! 架构模型纯读域：解析 / 内存图 / 结构诊断 / 入口文档 / 检索 / 结构 diff /
+-//! `gate` 写回纯函数 / 三面共用投影 / 关系详情 / 架构漂移判定（scan + drift）。
++//! 写回原语族（元素与关系的 upsert / delete）/ 三面共用投影 / 关系详情 / 架构漂移
++//! 判定（scan + drift）。
+ //!
+ //! 消费面同源（进程内结构校验、agent 工具 `archi_*`、IPC 命令面、画布、架构漂移
+ //! 门禁），五条机械纪律：
+@@ -46,13 +47,18 @@ pub use drift::report::{
+     ApiFindingSeverity, ArchiApiFinding, ArchiApiFindingKind, ArchiCheckStatus, ArchiDriftKind,
+     ArchiDriftMode, ArchiDriftReport, ArchiObservationKind,
+ };
+-pub use drift::{check, CheckError, CheckInput};
++pub use drift::{check, file_hash, file_hash_of, CheckError, CheckInput};
+ pub use dto::{
+     graph_diagnostics_error, ArchiApiCheck, ArchiApiMeta, ArchiApiWriteOutcome, ArchiChangeSummary,
+     ArchiFileEntry, ArchiFileTree, ArchiGraph, ArchiModuleDetail, ArchiSearchResult,
+     DiagnosticKind, EdgeMark, ElementKind, FileEntryKind, FileTreeMark, GateTier, NodeMark,
+     SearchScope,
+ };
++pub use edit::{
++    apply_element_delete, apply_element_spec, apply_relation_delete, apply_relation_upsert,
++    plan_element_delete, plan_element_upsert, plan_relation_delete, plan_relation_upsert,
++    EditError, EditErrorKind, ElementSpec, ModelWrite,
++};
+ pub use model::{Diagnostic, Element, Model, Relation};
+ pub use relation::relation_detail;
+ pub use scan::{scan, ScanInput, ScanOutcome};
+@@ -63,8 +69,6 @@ mod diff_test;
+ #[cfg(test)]
+ mod dto_test;
+ #[cfg(test)]
+-mod edit_test;
+-#[cfg(test)]
+ mod graph_test;
+ #[cfg(test)]
+ mod model_test;
+diff --git a/src/commands/archi/mod.rs b/src/commands/archi/mod.rs
+index 4d9df8efe851..f29afa47a202 100644
+--- a/src/commands/archi/mod.rs
++++ b/src/commands/archi/mod.rs
+@@ -14,7 +14,8 @@
+ //! 三件事纪律沿 `commands/config` 模板：参数转换 → 调用 → 错误映射。投影、诊断、
+ //! diff 与待落盘产物全在 `archi`——命令层零领域规则（不建图、不解析、不推导）。
+ //! 写命令两条（`archi_set_gate` / `archi_api_generate`）：前者的写前校验在
+-//! `archi::edit::plan_set_gate` 且落盘经命令层共用原子写
++//! `archi::edit::plan_element_upsert`（写回原语族——gate 改档 = `ElementSpec { gate }`
++//! 的一次调用）且落盘经命令层共用原子写
+ //! （`commands::atomic::write_atomic`），后者的写盘单点在
+ //! `archi_runtime::api_artifacts::write_artifacts`（只增只改、从不删）；其余七条
+ //! MUST NOT 写盘。
+@@ -38,6 +39,7 @@ use archi::dto::{
+     self, ArchiApiCheck, ArchiApiWriteOutcome, ArchiChangeSummary, ArchiFileTree, ArchiGraph,
+     ArchiModuleDetail, ArchiRelationDetail,
+ };
++use archi::edit::{plan_element_upsert, ElementSpec};
+ use archi::GateTier;
+ use foundation::cancel::CancelFlag;
+ use orchestration::port::ArchiveVcsPort;
+@@ -138,10 +140,16 @@ pub fn archi_set_gate(root: String, element: String, gate: GateTier) -> Result<(
+ }
+ 
+ /// [`archi_set_gate`] 的领域组装纯函数：root 检查 → 写前校验与待落盘产物（
+-/// `archi::edit`）→ 原子写回。任一校验失败零写入。
++/// `archi::edit` 的写回原语族：gate 改档 = `ElementSpec { gate }` 的一次调用）→
++/// 原子写回。任一校验失败零写入。
+ pub fn archi_set_gate_inner(root: &Path, element: &str, gate: GateTier) -> Result<(), String> {
+     check_root(root)?;
+-    let plan = archi::edit::plan_set_gate(root, element, gate)?;
++    let spec = ElementSpec {
++        fqn: element.to_owned(),
++        gate: Some(gate),
++        ..Default::default()
++    };
++    let plan = plan_element_upsert(root, &spec).map_err(|error| error.message())?;
+     write_atomic(&plan.file, &plan.content)
+ }
+ 
+diff --git a/src/commands/archi/mod_test.rs b/src/commands/archi/mod_test.rs
+index 6b95321c851b..05c350d8c637 100644
+--- a/src/commands/archi/mod_test.rs
++++ b/src/commands/archi/mod_test.rs
+@@ -17,6 +17,7 @@ use tauri::{App, Manager};
+ use workflow::state::{ChangeStateRecord, ChangeStatus};
+ 
+ use archi::drift::ArchiDriftMode;
++use archi::edit::{plan_element_upsert, ElementSpec};
+ use archi::GateTier;
+ 
+ use super::{
+@@ -524,6 +525,185 @@ fn set_gate往返与跨文件与插入() {
+     );
+ }
+ 
++/// 正向（AC-2 主判据）：改档后落盘文件与「只把目标行 `gate = "off"` 换成
++/// `gate = "strict"`」的期望文本逐字节相等，按行 diff 恰 1 行。
++#[test]
++fn 改档落盘与期望文本逐字节相等() {
++    let temp = healthy("set-gate-byte-diff");
++    let path = archi_graph_model_dir(temp.path()).join("01-core.toml");
++
++    archi_set_gate(temp.root(), "App.Auth".to_owned(), GateTier::Strict).expect("改档 Ok");
++    let written = fs::read_to_string(&path).expect("读模型文件");
++    let expected = CORE.replace("gate = \"off\"", "gate = \"strict\"");
++    assert_eq!(written, expected, "落盘文本逐字节等于期望文本");
++
++    let before: Vec<&str> = CORE.lines().collect();
++    let after: Vec<&str> = written.lines().collect();
++    assert_eq!(before.len(), after.len(), "行数不变");
++    let changed: Vec<usize> = before
++        .iter()
++        .zip(after.iter())
++        .enumerate()
++        .filter(|(_, (old, new))| old != new)
++        .map(|(index, _)| index)
++        .collect();
++    assert_eq!(changed.len(), 1, "按行 diff 恰 1 行：{changed:?}");
++    assert!(
++        after[changed[0]].contains("gate = \"strict\""),
++        "目标行为新档位：{}",
++        after[changed[0]]
++    );
++}
++
++/// 正向（AC-5 全链：命令 → plan → apply → `write_atomic`）：表头计数准确时把 `gate`
++/// 改成其当前值 ⇒ 文件逐字节不变（回填零差异经全链成立）。
++#[test]
++fn 计数准确时改档零字节变化() {
++    let temp = TempDir::new("set-gate-zero-diff");
++    let source = format!(
++        "# 01 · core（3 元素 / 1 关系）
++{CORE}"
++    );
++    let path = temp.write_model("01-core.toml", &source);
++
++    archi_set_gate(temp.root(), "App.Auth".to_owned(), GateTier::Off).expect("改成本值 Ok");
++    assert_eq!(
++        fs::read_to_string(&path).expect("读模型文件"),
++        source,
++        "计数准确 ⇒ 改成本值零字节变化"
++    );
++}
++
++/// 正向（AC-5 / R-2 的「唯一例外」口径）：陈旧表头随一次写回被修正，括号外标题与
++/// 其余内容逐字不变。
++#[test]
++fn 陈旧表头随写回修正() {
++    let temp = TempDir::new("set-gate-stale-header");
++    let source = format!(
++        "# 01 · core（9 元素 / 0 关系）
++{CORE}"
++    );
++    let path = temp.write_model("01-core.toml", &source);
++
++    archi_set_gate(temp.root(), "App.Auth".to_owned(), GateTier::Strict).expect("改档 Ok");
++    let expected = format!(
++        "# 01 · core（3 元素 / 1 关系）
++{}",
++        CORE.replace("gate = \"off\"", "gate = \"strict\"")
++    );
++    assert_eq!(
++        fs::read_to_string(&path).expect("读模型文件"),
++        expected,
++        "陈旧表头被修正为实计数，其余逐字"
++    );
++}
++
++/// 异常（AC-7 壳层出口）：命令面 `Err` 串即 `EditError::message()` 形态——与同一失败
++/// 经 `plan_element_upsert` 直接取到的 `message()` 逐字相等，零「改档」字面。
++#[test]
++fn 命令错误串即message形态() {
++    let temp = healthy("set-gate-message");
++    let root = temp.root();
++
++    let from_command = archi_set_gate(root.clone(), "App.Missing".to_owned(), GateTier::Strict)
++        .expect_err("元素缺席应 Err");
++    let spec = ElementSpec {
++        fqn: "App.Missing".to_owned(),
++        gate: Some(GateTier::Strict),
++        ..Default::default()
++    };
++    let from_plan =
++        plan_element_upsert(Path::new(&root), &spec).expect_err("同一失败经 plan 直接取");
++
++    assert_eq!(
++        from_command,
++        from_plan.message(),
++        "命令面 Err 即 message() 逐字"
++    );
++    assert_eq!(
++        from_command.matches('：').count(),
++        1,
++        "恰一个全角冒号分隔判据与事实：{from_command}"
++    );
++    assert!(
++        from_command.starts_with("新建元素缺 kind"),
++        "缺席元素在 upsert 里是新建分支（判据句操作中立）：{from_command}"
++    );
++    assert!(
++        !from_command.contains("改档"),
++        "零「改档」字面：{from_command}"
++    );
++}
++
++/// 异常：结构错模型改档 ⇒ `Err`，文案含「模型存在结构诊断」与「拒绝写回」（`拒绝改档`
++/// 旧判据句零命中）+ 诊断种类。
++#[test]
++fn 结构错模型拒绝写回() {
++    let temp = TempDir::new("set-gate-diagnostic");
++    temp.write_model(
++        "01-bad.toml",
++        "[element.\"App\"]
++kind = \"package\"
++path = [\"a\", \"b\"]
++",
++    );
++    let path = archi_graph_model_dir(temp.path()).join("01-bad.toml");
++    let before = fs::read(&path).expect("读模型文件");
++
++    let error = archi_set_gate(temp.root(), "App".to_owned(), GateTier::Strict)
++        .expect_err("结构诊断应 Err");
++    assert!(error.contains("模型存在结构诊断"), "文案形：{error}");
++    assert!(error.contains("拒绝写回"), "判据句操作中立：{error}");
++    assert!(!error.contains("拒绝改档"), "旧判据句零命中：{error}");
++    assert!(error.contains("invalidValue"), "含诊断种类：{error}");
++    assert_eq!(fs::read(&path).expect("读模型文件"), before, "失败零写入");
++}
++
++/// 边界（源码锚）：`archi_set_gate_inner` 体只调原语族——三 needle 在场，零存在性判断、
++/// 零结构诊断判断（判据全在 `archi::edit`）。
++#[test]
++fn inner体只调原语族() {
++    let source = include_str!("mod.rs");
++    let start = source
++        .find("pub fn archi_set_gate_inner")
++        .expect("inner 在案");
++    let body = &source[start..];
++    let end = body
++        .find(
++            "
++}",
++        )
++        .expect("函数体收尾");
++    let body = &body[..end];
++
++    for needle in ["plan_element_upsert", "ElementSpec", ".message()"] {
++        assert!(
++            body.contains(needle),
++            "inner 体含 {needle}：
++{body}"
++        );
++    }
++    for forbidden in ["element(", "diagnostics"] {
++        assert!(
++            !body.contains(forbidden),
++            "命令层零 {forbidden}（判据全在 archi::edit）：
++{body}"
++        );
++    }
++}
++
++/// 边界（源码锚）：模块头注释指称写回原语族，退役名零命中。
++#[test]
++fn 文件头指称改原语族() {
++    let source = include_str!("mod.rs");
++    assert!(
++        source.contains("archi::edit::plan_element_upsert"),
++        "模块头指称写回原语族"
++    );
++    assert!(!source.contains("plan_set_gate"), "退役函数名零命中");
++    assert!(!source.contains("GateWrite"), "退役类型名零命中");
++}
++
+ /// 边界：目标目录只读（`cfg(unix)` 0o555）→ `Err` 且原文件不变、无临时文件残留。
+ #[cfg(unix)]
+ #[test]
+@@ -1621,7 +1801,7 @@ async fn archi_file_tree与唯一写命令的边界() {
+         .find("pub fn archi_file_tree_inner")
+         .expect("新命令在案");
+     let body = &source[inner_start..];
+-    for forbidden in ["plan_set_gate", "write_atomic"] {
++    for forbidden in ["plan_element_upsert", "write_atomic"] {
+         assert!(
+             !body.contains(forbidden),
+             "`archi_file_tree_inner` 体内零 {forbidden}（只读命令）"

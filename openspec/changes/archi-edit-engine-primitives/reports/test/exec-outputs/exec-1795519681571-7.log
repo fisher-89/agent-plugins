@@ -1,0 +1,4 @@
+
+=== packages_desktop_src-tauri_rust (rust) · files=11 ===
+Found 152 mutants to test
+152 mutants tested in 35m: 136 caught, 16 unviable

@@ -1,0 +1,803 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:3734:
+ fn file_hash形态与同盘稳定() {
+     let temp = TempDir::new("file-hash-stable");
+     temp.write_model("[element.\"App\"]\nkind = \"package\"\n");
+[31m-    let path = temp.root().join(".dev-team/architecture/graph/model/01-test.toml");
+[0m[32m+    let path = temp
+[0m[32m+        .root()
+[0m[32m+        .join(".dev-team/architecture/graph/model/01-test.toml");
+[0m 
+     let first = super::file_hash(&path);
+     assert_single_file_hash_shape(&first);
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:3746:
+ fn 文件变即哈希变() {
+     let temp = TempDir::new("file-hash-sensitive");
+     temp.write(".dev-team/architecture/graph/model/01.toml", "x = 1\n");
+[31m-    let path = temp.root().join(".dev-team/architecture/graph/model/01.toml");
+[0m[32m+    let path = temp
+[0m[32m+        .root()
+[0m[32m+        .join(".dev-team/architecture/graph/model/01.toml");
+[0m     let before = super::file_hash(&path);
+ 
+     std::fs::write(&path, "x = 2\n").expect("改写文件");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:3762:
+ 
+     let computed = super::file_hash_of(&path, content);
+     assert_single_file_hash_shape(&computed);
+[31m-    assert_eq!(computed, super::file_hash_of(&path, content), "同内容两次相等");
+[0m[32m+    assert_eq!(
+[0m[32m+        computed,
+[0m[32m+        super::file_hash_of(&path, content),
+[0m[32m+        "同内容两次相等"
+[0m[32m+    );
+[0m 
+     std::fs::write(&path, content).expect("落盘");
+[31m-    assert_eq!(computed, super::file_hash(&path), "逐字等于落盘后的 file_hash");
+[0m[32m+    assert_eq!(
+[0m[32m+        computed,
+[0m[32m+        super::file_hash(&path),
+[0m[32m+        "逐字等于落盘后的 file_hash"
+[0m[32m+    );
+[0m }
+ 
+ /// 异常：同名同内容跨目录相等；异名同内容不等（文件名分量进摘要）。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:3776:
+     let second = TempDir::new("file-hash-name-b");
+     second.write(".dev-team/architecture/graph/model/01-x.toml", "x = 1\n");
+     assert_eq!(
+[31m-        super::file_hash(&first.root().join(".dev-team/architecture/graph/model/01-x.toml")),
+[0m[31m-        super::file_hash(&second.root().join(".dev-team/architecture/graph/model/01-x.toml")),
+[0m[32m+        super::file_hash(
+[0m[32m+            &first
+[0m[32m+                .root()
+[0m[32m+                .join(".dev-team/architecture/graph/model/01-x.toml")
+[0m[32m+        ),
+[0m[32m+        super::file_hash(
+[0m[32m+            &second
+[0m[32m+                .root()
+[0m[32m+                .join(".dev-team/architecture/graph/model/01-x.toml")
+[0m[32m+        ),
+[0m         "同名同内容跨目录相等（累积基只取文件名）"
+     );
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:3785:
+     same_dir.write(".dev-team/architecture/graph/model/01-x.toml", "x = 1\n");
+     same_dir.write(".dev-team/architecture/graph/model/02-x.toml", "x = 1\n");
+     assert_ne!(
+[31m-        super::file_hash(&same_dir.root().join(".dev-team/architecture/graph/model/01-x.toml")),
+[0m[31m-        super::file_hash(&same_dir.root().join(".dev-team/architecture/graph/model/02-x.toml")),
+[0m[32m+        super::file_hash(
+[0m[32m+            &same_dir
+[0m[32m+                .root()
+[0m[32m+                .join(".dev-team/architecture/graph/model/01-x.toml")
+[0m[32m+        ),
+[0m[32m+        super::file_hash(
+[0m[32m+            &same_dir
+[0m[32m+                .root()
+[0m[32m+                .join(".dev-team/architecture/graph/model/02-x.toml")
+[0m[32m+        ),
+[0m         "异名同内容不等"
+     );
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:3797:
+ #[test]
+ fn 不可与目录粒度哈希互比() {
+     let temp = TempDir::new("file-hash-scope");
+[31m-    temp.write_model("[element.\"App\"]
+[0m[32m+    temp.write_model(
+[0m[32m+        "[element.\"App\"]
+[0m kind = \"package\"
+[31m-");
+[0m[32m+",
+[0m[32m+    );
+[0m     temp.write(
+         ".dev-team/architecture/graph/model/02-more.toml",
+         "[element.\"App.Auth\"]
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:3806:
+ kind = \"domain\"
+ ",
+     );
+[31m-    let path = temp.root().join(".dev-team/architecture/graph/model/01-test.toml");
+[0m[32m+    let path = temp
+[0m[32m+        .root()
+[0m[32m+        .join(".dev-team/architecture/graph/model/01-test.toml");
+[0m 
+     let single = super::file_hash(&path);
+     let model = super::model_hash(temp.root());
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:3815:
+         assert_single_file_hash_shape(value);
+     }
+     assert_ne!(single, model, "与 modelHash 不可比（聚合口径累加多条）");
+[31m-    assert_ne!(single, assets, "与 assets_hash 不可比（相对根路径 + 四类资产）");
+[0m[32m+    assert_ne!(
+[0m[32m+        single, assets,
+[0m[32m+        "与 assets_hash 不可比（相对根路径 + 四类资产）"
+[0m[32m+    );
+[0m }
+ 
+ /// 边界（矩阵：不存在路径 / 目录路径）：读失败按空字节参与，且与 `file_hash_of(…, "")`
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:3864:
+ fn hash_files是file_hash的口径单点() {
+     let temp = TempDir::new("file-hash-anchor");
+     temp.write(".dev-team/architecture/graph/model/01.toml", "x = 1\n");
+[31m-    let path = temp.root().join(".dev-team/architecture/graph/model/01.toml");
+[0m[32m+    let path = temp
+[0m[32m+        .root()
+[0m[32m+        .join(".dev-team/architecture/graph/model/01.toml");
+[0m     let parent = path.parent().expect("父目录");
+ 
+     assert_eq!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\messages_test.rs:73:
+ fn ALL与criterion分支集合逐值相等() {
+     assert_eq!(EditErrorKind::ALL.len(), 18, "ALL 恰 18 值");
+ 
+[31m-    let names: BTreeSet<&str> = EditErrorKind::ALL.iter().map(|kind| variant(*kind)).collect();
+[0m[32m+    let names: BTreeSet<&str> = EditErrorKind::ALL
+[0m[32m+        .iter()
+[0m[32m+        .map(|kind| variant(*kind))
+[0m[32m+        .collect();
+[0m     assert_eq!(names.len(), 18, "ALL 无重复变体");
+     assert_eq!(
+         names,
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\messages_test.rs:88:
+         .iter()
+         .map(|kind| kind.criterion())
+         .collect();
+[31m-    assert_eq!(criteria.len(), 18, "criterion 逐值互异（ALL 无重复的等价证明）");
+[0m[32m+    assert_eq!(
+[0m[32m+        criteria.len(),
+[0m[32m+        18,
+[0m[32m+        "criterion 逐值互异（ALL 无重复的等价证明）"
+[0m[32m+    );
+[0m }
+ 
+ /// 正向：逐值与文案表逐字相等（18 条 needle 表驱动）。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\messages_test.rs:124:
+     for kind in EditErrorKind::ALL {
+         let criterion = kind.criterion();
+         assert!(!criterion.contains("改档"), "判据句操作中立：{criterion}");
+[31m-        assert!(!criterion.contains('{') && !criterion.contains('}'), "零占位：{criterion}");
+[0m[32m+        assert!(
+[0m[32m+            !criterion.contains('{') && !criterion.contains('}'),
+[0m[32m+            "零占位：{criterion}"
+[0m[32m+        );
+[0m     }
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\messages_test.rs:134:
+     for kind in EditErrorKind::ALL {
+         let message = error(kind, "事实段").message();
+         assert_eq!(message, format!("{}：{}", kind.criterion(), "事实段"));
+[31m-        assert!(message.starts_with(kind.criterion()), "以判据句起始：{message}");
+[0m[31m-        assert_eq!(message.matches('：').count(), 1, "恰一个全角冒号：{message}");
+[0m[32m+        assert!(
+[0m[32m+            message.starts_with(kind.criterion()),
+[0m[32m+            "以判据句起始：{message}"
+[0m[32m+        );
+[0m[32m+        assert_eq!(
+[0m[32m+            message.matches('：').count(),
+[0m[32m+            1,
+[0m[32m+            "恰一个全角冒号：{message}"
+[0m[32m+        );
+[0m         let (criterion, facts) = message.split_once('：').expect("含分隔符");
+         assert_eq!(criterion, kind.criterion());
+         assert_eq!(facts, "事实段", "分隔后即 facts 原文");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:23:
+ use crate::model::{Element, Model};
+ use crate::parse::{self, SourceParser, TomlParser};
+ use crate::{
+[31m-    apply_element_delete, apply_element_spec, apply_relation_delete, apply_relation_upsert, file_hash,
+[0m[31m-    file_hash_of, plan_element_delete, plan_element_upsert, plan_relation_delete,
+[0m[32m+    apply_element_delete, apply_element_spec, apply_relation_delete, apply_relation_upsert,
+[0m[32m+    file_hash, file_hash_of, plan_element_delete, plan_element_upsert, plan_relation_delete,
+[0m     plan_relation_upsert, EditError, EditErrorKind, ElementSpec, ModelWrite,
+ };
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:369:
+ );
+ 
+ /// parser 面结构诊断源（`package` 至多一条包根 ⇒ `invalidValue`）。
+[31m-const DIAGNOSTIC_SOURCE: &str =
+[0m[31m-    "[element.\"App\"]\nkind = \"package\"\npath = [\"a\", \"b\"]\n";
+[0m[32m+const DIAGNOSTIC_SOURCE: &str = "[element.\"App\"]\nkind = \"package\"\npath = [\"a\", \"b\"]\n";
+[0m 
+ // ---------------------------------------------------------------------------
+ // `apply_element_spec`：正向
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:406:
+             if element.fqn == fqn {
+                 assert_eq!(reread.gate, gate, "{fqn} 读回新档位");
+             } else {
+[31m-                assert_eq!(reread.gate, element.gate, "非目标元素档位不变：{}", element.fqn);
+[0m[32m+                assert_eq!(
+[0m[32m+                    reread.gate, element.gate,
+[0m[32m+                    "非目标元素档位不变：{}",
+[0m[32m+                    element.fqn
+[0m[32m+                );
+[0m             }
+         }
+     }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:443:
+ 
+         let cleared =
+             apply_element_spec(FIELDS_SOURCE, &build(FQN, Some(None))).expect("清空臂应成功");
+[31m-        assert!(key_line(&cleared, key).is_none(), "{key} 清空臂删键：\n{cleared}");
+[0m[32m+        assert!(
+[0m[32m+            key_line(&cleared, key).is_none(),
+[0m[32m+            "{key} 清空臂删键：\n{cleared}"
+[0m[32m+        );
+[0m         assert_eq!(read(&element_of(&cleared, FQN)), None, "{key} 回读 None");
+ 
+         let written = apply_element_spec(FIELDS_SOURCE, &build(FQN, Some(Some("新值"))))
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:481:
+         },
+     )
+     .expect("清空臂应成功");
+[31m-    assert!(key_line(&cleared, "path").is_none(), "path 键删净：\n{cleared}");
+[0m     assert!(
+[32m+        key_line(&cleared, "path").is_none(),
+[0m[32m+        "path 键删净：\n{cleared}"
+[0m[32m+    );
+[0m[32m+    assert!(
+[0m         key_line(&cleared, "metadata").is_none(),
+         "metadata 键删净：\n{cleared}"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:504:
+     )
+     .expect("设值臂应成功");
+     let reread = element_of(&written, FQN);
+[31m-    assert_eq!(reread.path, vec!["src/auth".to_owned(), "src/token".to_owned()]);
+[0m     assert_eq!(
+[32m+        reread.path,
+[0m[32m+        vec!["src/auth".to_owned(), "src/token".to_owned()]
+[0m[32m+    );
+[0m[32m+    assert_eq!(
+[0m         reread.metadata.get("owner").map(String::as_str),
+         Some("auth"),
+         "内联表逐项回读"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:551:
+ 
+     let strict = apply_element_spec(source, &gate_spec("App.Auth", GateTier::Strict))
+         .expect("设 strict 应成功");
+[31m-    let reverted =
+[0m[31m-        apply_element_spec(&strict, &gate_spec("App.Auth", GateTier::Off)).expect("改回 off 应成功");
+[0m[32m+    let reverted = apply_element_spec(&strict, &gate_spec("App.Auth", GateTier::Off))
+[0m[32m+        .expect("改回 off 应成功");
+[0m     assert_eq!(
+         key_line(&reverted, "gate"),
+         Some("gate = \"off\""),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:581:
+         expect: None,
+     };
+     let rendered = apply_element_spec(source, &spec).expect("新建应成功");
+[31m-    let header = rendered.find("[element.\"App.New\"]").expect("新增单层表头");
+[0m[32m+    let header = rendered
+[0m[32m+        .find("[element.\"App.New\"]")
+[0m[32m+        .expect("新增单层表头");
+[0m     assert!(header > 0, "新表追加在既有元素之后：\n{rendered}");
+ 
+     let body = &rendered[header..];
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:605:
+     assert_eq!(reread.path, vec!["src/new".to_owned()]);
+     assert_eq!(reread.doc.as_deref(), Some("docs/new.md"));
+     assert_eq!(reread.summary.as_deref(), Some("新模块"));
+[31m-    assert_eq!(reread.metadata.get("owner").map(String::as_str), Some("core"));
+[0m[32m+    assert_eq!(
+[0m[32m+        reread.metadata.get("owner").map(String::as_str),
+[0m[32m+        Some("core")
+[0m[32m+    );
+[0m }
+ 
+ /// 正向（矩阵：3 形态）：写面零重排——既有键沿用原 decor，新键追加表尾，
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:693:
+         "gate = \"warn\"\n",
+         "path = [\"src/auth\"]\n",
+     );
+[31m-    let rendered = apply_element_spec(plain, &gate_spec("App.Auth", GateTier::Strict))
+[0m[31m-        .expect("改档应成功");
+[0m[32m+    let rendered =
+[0m[32m+        apply_element_spec(plain, &gate_spec("App.Auth", GateTier::Strict)).expect("改档应成功");
+[0m     assert!(
+         !rendered.contains("entry"),
+         "无 `entry` 的源改档后仍无该键（不臆造字段）：\n{rendered}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:715:
+     };
+     let failure = apply_element_spec(CORE_SOURCE, &spec).expect_err("在案 + kind 应拒");
+     assert_eq!(failure.kind, EditErrorKind::ElementAlreadyExists);
+[31m-    assert!(failure.facts.contains("App.Auth"), "facts 点名元素：{}", failure.facts);
+[0m     assert!(
+[32m+        failure.facts.contains("App.Auth"),
+[0m[32m+        "facts 点名元素：{}",
+[0m[32m+        failure.facts
+[0m[32m+    );
+[0m[32m+    assert!(
+[0m         failure.facts.contains("省去 kind"),
+         "facts 给出路：{}",
+         failure.facts
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:803:
+ /// 异常（矩阵：7 形态 + 1 对照）：新建 FQN 七形态皆拒；既有元素的同形态 FQN 不重做校验。
+ #[test]
+ fn 新建fqn七形态皆拒() {
+[31m-    let rejects = ["", "App Auth", "App\"Auth", "App[", "App]", "App#x", "App\n.Auth"];
+[0m[32m+    let rejects = [
+[0m[32m+        "",
+[0m[32m+        "App Auth",
+[0m[32m+        "App\"Auth",
+[0m[32m+        "App[",
+[0m[32m+        "App]",
+[0m[32m+        "App#x",
+[0m[32m+        "App\n.Auth",
+[0m[32m+    ];
+[0m     for fqn in rejects {
+         let spec = ElementSpec {
+             fqn: fqn.to_owned(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:813:
+         let Err(failure) = apply_element_spec(CORE_SOURCE, &spec) else {
+             panic!("{fqn:?} 应被拒（写面要把它渲染成键）")
+         };
+[31m-        assert_eq!(failure.kind, EditErrorKind::FqnInvalid, "{fqn:?} 应 FqnInvalid");
+[0m[32m+        assert_eq!(
+[0m[32m+            failure.kind,
+[0m[32m+            EditErrorKind::FqnInvalid,
+[0m[32m+            "{fqn:?} 应 FqnInvalid"
+[0m[32m+        );
+[0m         assert!(
+             failure.facts.contains(&format!("{fqn:?}")),
+             "facts 含形态：{}",
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:870:
+         };
+         let rendered = apply_element_spec(CORE_SOURCE, &spec)
+             .unwrap_or_else(|failure| panic!("特殊 FQN {fqn:?} 应可写回：{failure:?}"));
+[31m-        assert_eq!(element_of(&rendered, &fqn).kind, ElementKind::Module, "读回 {fqn:?}");
+[0m[32m+        assert_eq!(
+[0m[32m+            element_of(&rendered, &fqn).kind,
+[0m[32m+            ElementKind::Module,
+[0m[32m+            "读回 {fqn:?}"
+[0m[32m+        );
+[0m     }
+ 
+     let spaced = concat!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:907:
+     let crlf = "[element.\"App\"]\r\nkind = \"package\"\r\ngate = \"off\"\r\n";
+     let rendered =
+         apply_element_spec(crlf, &gate_spec("App", GateTier::Strict)).expect("CRLF 源改档应成功");
+[31m-    assert_eq!(element_of(&rendered, "App").gate, GateTier::Strict, "CRLF 下值正确");
+[0m[32m+    assert_eq!(
+[0m[32m+        element_of(&rendered, "App").gate,
+[0m[32m+        GateTier::Strict,
+[0m[32m+        "CRLF 下值正确"
+[0m[32m+    );
+[0m 
+     let mut large = String::new();
+     for index in 0..500 {
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:918:
+     let rendered = apply_element_spec(&large, &gate_spec("App.Mod250", GateTier::Strict))
+         .expect("规模面改档应成功");
+     assert_eq!(changed_lines(&large, &rendered).len(), 1, "只有目标行变化");
+[31m-    assert_eq!(element_of(&rendered, "App.Mod249").gate, GateTier::Off, "邻行不变");
+[0m[32m+    assert_eq!(
+[0m[32m+        element_of(&rendered, "App.Mod249").gate,
+[0m[32m+        GateTier::Off,
+[0m[32m+        "邻行不变"
+[0m[32m+    );
+[0m }
+ 
+ // ---------------------------------------------------------------------------
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1004:
+ 
+     let rendered = apply_element_delete(source, "App").expect("删 App 应成功");
+     assert!(!rendered.contains("[element.\"App\"]"));
+[31m-    assert!(rendered.contains("[element.\"App.A.B\"]"), "删祖先不连带后代");
+[0m[32m+    assert!(
+[0m[32m+        rendered.contains("[element.\"App.A.B\"]"),
+[0m[32m+        "删祖先不连带后代"
+[0m[32m+    );
+[0m }
+ 
+ /// 边界（矩阵：唯一元素 / emoji / 超长 FQN）：删净后产出仍可解析。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1039:
+ /// 正向：既有 `(from, to)` 改 `desc` ⇒ 条数不变，其余条目（含空行与注释）逐字保留。
+ #[test]
+ fn 关系命中走更新条数不变() {
+[31m-    let rendered =
+[0m[31m-        apply_relation_upsert(RELATIONS_SOURCE, "A", "B", Some(Some("新说明")), None)
+[0m[31m-            .expect("更新应成功");
+[0m[32m+    let rendered = apply_relation_upsert(RELATIONS_SOURCE, "A", "B", Some(Some("新说明")), None)
+[0m[32m+        .expect("更新应成功");
+[0m     let model = model_of(&rendered);
+     assert_eq!(model.relations.len(), 3, "条数不变");
+     assert_eq!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1048:
+         relation_of(&model, "A", "B").description.as_deref(),
+         Some("新说明")
+     );
+[31m-    assert_eq!(relation_of(&model, "B", "C").description, None, "其余条目不动");
+[0m[32m+    assert_eq!(
+[0m[32m+        relation_of(&model, "B", "C").description,
+[0m[32m+        None,
+[0m[32m+        "其余条目不动"
+[0m[32m+    );
+[0m     assert!(
+         rendered.contains("[[relation]]\nfrom = \"B\"\nto = \"C\"\n"),
+         "其余条目逐字保留：\n{rendered}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1062:
+         apply_relation_upsert(RELATIONS_SOURCE, "A", "B", None, None).expect("不动臂应成功");
+     assert_eq!(untouched, RELATIONS_SOURCE, "desc None 即整份零差异");
+ 
+[31m-    let cleared = apply_relation_upsert(RELATIONS_SOURCE, "A", "B", Some(None), None)
+[0m[31m-        .expect("清空臂应成功");
+[0m[31m-    assert!(key_line(&cleared, "desc").is_none(), "desc 键消失：\n{cleared}");
+[0m[32m+    let cleared =
+[0m[32m+        apply_relation_upsert(RELATIONS_SOURCE, "A", "B", Some(None), None).expect("清空臂应成功");
+[0m[32m+    assert!(
+[0m[32m+        key_line(&cleared, "desc").is_none(),
+[0m[32m+        "desc 键消失：\n{cleared}"
+[0m[32m+    );
+[0m     assert_eq!(
+         relation_of(&model_of(&cleared), "A", "B").description,
+         None,
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1148:
+         "[element.\"B\"]\n",
+         "kind = \"module\"\n",
+     );
+[31m-    let rendered = apply_relation_upsert(zero_relation, "A", "B", None, None)
+[0m[31m-        .expect("缺 relation 键即建数组");
+[0m[31m-    assert!(rendered.contains("[[relation]]"), "新建条目数组：\n{rendered}");
+[0m[32m+    let rendered =
+[0m[32m+        apply_relation_upsert(zero_relation, "A", "B", None, None).expect("缺 relation 键即建数组");
+[0m[32m+    assert!(
+[0m[32m+        rendered.contains("[[relation]]"),
+[0m[32m+        "新建条目数组：\n{rendered}"
+[0m[32m+    );
+[0m     assert_eq!(model_of(&rendered).relations.len(), 1);
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1163:
+         vec!["a::b".to_owned()],
+     ];
+     for names in cases {
+[31m-        let failure =
+[0m[31m-            apply_relation_upsert(APIS_SOURCE, "A", "B", None, Some(names.as_slice()))
+[0m[31m-                .expect_err("越界 apis 应被自证拒绝");
+[0m[32m+        let failure = apply_relation_upsert(APIS_SOURCE, "A", "B", None, Some(names.as_slice()))
+[0m[32m+            .expect_err("越界 apis 应被自证拒绝");
+[0m         assert_eq!(failure.kind, EditErrorKind::RenderSelfCheck);
+         assert!(
+             failure.facts.contains("invalidValue"),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1178:
+ /// 异常：源不可解析 ⇒ `SourceParseFailed`（零文本）。
+ #[test]
+ fn 关系写入坏源零文本() {
+[31m-    let failure = apply_relation_upsert("[element.\"A\"\nkind = \"module\"\n", "A", "B", None, None)
+[0m[31m-        .expect_err("坏源应 Err");
+[0m[32m+    let failure =
+[0m[32m+        apply_relation_upsert("[element.\"A\"\nkind = \"module\"\n", "A", "B", None, None)
+[0m[32m+            .expect_err("坏源应 Err");
+[0m     assert_eq!(failure.kind, EditErrorKind::SourceParseFailed);
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1358:
+ #[test]
+ fn 写后哈希可作下一次expect() {
+     let temp = TempDir::new("hash-chain");
+[31m-    temp.write_model("01-core.toml", "[element.\"App\"]\nkind = \"package\"\ngate = \"off\"\n");
+[0m[31m-    let plan = plan_element_upsert(temp.root(), &gate_spec("App", GateTier::Warn))
+[0m[31m-        .expect("计划应成功");
+[0m[32m+    temp.write_model(
+[0m[32m+        "01-core.toml",
+[0m[32m+        "[element.\"App\"]\nkind = \"package\"\ngate = \"off\"\n",
+[0m[32m+    );
+[0m[32m+    let plan =
+[0m[32m+        plan_element_upsert(temp.root(), &gate_spec("App", GateTier::Warn)).expect("计划应成功");
+[0m     assert_eq!(
+         plan.hash,
+         file_hash_of(&plan.file, &plan.content),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1368:
+     );
+ 
+     fs::write(&plan.file, &plan.content).expect("模拟壳层落盘");
+[31m-    assert_eq!(plan.hash, file_hash(&plan.file), "落盘后 file_hash 逐字相等");
+[0m[32m+    assert_eq!(
+[0m[32m+        plan.hash,
+[0m[32m+        file_hash(&plan.file),
+[0m[32m+        "落盘后 file_hash 逐字相等"
+[0m[32m+    );
+[0m 
+     let next = plan_element_upsert(
+         temp.root(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1648:
+     };
+     let from_plan = plan_element_upsert(temp.root(), &invalid_fqn).expect_err("plan 应拒");
+     let from_apply = apply_element_spec(CORE_SOURCE, &invalid_fqn).expect_err("apply 应拒");
+[31m-    assert_eq!(verdict(&from_plan), verdict(&from_apply), "FQN 形态一份措辞");
+[0m[32m+    assert_eq!(
+[0m[32m+        verdict(&from_plan),
+[0m[32m+        verdict(&from_apply),
+[0m[32m+        "FQN 形态一份措辞"
+[0m[32m+    );
+[0m 
+     let missing_kind = ElementSpec {
+         fqn: "App.Missing".to_owned(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1656:
+     };
+     let from_plan = plan_element_upsert(temp.root(), &missing_kind).expect_err("plan 应拒");
+     let from_apply = apply_element_spec(CORE_SOURCE, &missing_kind).expect_err("apply 应拒");
+[31m-    assert_eq!(verdict(&from_plan), verdict(&from_apply), "缺 kind 一份措辞");
+[0m[32m+    assert_eq!(
+[0m[32m+        verdict(&from_plan),
+[0m[32m+        verdict(&from_apply),
+[0m[32m+        "缺 kind 一份措辞"
+[0m[32m+    );
+[0m 
+     let declared = ElementSpec {
+         fqn: "App.Auth".to_owned(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1771:
+         plan.content
+     );
+     assert!(
+[31m-        plan.content.contains("[element.\"App.Billing\"]\nkind = \"module\""),
+[0m[32m+        plan.content
+[0m[32m+            .contains("[element.\"App.Billing\"]\nkind = \"module\""),
+[0m         "其余元素逐字保留"
+     );
+[31m-    assert_eq!(header_counts(&plan.content), Some((2, 1)), "表头计数随动下降");
+[0m     assert_eq!(
+[32m+        header_counts(&plan.content),
+[0m[32m+        Some((2, 1)),
+[0m[32m+        "表头计数随动下降"
+[0m[32m+    );
+[0m[32m+    assert_eq!(
+[0m         plan.hash,
+         file_hash_of(&plan.file, &plan.content),
+         "hash 与 content 自洽"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1844:
+     let failure = plan_element_delete(temp.root(), "App.Missing", None).expect_err("元素缺席应拒");
+     assert_eq!(failure.kind, EditErrorKind::ElementNotFound);
+     assert!(
+[31m-        failure
+[0m[31m-            .facts
+[0m[31m-            .contains("App.Missing（模型共 2 个元素）"),
+[0m[32m+        failure.facts.contains("App.Missing（模型共 2 个元素）"),
+[0m         "facts 为模型面形态：{}",
+         failure.facts
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1860:
+     let failure = plan_element_delete(temp.root(), "App.Auth", Some("sha256:错值"))
+         .expect_err("expect 不匹配应拒");
+     assert_eq!(failure.kind, EditErrorKind::ExpectMismatch);
+[31m-    assert!(failure.facts.contains("期望 sha256:错值"), "{}", failure.facts);
+[0m[32m+    assert!(
+[0m[32m+        failure.facts.contains("期望 sha256:错值"),
+[0m[32m+        "{}",
+[0m[32m+        failure.facts
+[0m[32m+    );
+[0m }
+ 
+ /// 边界（矩阵：2 形态）：删除判据次序固定——结构诊断先于一切，子元素先于关系。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1913:
+ 
+     let plan = plan_element_delete(temp.root(), "App", None).expect("删唯一元素应 Ok");
+     assert_eq!(model_of(&plan.content).elements.len(), 0, "回读元素数 0");
+[31m-    assert_eq!(fs::read(&keep).expect("读旁文件"), keep_before, "其余文件零变化");
+[0m[32m+    assert_eq!(
+[0m[32m+        fs::read(&keep).expect("读旁文件"),
+[0m[32m+        keep_before,
+[0m[32m+        "其余文件零变化"
+[0m[32m+    );
+[0m }
+ 
+ // ---------------------------------------------------------------------------
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:1965:
+         relation.file, ".dev-team/architecture/graph/model/02-auth.toml",
+         "modelFile 命中 from 所在文件"
+     );
+[31m-    assert_eq!(fs::read(&core).expect("读 core"), core_before, "非落点文件零变化");
+[0m[32m+    assert_eq!(
+[0m[32m+        fs::read(&core).expect("读 core"),
+[0m[32m+        core_before,
+[0m[32m+        "非落点文件零变化"
+[0m[32m+    );
+[0m }
+ 
+ /// 正向：既有 `(from, to)` 改 `desc` ⇒ `Ok`、条数不变、`description` 为新值。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:2111:
+     assert_eq!(plan.file, second, "落点 = from 元素声明文件");
+     let model = model_of(&plan.content);
+     assert!(model.relations.is_empty(), "该文件零关系且可解析");
+[31m-    assert!(
+[0m[31m-        model.element("A").is_none(),
+[0m[31m-        "content 只含落点文件的内容"
+[0m[31m-    );
+[0m[32m+    assert!(model.element("A").is_none(), "content 只含落点文件的内容");
+[0m     assert!(!plan.content.contains("[[relation]]"), "条目离场");
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:2280:
+ 
+     let mixed = "\n# 01 · 核心（3 元素 / 1 关系）\n\n[element.\"App\"]\n";
+     let backfilled = backfill_header_counts(mixed, 5, 6);
+[31m-    assert!(backfilled.contains("（5 元素 / 6 关系）"), "空行 + 注释混合首部");
+[0m[32m+    assert!(
+[0m[32m+        backfilled.contains("（5 元素 / 6 关系）"),
+[0m[32m+        "空行 + 注释混合首部"
+[0m[32m+    );
+[0m     assert_eq!(
+         backfilled.matches("\n\n[element.").count(),
+         1,
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:2303:
+ #[test]
+ fn 自证链步骤序固定() {
+     let source = include_str!("mod.rs");
+[31m-    let first = source.find("TomlParser::parse(&rendered)").expect("首次重解析取计数");
+[0m[31m-    let second = source.find("TomlParser::parse(&content)").expect("交付文本自证");
+[0m[32m+    let first = source
+[0m[32m+        .find("TomlParser::parse(&rendered)")
+[0m[32m+        .expect("首次重解析取计数");
+[0m[32m+    let second = source
+[0m[32m+        .find("TomlParser::parse(&content)")
+[0m[32m+        .expect("交付文本自证");
+[0m     let backfill = source
+         .find("backfill_header_counts(")
+         .expect("回填调用在案");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:2391:
+ /// 异常（矩阵：7 拒 + 缺 kind + 合法臂）：新建判据的形态七拒与 `kind` 必填。
+ #[test]
+ fn 新建判据七拒与缺kind() {
+[31m-    let rejects = ["", "App Auth", "App\"Auth", "App[", "App]", "App#x", "App\n.Auth"];
+[0m[32m+    let rejects = [
+[0m[32m+        "",
+[0m[32m+        "App Auth",
+[0m[32m+        "App\"Auth",
+[0m[32m+        "App[",
+[0m[32m+        "App]",
+[0m[32m+        "App#x",
+[0m[32m+        "App\n.Auth",
+[0m[32m+    ];
+[0m     for fqn in rejects {
+         let Err(failure) = check_create(fqn, Some(ElementKind::Module)) else {
+             panic!("{fqn:?} 应被拒（写面要把它渲染成键）")
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:2457:
+     }
+ 
+     let bare = TempDir::new("check-target-bare");
+[31m-    let failure = check_target(bare.root(), "App.New", Some("01-x.toml"), None)
+[0m[31m-        .expect_err("目录缺席应拒");
+[0m[32m+    let failure =
+[0m[32m+        check_target(bare.root(), "App.New", Some("01-x.toml"), None).expect_err("目录缺席应拒");
+[0m     assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
+     assert!(
+         failure.facts.contains("不存在") && failure.facts.contains("不代建目录"),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:2587:
+         .lines()
+         .filter(|line| line.starts_with("pub struct ") || line.starts_with("pub enum "))
+         .count();
+[31m-    assert_eq!(public_types, 2, "公开类型恰 2 个（ModelWrite / ElementSpec）");
+[0m[32m+    assert_eq!(
+[0m[32m+        public_types, 2,
+[0m[32m+        "公开类型恰 2 个（ModelWrite / ElementSpec）"
+[0m[32m+    );
+[0m 
+     let public_uses: Vec<&str> = source
+         .lines()
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:2602:
+         source.lines().any(|line| line == "mod messages;"),
+         "messages 为私有子模块"
+     );
+[31m-    assert!(!source.contains("pub mod messages"), "无 edit::messages::… 第五路径");
+[0m[32m+    assert!(
+[0m[32m+        !source.contains("pub mod messages"),
+[0m[32m+        "无 edit::messages::… 第五路径"
+[0m[32m+    );
+[0m }
+ 
+ /// 异常（源码锚）：`edit/` 零写盘、零子进程、零哈希拼装（写盘单点在壳层，哈希口径在
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:2646:
+ fn crate根出口drift五名齐() {
+     let source = include_str!("../lib.rs");
+     assert!(source.contains("pub use drift::{"), "drift 出口分组块在案");
+[31m-    for name in ["check", "CheckError", "CheckInput", "file_hash", "file_hash_of"] {
+[0m[32m+    for name in [
+[0m[32m+        "check",
+[0m[32m+        "CheckError",
+[0m[32m+        "CheckInput",
+[0m[32m+        "file_hash",
+[0m[32m+        "file_hash_of",
+[0m[32m+    ] {
+[0m         assert!(source.contains(name), "crate 根出口含 {name}");
+     }
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\src\commands\archi\mod_test.rs:560:
+ #[test]
+ fn 计数准确时改档零字节变化() {
+     let temp = TempDir::new("set-gate-zero-diff");
+[31m-    let source = format!("# 01 · core（3 元素 / 1 关系）
+[0m[31m-{CORE}");
+[0m[32m+    let source = format!(
+[0m[32m+        "# 01 · core（3 元素 / 1 关系）
+[0m[32m+{CORE}"
+[0m[32m+    );
+[0m     let path = temp.write_model("01-core.toml", &source);
+ 
+     archi_set_gate(temp.root(), "App.Auth".to_owned(), GateTier::Off).expect("改成本值 Ok");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\src\commands\archi\mod_test.rs:577:
+ #[test]
+ fn 陈旧表头随写回修正() {
+     let temp = TempDir::new("set-gate-stale-header");
+[31m-    let source = format!("# 01 · core（9 元素 / 0 关系）
+[0m[31m-{CORE}");
+[0m[32m+    let source = format!(
+[0m[32m+        "# 01 · core（9 元素 / 0 关系）
+[0m[32m+{CORE}"
+[0m[32m+    );
+[0m     let path = temp.write_model("01-core.toml", &source);
+ 
+     archi_set_gate(temp.root(), "App.Auth".to_owned(), GateTier::Strict).expect("改档 Ok");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\src\commands\archi\mod_test.rs:601:
+     let temp = healthy("set-gate-message");
+     let root = temp.root();
+ 
+[31m-    let from_command =
+[0m[31m-        archi_set_gate(root.clone(), "App.Missing".to_owned(), GateTier::Strict).expect_err("元素缺席应 Err");
+[0m[32m+    let from_command = archi_set_gate(root.clone(), "App.Missing".to_owned(), GateTier::Strict)
+[0m[32m+        .expect_err("元素缺席应 Err");
+[0m     let spec = ElementSpec {
+         fqn: "App.Missing".to_owned(),
+         gate: Some(GateTier::Strict),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\src\commands\archi\mod_test.rs:609:
+         ..Default::default()
+     };
+[31m-    let from_plan = plan_element_upsert(Path::new(&root), &spec).expect_err("同一失败经 plan 直接取");
+[0m[32m+    let from_plan =
+[0m[32m+        plan_element_upsert(Path::new(&root), &spec).expect_err("同一失败经 plan 直接取");
+[0m 
+[31m-    assert_eq!(from_command, from_plan.message(), "命令面 Err 即 message() 逐字");
+[0m     assert_eq!(
+[32m+        from_command,
+[0m[32m+        from_plan.message(),
+[0m[32m+        "命令面 Err 即 message() 逐字"
+[0m[32m+    );
+[0m[32m+    assert_eq!(
+[0m         from_command.matches('：').count(),
+         1,
+         "恰一个全角冒号分隔判据与事实：{from_command}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\src\commands\archi\mod_test.rs:620:
+         from_command.starts_with("新建元素缺 kind"),
+         "缺席元素在 upsert 里是新建分支（判据句操作中立）：{from_command}"
+     );
+[31m-    assert!(!from_command.contains("改档"), "零「改档」字面：{from_command}");
+[0m[32m+    assert!(
+[0m[32m+        !from_command.contains("改档"),
+[0m[32m+        "零「改档」字面：{from_command}"
+[0m[32m+    );
+[0m }
+ 
+ /// 异常：结构错模型改档 ⇒ `Err`，文案含「模型存在结构诊断」与「拒绝写回」（`拒绝改档`
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\src\commands\archi\mod_test.rs:656:
+         .find("pub fn archi_set_gate_inner")
+         .expect("inner 在案");
+     let body = &source[start..];
+[31m-    let end = body.find("
+[0m[31m-}").expect("函数体收尾");
+[0m[32m+    let end = body
+[0m[32m+        .find(
+[0m[32m+            "
+[0m[32m+}",
+[0m[32m+        )
+[0m[32m+        .expect("函数体收尾");
+[0m     let body = &body[..end];
+ 
+     for needle in ["plan_element_upsert", "ElementSpec", ".message()"] {
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-edit-engine-primitives\packages\desktop\src-tauri\src\commands\archi\mod_test.rs:664:
+[31m-        assert!(body.contains(needle), "inner 体含 {needle}：
+[0m[31m-{body}");
+[0m[32m+        assert!(
+[0m[32m+            body.contains(needle),
+[0m[32m+            "inner 体含 {needle}：
+[0m[32m+{body}"
+[0m[32m+        );
+[0m     }
+     for forbidden in ["element(", "diagnostics"] {
+         assert!(
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

@@ -17,6 +17,7 @@ use tauri::{App, Manager};
 use workflow::state::{ChangeStateRecord, ChangeStatus};
 
 use archi::drift::ArchiDriftMode;
+use archi::edit::{plan_element_upsert, ElementSpec};
 use archi::GateTier;
 
 use super::{
@@ -522,6 +523,185 @@ fn set_gate往返与跨文件与插入() {
         auth_source.contains("gate = "),
         "无显式 gate 行的元素经插入获得该行: {auth_source}"
     );
+}
+
+/// 正向（AC-2 主判据）：改档后落盘文件与「只把目标行 `gate = "off"` 换成
+/// `gate = "strict"`」的期望文本逐字节相等，按行 diff 恰 1 行。
+#[test]
+fn 改档落盘与期望文本逐字节相等() {
+    let temp = healthy("set-gate-byte-diff");
+    let path = archi_graph_model_dir(temp.path()).join("01-core.toml");
+
+    archi_set_gate(temp.root(), "App.Auth".to_owned(), GateTier::Strict).expect("改档 Ok");
+    let written = fs::read_to_string(&path).expect("读模型文件");
+    let expected = CORE.replace("gate = \"off\"", "gate = \"strict\"");
+    assert_eq!(written, expected, "落盘文本逐字节等于期望文本");
+
+    let before: Vec<&str> = CORE.lines().collect();
+    let after: Vec<&str> = written.lines().collect();
+    assert_eq!(before.len(), after.len(), "行数不变");
+    let changed: Vec<usize> = before
+        .iter()
+        .zip(after.iter())
+        .enumerate()
+        .filter(|(_, (old, new))| old != new)
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(changed.len(), 1, "按行 diff 恰 1 行：{changed:?}");
+    assert!(
+        after[changed[0]].contains("gate = \"strict\""),
+        "目标行为新档位：{}",
+        after[changed[0]]
+    );
+}
+
+/// 正向（AC-5 全链：命令 → plan → apply → `write_atomic`）：表头计数准确时把 `gate`
+/// 改成其当前值 ⇒ 文件逐字节不变（回填零差异经全链成立）。
+#[test]
+fn 计数准确时改档零字节变化() {
+    let temp = TempDir::new("set-gate-zero-diff");
+    let source = format!(
+        "# 01 · core（3 元素 / 1 关系）
+{CORE}"
+    );
+    let path = temp.write_model("01-core.toml", &source);
+
+    archi_set_gate(temp.root(), "App.Auth".to_owned(), GateTier::Off).expect("改成本值 Ok");
+    assert_eq!(
+        fs::read_to_string(&path).expect("读模型文件"),
+        source,
+        "计数准确 ⇒ 改成本值零字节变化"
+    );
+}
+
+/// 正向（AC-5 / R-2 的「唯一例外」口径）：陈旧表头随一次写回被修正，括号外标题与
+/// 其余内容逐字不变。
+#[test]
+fn 陈旧表头随写回修正() {
+    let temp = TempDir::new("set-gate-stale-header");
+    let source = format!(
+        "# 01 · core（9 元素 / 0 关系）
+{CORE}"
+    );
+    let path = temp.write_model("01-core.toml", &source);
+
+    archi_set_gate(temp.root(), "App.Auth".to_owned(), GateTier::Strict).expect("改档 Ok");
+    let expected = format!(
+        "# 01 · core（3 元素 / 1 关系）
+{}",
+        CORE.replace("gate = \"off\"", "gate = \"strict\"")
+    );
+    assert_eq!(
+        fs::read_to_string(&path).expect("读模型文件"),
+        expected,
+        "陈旧表头被修正为实计数，其余逐字"
+    );
+}
+
+/// 异常（AC-7 壳层出口）：命令面 `Err` 串即 `EditError::message()` 形态——与同一失败
+/// 经 `plan_element_upsert` 直接取到的 `message()` 逐字相等，零「改档」字面。
+#[test]
+fn 命令错误串即message形态() {
+    let temp = healthy("set-gate-message");
+    let root = temp.root();
+
+    let from_command = archi_set_gate(root.clone(), "App.Missing".to_owned(), GateTier::Strict)
+        .expect_err("元素缺席应 Err");
+    let spec = ElementSpec {
+        fqn: "App.Missing".to_owned(),
+        gate: Some(GateTier::Strict),
+        ..Default::default()
+    };
+    let from_plan =
+        plan_element_upsert(Path::new(&root), &spec).expect_err("同一失败经 plan 直接取");
+
+    assert_eq!(
+        from_command,
+        from_plan.message(),
+        "命令面 Err 即 message() 逐字"
+    );
+    assert_eq!(
+        from_command.matches('：').count(),
+        1,
+        "恰一个全角冒号分隔判据与事实：{from_command}"
+    );
+    assert!(
+        from_command.starts_with("新建元素缺 kind"),
+        "缺席元素在 upsert 里是新建分支（判据句操作中立）：{from_command}"
+    );
+    assert!(
+        !from_command.contains("改档"),
+        "零「改档」字面：{from_command}"
+    );
+}
+
+/// 异常：结构错模型改档 ⇒ `Err`，文案含「模型存在结构诊断」与「拒绝写回」（`拒绝改档`
+/// 旧判据句零命中）+ 诊断种类。
+#[test]
+fn 结构错模型拒绝写回() {
+    let temp = TempDir::new("set-gate-diagnostic");
+    temp.write_model(
+        "01-bad.toml",
+        "[element.\"App\"]
+kind = \"package\"
+path = [\"a\", \"b\"]
+",
+    );
+    let path = archi_graph_model_dir(temp.path()).join("01-bad.toml");
+    let before = fs::read(&path).expect("读模型文件");
+
+    let error = archi_set_gate(temp.root(), "App".to_owned(), GateTier::Strict)
+        .expect_err("结构诊断应 Err");
+    assert!(error.contains("模型存在结构诊断"), "文案形：{error}");
+    assert!(error.contains("拒绝写回"), "判据句操作中立：{error}");
+    assert!(!error.contains("拒绝改档"), "旧判据句零命中：{error}");
+    assert!(error.contains("invalidValue"), "含诊断种类：{error}");
+    assert_eq!(fs::read(&path).expect("读模型文件"), before, "失败零写入");
+}
+
+/// 边界（源码锚）：`archi_set_gate_inner` 体只调原语族——三 needle 在场，零存在性判断、
+/// 零结构诊断判断（判据全在 `archi::edit`）。
+#[test]
+fn inner体只调原语族() {
+    let source = include_str!("mod.rs");
+    let start = source
+        .find("pub fn archi_set_gate_inner")
+        .expect("inner 在案");
+    let body = &source[start..];
+    let end = body
+        .find(
+            "
+}",
+        )
+        .expect("函数体收尾");
+    let body = &body[..end];
+
+    for needle in ["plan_element_upsert", "ElementSpec", ".message()"] {
+        assert!(
+            body.contains(needle),
+            "inner 体含 {needle}：
+{body}"
+        );
+    }
+    for forbidden in ["element(", "diagnostics"] {
+        assert!(
+            !body.contains(forbidden),
+            "命令层零 {forbidden}（判据全在 archi::edit）：
+{body}"
+        );
+    }
+}
+
+/// 边界（源码锚）：模块头注释指称写回原语族，退役名零命中。
+#[test]
+fn 文件头指称改原语族() {
+    let source = include_str!("mod.rs");
+    assert!(
+        source.contains("archi::edit::plan_element_upsert"),
+        "模块头指称写回原语族"
+    );
+    assert!(!source.contains("plan_set_gate"), "退役函数名零命中");
+    assert!(!source.contains("GateWrite"), "退役类型名零命中");
 }
 
 /// 边界：目标目录只读（`cfg(unix)` 0o555）→ `Err` 且原文件不变、无临时文件残留。
@@ -1621,7 +1801,7 @@ async fn archi_file_tree与唯一写命令的边界() {
         .find("pub fn archi_file_tree_inner")
         .expect("新命令在案");
     let body = &source[inner_start..];
-    for forbidden in ["plan_set_gate", "write_atomic"] {
+    for forbidden in ["plan_element_upsert", "write_atomic"] {
         assert!(
             !body.contains(forbidden),
             "`archi_file_tree_inner` 体内零 {forbidden}（只读命令）"

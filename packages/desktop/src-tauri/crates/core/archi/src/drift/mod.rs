@@ -572,12 +572,15 @@ fn model_file_count(root: &Path) -> usize {
 /// 目录迁移不改变哈希。
 fn model_hash(root: &Path) -> String {
     let dir = foundation::layout::archi_graph_model_dir(root);
-    hash_files(&model_files(root), &dir)
+    hash_files(&model_files(root), &dir, &read_bytes)
 }
 
-/// 累加 helper（`model_hash` 与 [`assets_hash`] 共用）：按给定序逐文件累加「相对
-/// `base` 的路径 + 字节」，空字节分隔，输出 `sha256:<hex>`；读失败按空字节参与。
-fn hash_files(files: &[PathBuf], base: &Path) -> String {
+/// 累加核心（全 crate 唯一一处 `Sha256` 拼装）：按给定序逐文件累加「相对 `base` 的
+/// 路径 + 字节」，空字节分隔，输出 `sha256:<hex>`。
+///
+/// 「字节从哪来」由 `read` 单点决定——读盘面（[`read_bytes`]）与「字节由调用方给」面
+/// （[`file_hash_of`]）都落在这一个循环上，MUST NOT 另写一份拼装。
+fn hash_files(files: &[PathBuf], base: &Path, read: &dyn Fn(&Path) -> Vec<u8>) -> String {
     let mut hasher = Sha256::new();
     for file in files {
         let name = file
@@ -587,13 +590,42 @@ fn hash_files(files: &[PathBuf], base: &Path) -> String {
             .replace('\\', "/");
         hasher.update(name.as_bytes());
         hasher.update([0u8]);
-        let bytes = std::fs::read(file).unwrap_or_default();
+        let bytes = read(file);
         hasher.update(&bytes);
         hasher.update([0u8]);
     }
     let digest = hasher.finalize();
     let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
     format!("sha256:{hex}")
+}
+
+/// 读盘面的字节来源（读失败按空字节参与累加，哈希仍确定）。
+fn read_bytes(path: &Path) -> Vec<u8> {
+    std::fs::read(path).unwrap_or_default()
+}
+
+/// 单文件哈希的累加基（`base` 取父目录 ⇒ 累加的名字分量即文件名本身）。
+fn parent_of(path: &Path) -> &Path {
+    path.parent().unwrap_or_else(|| Path::new(""))
+}
+
+/// 单文件内容哈希（`sha256:` + 64 位小写 hex）：读盘后累加，读失败按空字节参与。
+///
+/// 用途单一是写面乐观锁——`plan_*` 以本值校验 `expect`。**文件名参与累加** ⇒ 与
+/// 报告的 `modelHash` / [`assets_hash`] 的数值**不可比**（异名同内容两文件得不同值），
+/// 唯一可比对象是同一路径的前后取值。
+pub fn file_hash(path: &Path) -> String {
+    hash_files(&[path.to_path_buf()], parent_of(path), &read_bytes)
+}
+
+/// 单文件内容哈希（字节由调用方给出）——[`file_hash`] 的「尚未落盘」同构形态。
+///
+/// 写后等价锚：本值逐字等于「把 `content` 落盘到 `path` 后的 [`file_hash`]」。写面
+/// 据此把该值作为 `ModelWrite.hash` 交付，调用方可直接拿去作下一次 `expect`。
+pub fn file_hash_of(path: &Path, content: &str) -> String {
+    hash_files(&[path.to_path_buf()], parent_of(path), &|_: &Path| {
+        content.as_bytes().to_vec()
+    })
 }
 
 /// 架构资产聚合哈希（四类覆盖面：`graph/model/*.toml`、`models/**/*.md`、
@@ -604,7 +636,7 @@ fn hash_files(files: &[PathBuf], base: &Path) -> String {
 /// ——故遍历**不走 `ignore`**（`.gitignore` 状态不得污染哈希）。缺失目录不参与、
 /// 单文件读失败按空字节；纯读盘、零写盘、零 spawn。
 pub fn assets_hash(root: &Path) -> String {
-    hash_files(&collect_assets(root), root)
+    hash_files(&collect_assets(root), root, &read_bytes)
 }
 
 /// 四类资产的盘面清单（相对 `root` 的路径字典序——稳定序是哈希确定性的前提）。
