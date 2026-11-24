@@ -322,19 +322,39 @@ impl ChainWs {
     /// 命令专用：执行臂逐次记账 → 输出锁文本 → 非零退出，瞬态签名命中后 5 次
     /// 耗尽转 `Environment`；版本探测臂不计账直接非零）。
     ///
-    /// 执行臂支持 `NPX_SLEEP_MS` 睡眠键：jest 档耗时是「预算是否在第三 plan 边界
+    /// `jest_first == true` 把 jest 档换到 plan 序首位（node-test 绿 ×2 殿后）：
+    /// 跨 plan 总预算的越界判据因此只由 jest 档的注入睡眠决定，MUST NOT 依赖
+    /// detect / 前序 plan 的真实耗时（后者的 PowerShell 冷启在门禁并发下可涨到
+    /// 数秒，足以让预算在故障 plan 之前就触发）。
+    ///
+    /// 执行臂支持 `NPX_SLEEP_MS` 睡眠键：jest 档耗时是「预算是否在后续 plan 边界
     /// 才触发」的唯一可控量，靠 PowerShell 冷启的真耗时不可控（空闲与高负载可差
     /// 5 倍以上），故由消费用例显式注入。
-    fn three_plan_mixed(self) -> Self {
+    fn three_plan_mixed(self, jest_first: bool) -> Self {
+        let (first, second, third) = if jest_first {
+            ("jest", "node-test", "node-test")
+        } else {
+            ("node-test", "jest", "node-test")
+        };
         fs::write(
             self.root().join(".dev-team").join("config.json"),
-            r#"{ "tests": [
-  { "root": "app", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } },
-  { "root": "app2", "framework": "jest", "coverage": { "lines": 60, "branches": 70, "functions": 75 } },
-  { "root": "app3", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } }
-] }"#,
+            format!(
+                r#"{{ "tests": [
+  {{ "root": "app", "framework": "{first}", "coverage": {{ "lines": 60, "branches": 70, "functions": 75 }} }},
+  {{ "root": "app2", "framework": "{second}", "coverage": {{ "lines": 60, "branches": 70, "functions": 75 }} }},
+  {{ "root": "app3", "framework": "{third}", "coverage": {{ "lines": 60, "branches": 70, "functions": 75 }} }}
+] }}"#
+            ),
         )
         .expect("覆写三 plan config");
+        if jest_first {
+            // jest default_glob 不含 `.mjs`（base fixture 的 add.test.mjs 不命中）
+            fs::write(
+                self.root().join("app").join("src").join("jest.test.js"),
+                "test body",
+            )
+            .expect("写首 suite jest 输入文件");
+        }
         fs::create_dir_all(self.root().join("app2").join("src")).expect("创建第二 suite src");
         fs::write(
             self.root().join("app2").join("src").join("b.test.js"),
@@ -353,7 +373,21 @@ impl ChainWs {
         {
             fs::write(
                 self.root().join("app").join("npx.cmd"),
-                "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0npx-shim.ps1\" %*\r\nexit /b %errorlevel%\r\n",
+                // `--version` 臂与 node.cmd 同理在 .cmd 层短接（MUST NOT 落到
+                // PowerShell）：jest 档版本探测为 `npx jest --version`（旗不在首位，
+                // 故逐参扫描；`shift` 连 `%0` 一并轮转，脚本目录须先落到变量）；
+                // 探测耗时为跨 plan 总预算（起点在 detect 之前）的直接扣除项，
+                // PowerShell 冷启在高负载下的数秒成本足以让预算在首个 plan 之前触发
+                "@echo off\r\n\
+                 set \"shim_dir=%~dp0\"\r\n\
+                 :args\r\n\
+                 if \"%~1\"==\"\" goto body\r\n\
+                 if \"%~1\"==\"--version\" exit /b 1\r\n\
+                 shift\r\n\
+                 goto args\r\n\
+                 :body\r\n\
+                 powershell -NoProfile -ExecutionPolicy Bypass -File \"%shim_dir%npx-shim.ps1\" %*\r\n\
+                 exit /b %errorlevel%\r\n",
             )
             .expect("写 npx.cmd 失败");
             fs::write(
@@ -2734,7 +2768,7 @@ async fn stopped优先于environment_环境错误后取消收口stopped() {
 async fn 三plan混合_环境错误在中间继续跑完且计数不泄漏() {
     let _gate = ClockGate::new();
     let _window = path_window();
-    let ws = ChainWs::new("fault-env-three-plan").three_plan_mixed();
+    let ws = ChainWs::new("fault-env-three-plan").three_plan_mixed(false);
     let spec_src = ws.root().join("preset-results.txt");
     fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
     let marker = ws.root().join("shim-marker.log");
@@ -3076,27 +3110,29 @@ async fn 预算不覆盖既有stopped() {
     assert_eq!(ws.marker_count(), 0, "入口短路零 spawn");
 }
 
-/// 异常（AC-6 异常臂）：预算不覆盖既有 `Environment`——三 plan 混合装置（中间
-/// jest 档瞬态耗尽 → `Environment(锁文案)`，`fault.is_none()` 守卫使其不被覆盖）
-/// + 8 s 预算（jest 档 5 次尝试的睡眠注入 5 × 2 s ≫ 预算，第三 plan 边界必越）
-/// → 最终 `fault` 仍为首个 `Environment`（文案含锁文本、**不含**「超预算」）；
-/// 进入第三 plan 边界时零 spawn。
+/// 异常（AC-6 异常臂）：预算不覆盖既有 `Environment`——三 plan 混合装置中 **jest
+/// 档打头**（首个 plan 即瞬态耗尽 → `Environment(锁文案)`，`fault.is_none()` 守卫
+/// 使其不被随后的预算文案覆盖）+ 4 s 预算 < jest 档 5 次尝试的注入睡眠
+/// （5 × 1.5 s = 7.5 s）→ 第二 plan 边界必越，余下两个 node-test plan 零 spawn；
+/// 最终 `fault` 仍为首个 `Environment`（文案含锁文本、**不含**「超预算」）。
 ///
-/// **两个边界的判据都靠注入量而非真耗时**：第二 plan 边界 MUST NOT 越预算
-/// （「既有 fault 未被预算覆盖」可观测性的前提），第三 plan 边界 MUST 越——
-/// 前者由 `预算(8 s) > detect + 首个 plan 的真实成本` 保证，后者由 jest 档
-/// 10 s 注入睡眠保证；两侧各留 3 s 以上余量，不随机器负载翻转。
+/// **两个边界的判据都靠注入量而非真耗时**：首个 plan 边界 MUST NOT 越预算——
+/// 三档版本探测均在 `.cmd` 层短接（零 PowerShell 冷启），detect 为数十毫秒量级，
+/// 4 s 预算留两个数量级余量；第二 plan 边界 MUST 越——由 jest 档 7.5 s 注入睡眠
+/// 保证。旧装置把「detect + 首个 plan 的真实成本」放在预算之内，门禁并发下
+/// PowerShell 冷启涨到数秒即令预算在故障 plan 之前触发（预算文案覆盖可观测面）。
 #[tokio::test(start_paused = true)]
 async fn 预算不覆盖既有environment() {
     let _gate = ClockGate::new();
     let _window = path_window();
-    let ws = ChainWs::new("budget-env").three_plan_mixed();
+    let ws = ChainWs::new("budget-env").three_plan_mixed(true);
     let spec_src = ws.root().join("preset-results.txt");
     fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
     let marker = ws.root().join("shim-marker.log");
-    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+    let second_results = ws.results_dest_of("app2_node-test");
+    set_shim_env(&spec_src, &second_results, Some(&marker), None);
     set_shim_dest_2(&ws.results_dest_third());
-    std::env::set_var("NPX_SLEEP_MS", "2000");
+    std::env::set_var("NPX_SLEEP_MS", "1500");
     ws.prepend_path();
 
     let ws_root = ws.root_str();
@@ -3106,7 +3142,7 @@ async fn 预算不覆盖既有environment() {
             CHANGE,
             ReportSlot::Test,
             foundation::cancel::CancelFlag::never(),
-            std::time::Duration::from_secs(8),
+            std::time::Duration::from_secs(4),
             None,
         )
         .await
@@ -3137,10 +3173,14 @@ async fn 预算不覆盖既有environment() {
         "既有 Environment 不被预算文案覆盖: {text}"
     );
     assert_eq!(line_count(&ws.npx_attempt_log()), 5, "jest 档 5 次尝试");
-    assert_eq!(ws.marker_count(), 1, "第三 plan 零 spawn（预算收口）");
+    assert_eq!(ws.marker_count(), 0, "余下两个 plan 零 spawn（预算收口）");
+    assert!(
+        !second_results.exists(),
+        "第二 plan（app2）工件未产（零 spawn）"
+    );
     assert!(
         !ws.results_dest_third().exists(),
-        "第三 plan 工件未产（零 spawn）"
+        "第三 plan（app3）工件未产（零 spawn）"
     );
     assert!(
         !ws.reports_dir().join("summary.json").exists(),
