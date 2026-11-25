@@ -90,6 +90,8 @@ function summary(id: string, turnCount = 1): SessionSummary {
       totalDurationMs: null,
       inputTokens: null,
       outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
     },
     turns: Array.from({ length: turnCount }, (_, index) => turn(index + 1)),
     preamble: null,

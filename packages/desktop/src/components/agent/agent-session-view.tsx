@@ -1,15 +1,15 @@
 import { useMemo, useState } from 'react';
 
 import { StandardDrawer } from '@/components/standard/drawer';
-import { TextTooltip } from '@/components/standard/tooltip';
 import { Badge, Button } from '@/components/ui';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import {
   useAgentSession,
   type AgentSessionSendInput,
   type UseAgentSessionState,
 } from '@/hooks/use-agent-session';
-import { formatTokens } from '@/lib/token';
-import type { SessionPreambleInfo, SessionSummary } from '@/types/generated/bindings';
+import { cacheHitRate, formatPercent, formatTokens } from '@/lib/token';
+import type { SessionPreambleInfo, SessionStats, SessionSummary } from '@/types/generated/bindings';
 
 import { latestAgentFailure, type AgentFailure } from './agent-error';
 import { type AskAnswerActions, AgentMessages } from './agent-messages';
@@ -99,6 +99,45 @@ function PreambleDrawer({ preamble }: { preamble: SessionPreambleInfo }): React.
   );
 }
 
+/** token 用量卡片：悬停元信息行合计展开输入 / 输出 / 缓存读写与命中率。
+ * 命中率 = 缓存读取 ÷ 输入（rig 口径：输入已含缓存读写），任一侧缺席即无定义。 */
+function TokenCard({ stats }: { stats: SessionStats }): React.JSX.Element {
+  const hitRate = cacheHitRate(stats.cachedInputTokens, stats.inputTokens);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="font-medium text-popover-foreground">Token 用量</div>
+      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+        <span className="text-muted-foreground">输入</span>
+        <span className="text-right font-mono tabular-nums" data-testid="session-token-input">
+          {formatTokens(stats.inputTokens)}
+        </span>
+        <span className="text-muted-foreground">输出</span>
+        <span className="text-right font-mono tabular-nums" data-testid="session-token-output">
+          {formatTokens(stats.outputTokens)}
+        </span>
+      </div>
+      <div className="border-t border-border" />
+      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+        <span className="text-muted-foreground">缓存命中率</span>
+        <span
+          className="text-right font-mono font-medium tabular-nums"
+          data-testid="session-token-cache-hit-rate"
+        >
+          {formatPercent(hitRate)}
+        </span>
+        <span className="text-muted-foreground">缓存读取</span>
+        <span className="text-right font-mono tabular-nums" data-testid="session-token-cache-read">
+          {formatTokens(stats.cachedInputTokens)}
+        </span>
+        <span className="text-muted-foreground">缓存写入</span>
+        <span className="text-right font-mono tabular-nums" data-testid="session-token-cache-write">
+          {formatTokens(stats.cacheCreationInputTokens)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /** 会话元信息区（会话 id / 运行中徽章 / 轮数 / tokens / 快照入口；自组件状态读取） */
 function SessionMeta({
   summary,
@@ -123,14 +162,20 @@ function SessionMeta({
         {running ? '运行中' : '已收口'}
       </Badge>
       <span data-testid="session-meta-turns">对话 {summary.stats.turnCount} 轮</span>
-      <TextTooltip
-        text={`输入：${formatTokens(summary.stats.inputTokens)} / 输出：${formatTokens(summary.stats.outputTokens)}`}
-      >
-        <span data-testid="session-meta-tokens">
-          消耗token{' '}
-          {formatTokens((summary.stats.inputTokens ?? 0) + (summary.stats.outputTokens ?? 0))}
-        </span>
-      </TextTooltip>
+      <HoverCard>
+        <HoverCardTrigger
+          delay={120}
+          render={
+            <button type="button" className="cursor-help" data-testid="session-meta-tokens">
+              消耗token{' '}
+              {formatTokens((summary.stats.inputTokens ?? 0) + (summary.stats.outputTokens ?? 0))}
+            </button>
+          }
+        />
+        <HoverCardContent className="w-60" data-testid="session-token-card">
+          <TokenCard stats={summary.stats} />
+        </HoverCardContent>
+      </HoverCard>
       {summary.preamble !== null && <PreambleDrawer preamble={summary.preamble} />}
     </div>
   );

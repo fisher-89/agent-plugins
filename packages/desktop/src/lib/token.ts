@@ -12,3 +12,17 @@ export function formatTokens(value: number | null): string {
 function trimmed(text: string): string {
   return text.endsWith('.0') ? text.slice(0, -2) : text;
 }
+
+/** 缓存命中率：缓存读取 / 输入（输入已含缓存读写——rig 口径）；任一侧缺席或
+ * 输入为 0 时候选取值无定义，返回 `null`。 */
+export function cacheHitRate(cached: number | null, input: number | null): number | null {
+  if (cached === null || input === null || input <= 0) return null;
+  return cached / input;
+}
+
+/** 比率展示：`null` → `"—"`；百分比一位小数去尾零（`0.797` → `"79.7%"`、
+ * `1` → `"100%"`）。 */
+export function formatPercent(ratio: number | null): string {
+  if (ratio === null) return '—';
+  return `${trimmed((ratio * 100).toFixed(1))}%`;
+}

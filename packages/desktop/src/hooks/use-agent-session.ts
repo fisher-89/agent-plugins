@@ -158,7 +158,14 @@ function sessionFromTurn(record: TurnSummary, source: string): SessionSummary {
       createdAt: record.startedAt,
       updatedAt: record.startedAt,
     },
-    stats: { turnCount: 0, totalDurationMs: null, inputTokens: null, outputTokens: null },
+    stats: {
+      turnCount: 0,
+      totalDurationMs: null,
+      inputTokens: null,
+      outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
+    },
     turns: [],
     // 本地轮行镜像没有快照面；收口重放落 `session_detail` 的 `preamble` 后自然出现
     preamble: null,

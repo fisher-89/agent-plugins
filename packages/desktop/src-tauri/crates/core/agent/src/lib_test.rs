@@ -86,6 +86,8 @@ fn crate根导出面锚定_session_port_kernel新模块类型可达() {
             total_duration_ms: None,
             input_tokens: None,
             output_tokens: None,
+            cached_input_tokens: None,
+            cache_creation_input_tokens: None,
         },
         turns: vec![TurnSummary {
             turn_id: 1,
@@ -229,6 +231,8 @@ impl SessionQuery for NoopQuery {
             total_duration_ms: None,
             input_tokens: None,
             output_tokens: None,
+            cached_input_tokens: None,
+            cache_creation_input_tokens: None,
         })
     }
 }
@@ -680,6 +684,8 @@ fn crate根路径session_summary携带快照字段可组装() {
             total_duration_ms: None,
             input_tokens: None,
             output_tokens: None,
+            cached_input_tokens: None,
+            cache_creation_input_tokens: None,
         },
         turns: Vec::new(),
         preamble: Some(crate::SessionPreambleInfo {

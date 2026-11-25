@@ -96,6 +96,8 @@ function sessionSummary(turns: TurnSummary[], id: string = SESSION_ID): SessionS
       totalDurationMs: null,
       inputTokens: null,
       outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
     },
     turns,
     preamble: null,

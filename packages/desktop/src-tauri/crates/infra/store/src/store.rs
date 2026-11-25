@@ -166,6 +166,8 @@ fn aggregate_stats(
         total_duration_ms: sum_present(turns.iter().map(|turn| turn.duration_ms)),
         input_tokens: sum_usage_tokens(events, "input_tokens"),
         output_tokens: sum_usage_tokens(events, "output_tokens"),
+        cached_input_tokens: sum_usage_tokens(events, "cached_input_tokens"),
+        cache_creation_input_tokens: sum_usage_tokens(events, "cache_creation_input_tokens"),
     }
 }
 
@@ -892,6 +894,8 @@ impl Store {
             total_duration_ms,
             input_tokens: sum_usage_tokens(&events, "input_tokens"),
             output_tokens: sum_usage_tokens(&events, "output_tokens"),
+            cached_input_tokens: sum_usage_tokens(&events, "cached_input_tokens"),
+            cache_creation_input_tokens: sum_usage_tokens(&events, "cache_creation_input_tokens"),
         })
     }
 

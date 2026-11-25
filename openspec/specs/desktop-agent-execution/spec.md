@@ -41,7 +41,7 @@ Desktop 后端 SHALL 将「agent 执行」确立为第五类边界（agent 边�
 `core/agent` SHALL 以会话为公共 API 的寻址与生命周期单位，提供两件公共能力（用户愿景原文的契约化）：
 
 - **运行会话**：`run_session(New | Continue{id}, prompt)` 形状的会话建立与轮驱动——`New` 建立新会话，`Continue{id}` 以既有会话续发新一轮；返回 token 级增量流（思考/回复可辨）与可终止句柄。会话过程流式传输、能区分思考和回复、可终止。
-- **查询会话**：`query_sessions(...)` 形状的会话记录查询——会话清单（分页信封：`offset` / `limit` 区间 + 过滤集全量 `total`）与聚合统计（提问轮数、累计墙钟、累计 token 消耗；MVP 从轮统计行现算，MUST NOT 维护累计列，字段面可扩展）。
+- **查询会话**：`query_sessions(...)` 形状的会话记录查询——会话清单（分页信封：`offset` / `limit` 区间 + 过滤集全量 `total`）与聚合统计（提问轮数、累计墙钟、累计 token 消耗（输入 / 输出 / 缓存读取 / 缓存写入，缓存计数为 `TurnDone.usage` 鸭子键求和、输入 token 的子集）；MVP 从轮统计行现算，MUST NOT 维护累计列，字段面可扩展）。
 
 session SHALL 为一等公民：会话 id 由 core 铸造；转录 = 会话全史（密封事件直挂 session，单表），resume 重建源 SHALL 为会话全史，MUST NOT 以单 run 事件拼凑转录。core SHALL 维护双 id 映射（core session id ↔ engine_handle）；engine_handle 经协议到达（spawn 响应或事件上报，见「P1 引擎协议不变量与缺省降级」）。双 id 映射 SHALL 定位为**留痕**（「这轮落在哪个引擎侧会话」的引擎中立观测/考古事实，落库半边保留）；续会话寻址 SHALL 以会话 id + 全史转录重建为准，MUST NOT 以引擎句柄缺失阻断续会话（寻址硬门槛随 CLI 租户退役——`begin()` 不再对缺 `engine_session_id` 的会话报「无法续接」）。会话 SHALL 存引擎/模型/权限档/实例外键的**配置快照**而非跨库引用（`AgentInstanceRecord` 在全局库、session 在 workspace 库，禁跨库引用；实例改名/删除不伤历史会话；`agent_instance_id` 为快照复制值的显式关联键，见 desktop-workspace-store「SessionRecord 模型与会话转录单表」）。会话 SHALL 承载来源归属（`SessionProvenance{source, source_ref}`，作 provenance/持久化记录用），但前端寻址与重放 SHALL 以 **`sessionId` 直查**（`session_detail`）为准，MUST NOT 经 `source` / `source_ref` 反查会话（`sourceRef` 反查取最近一条的路径退役；来源侧——如 explore 记录——持会话 id 并直接给出）。**清单筛选（探测语义）SHALL 被允许**：按 `source` / `source_ref` 列出会话供用户显式挑选（与「调试页历史来源筛选」同款语义），MUST NOT 被解读为「寻址 / 重放」违规——选中后一律以 `sessionId` 直查（`session_detail` + 转录重放）；change 详情通用 agent 面板的 chat 会话清单即此形态（见 desktop-change-chat）。
 
@@ -744,7 +744,7 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 
 - **单查独携**：无快照的会话（存量会话、从未开轮的空会话）SHALL 返回 `null`，MUST NOT 以空正文伪造快照；
 - **清单恒 `null` 且零读**：`agent_sessions` / `list_change_chat_sessions` / `list_archi_chat_sessions` / `list_config_chat_sessions` 与内核 `SessionQuery::list_sessions` 的返回项 SHALL 恒 `preamble = null`，且 MUST NOT 读取快照表（会话清单的全表扫描不因 37KB 级载荷膨胀，页宽 × 快照体量不进外线载荷）；
-- **只读**：`preamble` 面 MUST NOT 引入写命令 / 编辑面（写一次与不可变见「会话系统提示词快照的拍存与续轮复用」）；`SessionRow` / `SessionStats` 字段面零变更。
+- **只读**：`preamble` 面 MUST NOT 引入写命令 / 编辑面（写一次与不可变见「会话系统提示词快照的拍存与续轮复用」）；`SessionRow` 字段面零变更。
 
 #### Scenario: 单查返回会话行与轮行
 

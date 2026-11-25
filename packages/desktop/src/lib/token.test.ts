@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 
-import { formatTokens } from './token';
+import { cacheHitRate, formatPercent, formatTokens } from './token';
 
 describe('formatTokens：token 缩写分级（D8 阶界）', () => {
   it('阶下原样与 k 阶：999 → "999"（< 1000 原样十进制）、1_000 → "1k"、12_000 → "12k"', () => {
@@ -49,5 +49,34 @@ describe('formatTokens：token 缩写分级（D8 阶界）', () => {
     }).not.toThrow();
     expect(typeof label).toBe('string');
     expect(label!.length).toBeGreaterThan(0);
+  });
+});
+
+describe('cacheHitRate：缓存读取 / 输入（输入已含缓存读写）', () => {
+  it('9_600 / 12_000 → 0.8', () => {
+    expect(cacheHitRate(9_600, 12_000)).toBe(0.8);
+  });
+
+  it('缓存读取为 0 → 0（在场零值与缺席区分）', () => {
+    expect(cacheHitRate(0, 12_000)).toBe(0);
+  });
+
+  it('任一侧缺席或输入为 0 → null（比率无定义，不臆造）', () => {
+    expect(cacheHitRate(null, 12_000)).toBeNull();
+    expect(cacheHitRate(9_600, null)).toBeNull();
+    expect(cacheHitRate(9_600, 0)).toBeNull();
+  });
+});
+
+describe('formatPercent：一位小数去尾零百分比', () => {
+  it('0.797 → "79.7%"、0.8 → "80%"、1 → "100%"', () => {
+    expect(formatPercent(0.797)).toBe('79.7%');
+    expect(formatPercent(0.8)).toBe('80%');
+    expect(formatPercent(1)).toBe('100%');
+  });
+
+  it('0 → "0%"；null → "—"（缺省占位）', () => {
+    expect(formatPercent(0)).toBe('0%');
+    expect(formatPercent(null)).toBe('—');
   });
 });

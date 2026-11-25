@@ -141,7 +141,14 @@ function sessionSummary(): SessionSummary {
       createdAt: TS,
       updatedAt: TS + 9,
     },
-    stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
+    stats: {
+      turnCount: 1,
+      totalDurationMs: null,
+      inputTokens: null,
+      outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
+    },
     turns: [turn(1, 'completed', 'ses-config')],
     preamble: null,
   };

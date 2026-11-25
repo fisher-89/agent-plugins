@@ -215,6 +215,8 @@ fn preset_summary(id: &str) -> SessionSummary {
             total_duration_ms: Some(5000),
             input_tokens: Some(10),
             output_tokens: Some(20),
+            cached_input_tokens: Some(8),
+            cache_creation_input_tokens: Some(3),
         },
         turns: Vec::new(),
         preamble: None,
@@ -273,6 +275,8 @@ fn 假query经arc_dyn注入三方法返回形态编译锚定() {
         total_duration_ms: None,
         input_tokens: None,
         output_tokens: None,
+        cached_input_tokens: None,
+        cache_creation_input_tokens: None,
     };
     preset.row.remote_session_id = None;
     preset.row.created_at = 1;
@@ -286,6 +290,8 @@ fn 假query经arc_dyn注入三方法返回形态编译锚定() {
             total_duration_ms: Some(10),
             input_tokens: None,
             output_tokens: None,
+            cached_input_tokens: None,
+            cache_creation_input_tokens: None,
         },
         detail: Err("假 query 缺省不响应单查".to_owned()),
     });
@@ -323,6 +329,8 @@ fn 假query单查经arc_dyn注入可达且三件套逐字段锚定() {
             total_duration_ms: None,
             input_tokens: None,
             output_tokens: None,
+            cached_input_tokens: None,
+            cache_creation_input_tokens: None,
         },
         detail: Ok(detail.clone()),
     });
@@ -344,6 +352,8 @@ fn 假query单查经arc_dyn注入可达且三件套逐字段锚定() {
     assert_eq!(found.stats.total_duration_ms, Some(5000));
     assert_eq!(found.stats.input_tokens, Some(10));
     assert_eq!(found.stats.output_tokens, Some(20));
+    assert_eq!(found.stats.cached_input_tokens, Some(8), "缓存读计数随行");
+    assert_eq!(found.stats.cache_creation_input_tokens, Some(3));
     assert!(found.turns.is_empty(), "轮行清单随行（Vec 形态编译锚定）");
 }
 
@@ -357,6 +367,8 @@ fn 假query单查err原样传播不静默() {
             total_duration_ms: None,
             input_tokens: None,
             output_tokens: None,
+            cached_input_tokens: None,
+            cache_creation_input_tokens: None,
         },
         detail: Err("会话不存在: id=ses-404".to_owned()),
     });

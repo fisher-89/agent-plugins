@@ -15,6 +15,11 @@ composer 插槽。以**同一渲染体**承载两种形态——自持形态（�
 `SessionSummary.preamble`（随 `session_detail` 已到手）——零取数、零新命令、零写面，正文 MUST NOT
 插入对话流。
 
+元信息行的 token 合计悬停展为用量卡片（`data-testid="session-token-card"`）：输入 / 输出 /
+缓存命中率 / 缓存读取 / 缓存写入五值全取自 `SessionStats`（`cachedInputTokens` /
+`cacheCreationInputTokens` 为 `TurnDone.usage` 缓存计数的累计；命中率 = 缓存读取 ÷ 输入，
+输入已含缓存读写），缺席字段呈 `—`，零取数。
+
 ## 公共面
 
 | 名字 | 形态 | 语义 |

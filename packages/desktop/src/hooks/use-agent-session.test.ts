@@ -84,6 +84,8 @@ function summary(
       totalDurationMs: null,
       inputTokens,
       outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
     },
     turns,
     preamble,
@@ -894,6 +896,8 @@ describe('useAgentSession：early-resolve 镜像形态与订阅寻址', () => {
       totalDurationMs: null,
       inputTokens: null,
       outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
     });
     expect(result.current.chain).toEqual([turn(13, 'running', 'ses-new-1')]);
     expect(result.current.running).toBe(true);

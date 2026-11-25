@@ -857,7 +857,14 @@ function transcriptSession(sessionId: string, sourceRef: string): SessionSummary
       createdAt: 1727000000000,
       updatedAt: 1727000001000,
     },
-    stats: { turnCount: 1, totalDurationMs: 1234, inputTokens: null, outputTokens: null },
+    stats: {
+      turnCount: 1,
+      totalDurationMs: 1234,
+      inputTokens: null,
+      outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
+    },
     turns: [
       {
         turnId: 1,
@@ -2535,7 +2542,14 @@ function chatSummary(sessionId: string): SessionSummary {
       createdAt: 1_727_000_000_000,
       updatedAt: 1_727_000_001_000,
     },
-    stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
+    stats: {
+      turnCount: 1,
+      totalDurationMs: null,
+      inputTokens: null,
+      outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
+    },
     turns: [
       {
         turnId: 1,

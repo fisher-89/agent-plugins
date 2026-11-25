@@ -1422,6 +1422,8 @@ export const SessionStatsSchema = z.strictObject({
 	get totalDurationMs() { return z.number().nullable(); },
 	get inputTokens() { return z.number().nullable(); },
 	get outputTokens() { return z.number().nullable(); },
+	get cachedInputTokens() { return z.number().nullable(); },
+	get cacheCreationInputTokens() { return z.number().nullable(); },
 });
 
 export const SessionSummarySchema = z.strictObject({

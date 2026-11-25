@@ -859,7 +859,14 @@ function seedChatSession(turnStatus: TurnSummary['status'] = 'completed'): void 
           createdAt: 1727000000000,
           updatedAt: 1727000000001,
         },
-        stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
+        stats: {
+          turnCount: 1,
+          totalDurationMs: null,
+          inputTokens: null,
+          outputTokens: null,
+          cachedInputTokens: null,
+          cacheCreationInputTokens: null,
+        },
         turns: [
           {
             turnId: 1,
@@ -961,7 +968,14 @@ describe('ExploreDetailPane：ChatPane 注入形态与 composer 插槽', () => {
             createdAt: 1,
             updatedAt: 1,
           },
-          stats: { turnCount: 0, totalDurationMs: null, inputTokens: null, outputTokens: null },
+          stats: {
+            turnCount: 0,
+            totalDurationMs: null,
+            inputTokens: null,
+            outputTokens: null,
+            cachedInputTokens: null,
+            cacheCreationInputTokens: null,
+          },
           turns: [],
           preamble: null,
         });
@@ -991,7 +1005,14 @@ function runningSession(sessionId: string): SessionSummary {
       createdAt: 1727000000000,
       updatedAt: 1727000000001,
     },
-    stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
+    stats: {
+      turnCount: 1,
+      totalDurationMs: null,
+      inputTokens: null,
+      outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
+    },
     turns: [
       {
         turnId: 1,
@@ -1133,7 +1154,14 @@ function completedSession(sessionId: string): SessionSummary {
       createdAt: 1727000000000,
       updatedAt: 1727000002000,
     },
-    stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
+    stats: {
+      turnCount: 1,
+      totalDurationMs: null,
+      inputTokens: null,
+      outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
+    },
     turns: [
       {
         turnId: 1,

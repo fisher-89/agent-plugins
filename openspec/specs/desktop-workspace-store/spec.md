@@ -300,7 +300,7 @@ store SHALL 提供 explore 清单操作面：`list_explore_records(root)`（按 
 
 store SHALL 经 workspace 库实例提供会话域查询面（core 查询契约的 infra 实现与命令面直查的共用底座）：
 
-- **会话清单**：按 root（实例即上下文）与来源（`source` / `source_ref`）过滤，排序稳定可复现；每会话附聚合统计——轮数、累计墙钟、累计 token **从轮统计行现算**，MUST NOT 维护累计列；统计字段缺席合法（缺省 `None`，降级不违约）。清单查询 SHALL 支持 `offset` / `limit` 分页并随页返回 `SessionPage { sessions, total }`（`total` 为过滤集全量计数；越界 `offset` 空页恒 `total`；`limit` 超上限截断）；聚合统计仅对返回页会话现算
+- **会话清单**：按 root（实例即上下文）与来源（`source` / `source_ref`）过滤，排序稳定可复现；每会话附聚合统计——轮数、累计墙钟、累计 token（输入 / 输出 / 缓存读取 / 缓存写入，缓存两项为 `TurnDone.usage` 鸭子键求和）**从轮统计行现算**，MUST NOT 维护累计列；统计字段缺席合法（缺省 `None`，降级不违约）。清单查询 SHALL 支持 `offset` / `limit` 分页并随页返回 `SessionPage { sessions, total }`（`total` 为过滤集全量计数；越界 `offset` 空页恒 `total`；`limit` 超上限截断）；聚合统计仅对返回页会话现算
 - **会话转录重放**：按会话返回全史密封事件（seq 有序），MUST NOT 要求运行进程存活
 - **对账纠偏重导**：SHALL 为显式调用入口（core 查询路径或维护命令触发）——从转录重建统计/索引作误差校正，非主路径；MUST NOT 隐式挂在读路径，MUST NOT 提供绕过 write-through 的常规写入口
 

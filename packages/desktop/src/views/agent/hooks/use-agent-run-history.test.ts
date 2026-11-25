@@ -50,7 +50,14 @@ function summary(id: string, updatedAt: number): SessionSummary {
       createdAt: 1727000000000,
       updatedAt,
     },
-    stats: { turnCount: 2, totalDurationMs: 500, inputTokens: null, outputTokens: null },
+    stats: {
+      turnCount: 2,
+      totalDurationMs: 500,
+      inputTokens: null,
+      outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
+    },
     turns: [],
     preamble: null,
   };
@@ -682,7 +689,14 @@ function summaryWithInstanceId(
       createdAt: 1727000000000,
       updatedAt,
     },
-    stats: { turnCount: 0, totalDurationMs: 0, inputTokens: null, outputTokens: null },
+    stats: {
+      turnCount: 0,
+      totalDurationMs: 0,
+      inputTokens: null,
+      outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
+    },
     turns: [],
     preamble: null,
   };
@@ -720,7 +734,14 @@ describe('useAgentRunHistory：configSnapshot fixture 携 agentInstanceId 键（
         createdAt: 1727000000000,
         updatedAt: 200,
       },
-      stats: { turnCount: 1, totalDurationMs: 100, inputTokens: null, outputTokens: null },
+      stats: {
+        turnCount: 1,
+        totalDurationMs: 100,
+        inputTokens: null,
+        outputTokens: null,
+        cachedInputTokens: null,
+        cacheCreationInputTokens: null,
+      },
       turns: [],
       preamble: null,
     };

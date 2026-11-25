@@ -73,7 +73,14 @@ function session(
       createdAt: TS,
       updatedAt,
     },
-    stats: { turnCount: turns.length, totalDurationMs: 800, inputTokens: null, outputTokens: null },
+    stats: {
+      turnCount: turns.length,
+      totalDurationMs: 800,
+      inputTokens: null,
+      outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
+    },
     turns,
     preamble: null,
   };
@@ -296,7 +303,14 @@ describe('AgentRunHistory：会话列表与触发（AC-5 / D13）', () => {
     const id = 'ses-8-1727000000000';
     const multi: SessionSummary = {
       ...session(id, 'failed', TS + 8, [turn(1, 'completed'), turn(2, 'failed')]),
-      stats: { turnCount: 5, totalDurationMs: 800, inputTokens: null, outputTokens: null },
+      stats: {
+        turnCount: 5,
+        totalDurationMs: 800,
+        inputTokens: null,
+        outputTokens: null,
+        cachedInputTokens: null,
+        cacheCreationInputTokens: null,
+      },
     };
     mount(historyState({ sessions: [multi] }));
 

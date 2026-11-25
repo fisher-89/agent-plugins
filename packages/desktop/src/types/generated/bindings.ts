@@ -2472,6 +2472,16 @@ export type SessionStats = {
 	inputTokens: number | null,
 	/**  累计输出 token（TurnDone usage 鸭子类型求和；缺席合法缺省） */
 	outputTokens: number | null,
+	/**
+	 *  累计缓存命中读取 token（`cached_input_tokens` 鸭子键求和；`input_tokens`
+	 *  的子集，命中率 = 本值 / `input_tokens`；缺席合法缺省）
+	 */
+	cachedInputTokens: number | null,
+	/**
+	 *  累计缓存写入 token（`cache_creation_input_tokens` 鸭子键求和；
+	 *  `input_tokens` 的子集；缺席合法缺省）
+	 */
+	cacheCreationInputTokens: number | null,
 };
 
 /**

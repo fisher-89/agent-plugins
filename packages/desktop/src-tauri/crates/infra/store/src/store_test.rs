@@ -8622,7 +8622,12 @@ fn 会话统计输出与sum_usage_tokens同源_两消费方一实现() {
                 num_turns: Some(1),
                 duration_ms: Some(1_000),
                 cost_usd: None,
-                usage: serde_json::json!({ "input_tokens": 100, "output_tokens": 20 }),
+                usage: serde_json::json!({
+                    "input_tokens": 100,
+                    "output_tokens": 20,
+                    "cached_input_tokens": 80,
+                    "cache_creation_input_tokens": 10
+                }),
                 session_id: None,
             },
         ),
@@ -8634,7 +8639,12 @@ fn 会话统计输出与sum_usage_tokens同源_两消费方一实现() {
                 num_turns: Some(1),
                 duration_ms: Some(2_000),
                 cost_usd: None,
-                usage: serde_json::json!({ "input_tokens": 30, "output_tokens": 0 }),
+                usage: serde_json::json!({
+                    "input_tokens": 30,
+                    "output_tokens": 0,
+                    "cached_input_tokens": 0,
+                    "cache_creation_input_tokens": 2
+                }),
                 session_id: None,
             },
         ),
@@ -8685,9 +8695,21 @@ fn 会话统计输出与sum_usage_tokens同源_两消费方一实现() {
             agent::sum_usage_tokens(&transcript, "output_tokens"),
             "会话统计 output_tokens 与 sum_usage_tokens 同源"
         );
-        // 定值锚：in 130 / out 20（0 计入——as_u64 在场值）
+        assert_eq!(
+            stats.cached_input_tokens,
+            agent::sum_usage_tokens(&transcript, "cached_input_tokens"),
+            "会话统计 cached_input_tokens 与 sum_usage_tokens 同源"
+        );
+        assert_eq!(
+            stats.cache_creation_input_tokens,
+            agent::sum_usage_tokens(&transcript, "cache_creation_input_tokens"),
+            "会话统计 cache_creation_input_tokens 与 sum_usage_tokens 同源"
+        );
+        // 定值锚：in 130 / out 20 / 缓存读 80 / 缓存写 12（0 计入——as_u64 在场值）
         assert_eq!(stats.input_tokens, Some(130));
         assert_eq!(stats.output_tokens, Some(20));
+        assert_eq!(stats.cached_input_tokens, Some(80));
+        assert_eq!(stats.cache_creation_input_tokens, Some(12));
     }
 }
 

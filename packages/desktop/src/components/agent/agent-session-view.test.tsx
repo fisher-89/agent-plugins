@@ -64,7 +64,12 @@ function turn(
 
 function summary(
   turns: TurnSummary[],
-  tokens: { input: number | null; output: number | null } = { input: null, output: null },
+  tokens: {
+    input: number | null;
+    output: number | null;
+    cached?: number | null;
+    cacheCreation?: number | null;
+  } = { input: null, output: null },
   id: string = SESSION_ID,
   preamble: SessionSummary['preamble'] = null,
 ): SessionSummary {
@@ -87,6 +92,8 @@ function summary(
       totalDurationMs: null,
       inputTokens: tokens.input,
       outputTokens: tokens.output,
+      cachedInputTokens: tokens.cached ?? null,
+      cacheCreationInputTokens: tokens.cacheCreation ?? null,
     },
     turns,
     preamble,
@@ -277,6 +284,40 @@ describe('AgentSessionView（自持形态）', () => {
     expect(bubbleTexts()).toEqual(['首轮提问', '首轮结论']);
     // 轮行为 system 载体（对话透镜过滤），元信息轮数即轮行面单源
     expect(screen.getByTestId('agent-messages')).toBeTruthy();
+  });
+
+  it('悬停 token 合计 → 卡片呈现输入 / 输出 / 缓存命中率与缓存读写', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'completed')], {
+        input: 12_000,
+        output: 1_500,
+        cached: 9_600,
+        cacheCreation: 1_200,
+      }),
+    });
+    await mountedView({ root: ROOT, sessionId: SESSION_ID });
+
+    await waitFor(() => expect(screen.getByTestId('session-meta-tokens')).toBeTruthy());
+    expect(screen.getByTestId('session-meta-tokens').textContent).toBe('消耗token 13.5k');
+
+    fireEvent.mouseEnter(screen.getByTestId('session-meta-tokens'));
+    const card = await screen.findByTestId('session-token-card');
+    expect(within(card).getByTestId('session-token-input').textContent).toBe('12k');
+    expect(within(card).getByTestId('session-token-output').textContent).toBe('1.5k');
+    expect(within(card).getByTestId('session-token-cache-hit-rate').textContent).toBe('80%');
+    expect(within(card).getByTestId('session-token-cache-read').textContent).toBe('9.6k');
+    expect(within(card).getByTestId('session-token-cache-write').textContent).toBe('1.2k');
+  });
+
+  it('缓存计数缺席 → 命中率呈缺省占位（不臆造比率）', async () => {
+    resetIpc({ detail: summary([turn(11, 'completed')], { input: 100, output: 10 }) });
+    await mountedView({ root: ROOT, sessionId: SESSION_ID });
+
+    fireEvent.mouseEnter(await screen.findByTestId('session-meta-tokens'));
+    const card = await screen.findByTestId('session-token-card');
+    expect(within(card).getByTestId('session-token-cache-hit-rate').textContent).toBe('—');
+    expect(within(card).getByTestId('session-token-cache-read').textContent).toBe('—');
+    expect(within(card).getByTestId('session-token-cache-write').textContent).toBe('—');
   });
 
   it('缺省 data-testid → agent-session-view（单一入口默认锚）', async () => {

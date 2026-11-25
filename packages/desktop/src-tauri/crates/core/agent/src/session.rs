@@ -97,6 +97,12 @@ pub struct SessionStats {
     pub input_tokens: Option<u64>,
     /// 累计输出 token（TurnDone usage 鸭子类型求和；缺席合法缺省）
     pub output_tokens: Option<u64>,
+    /// 累计缓存命中读取 token（`cached_input_tokens` 鸭子键求和；`input_tokens`
+    /// 的子集，命中率 = 本值 / `input_tokens`；缺席合法缺省）
+    pub cached_input_tokens: Option<u64>,
+    /// 累计缓存写入 token（`cache_creation_input_tokens` 鸭子键求和；
+    /// `input_tokens` 的子集；缺席合法缺省）
+    pub cache_creation_input_tokens: Option<u64>,
 }
 
 /// 会话系统提示词快照的**只读**出线面：仅有 `session_detail` 单查路径携带，

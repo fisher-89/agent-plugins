@@ -116,6 +116,8 @@ function summary(turns: TurnSummary[], tokens: number | null = null): SessionSum
       totalDurationMs: null,
       inputTokens: tokens,
       outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
     },
     turns,
     preamble: null,

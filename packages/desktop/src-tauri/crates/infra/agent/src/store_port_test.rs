@@ -85,7 +85,12 @@ fn turn_done(seq: u64, input_tokens: u64, duration_ms: u64) -> AgentEvent {
             num_turns: Some(1),
             duration_ms: Some(duration_ms),
             cost_usd: None,
-            usage: serde_json::json!({ "input_tokens": input_tokens, "output_tokens": 2 }),
+            usage: serde_json::json!({
+                "input_tokens": input_tokens,
+                "output_tokens": 2,
+                "cached_input_tokens": 4,
+                "cache_creation_input_tokens": 1
+            }),
             session_id: Some("sdk-1".to_owned()),
         },
     )
@@ -473,6 +478,12 @@ fn list_sessions聚合现算轮数累计墙钟累计token与降序稳定() {
         Some(10),
         "累计 token 自转录 TurnDone usage 鸭子类型求和（snake_case 键）"
     );
+    assert_eq!(
+        stats.cached_input_tokens,
+        Some(4),
+        "缓存命中读取 token 同源现算"
+    );
+    assert_eq!(stats.cache_creation_input_tokens, Some(1));
     assert_eq!(summaries[0].turns.len(), 1, "轮统计行随行返回");
 }
 
@@ -525,6 +536,8 @@ fn list_sessions来源过滤生效且缺席缺省空库空清单() {
         assert_eq!(summary.stats.total_duration_ms, None);
         assert_eq!(summary.stats.input_tokens, None);
         assert_eq!(summary.stats.output_tokens, None);
+        assert_eq!(summary.stats.cached_input_tokens, None);
+        assert_eq!(summary.stats.cache_creation_input_tokens, None);
         assert!(summary.turns.is_empty());
     }
 
@@ -583,6 +596,8 @@ fn reconcile_stats从转录重算校正篡改的轮行统计且转录逐字节�
     assert_eq!(stats.total_duration_ms, Some(300), "累计墙钟校正");
     assert_eq!(stats.input_tokens, Some(30), "累计 token 校正");
     assert_eq!(stats.output_tokens, Some(4));
+    assert_eq!(stats.cached_input_tokens, Some(8), "缓存读取随转录重算");
+    assert_eq!(stats.cache_creation_input_tokens, Some(2));
 
     // 不改转录纪律：密封转录逐字节不变
     let transcript = env.query.transcript("ses-r").expect("transcript 应成功");
@@ -611,6 +626,8 @@ fn reconcile_stats无turn_done转录时缺省统计不报错() {
     assert_eq!(stats.total_duration_ms, None);
     assert_eq!(stats.input_tokens, None);
     assert_eq!(stats.output_tokens, None);
+    assert_eq!(stats.cached_input_tokens, None);
+    assert_eq!(stats.cache_creation_input_tokens, None);
 }
 
 // ---------------------------------------------------------------------------
@@ -667,6 +684,8 @@ fn find_session_detail命中返回row_stats_turns三件套与清单面逐字段�
         Some(10),
         "累计 token 自 TurnDone 求和"
     );
+    assert_eq!(found.stats.cached_input_tokens, Some(4), "缓存读计数随行");
+    assert_eq!(found.stats.cache_creation_input_tokens, Some(1));
     assert_eq!(found.turns.len(), 1, "轮统计行全量随行");
     assert_eq!(found.turns[0].status, agent::AgentRunStatus::Completed);
     assert_eq!(found.turns[0].session_id, "ses-x");

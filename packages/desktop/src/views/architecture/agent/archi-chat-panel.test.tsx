@@ -63,6 +63,8 @@ function summary(turns: TurnSummary[], id: string): SessionSummary {
       totalDurationMs: null,
       inputTokens: null,
       outputTokens: null,
+      cachedInputTokens: null,
+      cacheCreationInputTokens: null,
     },
     turns,
     preamble: null,

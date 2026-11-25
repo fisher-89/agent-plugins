@@ -229,12 +229,16 @@ fn session_stats全none形态与全有值形态均往返无损() {
         total_duration_ms: None,
         input_tokens: None,
         output_tokens: None,
+        cached_input_tokens: None,
+        cache_creation_input_tokens: None,
     };
     let full = SessionStats {
         turn_count: 7,
         total_duration_ms: Some(9000),
         input_tokens: Some(120),
         output_tokens: Some(340),
+        cached_input_tokens: Some(90),
+        cache_creation_input_tokens: Some(20),
     };
 
     for stats in [bare, full] {
@@ -250,11 +254,15 @@ fn session_stats全none形态与全有值形态均往返无损() {
         total_duration_ms: None,
         input_tokens: None,
         output_tokens: None,
+        cached_input_tokens: None,
+        cache_creation_input_tokens: None,
     })
     .expect("序列化成功");
     assert_eq!(value["totalDurationMs"], Value::Null);
     assert_eq!(value["inputTokens"], Value::Null);
     assert_eq!(value["outputTokens"], Value::Null);
+    assert_eq!(value["cachedInputTokens"], Value::Null);
+    assert_eq!(value["cacheCreationInputTokens"], Value::Null);
 }
 
 // ---------------------------------------------------------------------------
@@ -418,6 +426,8 @@ fn session_summary组装往返_turns空数组与多轮两形态() {
             total_duration_ms: None,
             input_tokens: None,
             output_tokens: None,
+            cached_input_tokens: None,
+            cache_creation_input_tokens: None,
         },
         turns: Vec::new(),
         preamble: None,
@@ -435,6 +445,8 @@ fn session_summary组装往返_turns空数组与多轮两形态() {
             total_duration_ms: Some(8000),
             input_tokens: Some(60),
             output_tokens: Some(140),
+            cached_input_tokens: Some(40),
+            cache_creation_input_tokens: Some(12),
         },
         turns: vec![
             running_summary(),
@@ -475,6 +487,8 @@ fn summary_with(preamble: Option<SessionPreambleInfo>) -> SessionSummary {
             total_duration_ms: None,
             input_tokens: None,
             output_tokens: None,
+            cached_input_tokens: None,
+            cache_creation_input_tokens: None,
         },
         turns: Vec::new(),
         preamble,
@@ -602,6 +616,8 @@ fn stats_value() -> Value {
         total_duration_ms: None,
         input_tokens: None,
         output_tokens: None,
+        cached_input_tokens: None,
+        cache_creation_input_tokens: None,
     })
     .expect("序列化成功")
 }
@@ -731,12 +747,14 @@ fn session_summary三字段键集零改动_快照字段不渗入() {
     assert_eq!(
         stats_keys,
         vec![
+            "cacheCreationInputTokens",
+            "cachedInputTokens",
             "inputTokens",
             "outputTokens",
             "totalDurationMs",
             "turnCount"
         ],
-        "SessionStats 键集零改动（快照体量不落库）"
+        "SessionStats 键集 = 既有四字段 + 缓存读写计数（快照体量不落库）"
     );
 }
 
