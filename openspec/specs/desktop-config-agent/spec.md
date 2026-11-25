@@ -191,7 +191,8 @@ propose_config({ candidate: {...} })  → Ok { current, candidate, changes: [...
 - **双校验不是冗余**：propose 侧的校验可能发生在很久以前、可能来自历史会话重放；apply 侧 MUST NOT 信任调用方（前端载荷可伪造）。
 - **入参面**：SHALL 为 file-face `serde_json::Value`（出线 TS `unknown`），MUST NOT 用 typed `WorkspaceConfig` 作入参（wire / file 两面不同名，typed 入参即要求调用方按 camelCase 反向拼装）。
 - **落盘形态**：`content` = `serde_json::to_string_pretty` + 尾换行；写入 SHALL 原子（临时文件 + rename），MUST NOT 直写目标文件留半截。
-- **写权边界**：`config.json` SHALL 保持「agent 不可写」的内置锁定（`desktop-write-protection` 零改动）；`workspace_config_apply` MUST NOT 作为 agent 工具下发（模型不可调用、不可经 bash 绕过——bash 的写检测仍按内置锁拒绝）；apply 是用户点击触发的应用进程自写，**MUST NOT 注册 store 模型、MUST NOT 落库、MUST NOT 持有缓存**。
+- **落盘单点与实现落位**：`write_atomic` 的**唯一实现** SHALL 位于 infra 侧 `crates/infra/agent/src/sdk/atomic.rs`（`fs::write` / `fs::rename` 的唯一位点）；壳层 `src/commands/atomic.rs` SHALL 只做薄委托——签名 `(&Path, &str) -> Result<(), String>`、错误文案、临时后缀 `.archi-tmp`、失败清临时文件语义、父目录缺失即 `Err` 不建目录逐字不变。壳层命令面（`archi_set_gate` / `workspace_config_apply`）与 agent 写工具 SHALL 共用这同一实现，MUST NOT 出现第二份「临时文件 + rename」。
+- **写权边界**：`config.json` SHALL 保持「agent 不可写」的内置锁定（`desktop-write-protection` 的 `config.json` 内置锁定条款零改动；该能力本 change 只扩两写工具的保护射程与交叉引用，见其 delta）；`workspace_config_apply` MUST NOT 作为 agent 工具下发（模型不可调用、不可经 bash 绕过——bash 的写检测仍按内置锁拒绝）；apply 是用户点击触发的应用进程自写，**MUST NOT 注册 store 模型、MUST NOT 落库、MUST NOT 持有缓存**。
 - **失败面**：读失败 / 校验失败 / 写失败 SHALL 返回 `Err(String)`（文案含原因），页面 inline 持久呈现；MUST NOT panic、MUST NOT 静默改动文件。
 
 #### Scenario: 零 invalidValue 才落盘
@@ -213,6 +214,11 @@ propose_config({ candidate: {...} })  → Ok { current, candidate, changes: [...
 
 - **WHEN** 以不存在 / 非目录 / 空白 root 调用 `workspace_config_apply`
 - **THEN** 返回 `Err(String)`，进程无 panic，任何文件零改动
+
+#### Scenario: 落盘单点恰一份实现
+
+- **WHEN** 审查 `write_atomic` 的两处定义与 `fs::write` / `fs::rename` 的命中面
+- **THEN** infra 侧 `sdk/atomic.rs` 恰一份实现（`fs::write(&temporary` 与 `fs::rename(&temporary, path)` 各一处、含 `.archi-tmp`、零 `create_dir_all`）；壳层 `commands/atomic.rs` 零 `fs::write`、零 `fs::rename`、零 `create_dir_all`、只委托该符号；`archi_set_gate` 与 `workspace_config_apply` 调同一符号；错误文案与临时后缀逐字不变
 
 ### Requirement: 文件面写入器 `to_file_value`（模板驱动）
 

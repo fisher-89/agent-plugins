@@ -103,18 +103,23 @@
 
 ### Requirement: 写权落点与刷新纪律
 
-架构页会话的工具面 SHALL 为七通用工具（含 `write` / `edit` / `bash`）叠加两 archi 只读工具（注入矩阵与工具面见 `desktop-archi-agent`）：**写权落在会话里，画布仍零写入口**。
+架构页会话的工具面 SHALL 为七通用工具（含 `write` / `edit` / `bash`）叠加注入矩阵命中的 archi 工具（五只读 + 两写，名单与矩阵见 `desktop-archi-agent`「archi 工具面注入与 (phase, role) 矩阵」）：**写权落在会话里，画布仍零写入口**。
 
 - **画布不参与**：`mode = "full"` 的画布 MUST NOT 因本能力新增任何可提交的 `gate` 编辑入口或写命令（见 `desktop-archi-canvas`「能力差异」的消歧条款）；MUST NOT 以「会话能写」为理由放宽画布，也 MUST NOT 以「画布只读」为理由禁会话写。
-- **直改主仓**：agent 写模型 SHALL 直改主仓 `<archi_dir>/graph/model/*.toml`（无 worktree、无归档确认回合、无专用写工具，仍用 `write` / `edit`）；写入不校验、读取报错（既有纪律见 `desktop-archi-agent`「模型 = 源码」）。
+- **直改主仓（写面两个入口）**：agent 写模型 SHALL 直改主仓 `<archi_dir>/graph/model/*.toml`（无 worktree、无归档确认回合）：**canonical 入口是两个写工具**（`archi_element` / `archi_relation`，坏文本不可产出——渲染自证不通过即 `Err` 且零落盘），**second path 是 `write` / `edit` 手改**（工具表达不了的才用，写坏模型仍是合法状态、由读取面报错）。两条失败语义 MUST NOT 混为一句「写入不校验」；写权通路与写入口的完整口径见 `desktop-archi-agent`「模型 = 源码（两条写入口与写纪律）」。
 - **可见性**：agent 写盘后画布 MUST NOT 自动更新（零 watch 零轮询的必然推论）；用户点 `archi-refresh` 后 SHALL 见到新图，模型被写坏时 SHALL 见到停摆态诊断（`file:line` 逐条，与 agent 读取面同一份 `archi::dto` 投影）。该语义 SHALL 在面板状态行提示，MUST NOT 被当作缺陷处理。
 - **零自动提交**：会话 MUST NOT 在轮收口或写盘后自动提交 / 自动归档 / 自动 `git add`；改动一律经用户 `git diff` 评审后自行处置。
-- **档位**：composer 不呈档位行（`AgentInput` 缺省 `hidePermissionMode = true`），发送恒携缺省 `bypassPermissions`（与既有 `AgentInput` 一致）；静态权限三档语义零改动（`default` 档仍拒绝 `write` / `edit` / `bash`），档位选择仅在显式 `hidePermissionMode = false` 的消费点可用。
+- **档位**：composer 不呈档位行（`AgentInput` 缺省 `hidePermissionMode = true`），发送恒携缺省 `bypassPermissions`（与既有 `AgentInput` 一致）；静态权限三档语义零改动（`default` 档仍拒绝 `write` / `edit` / `bash` **与两写工具**），档位选择仅在显式 `hidePermissionMode = false` 的消费点可用。
 
-#### Scenario: 直改主仓模型成功
+#### Scenario: 直改主仓模型成功（写工具入口）
 
-- **WHEN** 在架构面板会话中要求 agent 新增一个元素并写入 `<archi_dir>/graph/model/09-billing.toml`
-- **THEN** 写入落在主仓该文件（工作区其他会话随即可读），会话行与事件转录正常收口；画布在用户点刷新前保持旧图
+- **WHEN** 在架构面板会话中要求 agent 新增一个元素（agent 用 `archi_element` 写入既有模型文件）
+- **THEN** 写入落在主仓该文件（工作区其他会话随即可读），响应含 `changed` / `counts` / `hash`，会话行与事件转录正常收口；画布在用户点刷新前保持旧图
+
+#### Scenario: 手改入口仍可用
+
+- **WHEN** 在架构面板会话中要求 agent 新建一个模型文件 `<archi_dir>/graph/model/09-billing.toml`（新建文件用 `archi_element` 的 `file` + `create`，或直接 `write`）
+- **THEN** 两条入口都可写入主仓该文件；用 `write` 手改写坏模型时写盘仍成功、随后读取面与画布呈停摆态诊断（MUST NOT 出现「写盘前被拦」的表述）
 
 #### Scenario: 写后刷新才可见
 
@@ -124,7 +129,7 @@
 #### Scenario: 画布仍只读
 
 - **WHEN** 在 `/architecture` 审查元素信息面板与页面源码
-- **THEN** 无任何可提交的 `gate` 编辑控件、零写命令调用；面板会话的存在不改变该断言
+- **THEN** 无任何可提交的 `gate` 编辑控件、零写命令调用；面板会话的存在不改变该断言（写工具是 agent 工具，不是画布入口）
 
 #### Scenario: 零自动提交
 
