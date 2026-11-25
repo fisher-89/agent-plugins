@@ -137,14 +137,14 @@ fn 常量三面同源_定义名与挂载命中逐字相同() {
     );
 }
 
-/// 边界：常量在挂载清单末项（第 16 项）出现恰一次（无重复登记）。
+/// 边界：常量在挂载清单末项（第 18 项）出现恰一次（无重复登记）。
 #[test]
 fn 常量在挂载清单末项恰一处() {
     let names: Vec<&str> = mount::registry()
         .iter()
         .map(|mount| mount.definition.name.as_str())
         .collect();
-    assert_eq!(names.len(), 16, "挂载清单十六项");
+    assert_eq!(names.len(), 18, "挂载清单十八项");
     assert_eq!(
         names.last().copied(),
         Some(PROPOSE_CONFIG_TOOL),

@@ -1,4 +1,4 @@
-//! `mount.rs`（工具挂载单源）的单元测试：十六项静态清单 / 名字查表 / 非法名
+//! `mount.rs`（工具挂载单源）的单元测试：十八项静态清单 / 名字查表 / 非法名
 //! `Err` / `finish` 位置位铸造 / `lookup` 单点 / 夹具形态 / 类型派生面。
 //!
 //! 不 mock：`registry()` / `definitions` / `lookup` 全为进程内纯函数
@@ -7,16 +7,19 @@
 //!（铸造内容即被测面，替身会掩盖 enum 对拍）。
 
 use agent::{AskMode, FinishSpec, SessionInjections};
+use archi::dto::{ApiStatus, ElementKind, GateTier};
 
 use crate::sdk::archi_tool::ArchiContext;
 use crate::sdk::mount::{
     builtin, definitions, injected, injected_finish, lookup, registry, ToolExec, ToolMount,
-    ToolTier, ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_MODULE_TOOL, ARCHI_SCAFFOLD_TOOL,
-    ARCHI_SEARCH_TOOL, DB_QUERY_TOOL, DB_TABLES_TOOL, EXPLORE_NOTE_TOOL, TOOL_NAMES,
+    ToolTier, ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_ELEMENT_TOOL, ARCHI_MODULE_TOOL,
+    ARCHI_RELATION_TOOL, ARCHI_SCAFFOLD_TOOL, ARCHI_SEARCH_TOOL, DB_QUERY_TOOL, DB_TABLES_TOOL,
+    EXPLORE_NOTE_TOOL, TOOL_NAMES, WRITE_LIMITS,
 };
 
-/// 十六项名字的期望序（前七恰七内建，五 archi 只读居中，末三项为两只只读 DB 工具 + 提案工具）。
-const EXPECTED_NAMES: [&str; 16] = [
+/// 十八项名字的期望序（前七恰七内建，五 archi 只读居中，两 archi 写随后，
+/// 末三项为两只只读 DB 工具 + 提案工具）。
+const EXPECTED_NAMES: [&str; 18] = [
     "read",
     "grep",
     "glob",
@@ -30,6 +33,8 @@ const EXPECTED_NAMES: [&str; 16] = [
     "archi_api",
     "archi_drift",
     "archi_scaffold",
+    "archi_element",
+    "archi_relation",
     "db_tables",
     "db_query",
     "propose_config",
@@ -58,20 +63,30 @@ fn source_of(relative: &str) -> String {
         .unwrap_or_else(|error| panic!("读取 {relative} 失败: {error}"))
 }
 
+/// 旧立场的禁止短语（按片段拼接：产品源码面对这些整串零字面命中——AC-12a 含测试
+/// 夹具面；判据仍在，禁的是「字面持有」）。
+fn stale_stances() -> Vec<String> {
+    vec![
+        ["无专用", "写工具"].concat(),
+        ["不设专用", "写工具"].concat(),
+        ["MUST NOT 存在", "专用写"].concat(),
+    ]
+}
+
 // ---------------------------------------------------------------------------
-// 正向：registry 十六项
+// 正向：registry 十八项
 // ---------------------------------------------------------------------------
 
 #[test]
-fn registry十六项名字唯一且有序且前七恰内建() {
+fn registry十八项名字唯一且有序且前七恰内建() {
     let names = names(registry());
-    assert_eq!(names, EXPECTED_NAMES.to_vec(), "十六项名字逐值有序");
-    assert_eq!(names.len(), 16, "十六项");
+    assert_eq!(names, EXPECTED_NAMES.to_vec(), "十八项名字逐值有序");
+    assert_eq!(names.len(), 18, "十八项");
 
     let mut unique = names.clone();
     unique.sort();
     unique.dedup();
-    assert_eq!(unique.len(), 16, "无重复名: {names:?}");
+    assert_eq!(unique.len(), 18, "无重复名: {names:?}");
 
     assert_eq!(
         registry()[..7]
@@ -86,7 +101,7 @@ fn registry十六项名字唯一且有序且前七恰内建() {
 
 #[test]
 fn registry的tier归属逐项对应改造前三张常量表() {
-    let expected: [(&str, ToolTier); 16] = [
+    let expected: [(&str, ToolTier); 18] = [
         ("read", ToolTier::Read),
         ("grep", ToolTier::Read),
         ("glob", ToolTier::Read),
@@ -100,6 +115,8 @@ fn registry的tier归属逐项对应改造前三张常量表() {
         ("archi_api", ToolTier::Read),
         ("archi_drift", ToolTier::Read),
         ("archi_scaffold", ToolTier::Read),
+        ("archi_element", ToolTier::Write),
+        ("archi_relation", ToolTier::Write),
         ("db_tables", ToolTier::Read),
         ("db_query", ToolTier::Read),
         ("propose_config", ToolTier::Read),
@@ -111,14 +128,18 @@ fn registry的tier归属逐项对应改造前三张常量表() {
             .unwrap_or_else(|| panic!("挂载清单应含 {name}"));
         assert_eq!(mount.tier, tier, "工具 {name} 的 tier 归属");
     }
-    // 计数面：Read 十 / Write 三 / Execute 一 / Protocol 零
+    // 计数面：Read 十二 / Write 五 / Execute 一 / Protocol 零
     let count = |tier: ToolTier| registry().iter().filter(|mount| mount.tier == tier).count();
     assert_eq!(
         count(ToolTier::Read),
         12,
         "Read 十二项（五 archi + 两 DB + 四内建 + propose_config）"
     );
-    assert_eq!(count(ToolTier::Write), 3, "Write 三项");
+    assert_eq!(
+        count(ToolTier::Write),
+        5,
+        "Write 五项（两内建 + 探索笔记 + 两写工具）"
+    );
     assert_eq!(count(ToolTier::Execute), 1, "Execute 一项");
     assert_eq!(
         count(ToolTier::Protocol),
@@ -144,7 +165,13 @@ fn registry的exec归属且finish_step不入静态表() {
             .exec,
         ToolExec::ExploreNote
     );
-    for name in [ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, ARCHI_API_TOOL] {
+    for name in [
+        ARCHI_MODULE_TOOL,
+        ARCHI_SEARCH_TOOL,
+        ARCHI_API_TOOL,
+        ARCHI_ELEMENT_TOOL,
+        ARCHI_RELATION_TOOL,
+    ] {
         assert_eq!(
             registry()
                 .iter()
@@ -183,7 +210,7 @@ fn registry的exec归属且finish_step不入静态表() {
 }
 
 #[test]
-fn registry定义面完整十六项定义形状与非空() {
+fn registry定义面完整十八项定义形状与非空() {
     for mount in registry() {
         let definition = &mount.definition;
         assert!(
@@ -579,7 +606,7 @@ fn definitions非法名与finish并存时err优先() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn lookup十六项命中四类未命中() {
+fn lookup十八项命中四类未命中() {
     for name in EXPECTED_NAMES {
         let definition = lookup(name).unwrap_or_else(|| panic!("{name} 应命中"));
         assert_eq!(definition.name, name, "命中项名与入参相等");
@@ -1091,7 +1118,7 @@ fn mount_rs零ask工具名字面量且不在静态清单() {
     );
     assert!(
         !TOOL_NAMES.contains(&"ask_user_question"),
-        "ask_user_question 不在十六项静态清单（按位追加的基线工具）"
+        "ask_user_question 不在十八项静态清单（按位追加的基线工具）"
     );
 }
 
@@ -1099,8 +1126,8 @@ fn mount_rs零ask工具名字面量且不在静态清单() {
 // 本变更：`archi_api` 只读工具的档位 / 路由 / 入参 schema
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-15 / D14 / spec「只读档位归属」）：`lookup("archi_api")` 命中且 `tier == Read`
-/// / `exec == Archi`；执行体 `ToolExec::Archi` 的成员恰三工具，分发臂在 loop 侧单处。
+/// 正向（AC-15 / D14 / AC-1）：`lookup("archi_api")` 命中且 `tier == Read` / `exec == Archi`；
+/// 执行体 `ToolExec::Archi` 的成员恰七工具（五只读 + 两写），分发臂在 loop 侧单处。
 #[test]
 fn archi_api的档位与执行路由() {
     let mount = registry()
@@ -1111,7 +1138,7 @@ fn archi_api的档位与执行路由() {
     assert_eq!(mount.exec, ToolExec::Archi, "执行路由 Archi");
     assert_eq!(ARCHI_API_TOOL, "archi_api", "常量值");
 
-    // 执行路由面：恰五工具走 `ToolExec::Archi`（名字清单即五常量），
+    // 执行路由面：恰七工具走 `ToolExec::Archi`（名字清单即七常量），
     // 分发臂在 loop 侧按执行体路由（零按名分支）
     let archi_mounts: Vec<&str> = registry()
         .iter()
@@ -1126,8 +1153,10 @@ fn archi_api的档位与执行路由() {
             ARCHI_API_TOOL,
             ARCHI_DRIFT_TOOL,
             ARCHI_SCAFFOLD_TOOL,
+            ARCHI_ELEMENT_TOOL,
+            ARCHI_RELATION_TOOL,
         ],
-        "`ToolExec::Archi` 的成员恰五工具（序即静态表序）"
+        "`ToolExec::Archi` 的成员恰七工具（序即静态表序）"
     );
 
     let loop_source = source_of("src/sdk/loop.rs");
@@ -1672,8 +1701,9 @@ fn archi_drift定义scope词表单点且零多余参数() {
 }
 
 /// 正向：`archi_scaffold` 描述改词典措辞——含「字段词典 / 逐字段一行纪律 / 值域 /
-/// 关系四键 / `kind` 省略取 `domain` / 只读零写盘 / `write` / `edit`」；旧标签（字段序枚举 /
-/// 内联 `metadata` / `path` 必填提示 / 关系模板）**零命中**（正反两向同批落地，R-4）。
+/// 关系四键 / `kind` 省略取 `domain` / 只读零写盘 / 本工具只出模板」；旧标签（字段序枚举 /
+/// 内联 `metadata` / `path` 必填提示 / 关系模板）**零命中**（正反两向同批落地，R-4），
+/// 写面指路为两个写工具（AC-12a 的 scaffold doc 面）。
 #[test]
 fn archi_scaffold定义描述要素() {
     let definition = lookup(ARCHI_SCAFFOLD_TOOL).expect("定义在案");
@@ -1686,7 +1716,7 @@ fn archi_scaffold定义描述要素() {
         "关系四键",
         "kind 省略取 domain",
         "只读零写盘",
-        "write / edit",
+        "本工具只出模板",
     ] {
         assert!(
             description.contains(piece),
@@ -1878,24 +1908,24 @@ fn 提案工具在末项且档位与路由与定义同源() {
     );
 }
 
-/// 边界：源码结构锚——`Vec::with_capacity(16)` 恰一处、两段 doc 的「十六项」在场。
+/// 边界：源码结构锚——`Vec::with_capacity(18)` 恰一处、两段 doc 的「十八项」在场。
 #[test]
 fn 提案工具挂载面的源码结构锚() {
     let source = source_of("src/sdk/mount.rs");
     assert_eq!(
-        source.matches("Vec::with_capacity(16)").count(),
+        source.matches("Vec::with_capacity(18)").count(),
         1,
         "构造容量随末项随动（恰一处）"
     );
     assert_eq!(
-        source.matches("十六项静态挂载清单").count(),
+        source.matches("十八项静态挂载清单").count(),
         1,
-        "registry 段 doc 的「十六项静态挂载清单」在场"
+        "registry 段 doc 的「十八项静态挂载清单」在场"
     );
     assert_eq!(
-        source.matches("十六个字面构造项按序").count(),
+        source.matches("十八个字面构造项按序").count(),
         1,
-        "build_registry 段 doc 的项数随动（十六个字面构造项）"
+        "build_registry 段 doc 的项数随动（十八个字面构造项）"
     );
     assert_eq!(
         source.matches("PROPOSE_CONFIG_TOOL").count(),
@@ -2151,4 +2181,273 @@ fn 内建七名逐字不变() {
     );
     assert_eq!(builtin(), TOOL_NAMES.as_slice());
     assert_eq!(builtin().len(), 7, "内建封闭七件");
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：两写工具（`archi_element` / `archi_relation`）的档位、schema 与描述面
+// ---------------------------------------------------------------------------
+
+/// 正向（矩阵 2 名）：两写工具命中且 `tier == Write` / `exec == Archi`；下发面按清单序
+/// 出两份定义（两写工具的档位与执行路由与只读面可辨）。
+#[test]
+fn 两写工具写档archi执行体() {
+    for name in [ARCHI_ELEMENT_TOOL, ARCHI_RELATION_TOOL] {
+        let mount = registry()
+            .iter()
+            .find(|mount| mount.definition.name == name)
+            .unwrap_or_else(|| panic!("{name} 应在挂载清单内"));
+        assert_eq!(
+            mount.tier,
+            ToolTier::Write,
+            "{name} 为写档（default 档拒绝）"
+        );
+        assert_eq!(mount.exec, ToolExec::Archi, "{name} 走 archi 执行体");
+    }
+    assert_eq!(ARCHI_ELEMENT_TOOL, "archi_element", "常量值单点");
+    assert_eq!(ARCHI_RELATION_TOOL, "archi_relation", "常量值单点");
+
+    let dispatched = definitions(
+        &injected_ask(
+            &[ARCHI_MODULE_TOOL, ARCHI_RELATION_TOOL, ARCHI_ELEMENT_TOOL],
+            None,
+            None,
+        ),
+        "",
+    )
+    .expect("名字清单合法");
+    assert_eq!(
+        names(&dispatched),
+        vec![
+            ARCHI_MODULE_TOOL.to_owned(),
+            ARCHI_ELEMENT_TOOL.to_owned(),
+            ARCHI_RELATION_TOOL.to_owned(),
+        ],
+        "下发序随静态清单序（写入参序不生效）"
+    );
+}
+
+/// 正向（穷举）：两份定义 schema 的 `maxLength` / `maxItems` / `maxProperties` 逐字段
+/// 等于 `WRITE_LIMITS`（12 项上限）；`enum` 逐字段等于四份封闭词表的 `as_str` 序。
+#[test]
+fn schema上限与enum全由常量派生() {
+    let element = lookup(ARCHI_ELEMENT_TOOL)
+        .expect("元素写在案")
+        .parameters
+        .clone();
+    let relation = lookup(ARCHI_RELATION_TOOL)
+        .expect("关系写在案")
+        .parameters
+        .clone();
+    let element_properties = &element["properties"];
+    let relation_properties = &relation["properties"];
+
+    // 上限 12 项：元素面 9 + 关系面 3（`relation_apis` / `relation_api` / `text` 两面共值）。
+    assert_eq!(element_properties["element"]["maxLength"], WRITE_LIMITS.fqn);
+    assert_eq!(
+        element_properties["path"]["maxItems"],
+        WRITE_LIMITS.path_items
+    );
+    assert_eq!(
+        element_properties["path"]["items"]["maxLength"],
+        WRITE_LIMITS.path_item
+    );
+    assert_eq!(
+        element_properties["metadata"]["maxProperties"],
+        WRITE_LIMITS.metadata_items
+    );
+    assert_eq!(
+        element_properties["metadata"]["additionalProperties"]["maxLength"],
+        WRITE_LIMITS.metadata_value
+    );
+    assert_eq!(
+        element_properties["relations"]["maxItems"],
+        WRITE_LIMITS.relations
+    );
+    assert_eq!(
+        element_properties["relations"]["items"]["properties"]["apis"]["maxItems"],
+        WRITE_LIMITS.relation_apis
+    );
+    assert_eq!(
+        element_properties["relations"]["items"]["properties"]["apis"]["items"]["maxLength"],
+        WRITE_LIMITS.relation_api
+    );
+    assert_eq!(
+        element_properties["relations"]["items"]["properties"]["desc"]["maxLength"],
+        WRITE_LIMITS.text
+    );
+    assert_eq!(
+        element_properties["summary"]["maxLength"],
+        WRITE_LIMITS.text
+    );
+    assert_eq!(
+        element_properties["entry"]["maxLength"],
+        WRITE_LIMITS.pointer
+    );
+    assert_eq!(element_properties["doc"]["maxLength"], WRITE_LIMITS.pointer);
+    assert_eq!(element_properties["file"]["maxLength"], WRITE_LIMITS.file);
+    assert_eq!(relation_properties["from"]["maxLength"], WRITE_LIMITS.fqn);
+    assert_eq!(relation_properties["to"]["maxLength"], WRITE_LIMITS.fqn);
+    assert_eq!(relation_properties["desc"]["maxLength"], WRITE_LIMITS.text);
+    assert_eq!(
+        relation_properties["apis"]["maxItems"],
+        WRITE_LIMITS.relation_apis
+    );
+
+    // enum 四面：`action`（两处）/ `kind` / `gate` / `api` 逐值等于 `as_str` 序。
+    let expected = |values: Vec<&'static str>| serde_json::json!(values);
+    let actions = || {
+        expected(
+            archi::edit::WriteAction::ALL
+                .iter()
+                .map(|action| action.as_str())
+                .collect(),
+        )
+    };
+    for properties in [element_properties, relation_properties] {
+        assert_eq!(
+            properties["action"]["enum"],
+            actions(),
+            "action 二值词表全由 WriteAction::ALL 派生"
+        );
+    }
+    assert_eq!(
+        element_properties["kind"]["enum"],
+        expected(ElementKind::ALL.iter().map(|kind| kind.as_str()).collect()),
+        "kind 四值"
+    );
+    assert_eq!(
+        element_properties["gate"]["enum"],
+        expected(GateTier::ALL.iter().map(|tier| tier.as_str()).collect()),
+        "gate 三值"
+    );
+    assert_eq!(
+        element_properties["api"]["enum"],
+        expected(
+            ApiStatus::ALL
+                .iter()
+                .map(|status| status.as_str())
+                .collect()
+        ),
+        "api 二值"
+    );
+    assert_eq!(
+        element_properties["relations"]["items"]["properties"]["action"]["enum"],
+        actions(),
+        "内联边 action 与顶层共用一份词表"
+    );
+}
+
+/// 边界：数字单点——十二个限额数字各只在 `WRITE_LIMITS` 构造处出现；schema 的限位键
+/// 零裸数字（全由 `WRITE_LIMITS.<字段>` 引用）。
+#[test]
+fn 限额数字单点() {
+    let source = source_of("src/sdk/mount.rs");
+    assert_eq!(
+        source
+            .matches("pub(crate) const WRITE_LIMITS: WriteLimits = WriteLimits {")
+            .count(),
+        1,
+        "上限常量声明恰一处"
+    );
+    for (field, value) in [
+        ("fqn", 256usize),
+        ("path_items", 32),
+        ("path_item", 1024),
+        ("metadata_items", 32),
+        ("metadata_key", 64),
+        ("metadata_value", 512),
+        ("relations", 64),
+        ("relation_apis", 32),
+        ("relation_api", 128),
+        ("text", 512),
+        ("pointer", 1024),
+        ("file", 256),
+    ] {
+        assert_eq!(
+            source.matches(&format!("    {field}: {value},")).count(),
+            1,
+            "`{field}` 的数字只在常量构造处出现一次"
+        );
+        assert!(
+            source.contains(&format!("WRITE_LIMITS.{field}")),
+            "`{field}` 经常量引用（schema 面不写第二份数字）"
+        );
+    }
+    for bare in ["\"maxLength\": ", "\"maxItems\": ", "\"maxProperties\": "] {
+        for line in source.lines() {
+            if let Some(rest) = line.trim().strip_prefix(bare) {
+                assert!(
+                    rest.starts_with("WRITE_LIMITS."),
+                    "限位键取值必须是常量引用：{line}"
+                );
+            }
+        }
+    }
+}
+
+/// 边界（矩阵 2 份定义）：描述面零字段形态教学（不写 `kind = ` / `[[relation]]` /
+/// `path = [` / `metadata = {` 一类示例），三事齐备（原子写坏文本不可产出 / `expect`
+/// ↔ `hash` 闭环 / `cascade` 只同一模型文件内）。
+#[test]
+fn 描述不复述字段形态长表() {
+    for name in [ARCHI_ELEMENT_TOOL, ARCHI_RELATION_TOOL] {
+        let description = lookup(name).expect("定义在案").description.clone();
+        for stale in ["kind = ", "[[relation]]", "path = [", "metadata = {"] {
+            assert!(
+                !description.contains(stale),
+                "{name} 描述零形态示例 `{stale}`：{description}"
+            );
+        }
+        for piece in ["坏文本不可产出", "expect", "hash"] {
+            assert!(
+                description.contains(piece),
+                "{name} 描述含 `{piece}`：{description}"
+            );
+        }
+    }
+    assert!(
+        lookup(ARCHI_ELEMENT_TOOL)
+            .expect("定义在案")
+            .description
+            .contains("同一模型文件内"),
+        "元素写描述写明 cascade 射程"
+    );
+}
+
+/// 异常：`archi_scaffold` 常量 doc 由旧立场句改写为「模型写面是两个写工具，本工具只出
+/// 模板」，三段旧立场句在 `mount.rs` 零命中。
+#[test]
+fn scaffold文档句改写() {
+    let source = source_of("src/sdk/mount.rs");
+    for stale in stale_stances() {
+        assert!(
+            !source.contains(stale.as_str()),
+            "mount.rs 零旧立场句 `{stale}`"
+        );
+    }
+    assert!(
+        !source.contains("不在专用写工具之列"),
+        "mount.rs 零 scaffold 旧措辞"
+    );
+    assert!(
+        source.contains("模型写面是两个写工具"),
+        "scaffold doc 改写为「模型写面是两个写工具」"
+    );
+    assert!(
+        source.contains("本工具只出模板"),
+        "scaffold doc 点明「本工具只出模板」"
+    );
+}
+
+/// 边界（矩阵 2 形态）：未知名查空（`archi_elementx` / 空串）且十八项名字零重复登记。
+#[test]
+fn 未知名查空且零重复() {
+    for unknown in ["archi_elementx", "", "archi_relation ", "Archi_Element"] {
+        assert!(lookup(unknown).is_none(), "未知名 {unknown:?} 不在清单内");
+    }
+    let all = names(registry());
+    let mut unique = all.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), all.len(), "十八项零重复登记：{all:?}");
 }

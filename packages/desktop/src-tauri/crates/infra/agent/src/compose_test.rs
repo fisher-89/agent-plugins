@@ -3532,7 +3532,7 @@ fn 其余来源恒显式generic且零archi与零收口() {
 // ---------------------------------------------------------------------------
 
 /// 正向：archi 臂全字段——`preamble` 与 `knowledge()` 逐字相等、名字清单为七
-/// 工具名 + 三 archi 名、`finish = None`，返回 `Ok`（零 `Err` 路径）。
+/// 工具名 + 七 archi 名、`finish = None`，返回 `Ok`（零 `Err` 路径）。
 #[test]
 fn archi臂全字段() {
     let injections = injections_of("archi", None);
@@ -3544,15 +3544,11 @@ fn archi臂全字段() {
         "preamble 即 knowledge() 同一调用结果（逐字相等）"
     );
     let mut expected_names = seven();
-    expected_names.push(crate::sdk::mount::ARCHI_MODULE_TOOL.to_owned());
-    expected_names.push(crate::sdk::mount::ARCHI_SEARCH_TOOL.to_owned());
-    expected_names.push(crate::sdk::mount::ARCHI_API_TOOL.to_owned());
-    expected_names.push(crate::sdk::mount::ARCHI_DRIFT_TOOL.to_owned());
-    expected_names.push(crate::sdk::mount::ARCHI_SCAFFOLD_TOOL.to_owned());
+    expected_names.extend(archi_names().iter().map(|name| (*name).to_owned()));
     assert_eq!(
         injections.tools,
         Some(expected_names),
-        "archi 臂名字清单 = 七工具名 + 五 archi 名"
+        "archi 臂名字清单 = 七工具名 + 七 archi 名（五只读 + 两写）"
     );
     assert_eq!(injections.finish, None, "archi 臂无收口档位");
     assert_eq!(
@@ -3616,8 +3612,8 @@ fn archi臂source_ref形态无关() {
         );
         assert_eq!(
             injections.tools.as_ref().map(Vec::len),
-            Some(12),
-            "工具面十二名（七内建 + 五 archi 名）"
+            Some(14),
+            "工具面十四名（七内建 + 七 archi 名）"
         );
     }
 
@@ -3729,8 +3725,8 @@ fn 降级范围单字段preamble独立() {
     );
     assert_eq!(
         injections.tools.as_ref().map(Vec::len),
-        Some(TOOL_NAMES.len() + 5),
-        "七内建 + 五 archi 名（`archi_module` / `archi_search` / `archi_api` / `archi_drift` / `archi_scaffold`）"
+        Some(TOOL_NAMES.len() + archi_names().len()),
+        "七内建 + 七 archi 名（五只读 + 两写）"
     );
     assert_eq!(
         archi_bits(&injections),
@@ -4017,10 +4013,10 @@ fn 装配explore臂ask位generic且清单零ask工具名() {
     );
 }
 
-/// archi 臂（正向，参数化 2 形态 source_ref）：`ask == Some(Generic)`；十二名（七内建 +
-/// 五 archi 工具）+ `preamble` 在场；`source_ref` 取任意值不改变该臂。
+/// archi 臂（正向，参数化 2 形态 source_ref）：`ask == Some(Generic)`；十四名（七内建 +
+/// 七 archi 工具）+ `preamble` 在场；`source_ref` 取任意值不改变该臂。
 #[test]
-fn 装配archi臂ask位generic且十二名与preamble在场() {
+fn 装配archi臂ask位generic且十四名与preamble在场() {
     for source_ref in [None, Some("add-feature/dev-design/executor/1")] {
         let injections = injections_of("archi", source_ref);
         assert_eq!(
@@ -4030,7 +4026,7 @@ fn 装配archi臂ask位generic且十二名与preamble在场() {
         );
         assert!(injections.preamble.is_some(), "archi 臂 preamble 在场");
         let names = injections.tools.as_deref().expect("archi 臂下发名字清单");
-        assert_eq!(names.len(), 12, "七件 + 五 archi 名");
+        assert_eq!(names.len(), 14, "七件 + 七 archi 名（五只读 + 两写）");
         assert_eq!(
             archi_bits(&injections),
             Some((true, true)),
@@ -4797,13 +4793,13 @@ fn change臂全矩阵每行恒含两db名各恰一次() {
     assert_eq!(db_name_counts(names), (1, 1), "source_ref 缺席亦含两名");
 }
 
-/// 异常（AC-9 / AC-11）：archi 臂十二名与 debug 臂（`tools = None`）**都不含**两 DB
+/// 异常（AC-9 / AC-11）：archi 臂十四名与 debug 臂（`tools = None`）**都不含**两 DB
 /// 名（archi / debug 会话调 db_query 走成员校验拒绝臂）。
 #[test]
 fn archi臂与debug臂均不含两db名() {
     let archi = injections_of("archi", None);
     let archi_names = archi.tools.as_ref().expect("archi 臂 tools 在场");
-    assert_eq!(archi_names.len(), 12, "archi 臂十二名（七内建 + 五 archi）");
+    assert_eq!(archi_names.len(), 14, "archi 臂十四名（七内建 + 七 archi）");
     assert_eq!(db_name_counts(archi_names), (0, 0), "archi 臂不含两 DB 名");
     assert!(
         archi.preamble.is_some(),
@@ -5293,14 +5289,24 @@ async fn compose_turn门面链接入efforts后_new会话open照常成功() {
 // 本变更：五 archi 工具面（矩阵扩维 / 相位锁 / 第五位 protect）
 // ===========================================================================
 
-/// archi 工具名的完整清单（五值，序即 archi 臂下发序）。
-fn archi_names() -> [&'static str; 5] {
+/// archi 工具名的完整清单（七值 = 五只读 + 两写，序即 archi 臂下发序）。
+fn archi_names() -> [&'static str; 7] {
     [
         crate::sdk::mount::ARCHI_MODULE_TOOL,
         crate::sdk::mount::ARCHI_SEARCH_TOOL,
         crate::sdk::mount::ARCHI_API_TOOL,
         crate::sdk::mount::ARCHI_DRIFT_TOOL,
         crate::sdk::mount::ARCHI_SCAFFOLD_TOOL,
+        crate::sdk::mount::ARCHI_ELEMENT_TOOL,
+        crate::sdk::mount::ARCHI_RELATION_TOOL,
+    ]
+}
+
+/// 两写工具名（矩阵与写权锁的**同集不变式**判定面）。
+fn write_names() -> [&'static str; 2] {
+    [
+        crate::sdk::mount::ARCHI_ELEMENT_TOOL,
+        crate::sdk::mount::ARCHI_RELATION_TOOL,
     ]
 }
 
@@ -5326,6 +5332,8 @@ fn 注入矩阵八行逐行命中() {
                 crate::sdk::mount::ARCHI_SEARCH_TOOL,
                 crate::sdk::mount::ARCHI_MODULE_TOOL,
                 crate::sdk::mount::ARCHI_SCAFFOLD_TOOL,
+                crate::sdk::mount::ARCHI_ELEMENT_TOOL,
+                crate::sdk::mount::ARCHI_RELATION_TOOL,
             ],
         ),
         (
@@ -5336,6 +5344,8 @@ fn 注入矩阵八行逐行命中() {
                 crate::sdk::mount::ARCHI_SEARCH_TOOL,
                 crate::sdk::mount::ARCHI_DRIFT_TOOL,
                 crate::sdk::mount::ARCHI_SCAFFOLD_TOOL,
+                crate::sdk::mount::ARCHI_ELEMENT_TOOL,
+                crate::sdk::mount::ARCHI_RELATION_TOOL,
             ],
         ),
         (
@@ -5398,7 +5408,7 @@ fn 注入矩阵八行逐行命中() {
 /// 正向（表驱动）：archi 臂 = 七内建 + 五 archi 名（12 名，序 = module / search /
 /// api / drift / scaffold）；不含 `create_explore_note` 与两 DB 工具。
 #[test]
-fn archi臂七内建加五archi名() {
+fn archi臂七内建加七archi名() {
     for source_ref in [None, Some(""), Some("chg-1/implement/executor/1")] {
         let injections = injections_of("archi", source_ref);
         let mut expected = seven();
@@ -5406,7 +5416,7 @@ fn archi臂七内建加五archi名() {
         assert_eq!(
             injections.tools,
             Some(expected),
-            "archi 臂名字清单 = 七内建 + 五 archi 名（source_ref = {source_ref:?}）"
+            "archi 臂名字清单 = 七内建 + 七 archi 名（五只读 + 两写；source_ref = {source_ref:?}）"
         );
         let names = injections.tools.clone().unwrap_or_default();
         assert!(
@@ -5538,7 +5548,7 @@ fn 模型写权锁面只覆盖模型声明目录() {
     }
 }
 
-/// 位间解耦：矩阵未命中但锁在位（`implement/evaluator`）；archi 臂零锁但五工具全在。
+/// 位间解耦：矩阵未命中但锁在位（`implement/evaluator`）；archi 臂零锁但七工具全在。
 #[test]
 fn 工具面与写权两位解耦() {
     let locked = injections_of("change", Some("chg-1/implement/evaluator/1"));
@@ -5546,7 +5556,11 @@ fn 工具面与写权两位解耦() {
     assert!(locked.protect.is_some(), "锁仍在位");
 
     let archi_arm = injections_of("archi", None);
-    assert_eq!(archi_of(&archi_arm).len(), 5, "archi 臂五工具全在");
+    assert_eq!(
+        archi_of(&archi_arm).len(),
+        archi_names().len(),
+        "archi 臂七工具全在"
+    );
     assert!(archi_arm.protect.is_none(), "archi 臂零锁");
 }
 
@@ -6598,5 +6612,127 @@ fn begin快照体量超32kb原样落库_只有agent_md段被截断() {
     assert!(
         body.ends_with(crate::sdk::preamble::GUIDANCE),
         "指引常量完整在末位"
+    );
+}
+
+// ===========================================================================
+// 本变更：两写工具的矩阵面与写权锁同集不变式
+// ===========================================================================
+
+/// 异常（穷举全组合）：矩阵含两写工具的 `(phase, role)` 集合 == `model_write_lock`
+/// 判 `None` 的集合，逐格相等（「有工具但锁着」与「锁开了却没工具」都是错配）。
+#[test]
+fn 矩阵与写权锁同集() {
+    use super::{archi_matrix, model_write_lock};
+
+    let phases = [
+        "proposal",
+        "dev-design",
+        "test-design",
+        "implement",
+        "code-review",
+        "acceptance",
+        "test-gen",
+        "test-execution",
+        "archive",
+        "initialize",
+        "code-analyze",
+        "unknown-phase",
+    ];
+    for phase in phases {
+        for role in ["executor", "evaluator"] {
+            let has_write = archi_matrix(phase, role)
+                .map(|names| write_names().iter().any(|write| names.contains(write)))
+                .unwrap_or(false);
+            let unlocked = model_write_lock(&SessionProvenance {
+                source: "change".to_owned(),
+                source_ref: Some(format!("chg-1/{phase}/{role}/1")),
+            })
+            .is_none();
+            assert_eq!(
+                has_write, unlocked,
+                "{phase}/{role}：矩阵下发两写工具 = {has_write}，写权锁无锁 = {unlocked}"
+            );
+        }
+    }
+
+    // archi 臂：恒无锁且七 archi 名全在（含两写名）——同一判据的另一半。
+    let injections = injections_of("archi", None);
+    assert!(injections.protect.is_none(), "archi 臂恒无锁");
+    assert_eq!(
+        archi_of(&injections),
+        archi_names()
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect::<Vec<_>>(),
+        "archi 臂下发七 archi 名（含两写名）"
+    );
+}
+
+/// 异常（矩阵 3 形态）：未命中写权相位不下发两写名——`test-design/executor` 只
+/// `archi_search`、`code-review/evaluator` 只 `archi_module`、`explore` / `debug` 来源
+/// 零 archi 名；未下发即 loop 侧成员校验必拒（机制由既有 `sdk/loop_test.rs` 背书）。
+#[test]
+fn 未命中相位零下发写工具() {
+    for (source, source_ref, expected) in [
+        (
+            "change",
+            Some("chg-1/test-design/executor/1"),
+            vec![crate::sdk::mount::ARCHI_SEARCH_TOOL],
+        ),
+        (
+            "change",
+            Some("chg-1/code-review/evaluator/1"),
+            vec![crate::sdk::mount::ARCHI_MODULE_TOOL],
+        ),
+        ("explore", None, Vec::new()),
+        ("debug", None, Vec::new()),
+    ] {
+        let injections = injections_of(source, source_ref);
+        assert_eq!(
+            archi_of(&injections),
+            expected,
+            "{source} / {source_ref:?} 的 archi 面"
+        );
+        let names = injections.tools.unwrap_or_default();
+        for write in write_names() {
+            assert!(
+                !names.iter().any(|name| name == write),
+                "{source} / {source_ref:?} 不得下发 {write}"
+            );
+        }
+    }
+}
+
+/// 边界（源码锚）：`archi_matrix` 签名逐字不变；`model_write_lock` 函数体的会话规则
+/// 构造仍只在该函数内（锁面零改动）。
+#[test]
+fn 矩阵形状不变且锁面零改动() {
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/compose.rs"),
+    )
+    .expect("读取 compose.rs");
+    assert!(
+        source.contains("fn archi_matrix(phase: &str, role: &str) -> Option<Vec<&'static str>>"),
+        "矩阵签名逐字不变"
+    );
+    let lock_start = source
+        .find("fn model_write_lock")
+        .expect("model_write_lock 在场");
+    let lock_end = source[lock_start..]
+        .find("struct ResolvedEngine")
+        .map(|offset| lock_start + offset)
+        .unwrap_or(source.len());
+    assert_eq!(
+        source[lock_start..lock_end]
+            .matches("agent::SessionProtectRule {")
+            .count(),
+        1,
+        "会话规则构造只在 model_write_lock 内一处（带 `{{` 的构造字面量区分签名与构造）"
+    );
+    assert_eq!(
+        source.matches("fn model_write_lock").count(),
+        1,
+        "写权锁实现恰一处"
     );
 }

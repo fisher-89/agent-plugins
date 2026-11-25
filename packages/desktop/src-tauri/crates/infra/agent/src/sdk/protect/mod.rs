@@ -22,6 +22,11 @@
 // 恒 `None`。专用工具直通是既定知情边界：用户若把探索笔记目录写进保护，
 // `edit` 被拒而专用工具直通——缺口记录在案，不在本模块补偿。
 //
+// **写模型工具经 [`ProtectRules::evaluate_target`] 判定、不经 `evaluate` 分派**：
+// `archi_element` / `archi_relation` 的目标文件只有 `plan_*` 之后才解析出来，故执行体在
+// 落点解析后以**同一**规则集判定（同一规则序、同一首命中即拒、同一拒串族）。MUST NOT
+// 因为「工具无 `path` 入参」把它判在保护射程之外。
+//
 // **失败面矩阵**（fail-open 于防护、fail-closed 于内置面）：
 // | 面 | 方向 | 语义 |
 // |---|---|---|
@@ -96,6 +101,20 @@ impl ProtectRules {
     /// 一次路径解析——判定零 IO）。
     fn evaluate_path(&self, tool: &str, input: &Value) -> Option<String> {
         let raw = input.get("path").and_then(Value::as_str)?;
+        self.deny_normalized(tool, raw)
+    }
+
+    /// 写模型工具的**落点**判定入口（`archi_element` / `archi_relation` 的目标文件只有
+    /// `plan_*` 之后才知道，故不经 [`ProtectRules::evaluate`] 的工具名分派）。
+    ///
+    /// 与 `write` / `edit` 同一 `normalize` → `match_path` → `deny_for` 链、同一规则序、
+    /// 同一拒串族——零第二份规则集。
+    pub(crate) fn evaluate_target(&self, tool: &str, path: &Path) -> Option<String> {
+        self.deny_normalized(tool, &path.to_string_lossy())
+    }
+
+    /// 归一 + 匹配 + 拒串合成（两条消费面共用的一条链）。
+    fn deny_normalized(&self, tool: &str, raw: &str) -> Option<String> {
         let path = rules::normalize(raw);
         let rule = self.match_path(&path)?;
         Some(deny_for(rule, &path, tool))

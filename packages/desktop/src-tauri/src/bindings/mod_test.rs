@@ -2021,10 +2021,48 @@ fn archi出线类型逐名命中产物() {
             "children",
             "doc",
             "api",
-            "resolvedEntry"
+            "resolvedEntry",
+            "fileHash"
         ],
-        "ArchiModuleDetail 字段面按声明序出线（`doc` 单值 + `resolvedEntry` 末位），实际段:\n{detail}"
+        "ArchiModuleDetail 字段面按声明序出线（八字段：`doc` 单值 + `resolvedEntry` + `fileHash` 末位），实际段:\n{detail}"
     );
+    // 新字段为必填 `string`（`String` 非 `Option`）且带出线注释
+    let file_hash_lines: Vec<&str> = detail
+        .lines()
+        .filter(|line| line.contains("fileHash"))
+        .collect();
+    assert!(!file_hash_lines.is_empty(), "fileHash 行在场：{detail}");
+    for line in file_hash_lines {
+        assert!(
+            line.contains("string") && !line.contains("null"),
+            "fileHash 为必填 string（零 null）：{line}"
+        );
+    }
+    // 出线注释在场：`fileHash` 声明行上方是一整块 `/** … */`（`#[doc]` 投影），非裸字段
+    // ——「带出线注释」是本用例的自称，故与字段序 / `string` / 零 `null` 同案断言。
+    let detail_lines: Vec<&str> = detail.lines().collect();
+    let hash_at = detail_lines
+        .iter()
+        .position(|line| line.trim() == "fileHash: string,")
+        .expect("fileHash 声明行在场");
+    assert!(
+        hash_at > 0 && detail_lines[hash_at - 1].trim_end().ends_with("*/"),
+        "fileHash 行上方紧邻 JSDoc 收尾 `*/`，实际段:\n{detail}"
+    );
+    let doc_at = detail_lines[..hash_at]
+        .iter()
+        .rposition(|line| line.trim_start().starts_with("/**"))
+        .expect("fileHash 上方 JSDoc 起手 `/**` 在场");
+    let doc_block = &detail_lines[doc_at..hash_at];
+    assert!(
+        doc_block.iter().any(|line| line.contains("sha256:<hex>")),
+        "JSDoc 块承载字段语义（`sha256:<hex>`）：{doc_block:?}"
+    );
+    assert!(
+        doc_block.iter().any(|line| line.contains("expect")),
+        "JSDoc 块指明读侧闭环（`expect`）：{doc_block:?}"
+    );
+
     // 薄条目不出线：`hasPath` 只服务 agent 工具（IPC 面无消费方 ⇒ 零声明）
     assert!(
         !content.contains("export type ArchiElementBrief ="),
@@ -4755,5 +4793,61 @@ fn assert_summary_preamble_getter(section: &str) {
     assert!(
         section.contains("get preamble() { return SessionPreambleInfoSchema.nullable(); }"),
         "SessionSummarySchema 缺 `get preamble() {{ return SessionPreambleInfoSchema.nullable(); }}`，实际: {section}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`ArchiModuleDetailSchema` 的 `fileHash`（zod 产物同字段）
+// ---------------------------------------------------------------------------
+
+/// 正向：`bindings.zod.ts` 的 `ArchiModuleDetailSchema` 段含 `fileHash`，值形态
+/// `z.string()`（零 `optional` / `nullable`），其余七键逐字不变。
+#[test]
+fn zod_schema同字段为必填string() {
+    let content = authoritative_zod_snapshot();
+    let schema = zod_section(&content, "ArchiModuleDetailSchema");
+
+    let keys: Vec<&str> = schema
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            trimmed
+                .strip_prefix("get ")
+                .and_then(|rest| rest.split('(').next())
+        })
+        .collect();
+    assert_eq!(
+        keys,
+        vec![
+            "element",
+            "dependsOn",
+            "dependedBy",
+            "children",
+            "doc",
+            "api",
+            "resolvedEntry",
+            "fileHash"
+        ],
+        "zod schema 八键按声明序（fileHash 追加表尾），实际段:
+{schema}"
+    );
+
+    let file_hash_line = schema
+        .lines()
+        .find(|line| line.trim().starts_with("get fileHash"))
+        .expect("fileHash 键在场");
+    assert!(
+        file_hash_line.contains("z.string()"),
+        "fileHash 为 z.string()：{file_hash_line}"
+    );
+    for forbidden in ["optional", "nullable"] {
+        assert!(
+            !file_hash_line.contains(forbidden),
+            "fileHash 零 {forbidden}：{file_hash_line}"
+        );
+    }
+    assert!(
+        schema.starts_with("export const ArchiModuleDetailSchema = z.strictObject({"),
+        "schema 面仍是 strictObject 包裹（基座判型机制零改动）"
     );
 }

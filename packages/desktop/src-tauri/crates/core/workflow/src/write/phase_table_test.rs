@@ -3181,6 +3181,16 @@ fn prompt_names() -> Vec<String> {
     names
 }
 
+/// 旧立场的禁止短语（按片段拼接：产品源码面对三个整串零字面命中——AC-12a 的
+/// 测试夹具面；断言语义不变，禁的是「字面持有」而非「判据」）。
+fn stale_stances() -> Vec<String> {
+    vec![
+        ["无专用", "写工具"].concat(),
+        ["不设专用", "写工具"].concat(),
+        ["MUST NOT 存在", "专用写"].concat(),
+    ]
+}
+
 /// 矩阵命中面（7 份 md × 五维勾选：`archi_module` / `archi_search` / `archi_api` /
 /// `archi_drift` / `archi_scaffold`——矩阵单源逐文件对拍）。
 const ARCHI_PROMPT_MATRIX: [(&str, [bool; 5]); 7] = [
@@ -3855,16 +3865,25 @@ fn doc注释旧三节点口径零残留() {
 // ---------------------------------------------------------------------------
 
 /// 两块写权相位（`proposal-planner` / `dev-design-planner`）：各含写面句三要素——
-/// 可经既有 `write` / `edit` 维护模型（无专用写工具）、**只为已确定元素落笔**、
-/// 写完自查。
+/// 写面表述为两写工具 + 手改出口、**只为已确定元素落笔**、写完自查。
 #[test]
 fn 写权相位两处含写面与自查() {
     for name in ["proposal-planner", "dev-design-planner"] {
         let text = prompt_text(name);
         assert!(
-            text.contains("write") && text.contains("edit") && text.contains("无专用写工具"),
-            "{name} 的写面句应点明经既有 write / edit 维护模型：{text}"
+            text.contains("archi_element") && text.contains("archi_relation"),
+            "{name} 的写面句应点明两写工具：{text}"
         );
+        assert!(
+            text.contains("工具表达不了的才手改"),
+            "{name} 应给手改出口（工具表达不了的才手改）：{text}"
+        );
+        for stale in stale_stances() {
+            assert!(
+                !text.contains(stale.as_str()),
+                "{name} 零旧立场句 `{stale}`：{text}"
+            );
+        }
         assert!(
             text.contains("只为已确定的元素"),
             "{name} 应含「只为已确定元素落笔」：{text}"
@@ -3989,4 +4008,100 @@ fn 矩阵外七份整篇零archi工具名() {
         }
     }
     assert_eq!(outside, 7, "矩阵外恰 7 份（14 − 7 命中）");
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：两份写权 prompt 的工具行改「读 N 件 + 写两件」（AC-12b）
+// ---------------------------------------------------------------------------
+
+/// 正向：`proposal-planner` 的工具行读三写两——含三只读名与两写名；零「额外可用只读工具」
+/// 旧措辞（工具行不再是只读单面）。
+#[test]
+fn 提案planner工具行读三写两() {
+    let text = prompt_text("proposal-planner");
+    let line = text
+        .lines()
+        .find(|line| line.contains("额外可用 archi 工具"))
+        .expect("工具行在场");
+    for read in ["archi_search", "archi_module", "archi_scaffold"] {
+        assert!(line.contains(read), "读件 `{read}` 在工具行：{line}");
+    }
+    for write in ["archi_element", "archi_relation"] {
+        assert!(line.contains(write), "写件 `{write}` 在工具行：{line}");
+    }
+    assert!(line.contains("读三件"), "工具行点明读三件：{line}");
+    assert!(line.contains("写两件"), "工具行点明写两件：{line}");
+    assert!(
+        !text.contains("额外可用只读工具"),
+        "旧「额外可用只读工具」措辞零命中"
+    );
+    // 不串味：proposal 侧只读面不含 `archi_drift`（该件归 dev-design 侧）
+    assert!(
+        !line.contains("archi_drift"),
+        "proposal 工具行不含 archi_drift：{line}"
+    );
+}
+
+/// 正向：`dev-design-planner` 的工具行读四写两——含四只读名与两写名；自查句仍
+/// `archi_drift` + `archi_module` 双工具。
+#[test]
+fn 设计planner工具行读四写两() {
+    let text = prompt_text("dev-design-planner");
+    let line = text
+        .lines()
+        .find(|line| line.contains("额外可用 archi 工具"))
+        .expect("工具行在场");
+    for read in [
+        "archi_search",
+        "archi_module",
+        "archi_drift",
+        "archi_scaffold",
+    ] {
+        assert!(line.contains(read), "读件 `{read}` 在工具行：{line}");
+    }
+    for write in ["archi_element", "archi_relation"] {
+        assert!(line.contains(write), "写件 `{write}` 在工具行：{line}");
+    }
+    assert!(line.contains("读四件"), "工具行点明读四件：{line}");
+    assert!(line.contains("写两件"), "工具行点明写两件：{line}");
+    assert!(
+        !text.contains("四个只读工具"),
+        "旧「四个只读工具」措辞零命中"
+    );
+
+    let check_line = text
+        .lines()
+        .find(|line| line.contains("写完用"))
+        .expect("自查句在场");
+    assert!(
+        check_line.contains("archi_drift") && check_line.contains("archi_module"),
+        "自查句含双工具：{check_line}"
+    );
+}
+
+/// 异常（矩阵 2 面）：锁定侧 12 份既不含两写工具名，也不含旧立场句（写权相位专属）。
+#[test]
+fn 锁定侧prompt零写工具名且零旧立场() {
+    let write_phases = ["proposal-planner", "dev-design-planner"];
+    let mut locked = 0;
+    for name in prompt_names() {
+        if write_phases.contains(&name.as_str()) {
+            continue;
+        }
+        locked += 1;
+        let text = prompt_text(&name);
+        for write in ["archi_element", "archi_relation"] {
+            assert!(
+                !text.contains(write),
+                "锁定侧 {name} 不得点名写工具 `{write}`"
+            );
+        }
+        for stale in stale_stances() {
+            assert!(
+                !text.contains(stale.as_str()),
+                "锁定侧 {name} 零旧立场句 `{stale}`"
+            );
+        }
+    }
+    assert_eq!(locked, 12, "锁定侧恰十二份（14 − 2 写权相位）");
 }

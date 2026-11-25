@@ -1,0 +1,5 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Error writing files: failed to resolve mod `atomic_test`: \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-contract-knowledge-gap\packages\desktop\src-tauri\crates\infra\agent\src\sdk\atomic_test.rs does not exist
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

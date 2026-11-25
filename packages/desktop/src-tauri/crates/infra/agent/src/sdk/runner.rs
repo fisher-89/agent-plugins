@@ -23,8 +23,9 @@ use crate::sdk::model_spec::{
     parse_model_spec, ModelSpec, BETA_CONTEXT_1M, MILLION_CONTEXT_WINDOW,
 };
 use crate::sdk::mount::{
-    ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_MODULE_TOOL, ARCHI_SCAFFOLD_TOOL, ARCHI_SEARCH_TOOL,
-    DB_QUERY_TOOL, DB_TABLES_TOOL, EXPLORE_NOTE_TOOL, PROPOSE_CONFIG_TOOL,
+    ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_ELEMENT_TOOL, ARCHI_MODULE_TOOL, ARCHI_RELATION_TOOL,
+    ARCHI_SCAFFOLD_TOOL, ARCHI_SEARCH_TOOL, DB_QUERY_TOOL, DB_TABLES_TOOL, EXPLORE_NOTE_TOOL,
+    PROPOSE_CONFIG_TOOL,
 };
 use crate::sdk::protect::ProtectRules;
 use crate::sdk::{before_done::BeforeDoneHook, context, preclose, r#loop, reasoning, resume};
@@ -452,10 +453,10 @@ struct PumpPayload {
     db_workspace: Option<Arc<Store>>,
 }
 
-/// 架构只读工具执行上下文 per-turn 铸造（单点；`session_pump` 唯一调用处）：
-/// 本轮名字清单含五名任一 archi 工具名即铸（轮 root = 会话 cwd——change 会话即
+/// 架构工具执行上下文 per-turn 铸造（单点；`session_pump` 唯一调用处）：
+/// 本轮名字清单含七名任一 archi 工具名即铸（轮 root = 会话 cwd——change 会话即
 /// worktree），否则 `None`。铸造值随 `LoopTurn` 携带、loop 侧路由，不经
-/// `tools::execute`。
+/// `tools::execute`；写入保护规则由 `session_pump` 在装配之后经 `with_protect` 接线。
 pub(crate) fn mint_archi_context(names: &[String], workspace_root: &Path) -> Option<ArchiContext> {
     let present = names.iter().any(|name| {
         name == ARCHI_MODULE_TOOL
@@ -463,6 +464,8 @@ pub(crate) fn mint_archi_context(names: &[String], workspace_root: &Path) -> Opt
             || name == ARCHI_API_TOOL
             || name == ARCHI_DRIFT_TOOL
             || name == ARCHI_SCAFFOLD_TOOL
+            || name == ARCHI_ELEMENT_TOOL
+            || name == ARCHI_RELATION_TOOL
     });
     present.then(|| ArchiContext::new(workspace_root.to_path_buf()))
 }
@@ -564,8 +567,9 @@ async fn session_pump(
     } else {
         None
     };
-    // 架构只读工具执行上下文 per-turn 铸造：名字清单含任一 archi 工具名即铸；
-    // 上下文随 LoopTurn 携带、loop 侧路由
+    // 架构工具执行上下文 per-turn 铸造：名字清单含任一 archi 工具名即铸；
+    // 上下文随 LoopTurn 携带、loop 侧路由。写入保护规则在下方装配后接线（写臂在
+    // 落点解析之后以同一 `ProtectRules` 判定）
     let archi = mint_archi_context(
         open.injections.tools.as_deref().unwrap_or_default(),
         &open.ctx.workspace_root,
@@ -623,6 +627,9 @@ async fn session_pump(
     // （相位锁）与内置规则同一次装配、同一结构参与判定——不是第五段闸
     let protect = ProtectRules::load(payload.workspace_root.as_deref())
         .with_session(open.injections.protect.clone());
+    // 写模型工具的保护闸接线：写臂在 `plan_*` 解析落点之后以**同一**规则集判定
+    // （同一规则序、同一拒串族；读臂零消费）
+    let archi = archi.map(|context| context.with_protect(protect.clone()));
     let turn = r#loop::LoopTurn {
         question: question.prompt,
         cwd: open.ctx.workspace_root.clone(),

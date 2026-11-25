@@ -1,5 +1,6 @@
 pub(crate) mod archi_drift_view;
 pub(crate) mod archi_tool;
+pub(crate) mod atomic;
 pub(crate) mod bash;
 pub(crate) mod before_done;
 pub(crate) mod blocks;
@@ -32,6 +33,8 @@ pub(crate) mod web_search;
 mod archi_drift_view_test;
 #[cfg(test)]
 mod archi_tool_test;
+#[cfg(test)]
+mod atomic_test;
 #[cfg(test)]
 mod bash_test;
 #[cfg(test)]

@@ -1,0 +1,5 @@
+
+=== packages_desktop_src-tauri_rust (rust) · files=39 ===
+Found 256 mutants to test
+256 mutants tested in 8m: 256 unviable
+ WARN No mutants were viable: perhaps there is a problem with building in a scratch directory. Look in mutants.out/log/* for more information.

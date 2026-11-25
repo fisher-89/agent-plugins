@@ -2000,3 +2000,99 @@ fn 提案输出复用同一上限常量() {
         "提案工具输出与全工具同走 cap_result 收口"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 本变更：两写工具的路径沙箱面（`input_path` 恒 `None`）与常量同源再导出
+// ---------------------------------------------------------------------------
+
+/// 七 archi 工具名（五只读 + 两写）：两写工具虽有 `file` 入参，但落点由 `file` /
+/// 父元素推得，`input_path` 恒 `None`（不进路径沙箱改写面）。
+const ARCHI_SEVEN: [&str; 7] = [
+    crate::sdk::mount::ARCHI_MODULE_TOOL,
+    crate::sdk::mount::ARCHI_SEARCH_TOOL,
+    crate::sdk::mount::ARCHI_API_TOOL,
+    crate::sdk::mount::ARCHI_DRIFT_TOOL,
+    crate::sdk::mount::ARCHI_SCAFFOLD_TOOL,
+    crate::sdk::mount::ARCHI_ELEMENT_TOOL,
+    crate::sdk::mount::ARCHI_RELATION_TOOL,
+];
+
+/// 正向（穷举 7 名）：七 archi 名逐一 + 入参含 `path` / `file` ⇒ 全 `None`（`file`
+/// 不被当作 `path` 提取，不进路径沙箱）。
+#[test]
+fn 七archi名恒不进沙箱() {
+    let input = json!({
+        "element": "App.Auth",
+        "path": "src/auth/README.md",
+        "file": "01-app.toml",
+        "from": "App.Auth",
+        "to": "App.Billing",
+        "action": "upsert",
+    });
+    assert_eq!(ARCHI_SEVEN.len(), 7, "七 archi 名");
+    for name in ARCHI_SEVEN {
+        assert_eq!(
+            input_path(name, &input),
+            None,
+            "{name} 不进路径沙箱（落点由 file / 父元素推得）"
+        );
+        assert_eq!(
+            input_path(name, &json!({ "file": "01-app.toml" })),
+            None,
+            "{name} 的 file 入参不被当作 path 提取"
+        );
+    }
+}
+
+/// 异常（矩阵 3 形态）：非 archi 名仍按原分派——`read` / `write` / `edit` 取 `path`、
+/// 缺 `path` 时 `None`、`glob` 取 `pattern`；两写名之外零语义变化。
+#[test]
+fn 非archi分派零变化() {
+    let input = json!({ "path": "src/a.rs", "pattern": "src/**/*.rs" });
+    for name in ["read", "write", "edit"] {
+        assert_eq!(input_path(name, &input), Some("src/a.rs"), "{name} 取 path");
+        assert_eq!(
+            input_path(name, &json!({ "pattern": "src/**/*.rs" })),
+            None,
+            "{name} 缺 path ⇒ None"
+        );
+    }
+    assert_eq!(
+        input_path("glob", &input),
+        Some("src/**/*.rs"),
+        "glob 仍取 pattern"
+    );
+    assert_eq!(
+        input_path("bash", &json!({ "command": "cargo test" })),
+        None,
+        "bash 的真实入参无 `path` 键 ⇒ None（命令面另判，分派臂零变化）"
+    );
+}
+
+/// 边界：两常量经 `tools` 再导出可达且逐字等于 `mount` 常量；`input_path` doc 的
+/// 「五个架构只读工具」旧措辞零命中（七个架构工具：五只读 + 两写）。
+#[test]
+fn 常量同源且doc随动() {
+    assert_eq!(
+        crate::sdk::tools::ARCHI_ELEMENT_TOOL,
+        crate::sdk::mount::ARCHI_ELEMENT_TOOL,
+        "元素写常量同源"
+    );
+    assert_eq!(
+        crate::sdk::tools::ARCHI_RELATION_TOOL,
+        crate::sdk::mount::ARCHI_RELATION_TOOL,
+        "关系写常量同源"
+    );
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/sdk/tools.rs"),
+    )
+    .expect("读 tools.rs 失败");
+    assert!(
+        !source.contains("五个架构只读工具"),
+        "旧措辞「五个架构只读工具」零命中"
+    );
+    assert!(
+        source.contains("七个架构工具"),
+        "doc 措辞随动为七个架构工具（五只读 + 两写）"
+    );
+}

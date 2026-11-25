@@ -940,6 +940,7 @@ export const ArchiModuleDetailSchema = z.strictObject({
 	get doc() { return z.string().nullable(); },
 	get api() { return ArchiApiRefSchema; },
 	get resolvedEntry() { return ArchiResolvedEntrySchema; },
+	get fileHash() { return z.string(); },
 });
 
 export const ArchiObservationKindSchema = z.union([z.literal("unfulfilledDeclaration"), z.literal("unusedDeclaration")]);

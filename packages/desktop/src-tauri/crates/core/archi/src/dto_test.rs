@@ -1192,9 +1192,10 @@ fn archi_api_ref为none时三路径全空() {
     assert!(back.generated_path.is_none());
 }
 
-/// 正向（AC-6）：`module_detail` 的 `api` 为**并列字段**，键集含 `element` /
-/// `dependsOn` / `dependedBy` / `children` / `doc` / `api` 六项（`docs` / `warnings`
-/// 已随三源关联能力退役）。
+/// 正向（AC-6 / AC-9）：`module_detail` 的 `api` 为**并列字段**，键集按声明序为
+/// `element` / `dependsOn` / `dependedBy` / `children` / `doc` / `api` /
+/// `resolvedEntry` / `fileHash` 八项（`fileHash` 表尾；`docs` / `warnings` 已随三源
+/// 关联能力退役）。
 #[test]
 fn module_detail并列api字段() {
     let temp = healthy_dir("detail-api-field");
@@ -1215,9 +1216,10 @@ fn module_detail并列api字段() {
             "children",
             "doc",
             "api",
-            "resolvedEntry"
+            "resolvedEntry",
+            "fileHash"
         ],
-        "七字段键序（doc 单值 + api 并列字段 + resolvedEntry）"
+        "八字段键序（doc 单值 + api 并列字段 + resolvedEntry + fileHash）"
     );
     // `doc` 是单值（字符串或 null），契约投影不进该槽位
     assert!(
@@ -1307,8 +1309,8 @@ fn module_detail投影零回写() {
     }
 }
 
-/// 边界（AC-8）：`ArchiElement` 九字段 / `ArchiElementBrief` 四字段 /
-/// `ArchiModuleDetail` 六字段为既有面，`api` 为末位追加；`ArchiGraph` /
+/// 边界（AC-8 / D-9）：`ArchiElement` 十二字段 / `ArchiElementBrief` 六字段 /
+/// `ArchiModuleDetail` 八字段（`fileHash` 表尾）为既有面，`ArchiGraph` /
 /// `ArchiSearchResult` / `ArchiChangeSummary` 零新字段。
 #[test]
 fn 既有字段面零变化() {
@@ -2798,9 +2800,10 @@ fn module_detail_doc键恒在场且序在api前() {
             "children",
             "doc",
             "api",
-            "resolvedEntry"
+            "resolvedEntry",
+            "fileHash"
         ],
-        "`doc` 在 `children` 之后、`api` 之前且不省略（`resolvedEntry` 末位）"
+        "`doc` 在 `children` 之后、`api` 之前且不省略（`resolvedEntry` 之后是 `fileHash` 表尾）"
     );
     assert!(
         value.as_object().expect("对象").contains_key("doc"),
@@ -3871,4 +3874,166 @@ fn relation_detail模型面同源() {
     let relation: &ArchiRelation = &graph.relations[0];
     assert_eq!(relation.mark, EdgeMark::None, "边标记与详情同源词汇");
     assert!(relation.reason.is_none(), "豁免理由同源");
+}
+
+// ===========================================================================
+// `module_detail` 的 `fileHash`（写面乐观锁的读侧闭环）
+//
+// 真值面是真实的 `drift::file_hash`（同一函数同值即判据）；聚合 `modelHash` 只作
+// 「不可互比」的反向对照，不做算术。
+// ===========================================================================
+
+/// 正向：单元素响应的 `fileHash` 与 `drift::file_hash(声明文件)` 逐字相等；形态为
+/// `sha256:` + 64 位小写 hex。
+#[test]
+#[allow(non_snake_case)]
+fn fileHash等于声明文件的file_hash() {
+    let temp = healthy_dir("detail-file-hash");
+    let detail = dto::module_detail(temp.root(), "App.Auth").expect("元素在场应 Ok");
+    let declared = temp.root().join(&detail.element.model_file);
+    assert_eq!(
+        detail.file_hash,
+        crate::drift::file_hash(&declared),
+        "同一函数同一文件 ⇒ 逐字同值"
+    );
+    let hex = detail
+        .file_hash
+        .strip_prefix("sha256:")
+        .unwrap_or_else(|| panic!("前缀为 sha256: 形态：{}", detail.file_hash));
+    assert_eq!(hex.len(), 64, "64 位 hex：{}", detail.file_hash);
+    assert!(
+        hex.chars()
+            .all(|digit| digit.is_ascii_hexdigit() && !digit.is_ascii_uppercase()),
+        "小写 hex：{}",
+        detail.file_hash
+    );
+}
+
+/// 正向（矩阵 2 形态）：同文件声明的两元素 `fileHash` 相等；异文件两元素不等——
+/// 哈希按文件、不按元素。
+#[test]
+#[allow(non_snake_case)]
+fn fileHash按文件不按元素() {
+    let temp = healthy_dir("detail-file-hash-scope");
+    let auth = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+    let billing = dto::module_detail(temp.root(), "App.Billing").expect("Ok");
+    assert_eq!(
+        auth.element.model_file, billing.element.model_file,
+        "同文件声明（`01-core.toml`）"
+    );
+    assert_eq!(auth.file_hash, billing.file_hash, "同文件 ⇒ 同值");
+
+    let invoice = dto::module_detail(temp.root(), "App.Billing.Invoice").expect("Ok");
+    assert_ne!(
+        invoice.element.model_file, auth.element.model_file,
+        "异文件声明（`02-billing.toml`）"
+    );
+    assert_ne!(invoice.file_hash, auth.file_hash, "异文件 ⇒ 异值");
+}
+
+/// 边界（矩阵 2 形态）：该文件写回一次（gate 改档）后 `fileHash` 与改前不等；文件字节
+/// 复原后与改前相等（同内容同值）。
+#[test]
+#[allow(non_snake_case)]
+fn fileHash随内容变化() {
+    let temp = healthy_dir("detail-file-hash-content");
+    let before = dto::module_detail(temp.root(), "App.Auth")
+        .expect("Ok")
+        .file_hash;
+
+    temp.write_model(
+        "01-core.toml",
+        &CORE.replace("gate = \"strict\"", "gate = \"off\""),
+    );
+    let changed = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+    assert_eq!(changed.element.gate, GateTier::Off, "改档已生效");
+    assert_ne!(changed.file_hash, before, "内容变 ⇒ 哈希变");
+
+    temp.write_model("01-core.toml", CORE);
+    let restored = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+    assert_eq!(restored.file_hash, before, "字节复原 ⇒ 哈希复原");
+}
+
+/// 异常：`fileHash` 与全量报告的聚合 `modelHash` 不可比——两者只共享 `sha256:` 前缀与
+/// 长度，数值恒不等（MUST NOT 写成等值断言）。
+#[test]
+#[allow(non_snake_case)]
+fn 不可与聚合modelHash互比() {
+    let temp = healthy_dir("detail-file-hash-model-hash");
+    let detail = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+    let report = crate::drift::check(crate::drift::CheckInput {
+        root: temp.root(),
+        mode: crate::drift::ArchiDriftMode::Full,
+        changed: &[],
+        change: None,
+        cancel: foundation::cancel::CancelFlag::never(),
+    })
+    .expect("健康模型全量检查应 Ok");
+
+    assert_ne!(
+        detail.file_hash, report.model_hash,
+        "单文件哈希与聚合哈希（同名不同义）恒不匹配"
+    );
+    assert!(report.model_hash.starts_with("sha256:"), "聚合值同前缀");
+    assert_eq!(
+        detail.file_hash.len(),
+        report.model_hash.len(),
+        "两者只共享前缀与长度"
+    );
+}
+
+/// 异常（矩阵 2 形态）：元素缺席 ⇒ 既有文案（含「元素不存在」与元素总数）；结构诊断
+/// 非空 ⇒ 诊断全量形。两臂都零响应体，`fileHash` 无产出面。
+#[test]
+fn 异常面零响应体() {
+    let temp = healthy_dir("detail-file-hash-err");
+    let absent = dto::module_detail(temp.root(), "App.Missing").expect_err("缺席应 Err");
+    assert!(absent.contains("元素不存在"), "文案点名缺席：{absent}");
+    assert!(absent.contains('4'), "文案含元素总数：{absent}");
+
+    let broken = TempDir::new("detail-file-hash-broken");
+    broken.write_model("01.toml", "[element.\"App.Auth\"]\nkind = \"domain\"\n");
+    let error = dto::module_detail(broken.root(), "App.Auth").expect_err("结构错应 Err");
+    assert!(
+        error.contains("orphanHierarchy") && error.contains("01.toml"),
+        "诊断全量形（种类 + file:line）：{error}"
+    );
+}
+
+/// 边界：`fileHash` 追加在 `resolvedEntry` 之后（声明序末位）；薄概览
+/// （`ArchiElementBrief`）不带该字段。
+#[test]
+fn 新字段追加表尾且薄面不带() {
+    let source = include_str!("dto.rs");
+    let resolved = source
+        .find("pub resolved_entry")
+        .expect("`resolved_entry` 字段在场");
+    let file_hash = source.find("pub file_hash").expect("`file_hash` 字段在场");
+    assert!(
+        resolved < file_hash,
+        "`file_hash` 声明在 `resolved_entry` 之后（表尾追加）"
+    );
+    assert_eq!(
+        source.matches("pub file_hash").count(),
+        1,
+        "`file_hash` 恰一处声明（薄概览零扩宽）"
+    );
+
+    let temp = healthy_dir("detail-file-hash-brief");
+    let brief = dto::module_overview(temp.root())
+        .expect("Ok")
+        .into_iter()
+        .find(|brief| brief.fqn == "App.Auth")
+        .expect("薄概览含 `App.Auth`");
+    let keys: Vec<String> = serde_json::to_value(&brief)
+        .expect("序列化成功")
+        .as_object()
+        .expect("对象")
+        .keys()
+        .cloned()
+        .collect();
+    assert!(
+        !keys.iter().any(|key| key == "fileHash"),
+        "薄概览不带 `fileHash`：{keys:?}"
+    );
 }

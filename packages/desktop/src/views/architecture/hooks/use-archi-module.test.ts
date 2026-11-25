@@ -39,6 +39,7 @@ function detailOf(fqn: string): ArchiModuleDetail {
     doc: null,
     api: { status: 'declared', contractPath: null, schemaPath: null, generatedPath: null },
     resolvedEntry: { path: null, via: null, problem: null },
+    fileHash: 'sha256:0f'.padEnd(71, '0'),
   };
 }
 

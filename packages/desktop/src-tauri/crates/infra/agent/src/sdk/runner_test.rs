@@ -2598,9 +2598,9 @@ async fn explore铸造判据按名字包含四形态() {
     }
 }
 
-/// archi 铸造判据（正向，AC-1 表驱动）：含 `archi_module` / 含 `archi_search` /
-/// 含 `archi_api` / 前两者同在 → `Some`；三皆无（`tools: None` / 空清单）→ `None`；近名
-/// （`archi` / `archi_module_x` / `archi_api_typo` / 大写 / 尾空格）→ `None`（精确名比较）。
+/// archi 铸造判据（正向，AC-1 表驱动）：七名（五只读 + 两写）任一在场 → `Some`；
+/// 全不在场（`tools: None` / 空清单）→ `None`；近名（`archi` / `archi_module_x` /
+/// `archi_api_typo` / 大写 / 尾空格）→ `None`（精确名比较）。
 #[tokio::test]
 async fn archi铸造判据精确名表驱动() {
     use crate::sdk::mount::{
@@ -2653,6 +2653,30 @@ async fn archi铸造判据精确名表驱动() {
             names: vec![
                 "read".to_owned(),
                 crate::sdk::mount::ARCHI_SCAFFOLD_TOOL.to_owned(),
+            ],
+            expect_present: true,
+        },
+        Case {
+            tag: "含 archi_element（写工具）",
+            names: vec![
+                "read".to_owned(),
+                crate::sdk::mount::ARCHI_ELEMENT_TOOL.to_owned(),
+            ],
+            expect_present: true,
+        },
+        Case {
+            tag: "含 archi_relation（写工具）",
+            names: vec![
+                "read".to_owned(),
+                crate::sdk::mount::ARCHI_RELATION_TOOL.to_owned(),
+            ],
+            expect_present: true,
+        },
+        Case {
+            tag: "只含两写名（混合清单）",
+            names: vec![
+                crate::sdk::mount::ARCHI_ELEMENT_TOOL.to_owned(),
+                crate::sdk::mount::ARCHI_RELATION_TOOL.to_owned(),
             ],
             expect_present: true,
         },
@@ -2798,6 +2822,8 @@ fn 枚举面零残留且引用面改挂载常量() {
         "ARCHI_API_TOOL",
         "ARCHI_MODULE_TOOL",
         "ARCHI_SEARCH_TOOL",
+        "ARCHI_ELEMENT_TOOL",
+        "ARCHI_RELATION_TOOL",
         "EXPLORE_NOTE_TOOL",
         "DB_TABLES_TOOL",
         "DB_QUERY_TOOL",
@@ -4457,4 +4483,223 @@ fn sse_generic_tool_call(
 ",
     );
     body
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：写模型工具的保护闸接线（`with_protect` 恰一处）
+// ---------------------------------------------------------------------------
+
+/// 保护闸接线用的健康模型（单文件：一个 package + 两 module 兄弟）。
+const PROTECT_CHAIN_MODEL_FILE: &str = "01-core.toml";
+
+const PROTECT_CHAIN_MODEL: &str = concat!(
+    "# 保护闸模型\n",
+    "[element.\"Gamma\"]\n",
+    "kind = \"package\"\n",
+    "\n",
+    "[element.\"Gamma.Auth\"]\n",
+    "kind = \"module\"\n",
+    "path = [\"./src/auth/\"]\n",
+    "\n",
+    "[element.\"Gamma.Billing\"]\n",
+    "kind = \"module\"\n",
+    "path = [\"./src/billing/\"]\n",
+);
+
+/// 落一份用户写保护配置（绝对 glob：相对 glob 会按 `**/` 前缀归一，跨平台匹配面
+/// 不稳）。
+fn write_protect_config(root: &Path, model_glob: &str) {
+    let config = serde_json::json!({
+        "write_protection": {
+            "files": [{ "glob": model_glob, "reason": "架构模型只经写工具" }]
+        }
+    });
+    let config_path = foundation::layout::config_path(root);
+    std::fs::create_dir_all(config_path.parent().expect("配置有父目录")).expect("建配置目录失败");
+    std::fs::write(
+        &config_path,
+        serde_json::to_string_pretty(&config).expect("配置序列化"),
+    )
+    .expect("写配置文件失败");
+}
+
+/// 正向（组合：mint 铸造链 → `with_protect` → `execute`）：用户规则命中**解析后的
+/// 目标文件** ⇒ 装配出的上下文调写臂得拒串，且与 `ProtectRules::evaluate_target`
+/// 直调**逐字相同**（同一规则序、同一拒串族、占位已替换）、零落盘；未命中 ⇒ 同一
+/// 装配链写入成功；`with_protect` 链式注入不改 `root`（读臂响应与未注入时逐字相同）。
+#[tokio::test]
+async fn 装配侧同一规则集接线() {
+    use crate::sdk::mount::{ARCHI_ELEMENT_TOOL, ARCHI_MODULE_TOOL};
+    use crate::sdk::protect::ProtectRules;
+
+    let dir = workspace_root("runner-protect-chain");
+    archi_write_model(dir.path(), PROTECT_CHAIN_MODEL_FILE, PROTECT_CHAIN_MODEL);
+    let root = dir.path().to_path_buf();
+    let root_text = dir.path().to_string_lossy().replace('\\', "/");
+    write_protect_config(
+        &root,
+        &format!("{root_text}/.dev-team/architecture/graph/model/**"),
+    );
+
+    // 期望拒串取自同一规则集的直调入口（后置于落点解析的保护闸判据）
+    let target = foundation::layout::archi_graph_model_dir(&root).join(PROTECT_CHAIN_MODEL_FILE);
+    let rules = ProtectRules::load(Some(root.as_path()));
+    let expected_denial = rules
+        .evaluate_target(ARCHI_ELEMENT_TOOL, &target)
+        .expect("用户规则覆盖模型目录（规则装配即被测面）");
+    assert!(
+        !expected_denial.contains("%s") && !expected_denial.contains("%t"),
+        "拒串占位已替换为路径与工具名：{expected_denial}"
+    );
+    let before = std::fs::read(&target).expect("读模型失败");
+
+    // 装配链：铸造（写名在场即铸）→ 同一规则集注入 → 写臂
+    let minted = mint_archi_context(&[ARCHI_ELEMENT_TOOL.to_owned()], &root)
+        .expect("写名在场即铸（铸造链起手）");
+    let error = minted
+        .with_protect(rules)
+        .execute(
+            ARCHI_ELEMENT_TOOL,
+            &serde_json::json!({
+                "action": "upsert",
+                "element": "Gamma.Auth",
+                "summary": "被拒",
+            }),
+        )
+        .await
+        .expect_err("命中用户规则必须拒写");
+    assert_eq!(
+        error, expected_denial,
+        "拒串与 `ProtectRules::evaluate_target` 直调逐字相同"
+    );
+    assert_eq!(
+        std::fs::read(&target).expect("读模型失败"),
+        before,
+        "拒写零落盘（盘上字节逐字不变）"
+    );
+
+    // `with_protect` 不改 `root`：读臂响应与未注入规则集时逐字相同
+    let plain = mint_archi_context(&[ARCHI_MODULE_TOOL.to_owned()], &root).expect("读名在场即铸");
+    let plain_text = plain
+        .execute(ARCHI_MODULE_TOOL, &serde_json::json!({}))
+        .await
+        .expect("读臂应成功");
+    let injected = mint_archi_context(&[ARCHI_MODULE_TOOL.to_owned()], &root)
+        .expect("读名在场即铸")
+        .with_protect(ProtectRules::load(Some(root.as_path())));
+    let injected_text = injected
+        .execute(ARCHI_MODULE_TOOL, &serde_json::json!({}))
+        .await
+        .expect("读臂应成功");
+    assert_eq!(
+        injected_text, plain_text,
+        "`with_protect` 链式注入不改 `root`（读臂响应逐字相同）"
+    );
+
+    // 未命中：另一根无用户规则 ⇒ 同一装配链写入成功
+    let open_dir = workspace_root("runner-protect-chain-pass");
+    archi_write_model(
+        open_dir.path(),
+        PROTECT_CHAIN_MODEL_FILE,
+        PROTECT_CHAIN_MODEL,
+    );
+    let open_root = open_dir.path().to_path_buf();
+    let context = mint_archi_context(&[ARCHI_ELEMENT_TOOL.to_owned()], &open_root)
+        .expect("写名在场即铸")
+        .with_protect(ProtectRules::load(Some(open_root.as_path())));
+    let text = context
+        .execute(
+            ARCHI_ELEMENT_TOOL,
+            &serde_json::json!({
+                "action": "upsert",
+                "element": "Gamma.Auth",
+                "summary": "放行",
+            }),
+        )
+        .await
+        .expect("未命中规则即写入成功");
+    let payload: serde_json::Value = serde_json::from_str(&text).expect("写响应为 JSON 串");
+    assert_eq!(
+        payload["changed"],
+        serde_json::json!(["summary"]),
+        "未命中规则 ⇒ 写入生效"
+    );
+}
+
+/// 正向（组合：mint 铸造链 → `with_protect` → `execute`，两写臂各一条）：铸出的
+/// 上下文经同一规则集注入后两写工具均可落盘——铸造链行为面不只看 `Some`，还要看
+/// 写臂能走到落盘。
+#[tokio::test]
+async fn mint铸造链两写工具均可执行() {
+    use crate::sdk::mount::{ARCHI_ELEMENT_TOOL, ARCHI_RELATION_TOOL};
+    use crate::sdk::protect::ProtectRules;
+
+    let dir = workspace_root("runner-mint-write-chain");
+    archi_write_model(dir.path(), PROTECT_CHAIN_MODEL_FILE, PROTECT_CHAIN_MODEL);
+    let root = dir.path().to_path_buf();
+    let rules = ProtectRules::load(Some(root.as_path()));
+
+    let element_context = mint_archi_context(&[ARCHI_ELEMENT_TOOL.to_owned()], &root)
+        .expect("元素写名在场即铸")
+        .with_protect(rules.clone());
+    let text = element_context
+        .execute(
+            ARCHI_ELEMENT_TOOL,
+            &serde_json::json!({
+                "action": "upsert",
+                "element": "Gamma.Auth",
+                "summary": "认证",
+            }),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("装配链上元素写应成功: {error}"));
+    let payload: serde_json::Value = serde_json::from_str(&text).expect("写响应为 JSON 串");
+    assert_eq!(payload["action"], serde_json::json!("upsert"), "动作回显");
+
+    let relation_context = mint_archi_context(&[ARCHI_RELATION_TOOL.to_owned()], &root)
+        .expect("关系写名在场即铸")
+        .with_protect(rules);
+    let text = relation_context
+        .execute(
+            ARCHI_RELATION_TOOL,
+            &serde_json::json!({
+                "action": "upsert",
+                "from": "Gamma.Auth",
+                "to": "Gamma.Billing",
+            }),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("装配链上关系写应成功: {error}"));
+    let payload: serde_json::Value = serde_json::from_str(&text).expect("写响应为 JSON 串");
+    assert_eq!(payload["from"], serde_json::json!("Gamma.Auth"), "起点回显");
+    assert_eq!(
+        payload["to"],
+        serde_json::json!("Gamma.Billing"),
+        "终点回显"
+    );
+    assert_eq!(
+        payload["warnings"],
+        serde_json::json!([]),
+        "关系写薄形恒空 warnings"
+    );
+}
+
+/// 异常（源码锚）：`session_pump` 的接线形态——`with_protect(` 在 `runner.rs` 恰一处、
+/// 规则集来源仍是唯一装配点（`ProtectRules::load(`）。
+#[test]
+fn 接线形态源码锚() {
+    let source = include_str!("runner.rs");
+    assert_eq!(
+        source.matches("with_protect(").count(),
+        1,
+        "写臂保护闸接线恰一处"
+    );
+    assert!(
+        source.contains("archi.map(|context| context.with_protect(protect.clone()))"),
+        "接线形态：装配后的同一 `ProtectRules` 注入"
+    );
+    assert!(
+        source.contains("ProtectRules::load("),
+        "规则集来源仍是唯一装配点"
+    );
 }

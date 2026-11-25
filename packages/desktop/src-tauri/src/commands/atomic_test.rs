@@ -1,8 +1,12 @@
-//! `commands::atomic` 的单元测试：命令层唯一落盘点 `write_atomic` 的同目录临时文件
-//! + rename 覆盖语义（写新 / 覆盖 / 形态边界 / 失败清理 / 结构锚）。
+//! `commands::atomic` 的单元测试：命令层薄委托与唯一实现的**同一性**（行为等价、
+//! 错误串原样透传、边界形态同行为），以及「命令层零落盘实现」的源码锚。
 //!
-//! 文件系统不 mock：真实 tempdir（`tempfile` RAII），断言只收敛本函数的落盘语义与
-//! 失败文案，不逐项断言 fs / rename 库自身语义。
+//! 行为用例（写新 / 覆盖 / 空与超长 / 特殊名 / 父目录缺失 / 只读目录 / 结构锚）已迁
+//! infra 侧 `crates/infra/agent/src/sdk/atomic_test.rs`（内容逐条保留）；本文件只钉
+//! 「委托目标 = 被测对象」这一条——替身会抹掉「两写面共用同一函数」的判据。
+//!
+//! 文件系统不 mock：真实 `tempfile` RAII + 真实 infra 实现（经 crate 根
+//! `agent_runtime::write_atomic`）。
 
 use std::fs;
 use std::path::Path;
@@ -12,12 +16,12 @@ use super::write_atomic;
 /// 临时根（RAII 清理）。
 fn tempdir(tag: &str) -> tempfile::TempDir {
     tempfile::Builder::new()
-        .prefix(&format!("atomic-write-test-{tag}-"))
+        .prefix(&format!("command-atomic-test-{tag}-"))
         .tempdir()
         .expect("创建临时目录失败")
 }
 
-/// 目录内 `*.archi-tmp` 残留条目（含同后缀命名的合法目标名时按入参区分）。
+/// 目录内 `*.archi-tmp` 残留条目。
 fn leftovers(dir: &Path) -> Vec<String> {
     fs::read_dir(dir)
         .expect("读目录失败")
@@ -28,183 +32,131 @@ fn leftovers(dir: &Path) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------
-// 正向：写新 / 覆盖
+// 正向：委托后行为等价
 // ---------------------------------------------------------------------------
 
-/// 正向：写新文件 → 内容逐字等于入参、同目录零 `*.archi-tmp` 残留。
+/// 正向（矩阵 2 形态）：写新文件 / 覆盖既有文件 ⇒ 读回逐字等于入参、同目录零
+/// `*.archi-tmp` 残留（与 infra 实现同行为）。
 #[test]
-fn 写新文件内容逐字且零残留() {
-    let dir = tempdir("new");
-    let target = dir.path().join("gate.toml");
-
-    write_atomic(&target, "gate = \"strict\"\n").expect("写新文件应成功");
-
+fn 委托后行为等价() {
+    let dir = tempdir("equivalent");
+    let fresh = dir.path().join("gate.toml");
+    write_atomic(&fresh, "gate = \"strict\"\n").expect("写新文件应成功");
     assert_eq!(
-        fs::read_to_string(&target).expect("读目标失败"),
+        fs::read_to_string(&fresh).expect("读目标失败"),
         "gate = \"strict\"\n",
-        "内容逐字等于入参"
+        "写新：内容逐字等于入参"
     );
-    assert!(leftovers(dir.path()).is_empty(), "同目录零临时文件残留");
-}
 
-/// 正向：覆盖既有文件 → 内容整体替换（读回逐字等于新内容，无半截）。
-#[test]
-fn 覆盖既有文件为整体替换() {
-    let dir = tempdir("overwrite");
-    let target = dir.path().join("gate.toml");
-    fs::write(&target, "旧内容：很长很长的一段旧模型字节\n第二行\n").expect("落旧内容失败");
-
-    write_atomic(&target, "新内容\n").expect("覆盖应成功");
-
+    let existing = dir.path().join("existing.toml");
+    fs::write(&existing, "旧内容：很长很长的一段旧模型字节\n").expect("落旧内容失败");
+    write_atomic(&existing, "新内容\n").expect("覆盖应成功");
     assert_eq!(
-        fs::read_to_string(&target).expect("读目标失败"),
+        fs::read_to_string(&existing).expect("读目标失败"),
         "新内容\n",
-        "覆盖后无旧字节残留（整体替换）"
-    );
-    assert!(leftovers(dir.path()).is_empty(), "覆盖后零临时文件残留");
-}
-
-// ---------------------------------------------------------------------------
-// 边界：空内容 / 超长内容 / 无父目录 / 特殊名字
-// ---------------------------------------------------------------------------
-
-/// 边界（矩阵 2 形态）：空内容 → `Ok` 且文件为空；1 MB 内容 → `Ok` 且读回逐字相等。
-#[test]
-fn 空内容与超长内容两形态() {
-    let dir = tempdir("size");
-    let empty = dir.path().join("empty.toml");
-    write_atomic(&empty, "").expect("空内容应成功");
-    assert_eq!(
-        fs::metadata(&empty).expect("读元数据失败").len(),
-        0,
-        "文件为空"
-    );
-
-    let big = dir.path().join("big.toml");
-    let content = "x".repeat(1024 * 1024);
-    write_atomic(&big, &content).expect("1 MB 内容应成功");
-    assert_eq!(
-        fs::read_to_string(&big).expect("读大文件失败").len(),
-        content.len(),
-        "读回逐字相等（长度一致）"
+        "覆盖：整体替换（无半截）"
     );
     assert!(leftovers(dir.path()).is_empty(), "零临时文件残留");
 }
 
-/// 边界：目标路径无父目录（空路径）→ `Err` 文案含「无父目录」。
-///
-/// 判据边界说明：`Path::new("name").parent()` 是 `Some("")`（相对名按进程 cwd
-/// 解析，写入成功），故该守卫的实际触发面只有空路径形态——本用例钉的正是这一面，
-/// 不为「纯文件名」造一条不存在的失败。
-#[test]
-fn 无父目录目标err文案可辨() {
-    let error = write_atomic(Path::new(""), "x").expect_err("空路径必须 Err");
-    assert!(
-        error.contains("无父目录"),
-        "文案应点明无父目录，实际 {error}"
-    );
-}
-
-/// 边界（矩阵 3 形态）：目标名含空格 / emoji / 名字本身以 `.archi-tmp` 结尾 →
-/// 临时名不撞目标、写入成功。
-#[test]
-fn 特殊目标名临时名不撞目标() {
-    let dir = tempdir("special-name");
-    for name in ["含 空格.toml", "emoji-🎯.toml", "already.archi-tmp"] {
-        let target = dir.path().join(name);
-        write_atomic(&target, name).expect("特殊名应写入成功");
-        assert_eq!(
-            fs::read_to_string(&target).expect("读目标失败"),
-            name,
-            "目标名 {name:?} 内容逐字"
-        );
-    }
-    // 后缀为 .archi-tmp 的合法目标本身不被本函数的残留清理判据误判：
-    // 除该目标外无其他临时文件残留。
-    let remaining = leftovers(dir.path());
-    assert_eq!(
-        remaining,
-        vec!["already.archi-tmp".to_owned()],
-        "仅有那个合法目标名本身（临时名未撞目标、未残留）"
-    );
-}
-
 // ---------------------------------------------------------------------------
-// 异常：父目录不存在 / 目录只读
+// 异常：错误串原样透传
 // ---------------------------------------------------------------------------
 
-/// 异常：父目录不存在 → `Err` 文案含「写入临时文件失败」，零残留、目标未被创建。
+/// 异常（矩阵 2 形态）：父目录缺失 ⇒ `Err` 与 `agent_runtime::write_atomic` 直调**逐字
+/// 相等**；空路径 ⇒ 「无父目录」。
 #[test]
-fn 父目录不存在err且目标未创建() {
-    let dir = tempdir("missing-parent");
+fn 错误文案原样透传() {
+    let dir = tempdir("passthrough");
     let target = dir.path().join("absent-dir").join("gate.toml");
 
-    let error = write_atomic(&target, "x").expect_err("父目录缺失必须 Err");
-
+    let delegated = write_atomic(&target, "x").expect_err("父目录缺失必须 Err");
+    let direct = agent_runtime::write_atomic(&target, "x").expect_err("直调同判据");
+    assert_eq!(delegated, direct, "错误串逐字透传（同一实现）");
     assert!(
-        error.contains("写入临时文件失败"),
-        "文案应点明写入临时文件失败，实际 {error}"
+        delegated.contains("写入临时文件失败"),
+        "文案仍是 infra 侧那句：{delegated}"
     );
     assert!(!target.exists(), "目标未被创建");
+
+    let empty = write_atomic(Path::new(""), "x").expect_err("空路径必须 Err");
     assert!(
-        !dir.path().join("absent-dir").exists(),
-        "父目录不被自动创建（本函数零 create_dir_all）"
+        empty.contains("无父目录"),
+        "空路径文案含「无父目录」：{empty}"
     );
-    assert!(leftovers(dir.path()).is_empty(), "零残留");
 }
 
-/// 异常：目录只读（`cfg(unix)` 0o555）→ `Err`；以 root 运行时可写穿时只断言
-/// 零残留 + 目标可读（沿既有 `archi` 兜底口径，不伪造失败）。
-#[cfg(unix)]
+// ---------------------------------------------------------------------------
+// 边界：边界形态与 infra 同行为
+// ---------------------------------------------------------------------------
+
+/// 边界（矩阵 3 形态）：空内容 / 1 MB 超长内容 / 目标名以 `.archi-tmp` 结尾 ⇒ 委托后与
+/// `agent_runtime::write_atomic` 直调同行为（读回内容相等、零临时残留、后缀不变）。
 #[test]
-fn 只读目录err或可写穿零残留() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let dir = tempdir("readonly");
-    let target = dir.path().join("gate.toml");
-    fs::write(&target, "旧内容").expect("落旧内容失败");
-    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o555)).expect("置只读");
-
-    let result = write_atomic(&target, "新内容");
-    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).expect("恢复权限");
-
-    if result.is_ok() {
-        assert!(leftovers(dir.path()).is_empty(), "可写穿时零临时文件残留");
-        assert!(fs::read(&target).is_ok(), "目标文件仍可读");
-        return;
+fn 边界形态与infra同行为() {
+    let dir = tempdir("boundary");
+    let long = "x".repeat(1024 * 1024);
+    for (name, content) in [
+        ("empty.toml", ""),
+        ("big.toml", long.as_str()),
+        ("already.archi-tmp", "suffix"),
+    ] {
+        let delegated = dir.path().join(format!("delegated-{name}"));
+        let direct = dir.path().join(format!("direct-{name}"));
+        write_atomic(&delegated, content).expect("委托写入应成功");
+        agent_runtime::write_atomic(&direct, content).expect("直调写入应成功");
+        assert_eq!(
+            fs::read(&delegated).expect("读委托产物失败"),
+            fs::read(&direct).expect("读直调产物失败"),
+            "形态 {name} 的字节与直调逐字相等"
+        );
+        assert_eq!(
+            fs::metadata(&delegated).expect("读元数据失败").len() as usize,
+            content.len(),
+            "形态 {name} 的长度一致"
+        );
     }
     assert_eq!(
-        fs::read_to_string(&target).expect("读目标失败"),
-        "旧内容",
-        "失败时原文件不变"
+        leftovers(dir.path()),
+        vec![
+            "delegated-already.archi-tmp".to_owned(),
+            "direct-already.archi-tmp".to_owned(),
+        ],
+        "仅那两个合法目标名本身残留（后缀不变、临时名未撞目标）"
     );
-    assert!(leftovers(dir.path()).is_empty(), "失败后零临时文件残留");
 }
 
 // ---------------------------------------------------------------------------
-// 结构锚：命令层唯一落盘点
+// 结构锚：命令层零落盘实现
 // ---------------------------------------------------------------------------
 
-/// 正向：`fs::write(&temporary` 恰一处（命令层唯一落盘点），`create_dir_all` 零命中。
+/// 异常（源码锚）：`fs::write` / `fs::rename` / `create_dir_all` 零命中、
+/// `agent_runtime::write_atomic` 恰一处（委托单点）、签名行逐字在场。
 #[test]
-fn 结构锚唯一落盘点与零建目录() {
-    let source = include_str!("atomic.rs");
+fn 命令层零落盘实现() {
+    // 只扫代码行：模块头 doc 明写「本文件零 `fs::write` …」正是本判据的说明文字。
+    let own = include_str!("atomic.rs");
+    let code: Vec<&str> = own
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect();
+    for forbidden in ["fs::write", "fs::rename", "create_dir_all"] {
+        assert!(
+            !code.iter().any(|line| line.contains(forbidden)),
+            "命令层零 {forbidden}"
+        );
+    }
     assert_eq!(
-        source.matches("fs::write(&temporary").count(),
+        code.iter()
+            .map(|line| line.matches("agent_runtime::write_atomic").count())
+            .sum::<usize>(),
         1,
-        "命令层唯一 `fs::write` 落点（`write_atomic` 的临时文件写入）"
+        "委托单点恰一处"
     );
     assert!(
-        !source.contains("create_dir_all"),
-        "本函数不建目录（父目录缺失即 Err）"
-    );
-    assert_eq!(
-        source.matches("fs::rename(&temporary, path)").count(),
-        1,
-        "rename 覆盖恰一处"
-    );
-    assert!(
-        source.contains(".archi-tmp"),
-        "临时后缀为历史命名（保留以免既有「无残留」判据失稳）"
+        code.iter().any(|line| line.contains(
+            "pub(crate) fn write_atomic(path: &Path, content: &str) -> Result<(), String>"
+        )),
+        "签名行逐字不变（壳层两写面共用）"
     );
 }

@@ -1239,6 +1239,14 @@ export type ArchiModuleDetail = {
 	api: ArchiApiRef,
 	/**  入口解析结果（显式命中 / 约定默认命中 / 不可用成因） */
 	resolvedEntry: ArchiResolvedEntry,
+	/**
+	 *  元素声明文件的**当前内容哈希**（`sha256:<hex>`；写面 `expect` 的读侧闭环）
+	 * 
+	 *  与 [`crate::drift::file_hash`] 同一函数产出、同前缀，可直接作写工具的 `expect`。
+	 *  MUST NOT 与 `archi_drift` 报告的 `modelHash` 比较（后者是全量聚合、非同粒度），
+	 *  MUST NOT 承担「模型是否被改动」的判定（那是 `assets_hash` 的用途）。
+	 */
+	fileHash: string,
 };
 
 /**

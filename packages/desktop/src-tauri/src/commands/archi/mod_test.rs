@@ -676,14 +676,20 @@ fn inner体只调原语族() {
         .expect("函数体收尾");
     let body = &body[..end];
 
-    for needle in ["plan_element_upsert", "ElementSpec", ".message()"] {
+    for needle in [
+        "plan_element_upsert",
+        "ElementSpec",
+        ".message()",
+        ".write",
+        "write_atomic",
+    ] {
         assert!(
             body.contains(needle),
             "inner 体含 {needle}：
 {body}"
         );
     }
-    for forbidden in ["element(", "diagnostics"] {
+    for forbidden in ["element(", "diagnostics", "expect:"] {
         assert!(
             !body.contains(forbidden),
             "命令层零 {forbidden}（判据全在 archi::edit）：
@@ -2623,4 +2629,84 @@ fn archi_relation_root校验四形态() {
             "错误映射一致（命令层零二次加工）"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：写面文本单源（命令 ↔ `plan_element_upsert`）与 `archi_module` 的 `fileHash`
+// ---------------------------------------------------------------------------
+
+/// 正向（组合：命令 → `plan_element_upsert`）：命令落盘文本 == 直接调
+/// `plan_element_upsert(root, &ElementSpec { fqn, gate, .. })` 的 `outcome.write.content`
+/// 逐字节相等（AC-13 的命令半边；工具半边在 `archi_tool_test.rs`，两半合取即「两通路
+/// 同文本」）。
+#[test]
+fn 命令落盘文本即plan的content() {
+    let temp = healthy("set-gate-same-text");
+    let spec = ElementSpec {
+        fqn: "App.Auth".to_owned(),
+        gate: Some(GateTier::Strict),
+        ..Default::default()
+    };
+    let outcome = plan_element_upsert(temp.path(), &spec).expect("plan 应成功");
+
+    archi_set_gate_inner(temp.path(), "App.Auth", GateTier::Strict).expect("命令改档应成功");
+
+    let file = archi_graph_model_dir(temp.path()).join("01-core.toml");
+    assert_eq!(
+        fs::read_to_string(&file).expect("读模型失败"),
+        outcome.write.content,
+        "命令落盘文本 == plan 的 content（同一实现、同一份文本）"
+    );
+    assert_eq!(
+        fs::read(&file).expect("读模型失败"),
+        outcome.write.content.as_bytes(),
+        "逐字节相等（无命令层二次加工）"
+    );
+}
+
+/// 正向：`archi_module` 单元素响应含 `fileHash`，位于声明序末位且 ==
+/// `drift::file_hash(root.join(元素声明文件))`；形态 `sha256:` + 64 位小写 hex。
+#[test]
+#[allow(non_snake_case)]
+fn module出参带fileHash() {
+    let temp = healthy("module-file-hash");
+    let detail = archi_module_inner(temp.path(), "App.Auth").expect("archi_module_inner 应 Ok");
+    let value = serde_json::to_value(&detail).expect("序列化成功");
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("出参为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        vec![
+            "element",
+            "dependsOn",
+            "dependedBy",
+            "children",
+            "doc",
+            "api",
+            "resolvedEntry",
+            "fileHash",
+        ],
+        "八字段且 fileHash 在声明序末位"
+    );
+
+    let file = archi_graph_model_dir(temp.path()).join("01-core.toml");
+    let expected = archi::drift::file_hash(&file);
+    assert_eq!(
+        value["fileHash"].as_str(),
+        Some(expected.as_str()),
+        "fileHash == drift::file_hash(声明文件)"
+    );
+    let hash = value["fileHash"].as_str().expect("fileHash 为字符串");
+    assert!(hash.starts_with("sha256:"), "前缀形态：{hash}");
+    let hex = hash.trim_start_matches("sha256:");
+    assert_eq!(hex.len(), 64, "64 位 hex：{hash}");
+    assert!(
+        hex.chars()
+            .all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()),
+        "小写 hex：{hash}"
+    );
 }

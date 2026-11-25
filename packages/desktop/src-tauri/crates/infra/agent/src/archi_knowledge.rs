@@ -8,9 +8,9 @@
 //! 2. **尽力增强、不炸 run**：拼装失败（骨架为空 / 含占位符）降级 [`knowledge`]
 //!    为 `None`，装配层只丢 `preamble` 位，工具面与 run 不受影响。
 
-/// 静态骨架（位置与键形 / 字段纪律 / `kind` 语义 / 层级与读数 /
-/// 边界与自检 / 写面）：只留不可脚本化的散文与一行工具指路，示例 TOML 与字段形态
-/// 归 `archi_scaffold`。
+/// 静态骨架（职责 / 工具面 / 留给判断三段；派生路径段由 [`build`] 追加）：只留不可
+/// 脚本化的散文与工具指路，字段形态 / 键形 / 值域 / 祖先 / 计数全部归工具面
+/// （`archi_scaffold` 词典与两写工具的参数 `description`）。
 const SKELETON: &str = include_str!("archi-knowledge.md");
 
 /// 架构会话知识（唯一入口）：`build(SKELETON).ok()`——`None` = 降级（装配层只丢

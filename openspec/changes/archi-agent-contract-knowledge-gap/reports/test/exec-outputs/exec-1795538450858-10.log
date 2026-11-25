@@ -1,0 +1,16 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-contract-knowledge-gap\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:3756:
+     assert_eq!(set.elements.len(), 1, "恰一个元素");
+     assert!(set.relations.is_empty(), "零关系对");
+     let empty = DeleteSet::default();
+[31m-    assert!(empty.elements.is_empty() && empty.relations.is_empty(), "空集可辨");
+[0m[32m+    assert!(
+[0m[32m+        empty.elements.is_empty() && empty.relations.is_empty(),
+[0m[32m+        "空集可辨"
+[0m[32m+    );
+[0m 
+     let written = apply_element_delete(CORE_SOURCE, &set).expect("退化形删除应成功");
+     assert_eq!(model_of(&written).elements.len(), 2, "恰删一个元素");
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

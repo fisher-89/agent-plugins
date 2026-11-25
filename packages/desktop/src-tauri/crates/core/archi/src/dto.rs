@@ -588,6 +588,12 @@ pub struct ArchiModuleDetail {
     pub api: ArchiApiRef,
     /// 入口解析结果（显式命中 / 约定默认命中 / 不可用成因）
     pub resolved_entry: ArchiResolvedEntry,
+    /// 元素声明文件的**当前内容哈希**（`sha256:<hex>`；写面 `expect` 的读侧闭环）
+    ///
+    /// 与 [`crate::drift::file_hash`] 同一函数产出、同前缀，可直接作写工具的 `expect`。
+    /// MUST NOT 与 `archi_drift` 报告的 `modelHash` 比较（后者是全量聚合、非同粒度），
+    /// MUST NOT 承担「模型是否被改动」的判定（那是 `assets_hash` 的用途）。
+    pub file_hash: String,
 }
 
 /// 检索结果（薄条目 + 入口文档路径串）。
@@ -833,6 +839,8 @@ pub fn module_detail(root: &Path, fqn: &str) -> Result<ArchiModuleDetail, String
         // 契约状态的定位与投影单点在 `crate::api`（本层零路径拼接、零二次读模型）
         api: crate::api::api_ref_of(root, &projected, current),
         resolved_entry: resolve_entry(root, &projected, current),
+        // 单文件哈希与 `drift::file_hash` 同一函数（读侧闭环；`modelFile` 已在手 ⇒ 零额外定位）
+        file_hash: crate::drift::file_hash(&root.join(&element.file)),
     })
 }
 

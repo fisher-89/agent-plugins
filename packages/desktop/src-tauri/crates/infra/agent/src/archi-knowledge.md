@@ -1,38 +1,19 @@
 # 架构模型须知
 
-## 位置与键形
+## 职责
+模型只写**结构**（元素 / 依赖）与三个**指针**（`api` / `entry` / `doc`）：接口、导出符号、协议正文归契约资产。
 
-模型按文件名字典序聚合。一元素一表头，键为**带引号的完整 FQN 单键**；未引号点分 `[element.App.Auth]` 即**整份源解析失败**（诊断点名非法子键）；`metadata` 子表与内联表等价（写在已声明元素后零诊断；唯一声明才缺 `kind`）；关系写 `[[relation]]`（`from` / `to` / `desc` / `apis`）；字段序与形态用 `archi_scaffold` 取模板。
+只改架构目录内文件；直改主仓随 `git diff` 评审；写盘后画布**不会自动更新**，提示用户刷新；续接历史会话先取当下模型。
 
-## 字段纪律
+## 工具面
+字段面、键形、缺省、值域、祖先与计数全由工具承担——MUST NOT 手拼 TOML：
+- 读：`archi_search`（发现）/ `archi_module`（定位）/ `archi_drift`（漂移读数）/ `archi_api`（契约两轴 + 草稿）/ `archi_scaffold`（字段词典）
+- 写：`archi_element`（元素 upsert / 删除，可内联出边）/ `archi_relation`（单条关系 upsert / 删除）——参数面即字段清单，坏文本零落盘
+- 自查：`archi_drift` 非空即逐条修；`archi_api`（`check`）查两轴；生成物用既有命令重生成，MUST NOT 手改
 
-**`[element.*]`**
-- `path`：模块必填（可多条 = 若干根清单）；包至多一条包根（纯容器可留空，≥2 条即模型停摆）；`domain` / `composite` 选填（空 `path` 零告警）；repo 相对、`./` 前缀、目录尾 `/`、文件到扩展名；容器填了即持文件，子元素依赖即 `dependsOnAncestor`。缺 `path` 看 `archi_module` 的 `hasPath`。
-- `entry`：单值，仅约定默认指不到时写；见 `archi_module.resolvedEntry`。
-- `gate`：off / warn / strict（新元素缺省 off）。
-- `api`：declared / none（缺省 declared）。
-- `doc`：单值，仅 `api = none` 可写；`declared` 即 `apiUnexpected`（`apiFindings`）。
+工具表达不了的（重排 / 批量整理）才手改 TOML，改完必须 `archi_module` 自查——坏模型由读取面报错（`file:line`）。
 
-**`[[relation]]`**
-- `apis`：选填清单（只写名字、可留空、生成物面留空）；差额看 `archi_drift`。
+架构域 `config.json` 管 `ignore` / `exclude`，未知键或缺 `reason` 即非法（`archi_drift` 点名）。
 
-## 元素类型（Element.kind，从大到小，`domain` 层可省略）
-
-- `package` = 包（最小可编译单元、独立依赖、指定语言；至多一条包根 `path`）。
-- `domain` = 领域（按业务实体边界聚合，例：订单/通知）。
-- `module` = 模块（目录、视图或单文件组件）。
-- `composite` = 组合（无层级，仅分组过多同级元素、可嵌套任意类型之上；纯分层容器是标准形态）。
-
-## 层级与读数
-
-层级由 FQN 最长前缀推导；子元素须先声明祖先（违反即 `orphanHierarchy`）。计数以 `archi_drift` 的 `model.elements`/`model.relations` 为准，改模型同批更新。架构域 `config.json` 管 `ignore`/`exclude`；未知键或缺 `reason` 即非法，`archi_drift` 报错点名。
-
-## 边界与自检
-
-模型不写接口/导出符号：正文归契约资产，指针不扩张。
-
-自查：`archi_drift` 取覆盖/归属/契约读数并按条修；结构诊断经 `archi_module` 带 `file:line`；`archi_api`（`action = "check"`）查两轴。
-
-## 写面
-
-直改主仓、随 `git diff` 评审；禁止改架构目录之外的文件；生成物过期用既有生成命令重生成，MUST NOT 手改生成物。写盘后画布**不会自动更新**，提示刷新；续接历史会话先取当下模型。
+## 留给判断
+`kind` 选哪个、`path` 覆盖到哪、`api` 是否 `declared`、元素之间是否真有依赖——没有机械答案；工具的 `kind` / `gate` / `api` 参数面给出合法值与语义；纯分组容器用 `composite`。

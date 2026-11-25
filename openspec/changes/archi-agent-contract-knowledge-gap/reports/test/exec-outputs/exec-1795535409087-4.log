@@ -1,0 +1,111 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-contract-knowledge-gap\packages\desktop\src-tauri\crates\core\archi\src\edit\mod_test.rs:3456:
+ 
+ /// 带动作的内联边。
+ fn edge_with(to: &str, action: WriteAction) -> RelationSpec {
+[31m-    RelationSpec {
+[0m[31m-        action,
+[0m[31m-        ..edge(to)
+[0m[31m-    }
+[0m[32m+    RelationSpec { action, ..edge(to) }
+[0m }
+ 
+ /// 正向：元素既有 + 该对已在同文件 ⇒ 更新 `desc`，关系条数不变、其余条目逐字保留。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-contract-knowledge-gap\packages\desktop\src-tauri\crates\core\archi\src\edit\warnings_test.rs:346:
+     let temp = TempDir::new("quiet-fields");
+     let element = element_of(PACKAGE_EMPTY_PATH, "App.Core");
+ 
+[31m-    for fields in [
+[0m[31m-        &["summary"][..],
+[0m[31m-        &["gate"][..],
+[0m[31m-        &["metadata"][..],
+[0m[31m-        &[][..],
+[0m[31m-    ] {
+[0m[32m+    for fields in [&["summary"][..], &["gate"][..], &["metadata"][..], &[][..]] {
+[0m         let warnings = upsert_warnings(temp.root(), &element, &changed(fields), false);
+         assert!(
+             warnings.is_empty(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-contract-knowledge-gap\packages\desktop\src-tauri\crates\core\archi\src\edit\warnings_test.rs:470:
+             "apiUnexpected" => ArchiApiFindingKind::ApiUnexpected.severity().as_str(),
+             other => panic!("未预期的判据词 {other}"),
+         };
+[31m-        assert_eq!(warning.severity, expected, "{} 的档位取自单点", warning.kind);
+[0m[32m+        assert_eq!(
+[0m[32m+            warning.severity, expected,
+[0m[32m+            "{} 的档位取自单点",
+[0m[32m+            warning.kind
+[0m[32m+        );
+[0m     }
+     assert_eq!(
+         produced
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-contract-knowledge-gap\packages\desktop\src-tauri\crates\core\archi\src\edit\warnings_test.rs:675:
+         .lines()
+         .filter(|line| !line.trim_start().starts_with("//"))
+         .collect::<Vec<_>>()
+[31m-        .join("
+[0m[31m-");
+[0m[32m+        .join(
+[0m[32m+            "
+[0m[32m+",
+[0m[32m+        );
+[0m     let source = code.as_str();
+     for forbidden in [
+         "drift::check",
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-contract-knowledge-gap\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:3870:
+             "{name} 应给手改出口（工具表达不了的才手改）：{text}"
+         );
+         for stale in ["无专用写工具", "不设专用写工具", "MUST NOT 存在专用写"] {
+[31m-            assert!(
+[0m[31m-                !text.contains(stale),
+[0m[31m-                "{name} 零旧立场句 `{stale}`：{text}"
+[0m[31m-            );
+[0m[32m+            assert!(!text.contains(stale), "{name} 零旧立场句 `{stale}`：{text}");
+[0m         }
+         assert!(
+             text.contains("只为已确定的元素"),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-contract-knowledge-gap\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:4042:
+         .lines()
+         .find(|line| line.contains("额外可用 archi 工具"))
+         .expect("工具行在场");
+[31m-    for read in ["archi_search", "archi_module", "archi_drift", "archi_scaffold"] {
+[0m[32m+    for read in [
+[0m[32m+        "archi_search",
+[0m[32m+        "archi_module",
+[0m[32m+        "archi_drift",
+[0m[32m+        "archi_scaffold",
+[0m[32m+    ] {
+[0m         assert!(line.contains(read), "读件 `{read}` 在工具行：{line}");
+     }
+     for write in ["archi_element", "archi_relation"] {
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-contract-knowledge-gap\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:4083:
+             );
+         }
+         for stale in ["无专用写工具", "不设专用写工具", "MUST NOT 存在专用写"] {
+[31m-            assert!(
+[0m[31m-                !text.contains(stale),
+[0m[31m-                "锁定侧 {name} 零旧立场句 `{stale}`"
+[0m[31m-            );
+[0m[32m+            assert!(!text.contains(stale), "锁定侧 {name} 零旧立场句 `{stale}`");
+[0m         }
+     }
+     assert_eq!(locked, 12, "锁定侧恰十二份（14 − 2 写权相位）");
+error[E0762]: unterminated character literal
+    --> \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-contract-knowledge-gap\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs:2507:58
+     |
+2507 |     let root_text = dir.path().to_string_lossy().replace('\', "/");
+     |                                                          ^^^^^^
+
+Error writing files: failed to resolve mod `archi_tool_test`: cannot parse \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-contract-knowledge-gap\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-contract-knowledge-gap\packages\desktop\src-tauri\src\commands\archi\mod_test.rs:2705:
+     let hex = hash.trim_start_matches("sha256:");
+     assert_eq!(hex.len(), 64, "64 位 hex：{hash}");
+     assert!(
+[31m-        hex.chars().all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()),
+[0m[32m+        hex.chars()
+[0m[32m+            .all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()),
+[0m         "小写 hex：{hash}"
+     );
+ }
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

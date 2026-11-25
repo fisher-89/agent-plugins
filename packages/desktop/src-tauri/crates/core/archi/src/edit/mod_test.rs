@@ -27,13 +27,18 @@ use crate::parse::{self, SourceParser, TomlParser};
 use crate::{
     apply_element_delete, apply_element_spec, apply_relation_delete, apply_relation_upsert,
     file_hash, file_hash_of, plan_element_delete, plan_element_upsert, plan_relation_delete,
-    plan_relation_upsert, EditError, EditErrorKind, ElementSpec, ModelWrite,
+    plan_relation_upsert, DeleteSet, EditError, EditErrorKind, ElementSpec, ModelWrite,
 };
 
 use super::{
     backfill_header_counts, check_create, check_expect, check_relation_unique, check_target,
     finish, messages, read_source, relation_hits,
 };
+
+/// 单元素删除集的退化形（`DeleteSet` 恰含一个 FQN，删除纯函数唯一形态）。
+fn one(fqn: &str) -> DeleteSet {
+    DeleteSet::of(fqn)
+}
 
 // ---------------------------------------------------------------------------
 // 真实临时目录（本 crate 零 dev-dependency，故用 std 自建）
@@ -688,7 +693,9 @@ fn 新建元素按规范字段序整表写出() {
         doc: Some(Some("docs/new.md".to_owned())),
         summary: Some(Some("新模块".to_owned())),
         metadata: Some(metadata),
+        relations: Vec::new(),
         file: None,
+        create: false,
         expect: None,
     };
     let rendered = apply_element_spec(source, &spec).expect("新建应成功");
@@ -1072,7 +1079,7 @@ fn 特殊字符与排版与规模边界() {
 /// 正向：删中间元素 ⇒ 该表离场、其余元素逐字、表头计数随动下降。
 #[test]
 fn 删除叶元素其余逐字且计数随动() {
-    let rendered = apply_element_delete(DELETE_SOURCE, "App.Auth").expect("删除应成功");
+    let rendered = apply_element_delete(DELETE_SOURCE, &one("App.Auth")).expect("删除应成功");
     assert!(
         !rendered.contains("[element.\"App.Auth\"]"),
         "目标元素离场：\n{rendered}"
@@ -1095,7 +1102,7 @@ fn 删除叶元素其余逐字且计数随动() {
 #[test]
 fn 无element表无从定位() {
     for source in ["", "[[relation]]\nfrom = \"A\"\nto = \"B\"\n"] {
-        let failure = apply_element_delete(source, "A").expect_err("无 element 表应 Err");
+        let failure = apply_element_delete(source, &one("A")).expect_err("无 element 表应 Err");
         assert_eq!(failure.kind, EditErrorKind::ElementTableMissing);
         assert!(
             failure.facts.contains("无从定位元素"),
@@ -1108,7 +1115,8 @@ fn 无element表无从定位() {
 /// 异常：元素缺席 ⇒ `ElementNotFound`，facts 列该文件现有元素。
 #[test]
 fn 元素缺席列出该文件现有元素() {
-    let failure = apply_element_delete(CORE_SOURCE, "App.Missing").expect_err("元素缺席应 Err");
+    let failure =
+        apply_element_delete(CORE_SOURCE, &one("App.Missing")).expect_err("元素缺席应 Err");
     assert_eq!(failure.kind, EditErrorKind::ElementNotFound);
     for existing in ["App", "App.Billing", "App.Auth"] {
         assert!(
@@ -1141,12 +1149,12 @@ fn 删除按完整fqn精确匹配() {
         "kind = \"module\"\n",
     );
 
-    let rendered = apply_element_delete(source, "App.A").expect("删 App.A 应成功");
+    let rendered = apply_element_delete(source, &one("App.A")).expect("删 App.A 应成功");
     assert!(!rendered.contains("[element.\"App.A\"]"), "命中条离场");
     assert!(rendered.contains("[element.\"App.AB\"]"), "前缀近似不误删");
     assert!(rendered.contains("[element.\"App.A.B\"]"), "后代元素不误删");
 
-    let rendered = apply_element_delete(source, "App").expect("删 App 应成功");
+    let rendered = apply_element_delete(source, &one("App")).expect("删 App 应成功");
     assert!(!rendered.contains("[element.\"App\"]"));
     assert!(
         rendered.contains("[element.\"App.A.B\"]"),
@@ -1173,7 +1181,7 @@ fn 删净唯一元素仍可解析() {
         ),
     ];
     for (fqn, source) in cases {
-        let rendered = apply_element_delete(&source, &fqn)
+        let rendered = apply_element_delete(&source, &one(&fqn))
             .unwrap_or_else(|failure| panic!("删除 {fqn:?} 应成功：{failure:?}"));
         assert_eq!(model_of(&rendered).elements.len(), 0, "元素数 0 且可解析");
     }
@@ -1558,13 +1566,17 @@ fn 定位目标文件并零写盘() {
 
     let plan = plan_element_upsert(temp.root(), &gate_spec("App.Auth", GateTier::Strict))
         .expect("定位应成功");
-    assert_eq!(plan.file, auth_path, "定位到声明所在文件的绝对路径");
+    assert_eq!(plan.write.file, auth_path, "定位到声明所在文件的绝对路径");
     assert!(
-        plan.content.contains("gate = \"strict\""),
+        plan.write.content.contains("gate = \"strict\""),
         "待落盘全文含新档位：\n{}",
-        plan.content
+        plan.write.content
     );
-    assert!(plan.hash.starts_with("sha256:"), "hash 形态：{}", plan.hash);
+    assert!(
+        plan.write.hash.starts_with("sha256:"),
+        "hash 形态：{}",
+        plan.write.hash
+    );
     assert_eq!(temp.snapshot(), before, "plan 零写盘");
 }
 
@@ -1577,20 +1589,21 @@ fn 新建可落新文件且不落盘() {
         fqn: "App.New".to_owned(),
         kind: Some(ElementKind::Module),
         file: Some("07-new.toml".to_owned()),
+        create: true,
         ..Default::default()
     };
     let plan = plan_element_upsert(temp.root(), &spec).expect("新建应成功");
     assert_eq!(
-        plan.file,
+        plan.write.file,
         archi_graph_model_dir(temp.root()).join("07-new.toml"),
         "落点为模型声明目录下该文件"
     );
     assert!(
-        plan.content.contains("[element.\"App.New\"]"),
+        plan.write.content.contains("[element.\"App.New\"]"),
         "待落盘全文含新表：\n{}",
-        plan.content
+        plan.write.content
     );
-    assert!(!plan.file.exists(), "plan 零写盘（新文件仍不存在）");
+    assert!(!plan.write.file.exists(), "plan 零写盘（新文件仍不存在）");
 }
 
 /// 正向（组合：plan → apply → drift::file_hash_of / file_hash）：写后哈希可作下一次
@@ -1605,15 +1618,15 @@ fn 写后哈希可作下一次expect() {
     let plan =
         plan_element_upsert(temp.root(), &gate_spec("App", GateTier::Warn)).expect("计划应成功");
     assert_eq!(
-        plan.hash,
-        file_hash_of(&plan.file, &plan.content),
+        plan.write.hash,
+        file_hash_of(&plan.write.file, &plan.write.content),
         "hash 为写后内容哈希"
     );
 
-    fs::write(&plan.file, &plan.content).expect("模拟壳层落盘");
+    fs::write(&plan.write.file, &plan.write.content).expect("模拟壳层落盘");
     assert_eq!(
-        plan.hash,
-        file_hash(&plan.file),
+        plan.write.hash,
+        file_hash(&plan.write.file),
         "落盘后 file_hash 逐字相等"
     );
 
@@ -1622,12 +1635,12 @@ fn 写后哈希可作下一次expect() {
         &ElementSpec {
             fqn: "App".to_owned(),
             gate: Some(GateTier::Strict),
-            expect: Some(plan.hash.clone()),
+            expect: Some(plan.write.hash.clone()),
             ..Default::default()
         },
     )
     .expect("写后哈希作 expect 应 Ok");
-    assert!(next.content.contains("gate = \"strict\""));
+    assert!(next.write.content.contains("gate = \"strict\""));
 }
 
 /// 异常：既有元素给不同 `file` ⇒ `TargetInvalid`（迁文件属独立语义）。
@@ -1652,13 +1665,18 @@ fn 既有元素不接受改落点() {
     );
 }
 
-/// 异常（矩阵：4 臂）：落点四臂各点名成因。
+/// 正向 + 异常（矩阵：5 臂）：落点四情形各点名成因。
 #[test]
-fn 落点四臂各点名成因() {
+fn 落点四情形各点名成因() {
     let temp = TempDir::new("plan-target-arms");
-    temp.write_model("01-core.toml", "[element.\"App\"]\nkind = \"package\"\n");
+    temp.write_model(
+        "01-core.toml",
+        "[element.\"App\"]
+kind = \"package\"
+",
+    );
 
-    let failure = plan_element_upsert(
+    let landed = plan_element_upsert(
         temp.root(),
         &ElementSpec {
             fqn: "App.New".to_owned(),
@@ -1666,11 +1684,27 @@ fn 落点四臂各点名成因() {
             ..Default::default()
         },
     )
-    .expect_err("缺 file 应拒");
+    .expect("省略 file 落父元素文件");
+    assert_eq!(
+        landed.write.file,
+        temp.root()
+            .join(".dev-team/architecture/graph/model/01-core.toml"),
+        "新建省略 file ⇒ 落父元素声明文件"
+    );
+
+    let failure = plan_element_upsert(
+        temp.root(),
+        &ElementSpec {
+            fqn: "Store".to_owned(),
+            kind: Some(ElementKind::Package),
+            ..Default::default()
+        },
+    )
+    .expect_err("单段 FQN 省略 file 应拒");
     assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
     assert!(
-        failure.facts.contains("未给 file"),
-        "facts 点名缺 file：{}",
+        failure.facts.contains("单段 FQN"),
+        "facts 点名需给 file：{}",
         failure.facts
     );
 
@@ -1741,15 +1775,16 @@ fn 新建查直接父且单段跳过() {
             fqn: "Store".to_owned(),
             kind: Some(ElementKind::Package),
             file: Some("02-more.toml".to_owned()),
+            create: true,
             ..Default::default()
         },
     )
     .expect("单段 FQN 跳过父判据");
     assert!(
-        model_of(&plan.content).element("Store").is_some(),
+        model_of(&plan.write.content).element("Store").is_some(),
         "新表写回该文件：
 {}",
-        plan.content
+        plan.write.content
     );
 }
 
@@ -1799,6 +1834,7 @@ fn expect四形态逐条成立() {
             fqn: "App.New".to_owned(),
             kind: Some(ElementKind::Module),
             file: Some("07-new.toml".to_owned()),
+            create: true,
             expect: Some("sha256:任意".to_owned()),
             ..Default::default()
         },
@@ -1813,7 +1849,7 @@ fn expect四形态逐条成立() {
 
     let plan = plan_element_upsert(temp.root(), &gate_spec("App", GateTier::Warn))
         .expect("None 不校验且照常产出");
-    assert!(plan.content.contains("gate = \"warn\""));
+    assert!(plan.write.content.contains("gate = \"warn\""));
 }
 
 /// 异常（矩阵：2 形态）：新建与在案的判据次序固定。
@@ -1865,6 +1901,7 @@ fn 源读取失败点名路径() {
             fqn: "App".to_owned(),
             kind: Some(ElementKind::Package),
             file: Some("02-dir.toml".to_owned()),
+            create: true,
             ..Default::default()
         },
     )
@@ -1941,6 +1978,7 @@ fn 空白与不存在root均err() {
         fqn: "App".to_owned(),
         kind: Some(ElementKind::Package),
         file: Some("01-core.toml".to_owned()),
+        create: true,
         ..Default::default()
     };
     assert!(
@@ -1952,7 +1990,7 @@ fn 空白与不存在root均err() {
         "不存在 root 应 Err"
     );
     assert!(
-        plan_element_delete(Path::new(""), "App", None).is_err(),
+        plan_element_delete(Path::new(""), "App", false, None).is_err(),
         "删除面空白 root 应 Err"
     );
 
@@ -1960,10 +1998,10 @@ fn 空白与不存在root均err() {
     fs::create_dir_all(archi_graph_model_dir(empty.root())).expect("建空模型目录");
     let plan = plan_element_upsert(empty.root(), &spec).expect("空模型目录 + 单段 FQN 应 Ok");
     assert!(
-        model_of(&plan.content).element("App").is_some(),
+        model_of(&plan.write.content).element("App").is_some(),
         "空模型目录下新建成功：
 {}",
-        plan.content
+        plan.write.content
     );
 
     let emoji = TempDir::new("plan-emoji");
@@ -1973,7 +2011,7 @@ fn 空白与不存在root均err() {
     );
     let plan = plan_element_upsert(emoji.root(), &gate_spec("App.🚀Auth", GateTier::Warn))
         .expect("既有 emoji 元素应 Ok");
-    assert!(plan.content.contains("gate = \"warn\""));
+    assert!(plan.write.content.contains("gate = \"warn\""));
 }
 
 /// 异常（矩阵：4 入口）：结构诊断前置——四个 `plan_*` 全 `Err(ModelHasDiagnostics)`。
@@ -1985,7 +2023,7 @@ fn 结构错模型四拒() {
     let failures = [
         plan_element_upsert(temp.root(), &gate_spec("App", GateTier::Strict))
             .expect_err("元素 upsert 应拒"),
-        plan_element_delete(temp.root(), "App", None).expect_err("元素删除应拒"),
+        plan_element_delete(temp.root(), "App", false, None).expect_err("元素删除应拒"),
         plan_relation_upsert(temp.root(), "App", "App", None, None, None)
             .expect_err("关系 upsert 应拒"),
         plan_relation_delete(temp.root(), "App", "App", None).expect_err("关系删除应拒"),
@@ -2019,25 +2057,26 @@ fn 结构错模型四拒() {
 fn 删除叶元素成功且计数随动() {
     let temp = TempDir::new("plan-delete-leaf");
     temp.write_model("01-core.toml", DELETE_SOURCE);
-    let plan = plan_element_delete(temp.root(), "App.Auth", None).expect("叶元素删除应 Ok");
+    let plan = plan_element_delete(temp.root(), "App.Auth", false, None).expect("叶元素删除应 Ok");
     assert!(
-        !plan.content.contains("[element.\"App.Auth\"]"),
+        !plan.write.content.contains("[element.\"App.Auth\"]"),
         "目标元素离场：\n{}",
-        plan.content
+        plan.write.content
     );
     assert!(
-        plan.content
+        plan.write
+            .content
             .contains("[element.\"App.Billing\"]\nkind = \"module\""),
         "其余元素逐字保留"
     );
     assert_eq!(
-        header_counts(&plan.content),
+        header_counts(&plan.write.content),
         Some((2, 1)),
         "表头计数随动下降"
     );
     assert_eq!(
-        plan.hash,
-        file_hash_of(&plan.file, &plan.content),
+        plan.write.hash,
+        file_hash_of(&plan.write.file, &plan.write.content),
         "hash 与 content 自洽"
     );
 }
@@ -2059,7 +2098,7 @@ fn 有子元素拒绝删除() {
             "kind = \"module\"\n",
         ),
     );
-    let failure = plan_element_delete(temp.root(), "App", None).expect_err("有子元素应拒");
+    let failure = plan_element_delete(temp.root(), "App", false, None).expect_err("有子元素应拒");
     assert_eq!(failure.kind, EditErrorKind::DeleteHasChildren);
     assert!(
         failure.facts.contains("App.Auth"),
@@ -2073,7 +2112,7 @@ fn 有子元素拒绝删除() {
 fn 出边引用拒绝删除() {
     let temp = TempDir::new("plan-delete-out-edge");
     temp.write_model("01-core.toml", TWO_ELEMENTS_SOURCE);
-    let failure = plan_element_delete(temp.root(), "A", None).expect_err("出边引用应拒");
+    let failure = plan_element_delete(temp.root(), "A", false, None).expect_err("出边引用应拒");
     assert_eq!(failure.kind, EditErrorKind::DeleteHasRelations);
     assert!(
         failure.facts.contains("A → B"),
@@ -2087,7 +2126,7 @@ fn 出边引用拒绝删除() {
 fn 入边引用拒绝删除() {
     let temp = TempDir::new("plan-delete-in-edge");
     temp.write_model("01-core.toml", TWO_ELEMENTS_SOURCE);
-    let failure = plan_element_delete(temp.root(), "B", None).expect_err("入边引用应拒");
+    let failure = plan_element_delete(temp.root(), "B", false, None).expect_err("入边引用应拒");
     assert_eq!(failure.kind, EditErrorKind::DeleteHasRelations);
     assert!(
         failure.facts.contains("A → B"),
@@ -2101,7 +2140,8 @@ fn 入边引用拒绝删除() {
 fn 模型面缺席报元素总数() {
     let temp = TempDir::new("plan-delete-absent");
     temp.write_model("01-core.toml", TWO_ELEMENTS_SOURCE);
-    let failure = plan_element_delete(temp.root(), "App.Missing", None).expect_err("元素缺席应拒");
+    let failure =
+        plan_element_delete(temp.root(), "App.Missing", false, None).expect_err("元素缺席应拒");
     assert_eq!(failure.kind, EditErrorKind::ElementNotFound);
     assert!(
         failure.facts.contains("App.Missing（模型共 2 个元素）"),
@@ -2115,7 +2155,7 @@ fn 模型面缺席报元素总数() {
 fn 删除面同样受乐观锁保护() {
     let temp = TempDir::new("plan-delete-expect");
     temp.write_model("01-core.toml", DELETE_SOURCE);
-    let failure = plan_element_delete(temp.root(), "App.Auth", Some("sha256:错值"))
+    let failure = plan_element_delete(temp.root(), "App.Auth", false, Some("sha256:错值"))
         .expect_err("expect 不匹配应拒");
     assert_eq!(failure.kind, EditErrorKind::ExpectMismatch);
     assert!(
@@ -2140,7 +2180,8 @@ fn 删除判据次序固定() {
             "kind = \"domain\"\n",
         ),
     );
-    let failure = plan_element_delete(diagnostic.root(), "App", None).expect_err("结构诊断先行");
+    let failure =
+        plan_element_delete(diagnostic.root(), "App", false, None).expect_err("结构诊断先行");
     assert_eq!(failure.kind, EditErrorKind::ModelHasDiagnostics);
 
     let both = TempDir::new("plan-delete-order-both");
@@ -2161,7 +2202,7 @@ fn 删除判据次序固定() {
             "to = \"App\"\n",
         ),
     );
-    let failure = plan_element_delete(both.root(), "App", None).expect_err("子元素判据先");
+    let failure = plan_element_delete(both.root(), "App", false, None).expect_err("子元素判据先");
     assert_eq!(failure.kind, EditErrorKind::DeleteHasChildren);
 }
 
@@ -2173,8 +2214,12 @@ fn 删除唯一元素后模型可解析() {
     let keep = temp.write_model("02-note.toml", "# 本文件暂无声明\n");
     let keep_before = fs::read(&keep).expect("读旁文件");
 
-    let plan = plan_element_delete(temp.root(), "App", None).expect("删唯一元素应 Ok");
-    assert_eq!(model_of(&plan.content).elements.len(), 0, "回读元素数 0");
+    let plan = plan_element_delete(temp.root(), "App", false, None).expect("删唯一元素应 Ok");
+    assert_eq!(
+        model_of(&plan.write.content).elements.len(),
+        0,
+        "回读元素数 0"
+    );
     assert_eq!(
         fs::read(&keep).expect("读旁文件"),
         keep_before,
@@ -2212,8 +2257,8 @@ fn 新关系落from元素所在文件() {
         None,
     )
     .expect("新增关系应 Ok");
-    assert_eq!(plan.file, auth, "落点 = from 元素声明文件");
-    fs::write(&plan.file, &plan.content).expect("模拟壳层落盘");
+    assert_eq!(plan.write.file, auth, "落点 = from 元素声明文件");
+    fs::write(&plan.write.file, &plan.write.content).expect("模拟壳层落盘");
 
     let outcome = parse::parse_dir(temp.root());
     assert!(
@@ -2245,7 +2290,7 @@ fn 既有关系对走更新() {
     temp.write_model("01-core.toml", RELATION_PLAN_SOURCE);
     let plan = plan_relation_upsert(temp.root(), "A", "B", Some(Some("新")), None, None)
         .expect("更新应 Ok");
-    let model = model_of(&plan.content);
+    let model = model_of(&plan.write.content);
     assert_eq!(model.relations.len(), 2, "条数不变");
     assert_eq!(
         relation_of(&model, "A", "B").description.as_deref(),
@@ -2274,11 +2319,11 @@ fn 既有关系声明于非from文件时原地更新() {
     .expect("既有关系更新应 Ok");
 
     assert_eq!(
-        plan.file, frontend,
+        plan.write.file, frontend,
         "落点 = 关系声明文件（不是 from 元素文件）"
     );
     assert_eq!(
-        plan.content,
+        plan.write.content,
         SPLIT_RELATION_SOURCE.replace("旧说明", "新说明"),
         "只改该条 desc，其余逐字"
     );
@@ -2288,7 +2333,7 @@ fn 既有关系声明于非from文件时原地更新() {
         "from 元素文件零变化"
     );
 
-    let model = model_of(&plan.content);
+    let model = model_of(&plan.write.content);
     assert_eq!(
         model.relations.len(),
         2,
@@ -2301,7 +2346,7 @@ fn 既有关系声明于非from文件时原地更新() {
         Some("新说明")
     );
 
-    fs::write(&plan.file, &plan.content).expect("模拟壳层落盘");
+    fs::write(&plan.write.file, &plan.write.content).expect("模拟壳层落盘");
     let outcome = parse::parse_dir(temp.root());
     assert!(
         outcome.diagnostics.is_empty(),
@@ -2372,18 +2417,18 @@ fn 零关系文件新建数组与apis清空() {
     let plan = plan_relation_upsert(temp.root(), "B", "A", None, None, None)
         .expect("零关系文件新建数组应 Ok");
     assert!(
-        plan.content.contains("[[relation]]"),
+        plan.write.content.contains("[[relation]]"),
         "新建条目数组：\n{}",
-        plan.content
+        plan.write.content
     );
 
     let empty: Vec<String> = Vec::new();
     let plan = plan_relation_upsert(temp.root(), "B", "A", None, Some(empty.as_slice()), None)
         .expect("apis 清空臂应 Ok");
     assert!(
-        !plan.content.contains("apis"),
+        !plan.write.content.contains("apis"),
         "apis 键不落盘（零空数组）：\n{}",
-        plan.content
+        plan.write.content
     );
 }
 
@@ -2393,7 +2438,7 @@ fn 关系删除成功计数随动() {
     let temp = TempDir::new("plan-relation-delete");
     temp.write_model("01-core.toml", RELATION_PLAN_SOURCE);
     let plan = plan_relation_delete(temp.root(), "A", "B", None).expect("删除应 Ok");
-    let model = model_of(&plan.content);
+    let model = model_of(&plan.write.content);
     assert_eq!(model.relations.len(), 1, "关系数 −1");
     assert!(
         model
@@ -2402,7 +2447,11 @@ fn 关系删除成功计数随动() {
             .any(|relation| relation.from == "B" && relation.to == "A"),
         "其余条目逐字保留"
     );
-    assert_eq!(header_counts(&plan.content), Some((2, 1)), "表头计数随动");
+    assert_eq!(
+        header_counts(&plan.write.content),
+        Some((2, 1)),
+        "表头计数随动"
+    );
 }
 
 /// 异常（矩阵：2 形态）：关系缺席 ⇒ `RelationNotFound`；端点缺席先于关系缺席。
@@ -2475,9 +2524,9 @@ fn 模型面重复声明fail_closed() {
     let app = single.write_model("01-app.toml", DUPLICATED_APP_SOURCE);
     let plan = plan_relation_upsert(single.root(), "A", "B", Some(Some("唯一")), None, None)
         .expect("单处声明应 Ok");
-    assert_eq!(plan.file, app, "走落点规则（= 关系声明文件）");
+    assert_eq!(plan.write.file, app, "走落点规则（= 关系声明文件）");
     assert_eq!(
-        relation_of(&model_of(&plan.content), "A", "B")
+        relation_of(&model_of(&plan.write.content), "A", "B")
             .description
             .as_deref(),
         Some("唯一")
@@ -2495,14 +2544,14 @@ fn 既有关系声明于非from文件时删除落声明文件() {
 
     let plan = plan_relation_delete(temp.root(), "Desktop", "Desktop.Components.Ui", None)
         .expect("既有关系删除应 Ok");
-    assert_eq!(plan.file, frontend, "落点 = 关系声明文件");
+    assert_eq!(plan.write.file, frontend, "落点 = 关系声明文件");
     assert_eq!(
         fs::read(&app).expect("读 01-app"),
         app_before,
         "from 元素文件零变化"
     );
 
-    let model = model_of(&plan.content);
+    let model = model_of(&plan.write.content);
     assert_eq!(model.relations.len(), 1, "关系数 −1");
     assert!(
         !model
@@ -2518,7 +2567,11 @@ fn 既有关系声明于非from文件时删除落声明文件() {
             .any(|relation| relation.from == "Desktop" && relation.to == "Desktop.Components"),
         "其余条目逐字保留"
     );
-    assert_eq!(header_counts(&plan.content), Some((2, 1)), "表头计数随动");
+    assert_eq!(
+        header_counts(&plan.write.content),
+        Some((2, 1)),
+        "表头计数随动"
+    );
     assert!(
         model.element("Desktop.Components.Ui").is_some(),
         "元素表零改动"
@@ -2527,8 +2580,11 @@ fn 既有关系声明于非from文件时删除落声明文件() {
     let local = TempDir::new("plan-relation-same-file-delete");
     let core = local.write_model("01-core.toml", RELATION_PLAN_SOURCE);
     let plan = plan_relation_delete(local.root(), "A", "B", None).expect("同文件删除应 Ok");
-    assert_eq!(plan.file, core, "落点 = 声明文件（与 from 元素同文件）");
-    assert_eq!(model_of(&plan.content).relations.len(), 1);
+    assert_eq!(
+        plan.write.file, core,
+        "落点 = 声明文件（与 from 元素同文件）"
+    );
+    assert_eq!(model_of(&plan.write.content).relations.len(), 1);
 }
 
 /// 边界（矩阵：4 形态）：关系身份键 = `from` / `to` **双等**（与 `diff::model_diff` /
@@ -2859,8 +2915,8 @@ fn 自证链步骤序固定() {
     );
     assert_eq!(
         source.matches("TomlParser::parse").count(),
-        2,
-        "恰两次重解析"
+        5,
+        "五处重解析：自证两处 + 写后计数一处 + 新文件表头两处"
     );
     for private in ["fn parse_source", "fn finish(", "fn backfill_header_counts"] {
         assert_eq!(source.matches(private).count(), 1, "{private} 恰一处");
@@ -2919,7 +2975,7 @@ fn 回填后计数等于回读计数() {
         "from = \"App.Auth\"\n",
         "to = \"App\"\n",
     );
-    let content = apply_element_delete(stale, "App.Auth").expect("删除应成功");
+    let content = apply_element_delete(stale, &one("App.Auth")).expect("删除应成功");
     let model = model_of(&content);
     assert_eq!(
         header_counts(&content),
@@ -2975,11 +3031,12 @@ fn 新建判据七拒与缺kind() {
     );
 }
 
-/// 异常（矩阵：4 臂）：落点四臂 facts 逐条对齐。
+/// 异常（矩阵：5 臂）：落点四情形 facts 逐条对齐。
 #[test]
-fn 落点四臂文案逐条对齐() {
+fn 落点四情形文案逐条对齐() {
     let temp = TempDir::new("check-target");
     fs::create_dir_all(archi_graph_model_dir(temp.root())).expect("建模型声明目录");
+    let empty_model = Model::empty();
     let existing = Element {
         fqn: "App".to_owned(),
         kind: ElementKind::Package,
@@ -2993,14 +3050,29 @@ fn 落点四臂文案逐条对齐() {
         file: ".dev-team/architecture/graph/model/01-core.toml".to_owned(),
         line: 1,
     };
+    let mut with_parent = Model::empty();
+    with_parent.elements.push(existing.clone());
 
-    let failure = check_target(temp.root(), "App.New", None, None).expect_err("缺 file 应拒");
+    let failure = check_target(temp.root(), "Single", None, false, None, &empty_model)
+        .expect_err("单段 FQN 省略 file 应拒");
     assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
-    assert!(failure.facts.contains("未给 file"), "{}", failure.facts);
+    assert!(failure.facts.contains("单段 FQN"), "{}", failure.facts);
+
+    let failure = check_target(temp.root(), "App.New", None, false, None, &empty_model)
+        .expect_err("父元素不在案应拒");
+    assert_eq!(failure.kind, EditErrorKind::ParentMissing);
+    assert!(failure.facts.contains("App"), "{}", failure.facts);
 
     for file in ["a/b.toml", "/abs.toml", "x.json"] {
-        let failure =
-            check_target(temp.root(), "App.New", Some(file), None).expect_err("非一级应拒");
+        let failure = check_target(
+            temp.root(),
+            "App.New",
+            Some(file),
+            false,
+            None,
+            &with_parent,
+        )
+        .expect_err("非一级应拒");
         assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
         assert!(
             failure.facts.contains("不在模型声明目录一级"),
@@ -3010,8 +3082,15 @@ fn 落点四臂文案逐条对齐() {
     }
 
     let bare = TempDir::new("check-target-bare");
-    let failure =
-        check_target(bare.root(), "App.New", Some("01-x.toml"), None).expect_err("目录缺席应拒");
+    let failure = check_target(
+        bare.root(),
+        "App.New",
+        Some("01-x.toml"),
+        false,
+        None,
+        &with_parent,
+    )
+    .expect_err("目录缺席应拒");
     assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
     assert!(
         failure.facts.contains("不存在") && failure.facts.contains("不代建目录"),
@@ -3019,8 +3098,15 @@ fn 落点四臂文案逐条对齐() {
         failure.facts
     );
 
-    let failure = check_target(temp.root(), "App", Some("02-other.toml"), Some(&existing))
-        .expect_err("改落点应拒");
+    let failure = check_target(
+        temp.root(),
+        "App",
+        Some("02-other.toml"),
+        false,
+        Some(&existing),
+        &with_parent,
+    )
+    .expect_err("改落点应拒");
     assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
     assert!(
         failure.facts.contains("01-core.toml") && failure.facts.contains("迁文件属独立语义"),
@@ -3029,14 +3115,45 @@ fn 落点四臂文案逐条对齐() {
     );
 
     assert_eq!(
-        check_target(temp.root(), "App", Some(&existing.file), Some(&existing))
-            .expect("既有元素同值落点应 Ok"),
+        check_target(
+            temp.root(),
+            "App",
+            Some(&existing.file),
+            false,
+            Some(&existing),
+            &with_parent,
+        )
+        .expect("既有元素同值落点应 Ok")
+        .file,
         temp.root().join(&existing.file),
         "既有元素落其声明文件（repo 相对路径直挂 root）"
     );
-    assert!(
-        check_target(temp.root(), "App.New", Some("07-new.toml"), None).is_ok(),
-        "新建一级 *.toml ⇒ Ok"
+
+    let failure = check_target(
+        temp.root(),
+        "App.New",
+        Some("07-new.toml"),
+        false,
+        None,
+        &with_parent,
+    )
+    .expect_err("目标文件缺席且无 create 应拒");
+    assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
+    assert!(failure.facts.contains("create = true"), "{}", failure.facts);
+
+    let fresh = check_target(
+        temp.root(),
+        "App.New",
+        Some("07-new.toml"),
+        true,
+        None,
+        &with_parent,
+    )
+    .expect("给 create ⇒ 新建落点 Ok");
+    assert!(fresh.fresh, "目标文件缺席 ⇒ 新建文件（表头由计划层前置）");
+    assert_eq!(
+        fresh.file,
+        archi_graph_model_dir(temp.root()).join("07-new.toml")
     );
 }
 
@@ -3141,8 +3258,8 @@ fn 公开面恰八函数两类型且messages私有() {
         .filter(|line| line.starts_with("pub struct ") || line.starts_with("pub enum "))
         .count();
     assert_eq!(
-        public_types, 2,
-        "公开类型恰 2 个（ModelWrite / ElementSpec）"
+        public_types, 8,
+        "公开类型恰 8 个（ModelWrite / ElementSpec / WriteAction / RelationSpec / DeleteSet / WriteCounts / RelationTally / WriteOutcome）"
     );
 
     let public_uses: Vec<&str> = source
@@ -3151,8 +3268,11 @@ fn 公开面恰八函数两类型且messages私有() {
         .collect();
     assert_eq!(
         public_uses,
-        vec!["pub use messages::{EditError, EditErrorKind};"],
-        "出口唯一且形态固定"
+        vec![
+            "pub use messages::{EditError, EditErrorKind};",
+            "pub use warnings::{delete_warnings, upsert_warnings, EditWarning};",
+        ],
+        "出口两块（判据族 + 反馈面）且形态固定"
     );
     assert!(
         source.lines().any(|line| line == "mod messages;"),
@@ -3197,7 +3317,7 @@ fn crate根出口含十二个edit名字() {
     ] {
         assert!(source.contains(name), "crate 根出口含 {name}");
     }
-    assert_eq!(EditErrorKind::ALL.len(), 19, "经 crate 根可达的判据族完整");
+    assert_eq!(EditErrorKind::ALL.len(), 23, "经 crate 根可达的判据族完整");
 }
 
 /// 正向（源码锚）：crate 根 `drift` 出口三个既有名未丢 + 两个新名在场。
@@ -3255,7 +3375,7 @@ fn 十二名经crate根可达() {
         "apply_element_spec 经 crate 根可达"
     );
     assert_eq!(
-        apply_element_delete("", "App")
+        apply_element_delete("", &one("App"))
             .expect_err("无 element 表")
             .kind,
         EditErrorKind::ElementTableMissing,
@@ -3278,7 +3398,7 @@ fn 十二名经crate根可达() {
         "plan_element_upsert 经 crate 根可达"
     );
     assert!(
-        plan_element_delete(blank, "App", None).is_err(),
+        plan_element_delete(blank, "App", false, None).is_err(),
         "plan_element_delete 经 crate 根可达"
     );
     assert!(
@@ -3290,7 +3410,7 @@ fn 十二名经crate根可达() {
         "plan_relation_delete 经 crate 根可达"
     );
 
-    assert_eq!(EditErrorKind::ALL.len(), 19, "四类型之一：判据集合 19 值");
+    assert_eq!(EditErrorKind::ALL.len(), 23, "四类型之一：判据集合 23 值");
     let error: EditError = messages::error(EditErrorKind::RelationDuplicated, "出口面");
     assert!(
         error.message().starts_with("关系多处声明："),
@@ -3311,5 +3431,1174 @@ fn 十二名经crate根可达() {
     assert!(
         file_hash(Path::new("不存在的单文件.toml")).starts_with("sha256:"),
         "drift 两个新名经 crate 根可达"
+    );
+}
+
+// ===========================================================================
+// 本变更：内联出边（`ElementSpec::relations`）
+// ===========================================================================
+
+use crate::{
+    delete_warnings, upsert_warnings, EditWarning, RelationSpec, RelationTally, WriteAction,
+    WriteCounts, WriteOutcome,
+};
+
+/// 内联出边的唯一构造形态（缺省动作 = upsert、三态字段不动）。
+fn edge(to: &str) -> RelationSpec {
+    RelationSpec {
+        to: to.to_owned(),
+        desc: None,
+        apis: None,
+        action: WriteAction::Upsert,
+    }
+}
+
+/// 带动作的内联边。
+fn edge_with(to: &str, action: WriteAction) -> RelationSpec {
+    RelationSpec { action, ..edge(to) }
+}
+
+/// 正向：元素既有 + 该对已在同文件 ⇒ 更新 `desc`，关系条数不变、其余条目逐字保留。
+#[test]
+fn 内联边命中走更新() {
+    let spec = ElementSpec {
+        fqn: "A".to_owned(),
+        relations: vec![RelationSpec {
+            to: "B".to_owned(),
+            desc: Some(Some("新说明".to_owned())),
+            apis: None,
+            action: WriteAction::Upsert,
+        }],
+        ..Default::default()
+    };
+    let written = apply_element_spec(RELATIONS_SOURCE, &spec).expect("内联更新应成功");
+    let model = model_of(&written);
+    assert_eq!(model.relations.len(), 3, "关系条数不变");
+    assert_eq!(
+        relation_of(&model, "A", "B").description.as_deref(),
+        Some("新说明"),
+        "命中条走更新"
+    );
+    assert_eq!(
+        relation_of(&model, "B", "C").description,
+        None,
+        "其余条目逐字保留"
+    );
+    assert!(
+        written.contains("desc = \"新说明\""),
+        "文本内该条已改：\n{written}"
+    );
+}
+
+/// 正向：该对缺席 ⇒ 追加一条 `[[relation]]`（键序 `from` / `to` / `desc`）、条数 +1、
+/// 回读该对存在。
+#[test]
+fn 内联边缺席即建() {
+    let source = concat!(
+        "[element.\"A\"]\n",
+        "kind = \"module\"\n",
+        "\n",
+        "[element.\"B\"]\n",
+        "kind = \"module\"\n",
+    );
+    let spec = ElementSpec {
+        fqn: "A".to_owned(),
+        relations: vec![RelationSpec {
+            desc: Some(Some("新边".to_owned())),
+            ..edge("B")
+        }],
+        ..Default::default()
+    };
+    let written = apply_element_spec(source, &spec).expect("内联新建应成功");
+    let model = model_of(&written);
+    assert_eq!(model.relations.len(), 1, "缺席即建一条");
+    assert_eq!(
+        relation_of(&model, "A", "B").description.as_deref(),
+        Some("新边")
+    );
+    let block = written.split("[[relation]]").nth(1).expect("关系块在场");
+    let from_at = block.find("from = \"A\"").expect("from 键");
+    let to_at = block.find("to = \"B\"").expect("to 键");
+    let desc_at = block.find("desc = \"新边\"").expect("desc 键");
+    assert!(
+        from_at < to_at && to_at < desc_at,
+        "键序 from / to / desc：\n{written}"
+    );
+}
+
+/// 正向：`action = delete` 项命中源内该对 ⇒ 条目离场、条数 −1、回读缺席、其余逐字。
+#[test]
+fn 内联删边只动命中条() {
+    let spec = ElementSpec {
+        fqn: "A".to_owned(),
+        relations: vec![edge_with("C", WriteAction::Delete)],
+        ..Default::default()
+    };
+    let written = apply_element_spec(RELATIONS_SOURCE, &spec).expect("内联删边应成功");
+    let model = model_of(&written);
+    assert_eq!(model.relations.len(), 2, "条数 −1");
+    assert!(
+        !model
+            .relations
+            .iter()
+            .any(|relation| relation.from == "A" && relation.to == "C"),
+        "该对已离场"
+    );
+    assert_eq!(
+        relation_of(&model, "A", "B").description.as_deref(),
+        Some("旧说明"),
+        "其余条目逐字"
+    );
+}
+
+/// 正向：源含 3 条关系而 `relations` 只列 1 条 ⇒ 另 2 条逐字保留（零全量替换、零静默删）。
+#[test]
+fn 未列出的边保持不动() {
+    let spec = ElementSpec {
+        fqn: "A".to_owned(),
+        relations: vec![edge("B")],
+        ..Default::default()
+    };
+    let written = apply_element_spec(RELATIONS_SOURCE, &spec).expect("单条列出应成功");
+    let model = model_of(&written);
+    assert_eq!(model.relations.len(), 3, "零静默删");
+    assert_eq!(
+        relation_of(&model, "B", "C").description,
+        None,
+        "未列出的边零改动"
+    );
+    assert!(
+        written.contains("desc = \"旧说明\""),
+        "命中条同值亦零改动：\n{written}"
+    );
+}
+
+/// 正向：新建元素带两条出边 ⇒ 同一次产出里元素表与两条关系并现、逐对回读、自证零诊断。
+#[test]
+fn 新建与出边同批写出() {
+    let source = concat!(
+        "[element.\"B\"]\n",
+        "kind = \"module\"\n",
+        "\n",
+        "[element.\"C\"]\n",
+        "kind = \"module\"\n",
+    );
+    let spec = ElementSpec {
+        fqn: "A".to_owned(),
+        kind: Some(ElementKind::Module),
+        relations: vec![edge("B"), edge("C")],
+        ..Default::default()
+    };
+    let written = apply_element_spec(source, &spec).expect("新建 + 出边应成功");
+    let model = model_of(&written);
+    assert_eq!(model.elements.len(), 3, "元素表已建");
+    assert_eq!(model.relations.len(), 2, "两条出边并现");
+    relation_of(&model, "A", "B");
+    relation_of(&model, "A", "C");
+}
+
+/// 异常（矩阵 2 形态）：`action = delete` 项带 `desc` / `apis` ⇒ 各
+/// `RelationDeleteHasFields`、零文本产出。
+#[test]
+fn delete项带字段即拒() {
+    for relations in [
+        vec![RelationSpec {
+            desc: Some(Some("x".to_owned())),
+            ..edge_with("C", WriteAction::Delete)
+        }],
+        vec![RelationSpec {
+            apis: Some(vec!["open".to_owned()]),
+            ..edge_with("C", WriteAction::Delete)
+        }],
+    ] {
+        let spec = ElementSpec {
+            fqn: "A".to_owned(),
+            relations,
+            ..Default::default()
+        };
+        let failure = apply_element_spec(RELATIONS_SOURCE, &spec).expect_err("delete 带字段应拒");
+        assert_eq!(failure.kind, EditErrorKind::RelationDeleteHasFields);
+        assert!(
+            failure.facts.contains("action = delete") && failure.facts.contains("desc / apis"),
+            "facts 点明互斥：{}",
+            failure.facts
+        );
+    }
+}
+
+/// 异常（矩阵 2 形态）：同批重复 `to` ⇒ `RelationDuplicateInBatch`，facts 含 **1 基
+/// 下标** + `action` + `to`。
+#[test]
+fn 同批重复to即拒且定位到项() {
+    for relations in [
+        vec![edge("B"), edge("B")],
+        vec![
+            edge_with("B", WriteAction::Upsert),
+            edge_with("B", WriteAction::Delete),
+        ],
+    ] {
+        let spec = ElementSpec {
+            fqn: "A".to_owned(),
+            relations,
+            ..Default::default()
+        };
+        let failure = apply_element_spec(RELATIONS_SOURCE, &spec).expect_err("重复 to 应拒");
+        assert_eq!(failure.kind, EditErrorKind::RelationDuplicateInBatch);
+        assert!(
+            failure.facts.contains("relations[2]")
+                && failure.facts.contains("action =")
+                && failure.facts.contains("to = \"B\""),
+            "facts 含 1 基下标 / action / to：{}",
+            failure.facts
+        );
+    }
+}
+
+// ===========================================================================
+// 本变更：删除纯函数的唯一形态（`DeleteSet` = 元素集 + 关系对集）
+// ===========================================================================
+
+/// 正向：元素集 {父, 子1, 子2} + 关系对集 {(a, b)} ⇒ 三张元素表与一条关系同批离场、
+/// 其余内容与注释逐字、表头计数随动下降。
+///
+/// 表头注释是**首张表的 prefix decor**（删首表会连注释一并离场，属渲染层既有语义）——
+/// 故把表头挂在保留的表上，才能观察「回填只改括号内两数字」。
+#[test]
+fn 集合删除一把落净且计数随动() {
+    let source = concat!(
+        "# 01 · 集合（5 元素 / 2 关系）\n",
+        "[element.\"B\"]\n",
+        "kind = \"module\"\n",
+        "\n",
+        "[element.\"A\"]\n",
+        "kind = \"module\"\n",
+        "\n",
+        "[element.\"A.X\"]\n",
+        "kind = \"domain\"\n",
+        "\n",
+        "[element.\"A.X.Y\"]\n",
+        "kind = \"module\"\n",
+        "\n",
+        "[element.\"C\"]\n",
+        "kind = \"module\"\n",
+        "\n",
+        "[[relation]]\n",
+        "from = \"A.X\"\n",
+        "to = \"B\"\n",
+        "\n",
+        "[[relation]]\n",
+        "from = \"B\"\n",
+        "to = \"C\"\n",
+    );
+    let mut set = DeleteSet::default();
+    for fqn in ["A", "A.X", "A.X.Y"] {
+        set.elements.insert(fqn.to_owned());
+    }
+    set.relations.insert(("A.X".to_owned(), "B".to_owned()));
+
+    let written = apply_element_delete(source, &set).expect("集合删除应成功");
+    let model = model_of(&written);
+    assert_eq!(
+        model
+            .elements
+            .iter()
+            .map(|element| element.fqn.as_str())
+            .collect::<Vec<_>>(),
+        vec!["B", "C"],
+        "三张元素表离场"
+    );
+    assert_eq!(model.relations.len(), 1, "一条关系同批离场");
+    assert_eq!(header_counts(&written), Some((2, 1)), "表头计数随动下降");
+    assert!(written.contains("# 01 · 集合"), "注释逐字保留");
+}
+
+/// 异常：`relations` 含文件中不存在的对 ⇒ `RelationNotFound`，facts 列该文件现有对、
+/// 零文本产出。
+#[test]
+fn 关系对缺席列现有对() {
+    let mut set = DeleteSet::default();
+    set.relations.insert(("A".to_owned(), "Z".to_owned()));
+    let failure = apply_element_delete(RELATIONS_SOURCE, &set).expect_err("关系对缺席应拒");
+    assert_eq!(failure.kind, EditErrorKind::RelationNotFound);
+    assert!(
+        failure.facts.contains("A → Z") && failure.facts.contains("A → B"),
+        "facts 列现有对：{}",
+        failure.facts
+    );
+}
+
+/// 异常（矩阵 2 形态）：`elements` 含不在案的 FQN ⇒ `ElementNotFound`（facts 列现有
+/// 元素）；缺 `element` 表 ⇒ `ElementTableMissing`。
+#[test]
+fn 元素缺席列现有元素() {
+    let mut set = DeleteSet::default();
+    set.elements.insert("App.Legacy".to_owned());
+    let failure = apply_element_delete(CORE_SOURCE, &set).expect_err("元素缺席应拒");
+    assert_eq!(failure.kind, EditErrorKind::ElementNotFound);
+    assert!(
+        failure.facts.contains("App.Legacy") && failure.facts.contains("现有元素"),
+        "facts 列现有元素：{}",
+        failure.facts
+    );
+
+    let mut set = DeleteSet::default();
+    set.elements.insert("App".to_owned());
+    let failure = apply_element_delete("[[relation]]\nfrom = \"A\"\nto = \"B\"\n", &set)
+        .expect_err("缺 element 表应拒");
+    assert_eq!(failure.kind, EditErrorKind::ElementTableMissing);
+}
+
+/// 边界（矩阵 2 形态）：`DeleteSet::of(fqn)` ≡ 单元素 + 零关系；公开字段判空两臂——
+/// `default()` 两集合皆空、`of(fqn)` 非空（类型面零 `is_empty`）。
+#[test]
+fn 单元素删除是集合退化形() {
+    let set = DeleteSet::of("App.Auth");
+    assert_eq!(set.elements.len(), 1, "恰一个元素");
+    assert!(set.relations.is_empty(), "零关系对");
+    let empty = DeleteSet::default();
+    assert!(
+        empty.elements.is_empty() && empty.relations.is_empty(),
+        "空集可辨"
+    );
+
+    let written = apply_element_delete(CORE_SOURCE, &set).expect("退化形删除应成功");
+    assert_eq!(model_of(&written).elements.len(), 2, "恰删一个元素");
+}
+
+// ===========================================================================
+// 本变更：落点 / 批量四条 / 计数与反馈面
+// ===========================================================================
+
+/// 正向 + 异常（矩阵 2 形态）：新文件表头 `# <file 去 .toml>（1 元素 / 0 关系）` 由写后
+/// 重解析计数生成；目标文件缺席且无 `create` ⇒ `Err` 提示 `create = true`。
+#[test]
+fn 新文件表头按写后计数生成() {
+    let temp = TempDir::new("plan-new-file-header");
+    temp.write_model("01-core.toml", "[element.\"App\"]\nkind = \"package\"\n");
+    let outcome = plan_element_upsert(
+        temp.root(),
+        &ElementSpec {
+            fqn: "App.Fresh".to_owned(),
+            kind: Some(ElementKind::Module),
+            file: Some("07-fresh.toml".to_owned()),
+            create: true,
+            ..Default::default()
+        },
+    )
+    .expect("新建文件应成功");
+    assert_eq!(
+        outcome.write.file,
+        temp.root()
+            .join(".dev-team/architecture/graph/model/07-fresh.toml"),
+        "落点 = 模型声明目录一级"
+    );
+    assert_eq!(
+        outcome.write.content.lines().next(),
+        Some("# 07-fresh（1 元素 / 0 关系）"),
+        "首行为表头（文件名去 .toml + 写后计数）"
+    );
+
+    let failure = plan_element_upsert(
+        temp.root(),
+        &ElementSpec {
+            fqn: "App.Another".to_owned(),
+            kind: Some(ElementKind::Module),
+            file: Some("08-another.toml".to_owned()),
+            ..Default::default()
+        },
+    )
+    .expect_err("文件缺席且无 create 应拒");
+    assert_eq!(failure.kind, EditErrorKind::TargetInvalid);
+    assert!(
+        failure.facts.contains("create = true"),
+        "facts 提示 create = true：{}",
+        failure.facts
+    );
+}
+
+/// 异常（矩阵 4 形态）：批量四条各点名去向——同批重复 `to` / `delete` 带字段 / 内联边
+/// 已声明在别的模型文件 / 端点不在案。
+#[test]
+fn 批量四条各点名去向() {
+    let temp = TempDir::new("plan-batch-four");
+    temp.write_model(
+        "01-app.toml",
+        "[element.\"A\"]\nkind = \"module\"\n\n[element.\"B\"]\nkind = \"module\"\n",
+    );
+    temp.write_model(
+        "02-edges.toml",
+        "# 02 · 边\n[element.\"C\"]\nkind = \"module\"\n\n[[relation]]\nfrom = \"A\"\nto = \"C\"\n",
+    );
+
+    let duplicate = plan_element_upsert(
+        temp.root(),
+        &ElementSpec {
+            fqn: "A".to_owned(),
+            summary: Some(Some("摘要".to_owned())),
+            relations: vec![edge("B"), edge("B")],
+            ..Default::default()
+        },
+    )
+    .expect_err("同批重复应拒");
+    assert_eq!(duplicate.kind, EditErrorKind::RelationDuplicateInBatch);
+
+    let has_fields = plan_element_upsert(
+        temp.root(),
+        &ElementSpec {
+            fqn: "A".to_owned(),
+            relations: vec![RelationSpec {
+                desc: Some(Some("x".to_owned())),
+                ..edge_with("B", WriteAction::Delete)
+            }],
+            ..Default::default()
+        },
+    )
+    .expect_err("delete 带字段应拒");
+    assert_eq!(has_fields.kind, EditErrorKind::RelationDeleteHasFields);
+
+    let elsewhere = plan_element_upsert(
+        temp.root(),
+        &ElementSpec {
+            fqn: "A".to_owned(),
+            relations: vec![edge("C")],
+            ..Default::default()
+        },
+    )
+    .expect_err("内联边在他处应拒");
+    assert_eq!(elsewhere.kind, EditErrorKind::RelationOwnedElsewhere);
+    assert!(
+        elsewhere.facts.contains("02-edges.toml") && elsewhere.facts.contains("archi_relation"),
+        "facts 点名文件并指向 archi_relation：{}",
+        elsewhere.facts
+    );
+
+    let missing = plan_element_upsert(
+        temp.root(),
+        &ElementSpec {
+            fqn: "A".to_owned(),
+            relations: vec![edge("Z")],
+            ..Default::default()
+        },
+    )
+    .expect_err("端点不在案应拒");
+    assert_eq!(missing.kind, EditErrorKind::RelationEndpointMissing);
+    assert!(
+        missing.facts.contains('Z'),
+        "facts 点名缺失端点：{}",
+        missing.facts
+    );
+}
+
+/// 正向（矩阵 3 形态）：四计数守恒（混合批次 1 新建 + 1 改 + 1 删）；不带 `relations`
+/// 与 `relations: []` 两形态皆四项归零（不是省略）。
+#[test]
+fn 四计数守恒且空批次归零() {
+    let temp = TempDir::new("plan-tally");
+    temp.write_model(
+        "01-core.toml",
+        concat!(
+            "[element.\"A\"]\n",
+            "kind = \"module\"\n",
+            "\n",
+            "[element.\"B\"]\n",
+            "kind = \"module\"\n",
+            "\n",
+            "[element.\"C\"]\n",
+            "kind = \"module\"\n",
+            "\n",
+            "[element.\"D\"]\n",
+            "kind = \"module\"\n",
+            "\n",
+            "[[relation]]\n",
+            "from = \"A\"\n",
+            "to = \"B\"\n",
+            "\n",
+            "[[relation]]\n",
+            "from = \"A\"\n",
+            "to = \"C\"\n",
+        ),
+    );
+
+    let outcome = plan_element_upsert(
+        temp.root(),
+        &ElementSpec {
+            fqn: "A".to_owned(),
+            relations: vec![
+                edge("D"),
+                RelationSpec {
+                    desc: Some(Some("改".to_owned())),
+                    ..edge("B")
+                },
+                edge_with("C", WriteAction::Delete),
+            ],
+            ..Default::default()
+        },
+    )
+    .expect("混合批次应成功");
+    assert_eq!(
+        outcome.relations.created
+            + outcome.relations.updated
+            + outcome.relations.deleted
+            + outcome.relations.unchanged,
+        3,
+        "四计数之和 == relations.len()（3 条）"
+    );
+    assert_eq!(outcome.relations.created, 1, "1 新建");
+    assert_eq!(outcome.relations.updated, 1, "1 改值");
+    assert_eq!(outcome.relations.deleted, 1, "1 删除");
+    assert_eq!(outcome.relations.unchanged, 0);
+
+    fs::write(&outcome.write.file, &outcome.write.content).expect("落盘混合批次");
+    let same = plan_element_upsert(
+        temp.root(),
+        &ElementSpec {
+            fqn: "A".to_owned(),
+            relations: vec![RelationSpec {
+                desc: Some(Some("改".to_owned())),
+                ..edge("B")
+            }],
+            ..Default::default()
+        },
+    )
+    .expect("同值批次应成功");
+    assert_eq!(same.relations.unchanged, 1, "同值 ⇒ unchanged = 1");
+    assert_eq!(
+        same.relations.created
+            + same.relations.updated
+            + same.relations.deleted
+            + same.relations.unchanged,
+        1,
+        "四计数守恒（len = 1）"
+    );
+
+    for spec in [
+        ElementSpec {
+            fqn: "A".to_owned(),
+            summary: Some(Some("摘要".to_owned())),
+            ..Default::default()
+        },
+        ElementSpec {
+            fqn: "A".to_owned(),
+            summary: Some(Some("摘要".to_owned())),
+            relations: Vec::new(),
+            ..Default::default()
+        },
+    ] {
+        let outcome = plan_element_upsert(temp.root(), &spec).expect("空批次应成功");
+        assert_eq!(
+            outcome.relations,
+            RelationTally::default(),
+            "不带 / 空数组两形态四项皆 0（不是省略）"
+        );
+    }
+}
+
+/// 正向（矩阵 3 形态）：同值重复 upsert ⇒ `created = false`、`changed = []`、`content`
+/// 与盘上逐字节相等；首次新建 ⇒ `created = true`；只改 `summary` ⇒
+/// `changed == ["summary"]`。
+#[test]
+fn changed空即幂等() {
+    let temp = TempDir::new("plan-changed");
+    let path = temp.write_model("01-core.toml", "[element.\"A\"]\nkind = \"module\"\n");
+
+    let first = plan_element_upsert(
+        temp.root(),
+        &ElementSpec {
+            fqn: "A".to_owned(),
+            summary: Some(Some("摘要".to_owned())),
+            ..Default::default()
+        },
+    )
+    .expect("首次改值应成功");
+    assert!(!first.created, "在案元素不新建");
+    assert_eq!(first.changed, vec!["summary".to_owned()], "只改 summary");
+    fs::write(&path, &first.write.content).expect("落盘首次结果");
+
+    let second = plan_element_upsert(
+        temp.root(),
+        &ElementSpec {
+            fqn: "A".to_owned(),
+            summary: Some(Some("摘要".to_owned())),
+            ..Default::default()
+        },
+    )
+    .expect("同值重放应成功");
+    assert_eq!(second.changed, Vec::<String>::new(), "同值 ⇒ changed 空");
+    assert_eq!(
+        fs::read_to_string(&path).expect("读盘失败"),
+        second.write.content,
+        "幂等重放零字节变化"
+    );
+
+    let created = plan_element_upsert(
+        temp.root(),
+        &ElementSpec {
+            fqn: "A.B".to_owned(),
+            kind: Some(ElementKind::Module),
+            summary: Some(Some("新".to_owned())),
+            ..Default::default()
+        },
+    )
+    .expect("新建应成功");
+    assert!(created.created, "首次新建");
+    assert!(
+        created
+            .changed
+            .iter()
+            .all(|field| ["kind", "summary"].contains(&field.as_str())),
+        "changed ⊆ 实际给出的字段名：{:?}",
+        created.changed
+    );
+}
+
+/// 正向：`counts` == 写后 `TomlParser::parse(&content)` 的计数 == 表头括号内两数字；
+/// `model` == 写后 `parse::parse_dir(root)` 的全模型计数。
+#[test]
+fn counts与表头与model三处同值() {
+    let temp = TempDir::new("plan-counts");
+    temp.write_model(
+        "01-core.toml",
+        "# 01 · 核心（1 元素 / 0 关系）\n[element.\"A\"]\nkind = \"module\"\n",
+    );
+    let outcome = plan_element_upsert(
+        temp.root(),
+        &ElementSpec {
+            fqn: "A.B".to_owned(),
+            kind: Some(ElementKind::Module),
+            ..Default::default()
+        },
+    )
+    .expect("新建应成功");
+
+    let counted = model_of(&outcome.write.content);
+    assert_eq!(
+        outcome.counts,
+        WriteCounts {
+            elements: counted.elements.len(),
+            relations: counted.relations.len(),
+        },
+        "counts == 写后本文件重解析计数"
+    );
+    assert_eq!(
+        header_counts(&outcome.write.content),
+        Some((outcome.counts.elements, outcome.counts.relations)),
+        "表头两数字与 counts 同值"
+    );
+    fs::write(&outcome.write.file, &outcome.write.content).expect("模拟壳层落盘");
+    let full = parse::parse_dir(temp.root());
+    assert!(
+        full.diagnostics.is_empty(),
+        "写后模型零诊断：{:?}",
+        full.diagnostics
+    );
+    assert_eq!(
+        outcome.model,
+        WriteCounts {
+            elements: full.model.elements.len(),
+            relations: full.model.relations.len(),
+        },
+        "model == parse_dir 的全模型计数"
+    );
+}
+
+/// 正向：`outcome.warnings` 与 `upsert_warnings(root, 写后元素, &changed, created)` 逐条
+/// 相等（`kind` / `severity` / `message` 三维）；plan 层零自拼 warning。
+#[test]
+fn warnings由模块单点产出() {
+    let temp = TempDir::new("plan-warnings");
+    temp.write_model("01-core.toml", "[element.\"App\"]\nkind = \"package\"\n");
+    let outcome = plan_element_upsert(
+        temp.root(),
+        &ElementSpec {
+            fqn: "App.Core".to_owned(),
+            kind: Some(ElementKind::Module),
+            ..Default::default()
+        },
+    )
+    .expect("新建应成功");
+
+    let written = model_of(&outcome.write.content);
+    let element = written.element("App.Core").expect("写后元素在场");
+    let expected = upsert_warnings(temp.root(), element, &outcome.changed, outcome.created);
+    assert_eq!(outcome.warnings, expected, "warnings 由模块单点产出");
+    assert!(
+        !outcome.warnings.is_empty(),
+        "空 path 的 module ⇒ 判据真实生效：{:?}",
+        outcome.warnings
+    );
+    assert!(
+        outcome
+            .warnings
+            .iter()
+            .any(|warning| warning.kind == "noPath"),
+        "noPath 计入反馈面：{:?}",
+        outcome.warnings
+    );
+}
+
+// ===========================================================================
+// 本变更：级联删除（`cascade` 只作用同一模型文件内）
+// ===========================================================================
+
+/// 正向：目标元素有 2 层子树 + 出入边全在同一文件 ⇒ 闭包内元素与关系全删净、`content`
+/// 无闭包内 FQN、表头计数随动；`changed = []` / `created = false` / `relations` 四项皆 0。
+#[test]
+fn 单文件闭包删净() {
+    let temp = TempDir::new("cascade-same-file");
+    temp.write_model(
+        "01-core.toml",
+        concat!(
+            "# 01 · 闭包（4 元素 / 2 关系）\n",
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Core\"]\n",
+            "kind = \"domain\"\n",
+            "\n",
+            "[element.\"App.Core.Store\"]\n",
+            "kind = \"module\"\n",
+            "\n",
+            "[element.\"App.Other\"]\n",
+            "kind = \"domain\"\n",
+            "\n",
+            "[[relation]]\n",
+            "from = \"App.Core.Store\"\n",
+            "to = \"App.Other\"\n",
+            "\n",
+            "[[relation]]\n",
+            "from = \"App.Other\"\n",
+            "to = \"App.Core\"\n",
+        ),
+    );
+    let outcome =
+        plan_element_delete(temp.root(), "App.Core", true, None).expect("同文件闭包应成功");
+    let remaining = model_of(&outcome.write.content);
+    assert_eq!(
+        remaining
+            .elements
+            .iter()
+            .map(|element| element.fqn.as_str())
+            .collect::<Vec<_>>(),
+        vec!["App", "App.Other"],
+        "闭包内元素全删净"
+    );
+    assert!(remaining.relations.is_empty(), "出入边全删净");
+    assert_eq!(
+        header_counts(&outcome.write.content),
+        Some((2, 0)),
+        "表头计数随动"
+    );
+    assert_eq!(outcome.changed, Vec::<String>::new(), "changed 空");
+    assert!(!outcome.created, "created 假");
+    assert_eq!(
+        outcome.relations,
+        RelationTally::default(),
+        "关系四项皆 0（内联面无参与）"
+    );
+}
+
+/// 异常：闭包含另一模型文件声明的子元素 ⇒ `CascadeCrossFile` 点名各文件与阻塞项、
+/// 零文本产出。
+#[test]
+fn 跨文件闭包拒并点名() {
+    let temp = TempDir::new("cascade-cross-file");
+    temp.write_model(
+        "01-core.toml",
+        "[element.\"App\"]\nkind = \"package\"\n\n[element.\"App.Core\"]\nkind = \"domain\"\n",
+    );
+    temp.write_model(
+        "02-more.toml",
+        "# 02 · 更多\n[element.\"App.Core.Store\"]\nkind = \"module\"\n",
+    );
+    let failure =
+        plan_element_delete(temp.root(), "App.Core", true, None).expect_err("跨文件闭包应拒");
+    assert_eq!(failure.kind, EditErrorKind::CascadeCrossFile);
+    assert!(
+        failure.facts.contains("02-more.toml") && failure.facts.contains("App.Core.Store"),
+        "facts 点名文件与阻塞项：{}",
+        failure.facts
+    );
+}
+
+/// 边界（矩阵 2 形态）：叶元素（无子无边）`cascade = true` 与 `false` 的 `content` 逐字节
+/// 相同；元素缺席时 `cascade = true` 仍 `ElementNotFound`。
+#[test]
+fn 无子无边时cascade与缺省同文本() {
+    let temp = TempDir::new("cascade-leaf");
+    temp.write_model(
+        "01-core.toml",
+        "[element.\"App\"]\nkind = \"package\"\n\n[element.\"App.Leaf\"]\nkind = \"module\"\n",
+    );
+    let plain = plan_element_delete(temp.root(), "App.Leaf", false, None).expect("缺省删除");
+    let cascaded = plan_element_delete(temp.root(), "App.Leaf", true, None).expect("级联删除");
+    assert_eq!(
+        plain.write.content, cascaded.write.content,
+        "叶元素两形态同文本"
+    );
+
+    let failure =
+        plan_element_delete(temp.root(), "App.Ghost", true, None).expect_err("缺席元素应拒");
+    assert_eq!(failure.kind, EditErrorKind::ElementNotFound);
+}
+
+// ===========================================================================
+// 本变更：关系写的薄形反馈面与类型面
+// ===========================================================================
+
+/// 正向（矩阵 4 形态）：两关系入口返回薄形 `WriteOutcome`——`warnings` 恒空、
+/// `relations` 计一条（created / unchanged / updated / deleted 各一）、`changed`
+/// ⊆ {`desc`, `apis`}（delete 为 `[]`）。
+#[test]
+fn 关系写薄形四计数取一() {
+    let temp = TempDir::new("relation-thin");
+    temp.write_model(
+        "01-core.toml",
+        "[element.\"A\"]\nkind = \"module\"\n\n[element.\"B\"]\nkind = \"module\"\n",
+    );
+
+    let created = plan_relation_upsert(temp.root(), "A", "B", None, None, None).expect("新建关系");
+    assert!(created.warnings.is_empty(), "warnings 恒空");
+    assert_eq!(
+        created.relations,
+        RelationTally {
+            created: 1,
+            ..Default::default()
+        },
+        "新增 ⇒ created = 1"
+    );
+    assert_eq!(created.changed, Vec::<String>::new(), "无字段 ⇒ changed 空");
+    fs::write(&created.write.file, &created.write.content).expect("落盘新关系");
+
+    let unchanged =
+        plan_relation_upsert(temp.root(), "A", "B", None, None, None).expect("同值重放");
+    assert_eq!(
+        unchanged.relations,
+        RelationTally {
+            unchanged: 1,
+            ..Default::default()
+        },
+        "同值 ⇒ unchanged = 1"
+    );
+
+    let updated =
+        plan_relation_upsert(temp.root(), "A", "B", Some(Some("改")), None, None).expect("改值");
+    assert_eq!(
+        updated.relations,
+        RelationTally {
+            updated: 1,
+            ..Default::default()
+        },
+        "改值 ⇒ updated = 1"
+    );
+    assert_eq!(
+        updated.changed,
+        vec!["desc".to_owned()],
+        "changed ⊆ {{desc, apis}}"
+    );
+    fs::write(&updated.write.file, &updated.write.content).expect("落盘改值");
+
+    let deleted = plan_relation_delete(temp.root(), "A", "B", None).expect("删除关系");
+    assert!(deleted.warnings.is_empty(), "warnings 恒空");
+    assert_eq!(
+        deleted.relations,
+        RelationTally {
+            deleted: 1,
+            ..Default::default()
+        },
+        "删除 ⇒ deleted = 1"
+    );
+    assert_eq!(
+        deleted.changed,
+        Vec::<String>::new(),
+        "delete 的 changed 为 []"
+    );
+}
+
+/// 边界（表驱动）：`WriteAction` 二值词表闭合——`ALL.len() == 2`、`as_str` 逐值、
+/// `parse` 往返与词表外值、`Default = Upsert`。
+#[test]
+fn 动作二值词表闭合() {
+    assert_eq!(WriteAction::ALL.len(), 2, "二值");
+    assert_eq!(
+        WriteAction::ALL
+            .iter()
+            .map(|action| action.as_str())
+            .collect::<Vec<_>>(),
+        vec!["upsert", "delete"],
+        "线格式词逐值"
+    );
+    for action in WriteAction::ALL {
+        assert_eq!(
+            WriteAction::parse(action.as_str()),
+            Some(action),
+            "{} 往返",
+            action.as_str()
+        );
+    }
+    for invalid in ["Upsert", "DELETE", " upsert", "", "replace"] {
+        assert_eq!(
+            WriteAction::parse(invalid),
+            None,
+            "词表外值 {invalid:?} 不认（E1 据此拒）"
+        );
+    }
+    assert_eq!(WriteAction::default(), WriteAction::Upsert, "缺省 upsert");
+}
+
+/// 边界（表驱动）：新增类型形状齐备——`RelationSpec` 三态可构造、`DeleteSet` 两集合按
+/// `BTree` 序、`WriteCounts` / `RelationTally` 全 0 可构造。
+#[test]
+fn 新增类型形状齐备() {
+    for desc in [None, Some(None), Some(Some("说明".to_owned()))] {
+        let spec = RelationSpec {
+            to: "B".to_owned(),
+            desc: desc.clone(),
+            apis: None,
+            action: WriteAction::Upsert,
+        };
+        assert_eq!(spec.desc, desc, "三态可构造");
+    }
+
+    let mut set = DeleteSet::default();
+    set.elements.insert("B".to_owned());
+    set.elements.insert("A".to_owned());
+    set.relations.insert(("B".to_owned(), "C".to_owned()));
+    set.relations.insert(("A".to_owned(), "C".to_owned()));
+    assert_eq!(
+        set.elements.iter().cloned().collect::<Vec<_>>(),
+        vec!["A".to_owned(), "B".to_owned()],
+        "元素集按 BTree 序"
+    );
+    assert_eq!(
+        set.relations.iter().cloned().collect::<Vec<_>>(),
+        vec![
+            ("A".to_owned(), "C".to_owned()),
+            ("B".to_owned(), "C".to_owned())
+        ],
+        "关系对集按 BTree 序"
+    );
+
+    assert_eq!(
+        WriteCounts::default(),
+        WriteCounts {
+            elements: 0,
+            relations: 0
+        }
+    );
+    assert_eq!(RelationTally::default().created, 0);
+}
+
+/// 边界：`WriteOutcome` 七字段可构造且内嵌 `ModelWrite` 三字段与既有三元组逐字同义。
+#[test]
+#[allow(non_snake_case)]
+fn WriteOutcome内嵌ModelWrite不变() {
+    let write = ModelWrite {
+        file: PathBuf::from("01-app.toml"),
+        content: "# 01 · app\n".to_owned(),
+        hash: file_hash_of(Path::new("01-app.toml"), "# 01 · app\n"),
+    };
+    let outcome = WriteOutcome {
+        write: write.clone(),
+        warnings: Vec::new(),
+        changed: Vec::new(),
+        created: false,
+        relations: RelationTally::default(),
+        counts: WriteCounts::default(),
+        model: WriteCounts::default(),
+    };
+    assert_eq!(outcome.write, write, "七字段之一内嵌 ModelWrite 原样");
+    assert_eq!(outcome.write.file, PathBuf::from("01-app.toml"));
+    assert_eq!(outcome.write.content, "# 01 · app\n");
+    assert_eq!(
+        outcome.write.hash,
+        file_hash_of(Path::new("01-app.toml"), "# 01 · app\n"),
+        "hash 口径不变"
+    );
+    let cloned = outcome.clone();
+    assert_eq!(cloned, outcome, "PartialEq 与 Clone 可对拍");
+    assert!(!format!("{outcome:?}").is_empty(), "Debug 可用");
+}
+
+/// 边界：`ElementSpec` 的 `Default` 扩展不破既有简写——两新字段缺省分别 `[]` / `false`，
+/// `ElementSpec { fqn, ..Default::default() }` 仍成立；字段面封闭（全字面构造不含级联
+/// 开关，D-17）。
+#[test]
+#[allow(non_snake_case)]
+fn ElementSpec缺省扩展不破既有简写() {
+    let spec = ElementSpec {
+        fqn: "App".to_owned(),
+        ..Default::default()
+    };
+    assert!(spec.relations.is_empty(), "relations 缺省空数组");
+    assert!(!spec.create, "create 缺省 false");
+    assert!(spec.expect.is_none(), "expect 缺省不校验");
+    assert!(spec.kind.is_none() && spec.gate.is_none() && spec.api.is_none());
+
+    // 字段面封闭：全字面构造（不带 `..Default`）只能写既有字段——把级联开关加回
+    // spec 面（D-17）或扩出新字段即在此编译失败。
+    let full = ElementSpec {
+        fqn: "App.Full".to_owned(),
+        kind: Some(ElementKind::Module),
+        gate: Some(GateTier::Off),
+        api: Some(ApiStatus::Declared),
+        entry: Some(Some("./src/full/index.ts".to_owned())),
+        path: Some(vec!["./src/full/".to_owned()]),
+        doc: Some(None),
+        summary: Some(Some("一行摘要".to_owned())),
+        metadata: Some(BTreeMap::from([("k".to_owned(), "v".to_owned())])),
+        relations: Vec::new(),
+        file: Some("01-app.toml".to_owned()),
+        create: false,
+        expect: None,
+    };
+    assert_eq!(full.fqn, "App.Full");
+    assert!(full.relations.is_empty(), "relations 空数组即出边不动");
+}
+
+// ===========================================================================
+// 本变更：源码锚与 crate 根出口面
+// ===========================================================================
+
+/// 异常（源码锚）：删除纯函数恰一个形态、删元素表的 `remove` 只一处、`Sha256` /
+/// `fs::write` 零命中（零哈希拼装、零写盘）。
+#[test]
+fn 删除实现恰一个且零写盘() {
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source.matches("fn apply_element_delete").count(),
+        1,
+        "删除纯函数恰一处"
+    );
+    assert!(
+        !source.contains("apply_element_delete_one"),
+        "零第二份单元素删除路径"
+    );
+    assert_eq!(
+        source.matches("table.remove(fqn)").count(),
+        1,
+        "删元素表的调用只一处（集合删除唯一形态）"
+    );
+    assert!(
+        !source.contains("fn is_empty"),
+        "DeleteSet 零测试专用方法（集合判空由公开字段直接判，D-18）"
+    );
+    for forbidden in ["Sha256", "sha2", "fs::write"] {
+        assert!(!source.contains(forbidden), "edit/mod.rs 内零 {forbidden}");
+    }
+}
+
+/// 异常（源码锚）：`edit` 零 drift 判定调用——`drift::check` / `ArchiDriftMode` /
+/// `scan::` 零命中（`file_hash_of` 是唯一 drift 依赖面）。
+#[test]
+fn edit零drift判定调用() {
+    let source = include_str!("mod.rs");
+    for forbidden in ["drift::check", "ArchiDriftMode", "scan::"] {
+        assert!(!source.contains(forbidden), "edit/mod.rs 内零 {forbidden}");
+    }
+    assert!(
+        source.contains("file_hash_of"),
+        "file_hash_of 是唯一 drift 依赖面"
+    );
+}
+
+/// 正向（出口面）：crate 根 `edit` 分组含六个新写面类型与 warnings 三名；既有 12 名未丢。
+#[test]
+fn crate根出口含六个写面类型与warnings三名() {
+    let source = include_str!("../lib.rs");
+    for name in [
+        "WriteAction",
+        "RelationSpec",
+        "DeleteSet",
+        "WriteOutcome",
+        "WriteCounts",
+        "RelationTally",
+        "EditWarning",
+        "upsert_warnings",
+        "delete_warnings",
+    ] {
+        assert!(source.contains(name), "crate 根出口含 `{name}`");
+    }
+    for name in [
+        "apply_element_spec",
+        "apply_element_delete",
+        "apply_relation_upsert",
+        "apply_relation_delete",
+        "plan_element_upsert",
+        "plan_element_delete",
+        "plan_relation_upsert",
+        "plan_relation_delete",
+        "EditError",
+        "EditErrorKind",
+        "ElementSpec",
+        "ModelWrite",
+    ] {
+        assert!(source.contains(name), "既有出口 `{name}` 未丢");
+    }
+    let _: fn(&Path, &crate::Element, &[String], bool) -> Vec<EditWarning> = upsert_warnings;
+    let _: fn(&Path, &str) -> Vec<EditWarning> = delete_warnings;
+}
+
+/// 边界（源码锚）：crate 根 doc 的**五条机械纪律**逐句在场、恰五条（本变更不引入新的
+/// 组织性约束），且旧立场句零命中（AC-12a 的窄面）——钉句口径沿 `crate头注释改原语族`。
+#[test]
+fn 头注释纪律零改动() {
+    let source = include_str!("../lib.rs");
+    assert!(
+        source.contains("五条机械纪律："),
+        "头注释的纪律段起手句在案"
+    );
+    for needle in [
+        "**单点构建**：`ModelGraph` 只在 [`graph`] 建一次",
+        "消费面 MUST NOT 各自再建图",
+        "**投影零改写**：投影只裁剪（1-hop / 字段子集）",
+        "推导、MUST NOT 补默认值",
+        "**词汇全量对拍**：封闭词汇（元素种类 / gate 档 / 结构诊断 / 边标记 / 节点",
+        "标记）只有一份定义（[`dto`]），三面覆盖同一词汇集",
+        "**判定单源**：架构漂移对账 / 定级 / 豁免 / `status` 推导只有一处实现",
+        "（[`drift::check`]）——命令面与门禁面都调它，MUST NOT 各写一份",
+        "**契约面纯读**：模块 API 契约面（[`api`] 全族）零写盘零 spawn",
+        "判定域不得反向持写盘能力",
+    ] {
+        assert!(source.contains(needle), "crate 根 doc 逐句在场：{needle}");
+    }
+
+    let disciplines: Vec<&str> = source
+        .lines()
+        .filter(|line| {
+            line.strip_prefix("//! ")
+                .and_then(|rest| rest.strip_prefix(|c: char| c.is_ascii_digit()))
+                .is_some_and(|rest| rest.starts_with(". **"))
+        })
+        .collect();
+    assert_eq!(
+        disciplines.len(),
+        5,
+        "机械纪律恰五条（本变更不引入新的组织性约束）：{disciplines:?}"
+    );
+
+    // 旧立场禁止短语按片段拼接：产品源码面对三个整串零字面命中（AC-12a 含测试夹具
+    // 面），断言语义不变——禁的是「字面持有」而非「判据」
+    for stale in [
+        ["无专用", "写工具"].concat(),
+        ["不设专用", "写工具"].concat(),
+        ["MUST NOT 存在", "专用写"].concat(),
+    ] {
+        assert!(!source.contains(&stale), "旧立场句零命中：{stale}");
+    }
+}
+
+/// 边界（源码锚）：`warnings_test` 模块登记恰一处（`edit/mod.rs` 末尾），既有
+/// `messages_test` 登记未动。
+#[test]
+fn warnings测试登记在册() {
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source.matches("mod warnings_test;").count(),
+        1,
+        "warnings_test 登记恰一处"
+    );
+    assert!(
+        source.contains("mod messages_test;"),
+        "既有 messages_test 登记未动"
     );
 }

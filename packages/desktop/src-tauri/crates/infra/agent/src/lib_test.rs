@@ -1529,3 +1529,43 @@ fn 退役cli臂不被efforts载荷改写_逐字退役文案且不静默回退sdk
         "新载荷不改变退役面（逐字文案），实际: {error}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 本变更：`write_atomic` 的 crate 根门面（唯一落盘实现经门面可达）
+// ---------------------------------------------------------------------------
+
+/// 正向（签名锚）：`agent_runtime::write_atomic` 经 crate 根可达，签名与壳层委托面
+/// 逐字一致（改签名即编译失败）；调用即真实落盘（原子写单点经门面可用）。
+#[test]
+fn write_atomic经门面可达() {
+    let function: fn(&std::path::Path, &str) -> Result<(), String> = crate::write_atomic;
+    let dir = tempfile::Builder::new()
+        .prefix("lib-facade-atomic-")
+        .tempdir()
+        .expect("创建临时目录失败");
+    let target = dir.path().join("gate.toml");
+    function(&target, "gate = \"off\"\n").expect("经门面写入应成功");
+    assert_eq!(
+        std::fs::read_to_string(&target).expect("读目标失败"),
+        "gate = \"off\"\n",
+        "门面调用即真实落盘（同一实现）"
+    );
+}
+
+/// 异常（源码锚）：`pub mod sdk` 零命中（`sdk` 模块本身仍私有）；门面导出
+/// `pub use sdk::atomic::write_atomic;` 恰一处。
+#[test]
+fn sdk模块保持私有() {
+    let source = include_str!("lib.rs");
+    assert!(!source.contains("pub mod sdk"), "sdk 模块保持私有");
+    assert_eq!(
+        source.matches("pub use sdk::atomic::write_atomic;").count(),
+        1,
+        "门面导出行恰一处"
+    );
+    assert_eq!(
+        source.matches("mod atomic").count(),
+        0,
+        "crate 根不复述子模块声明（登记单点在 sdk/mod.rs）"
+    );
+}

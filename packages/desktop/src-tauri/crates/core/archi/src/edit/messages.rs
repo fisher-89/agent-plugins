@@ -27,7 +27,7 @@ impl EditError {
     }
 }
 
-/// 写面判据（封闭十九值：前置组十七 + 自证组二）。
+/// 写面判据（封闭二十三值：前置组二十一 + 自证组二）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditErrorKind {
     /// 模型结构诊断非空（写坏模型 = 读出错）
@@ -64,6 +64,14 @@ pub enum EditErrorKind {
     RelationNotFound,
     /// 同一 `(from, to)` 多处声明（模型面跨文件 / 文件面同源，fail-closed）
     RelationDuplicated,
+    /// 内联删边项带了字段（删除动作与字段赋值互斥）
+    RelationDeleteHasFields,
+    /// 同一批 `relations` 重复声明同一目标（先 upsert 后 delete 取决于数组序）
+    RelationDuplicateInBatch,
+    /// 级联闭包跨模型文件（一次计划只承载一个文件）
+    CascadeCrossFile,
+    /// 内联边已声明在别的模型文件（一次计划只写一个文件）
+    RelationOwnedElsewhere,
     /// 渲染后重解析出诊断（自证失败，零文本产出）
     RenderSelfCheck,
     /// 回读值与规格不一致（零文本产出）
@@ -91,13 +99,17 @@ impl EditErrorKind {
             EditErrorKind::DeleteHasRelations => "元素仍被关系引用，拒绝删除",
             EditErrorKind::RelationNotFound => "关系不存在",
             EditErrorKind::RelationDuplicated => "关系多处声明",
+            EditErrorKind::RelationDeleteHasFields => "内联删边项带了字段",
+            EditErrorKind::RelationDuplicateInBatch => "同一批 relations 重复声明同一目标",
+            EditErrorKind::CascadeCrossFile => "级联闭包跨模型文件",
+            EditErrorKind::RelationOwnedElsewhere => "内联边声明在别的模型文件",
             EditErrorKind::RenderSelfCheck => "写回渲染自证失败",
             EditErrorKind::ReadBackMismatch => "回读不一致",
         }
     }
 
     /// 全部判据（与 `criterion()` 的分支集合逐值相等——长度即对拍判据）。
-    pub const ALL: [EditErrorKind; 19] = [
+    pub const ALL: [EditErrorKind; 23] = [
         EditErrorKind::ModelHasDiagnostics,
         EditErrorKind::ElementNotFound,
         EditErrorKind::ElementNotTable,
@@ -115,6 +127,10 @@ impl EditErrorKind {
         EditErrorKind::DeleteHasRelations,
         EditErrorKind::RelationNotFound,
         EditErrorKind::RelationDuplicated,
+        EditErrorKind::RelationDeleteHasFields,
+        EditErrorKind::RelationDuplicateInBatch,
+        EditErrorKind::CascadeCrossFile,
+        EditErrorKind::RelationOwnedElsewhere,
         EditErrorKind::RenderSelfCheck,
         EditErrorKind::ReadBackMismatch,
     ];

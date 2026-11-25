@@ -84,7 +84,7 @@ fn 同一mode与tier连续两次调用同判且12格全覆盖() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 十六项挂载逐工具三档等价于原三张按名常量表() {
+fn 十八项挂载逐工具三档等价于原三张按名常量表() {
     for mount in mount::registry() {
         let name = mount.definition.name.as_str();
         let expected = match name {
@@ -93,8 +93,10 @@ fn 十六项挂载逐工具三档等价于原三张按名常量表() {
             | "archi_drift" | "archi_scaffold" | "db_tables" | "db_query" | "propose_config" => {
                 [true, true, true]
             }
-            // 原 WRITE_TOOLS（含 create_explore_note）
-            "write" | "edit" | "create_explore_note" => [false, true, true],
+            // 原 WRITE_TOOLS（含 create_explore_note）+ 两写工具（Write 档 ⇒ 同臂）
+            "write" | "edit" | "create_explore_note" | "archi_element" | "archi_relation" => {
+                [false, true, true]
+            }
             // 原 EXECUTE_TOOLS
             "bash" => [false, true, true],
             other => unreachable!("挂载清单封闭集外名 {other}"),
@@ -163,7 +165,7 @@ fn 清单外工具名不在挂载清单内() {
 }
 
 #[test]
-fn 挂载清单内十六项名字两两不同() {
+fn 挂载清单内十八项名字两两不同() {
     let names: Vec<&str> = mount::registry()
         .iter()
         .map(|mount| mount.definition.name.as_str())
@@ -300,19 +302,19 @@ fn 提案工具归档read三档恒放行() {
     }
 }
 
-/// 边界：十六项名字两两不同，条目数恒等于 `registry().len()`（等价表覆盖全表、
+/// 边界：十八项名字两两不同，条目数恒等于 `registry().len()`（等价表覆盖全表、
 /// `other` 分支零命中）。
 #[test]
-fn 十六项等价表覆盖全表且名字两两不同() {
+fn 十八项等价表覆盖全表且名字两两不同() {
     let names: Vec<&str> = mount::registry()
         .iter()
         .map(|mount| mount.definition.name.as_str())
         .collect();
-    assert_eq!(names.len(), 16, "挂载清单十六项");
+    assert_eq!(names.len(), 18, "挂载清单十八项");
     let mut unique = names.clone();
     unique.sort_unstable();
     unique.dedup();
-    assert_eq!(unique.len(), 16, "名字两两不同（封闭集外名不可达）");
+    assert_eq!(unique.len(), 18, "名字两两不同（封闭集外名不可达）");
     // 等价表遍历面 = 全表：逐项归档只有三档三形态（[true,true,true] /
     // [false,true,true]），无第四形态。
     for mount in mount::registry() {

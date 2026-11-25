@@ -1,13 +1,14 @@
-//! `archi_knowledge` 的单元测试：知识文本的分层收口（骨架只留不可脚本化的散文与
-//! 一行工具指路，示例 TOML 与字段形态归 `archi_scaffold`）、A 档指路句逐句在场
-//! （含自检纪律两句：结构诊断带 `file:line`、生成物重生成只给通用指路）、派生段
-//! 收缩为 md 内的 `gate` / `api` 值域与缺省档、kind 语义与程序派生的两处目录，以及拼装 / 降级 / 体量锚。
+//! `archi_knowledge` / `archi-knowledge.md` 的单元测试：知识面收窄后的四段结构（职责 /
+//! 工具面 / 留给判断 + 手改出口一句）、零语法教学（零示例围栏 / 零键形示例 / 零字段
+//! 值域行 / 零 `metadata` 示例）、零结构诊断可执行词、双门限体量冻结（骨架 ≤ 1500 B /
+//! 全文 ≤ 1700 B）、两处派生目录仍在行程、指路只指向真实工具、旧立场零残留，以及拼装 /
+//! 降级语义零回归。
 //!
-//! 零 mock：`include_str!` 取编译期内嵌的同一份字节（禁测试内复制副本）；
-//! `layout` 派生与 `ElementKind::ALL` / `GateTier::ALL` / `ApiStatus::ALL` /
-//! `DiagnosticKind::ALL` 取真实常量。
+//! 零 mock：`include_str!("archi-knowledge.md")` 取编译期内嵌的同一份字节（禁测试内
+//! 复制副本）；`knowledge()` 走真实 `build` + 真实 `foundation::layout` 派生；
+//! `mount::registry()` 是工具名真值（指路不指向不存在工具）。
 
-use archi::dto::{ApiStatus, DiagnosticKind, ElementKind, GateTier};
+use archi::dto::DiagnosticKind;
 
 const SKELETON: &str = include_str!("archi-knowledge.md");
 
@@ -21,526 +22,286 @@ fn text() -> String {
     crate::archi_knowledge::knowledge().expect("真实骨架应拼装成功")
 }
 
-// ---------------------------------------------------------------------------
-// 分层删除面：示例围栏 / 字段语法教学 / entry 三档表一律缺场
-// ---------------------------------------------------------------------------
-
-/// 正向：骨架零代码围栏、零示例 TOML 段、零 `entry` 三档默认长表（教学面已归
-/// `archi_scaffold` 与 `resolvedEntry`）。
-#[test]
-fn 骨架零围栏零示例零三档表() {
-    let source = skeleton();
-    assert_eq!(
-        source.matches("```").count(),
-        0,
-        "零代码围栏（示例 TOML 归 archi_scaffold 的 draft）"
-    );
-    assert!(
-        !source.lines().any(|line| {
-            let line = line.trim_start();
-            line.starts_with("[element.") || line.starts_with("[[relation]]")
-        }),
-        "骨架零可解析 TOML 块（键形只作行内引述）"
-    );
-    for piece in ["三档", "默认候选一", "默认候选二", "候选一", "候选二"] {
-        assert!(!source.contains(piece), "零 entry 三档长表：`{piece}`");
-    }
-}
-
-/// 正向（表驱动）：零字段语法教学段——逐字段形态教学句缺场（`kind = ` / `gate = `
-/// 一类赋值示例、`entry` 四条判据细节、`doc` 判据门限都不在骨架）。
-#[test]
-fn 骨架零字段形态教学() {
-    let source = skeleton();
-    for piece in [
-        "kind = \"",
-        "gate = \"",
-        "api = \"",
-        "entry = \"",
-        "path = [\"",
-        "doc = \"",
-        "metadata = {",
-        "MUST 是 repo 相对 POSIX",
-        "apiUnexpected 的两条判据",
-    ] {
-        assert!(!source.contains(piece), "零字段形态教学句：`{piece}`");
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 分层新增面：kind 四值语义 / 计数单源 / 看护配置
-// ---------------------------------------------------------------------------
-
-/// 正向：`kind` 四值语义逐值在场（遍历 `ElementKind::ALL`，新增变体未补语义即红）。
-#[test]
-fn 骨架含kind四值语义() {
-    let source = skeleton();
-    for kind in ElementKind::ALL {
-        let (value, meaning) = match kind {
-            ElementKind::Package => ("`package`", "最小可编译单元"),
-            ElementKind::Domain => ("`domain`", "业务实体"),
-            ElementKind::Module => ("`module`", "模块"),
-            ElementKind::Composite => ("`composite`", "组合"),
-        };
-        assert!(source.contains(value), "kind 值 `{value}` 在场");
-        assert!(source.contains(meaning), "kind 语义 `{meaning}` 在场");
-    }
-}
-
-/// 正向：计数复述单源一行（元素 / 关系数量以 `archi_drift` 的 `model.*` 为准）。
-#[test]
-fn 骨架含计数单源一行() {
-    let source = skeleton();
-    assert!(source.contains("archi_drift"), "点名读数工具");
-    assert!(
-        source.contains("model.elements") && source.contains("model.relations"),
-        "计数以 drift 报告字段为准"
-    );
-}
-
-/// 正向：架构域看护配置一行（`ignore` / `exclude` 两键）。
-#[test]
-fn 骨架含看护配置一行() {
-    let source = skeleton();
-    assert!(source.contains("config.json"), "点名架构域配置文件");
-    for key in ["ignore", "exclude"] {
-        assert!(source.contains(key), "含两键之一 `{key}`");
-    }
-    assert!(source.contains("archi_drift"), "非法即由 drift 报错点名");
-}
-
-// ---------------------------------------------------------------------------
-// A 档指路句（D17 机械表）：每句携带工具名 + 该工具面确有的字段
-// ---------------------------------------------------------------------------
-
-/// 正向（表驱动）：A 档指路句逐句在场——纪律句关键词 → 工具名（或通用生成入口）→
-/// 该面确有的字段 / 口径（D17 机械表八行 + 自检纪律两句：结构诊断带 `file:line`、
-/// 生成物重生成只给通用指路）。
-#[test]
-fn 骨架_指路表逐句在场() {
-    let source = skeleton();
-    let cases: [(&str, &str, &str); 10] = [
-        ("缺 `path`", "archi_module", "hasPath"),
-        ("entry", "archi_module", "resolvedEntry"),
-        ("api = none", "archi_drift", "apiFindings"),
-        ("orphanHierarchy", "archi_module", "orphanHierarchy"),
-        ("字段序", "archi_scaffold", "取模板"),
-        ("覆盖", "archi_drift", "读数"),
-        ("两轴", "archi_api", "action = \"check\""),
-        ("config.json", "archi_drift", "报错点名"),
-        ("结构诊断", "archi_module", "file:line"),
-        ("生成物过期", "既有生成命令", "MUST NOT 手改生成物"),
-    ];
-    for (needle, tool, field) in cases {
-        assert!(source.contains(needle), "指路句锚点 `{needle}` 在场");
-        assert!(source.contains(tool), "指路句携带工具 / 命令 `{tool}`");
-        assert!(source.contains(field), "指路句携带该面确有的 `{field}`");
-    }
-}
-
-/// 组合：`file:line` 指路的对象面确有此形态——结构诊断文案单点
-/// `archi::dto::graph_diagnostics_error`（`archi_module` 的坏模型回灌走同一入口）
-/// 产出的行带 `file:line`，故骨架的指路句不是空话。
-#[test]
-fn 指路句_file_line由真实诊断投影背书() {
-    let source = skeleton();
-    assert!(source.contains("`file:line`"), "骨架点名 `file:line`");
-    let diagnostics = [archi::dto::ArchiDiagnostic {
-        kind: DiagnosticKind::OrphanHierarchy,
-        message: String::new(),
-        file: "01-auth.toml".to_owned(),
-        line: 7,
-        column: None,
-    }];
-    let text = archi::dto::graph_diagnostics_error(&diagnostics);
-    assert!(
-        text.contains("01-auth.toml:7"),
-        "诊断文案带 `file:line`：{text}"
-    );
-    assert!(
-        text.contains(DiagnosticKind::OrphanHierarchy.as_str()),
-        "诊断文案带种类词：{text}"
-    );
-}
-
-/// 边界：知识是**产品通用文本**——重生成一句只给纪律与通用指路，MUST NOT 出现
-/// 本仓的专用命令名（产品对任意 workspace 生效，生成命令归属各自仓库的文档面）。
-#[test]
-fn 骨架零项目专用命令() {
-    let source = skeleton();
-    for piece in ["pnpm", "cargo run", "api:export", "archi-api-gen"] {
-        assert!(
-            !source.contains(piece),
-            "骨架 MUST NOT 含本仓专用命令 `{piece}`"
-        );
-    }
-    assert!(
-        source.contains("既有生成命令"),
-        "通用指路句仍在场（既有生成命令）"
-    );
-    assert!(
-        source.contains("MUST NOT 手改生成物"),
-        "同句带「MUST NOT 手改生成物」纪律"
-    );
-}
-
-/// 组合：骨架点名的每个 `archi_*` 工具名都在挂载清单命中（指路不指向不存在的工具）。
-#[test]
-fn 骨架点名的archi工具都在挂载清单() {
-    let source = skeleton();
-    let mut named: Vec<&str> = Vec::new();
-    for candidate in [
-        "archi_module",
-        "archi_search",
-        "archi_api",
-        "archi_drift",
-        "archi_scaffold",
-    ] {
-        if source.contains(candidate) {
-            named.push(candidate);
-        }
-    }
-    assert!(!named.is_empty(), "骨架至少点名一个 archi 工具");
-    for name in named {
-        assert!(
-            crate::sdk::mount::lookup(name).is_some(),
-            "骨架点名的 {name} 应在挂载清单内"
-        );
-    }
-    // 骨架未点名的 archi 工具——断言集合封闭（零第三个 archi_ 前缀词）
-    let words: Vec<&str> = source
-        .split(|ch: char| !(ch.is_alphanumeric() || ch == '_'))
-        .filter(|word| word.starts_with("archi_"))
-        .collect();
-    for word in words {
-        assert!(
-            crate::sdk::mount::lookup(word).is_some(),
-            "骨架出现的 `{word}` 应为真实工具名"
-        );
-    }
-}
-
-// ---------------------------------------------------------------------------
-// md：字段值域与缺省档；派生段：两处目录
-// ---------------------------------------------------------------------------
-
-/// 骨架中以 `prefix` 起首的行（去掉行尾 CR；缺失即失败）。
-fn line_starting(prefix: &str) -> &'static str {
-    skeleton()
-        .lines()
-        .find(|line| line.starts_with(prefix))
-        .unwrap_or_else(|| panic!("骨架缺少以 `{prefix}` 起首的词汇行"))
-        .trim_end_matches('\r')
-}
-
-/// 词汇行的值清单：`：` 之后、全角括号之前，按 `" / "` 切分。
-fn listed_values<'a>(line: &'a str, prefix: &str) -> Vec<&'a str> {
-    let rest = line
-        .strip_prefix(prefix)
-        .unwrap_or_else(|| panic!("词汇行不以 `{prefix}` 起首：{line}"));
-    let rest = rest.split('（').next().unwrap_or(rest);
-    rest.split(" / ").collect()
-}
-
-/// 正向：派生段含模型目录与契约资产两处（`layout` 复算）、**不含**契约索引路径。
-#[test]
-fn 派生段两处目录且零索引() {
-    let text = text();
-    let model_dir = foundation::layout::archi_graph_model_rel_dir();
-    let models_dir = foundation::layout::archi_models_rel_dir();
-    assert!(text.contains(&model_dir), "含模型目录 {model_dir}");
-    assert!(text.contains(&models_dir), "含契约资产目录 {models_dir}");
-    assert!(
-        !text.contains("INDEX.toml"),
-        "派生段零契约索引（索引与契约分家）"
-    );
-    assert!(
-        !text.contains(&format!(
-            "{}/INDEX.toml",
-            foundation::layout::archi_graph_rel_dir()
-        )),
-        "派生段零索引文件路径"
-    );
-}
-
-/// 正向（表驱动）：md 的 `gate` / `api` 值域与 `ALL` 逐值同序。
-#[test]
-fn md字段值域逐值同序() {
-    let cases: [(&str, Vec<&str>); 2] = [
-        (
-            "- `gate`：",
-            GateTier::ALL
-                .iter()
-                .copied()
-                .map(GateTier::as_str)
-                .collect(),
-        ),
-        (
-            "- `api`：",
-            ApiStatus::ALL
-                .iter()
-                .copied()
-                .map(ApiStatus::as_str)
-                .collect(),
-        ),
-    ];
-    for (prefix, expected) in cases {
-        let line = line_starting(prefix);
-        assert_eq!(
-            listed_values(line, prefix),
-            expected,
-            "字段值域行与 `ALL` 逐值同序：{line}"
-        );
-    }
-}
-
-/// 边界：结构诊断全量词表不进知识文本——工具按需返回注解与修复手段；散文只留
-/// `orphanHierarchy` / `dependsOnAncestor` 两个可执行词。
-#[test]
-fn md不列结构诊断全量词表() {
-    let source = skeleton();
-    assert!(
-        !source.lines().any(|line| line.starts_with("- 结构诊断：")),
-        "md 无结构诊断词表行"
-    );
-    for kind in DiagnosticKind::ALL {
-        match kind {
-            DiagnosticKind::OrphanHierarchy | DiagnosticKind::DependsOnAncestor => continue,
-            other => assert!(
-                !source.contains(other.as_str()),
-                "结构诊断词 {} 不进知识文本",
-                other.as_str()
-            ),
-        }
-    }
-}
-
-/// 边界：md 的缺省档与 `Default` 逐值对拍（`gate` / `api` 各自一行）。
-#[test]
-fn md缺省档与default逐值对拍() {
-    let gate = line_starting("- `gate`：");
-    assert!(
-        gate.contains(&format!("新元素缺省 {}", GateTier::default().as_str())),
-        "gate 缺省档标注：{gate}"
-    );
-    let api = line_starting("- `api`：");
-    assert!(
-        api.contains(&format!("（缺省 {}）", ApiStatus::default().as_str())),
-        "api 缺省档标注：{api}"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 形态纪律保留（R1）与保留项
-// ---------------------------------------------------------------------------
-
-/// 边界（表驱动）：四条 C 档形态纪律逐条在场——带引号 FQN 单键、`metadata` 子表与
-/// 内联表等价、目录尾 `/`、容器填 `path` 后子元素依赖即 `dependsOnAncestor`；并断言
-/// 「子表会被读成另一个元素」一类假因果在骨架中零命中。
-#[test]
-fn 骨架形态纪律四条在场() {
-    let source = skeleton();
-    for needle in [
-        "带引号的完整 FQN 单键",
-        "子表与内联表等价",
-        "目录尾 `/`",
-        "dependsOnAncestor",
-    ] {
-        assert!(source.contains(needle), "C 档纪律 `{needle}` 在场");
-    }
-    for forbidden in [
-        "读成另一个元素",
-        "读成**另一**元素",
-        "必须内联表",
-        "被读成元素",
-    ] {
-        assert!(
-            !source.contains(forbidden),
-            "假因果句 `{forbidden}` MUST NOT 留在骨架"
-        );
-    }
-}
-
-/// 正向：键形段的真因果两句在场——未引号点分使**整份源解析失败**（诊断点名非法
-/// 子键）、`metadata` 子表与内联表**等价**（子表合法这一点 MUST 留在场）。
-#[test]
-fn 骨架含键形真因果句() {
-    let source = skeleton();
-    for needle in [
-        "整份源解析失败",
-        "诊断点名非法子键",
-        "子表与内联表等价",
-        "唯一声明才缺 `kind`",
-    ] {
-        assert!(source.contains(needle), "键形真因果句 `{needle}` 在场");
-    }
-}
-
-/// 正向：`path` 基数句三组口径齐备——`module` 必填可多条 / `package` 至多一条包根
-/// （纯容器可留空）/ `domain`·`composite` 选填，且含「空 `path` 零告警」压缩句与
-/// 「≥2 条即模型停摆」出路口径。
-#[test]
-fn 骨架含path基数三口径() {
-    let source = skeleton();
-    let line = line_starting("- `path`：");
-    for needle in [
-        "模块必填",
-        "可多条",
-        "至多一条包根",
-        "纯容器可留空",
-        "≥2 条即模型停摆",
-        "选填",
-        "空 `path` 零告警",
-    ] {
-        assert!(line.contains(needle), "`path` 基数句含 `{needle}`：{line}");
-    }
-    assert!(
-        line.contains("`domain` / `composite`"),
-        "选填口径点名两个豁免 kind：{line}"
-    );
-    assert!(
-        source.contains("archi_module") && source.contains("hasPath"),
-        "尾句「缺 `path` 看 `archi_module` 的 `hasPath`」保留"
-    );
-}
-
-/// 正向：`composite` 补「纯分层容器是标准形态」，且既有「组合」语义词不被顶替。
-#[test]
-fn 骨架含composite纯分层容器句() {
-    let source = skeleton();
-    assert!(
-        source.contains("纯分层容器是标准形态"),
-        "`composite` 标准形态句在场"
-    );
-    assert!(source.contains("组合"), "既有「组合」语义词仍在场");
-    assert!(
-        source.contains("可嵌套任意类型之上"),
-        "`composite` 的嵌套语义仍在场"
-    );
-}
-
-/// 正向：既有规范语义在体量压缩下不被删——四处口径（`domain` 层可省略 / `package`
-/// 指定语言 / `domain` 的业务实体举例 / 边界段的「指针不扩张」）与 `path` 尾句
-/// 「缺 `path` 看 `archi_module` 的 `hasPath`」逐字在场。
-///
-/// 这条锚的对手是「为压回体量而删纪律」：新增句挤占字节时只许词汇级等量置换，
-/// 上述语义属既有规范承诺，删掉即失真（`domain` 层可省略与 delta 的 `kind` 值域
-/// 同口径）。
-#[test]
-fn 骨架规范语义在体量压缩下不被删() {
-    let source = skeleton();
-    for needle in [
-        "`domain` 层可省略",
-        "指定语言",
-        "例：订单/通知",
-        "指针不扩张",
-        "缺 `path` 看 `archi_module` 的 `hasPath`",
-    ] {
-        assert!(
-            source.contains(needle),
-            "既有规范语义 `{needle}` 在场（体量压缩只做等量置换，不删纪律）"
-        );
-    }
-}
-
-/// 边界：保留项——写面与可见性三句（直改主仓 / 禁止越界 / 画布写盘后不自动刷新）+
-/// 历史会话续接一句。
-#[test]
-fn 骨架保留写面可见性与续接() {
-    let source = skeleton();
-    for needle in [
-        "git diff",
-        "禁止改架构目录之外的文件",
-        "不会自动更新",
-        "续接历史会话",
-    ] {
-        assert!(source.contains(needle), "保留项 `{needle}` 在场");
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 体量锚与占位符纪律
-// ---------------------------------------------------------------------------
-
-/// 体量按 LF 归一后测量：仓库行尾策略是 `eol=lf`，但已有工作树可能残留 CRLF 检出，
-/// 同一内容在不同检出下字节数不同——行尾差异不得改变冻结值。
+/// 体量按 LF 归一后测量：仓库行尾策略是 `eol=lf`，但工作树可能残留 CRLF 检出——行尾
+/// 差异不得改变冻结值。
 fn lf_bytes(text: &str) -> usize {
     text.replace("\r\n", "\n").len()
 }
 
-/// 边界：骨架体量冻结在**实测值 2596 B**（LF 归一；`path` 基数三口径 + 键形真因果
-/// 句 + `composite` 标准形态句落位后），目标区间仍为 2300–2600 B，门限 ≤ 2700 B
-/// 仍在断言内——增删内容须同批更新冻结值，MUST NOT 以「贴近门限」冒充达标。
-#[test]
-fn 骨架体量锚() {
-    let bytes = lf_bytes(skeleton().trim_end());
-    assert_eq!(
-        bytes, 2596,
-        "骨架体量实测 2596 B（LF 归一）已冻结；内容变更须同批更新本值与全文锚"
-    );
-    assert!(
-        (2300..=2600).contains(&bytes),
-        "骨架体量 {bytes} B 应落在目标区间 2300–2600 B"
-    );
-    assert!(
-        bytes <= 2700,
-        "骨架体量 {bytes} B 超过门限 2700 B（新增内容请先删等量旧内容）"
-    );
+/// 旧立场的禁止短语（按片段拼接：产品源码面对这些整串零字面命中——AC-12a 含测试
+/// 夹具面；判据仍在，禁的是「字面持有」）。
+fn stale_stances() -> Vec<String> {
+    vec![
+        ["无专用", "写工具"].concat(),
+        ["不设专用", "写工具"].concat(),
+        ["MUST NOT 存在", "专用写"].concat(),
+        ["写盘仍用", "既有"].concat(),
+    ]
 }
 
-/// 边界：全文（骨架 + 目录段）体量冻结在**实测值 2739 B**（LF 归一，目标区间
-/// 2450–2750 B），门限 ≤ 2850 B 仍在断言内。
-#[test]
-fn 全文体量锚() {
-    let bytes = lf_bytes(&text());
-    assert_eq!(
-        bytes, 2739,
-        "全文体量实测 2739 B（LF 归一）已冻结；内容变更须同批更新本值与骨架锚"
-    );
-    assert!(
-        (2450..=2750).contains(&bytes),
-        "全文体量 {bytes} B 应落在目标区间 2450–2750 B"
-    );
-    assert!(bytes <= 2850, "全文体量 {bytes} B 超过门限 2850 B");
-}
+// ---------------------------------------------------------------------------
+// 四段结构与手改出口
+// ---------------------------------------------------------------------------
 
-/// 边界：骨架零 `<>` 占位符（占位符即「路径未派生 / 字段未定」的形态）；占位形态
-/// 只以反引号包裹的行内词出现，故零「裸尖括号对」。
+/// 正向（矩阵 4 组锚）：四段小节标题在场；手改出口一句含四要素（「工具表达不了的」/
+/// 「手改」/ `archi_module` 自查 / `file:line`）；职责段三句在场；工具面含五只读名 +
+/// 两写工具名。
 #[test]
-fn 骨架零尖括号占位() {
+fn 四段与手改出口逐句在场() {
     let source = skeleton();
-    assert!(!source.contains("<>"), "零 `<>` 占位");
-    assert!(!source.contains("<FQN>"), "零 `<FQN>` 占位");
-    assert!(!source.contains("{{"), "零模板插值");
-    assert!(
-        !source.contains('<') || source.contains('`'),
-        "尖括号只出现在反引号包裹的行内词内"
-    );
+    for heading in ["# 架构模型须知", "## 职责", "## 工具面", "## 留给判断"] {
+        assert!(source.contains(heading), "小节标题 `{heading}` 在场");
+    }
+
+    let exit_line = source
+        .lines()
+        .find(|line| line.contains("工具表达不了的"))
+        .expect("手改出口一句在场");
+    for piece in ["手改", "archi_module", "file:line"] {
+        assert!(exit_line.contains(piece), "出口句含 `{piece}`：{exit_line}");
+    }
+
+    for piece in ["只改架构目录内文件", "不会自动更新", "续接历史会话"] {
+        assert!(source.contains(piece), "职责段 `{piece}` 在场");
+    }
+
+    for tool in [
+        "archi_search",
+        "archi_module",
+        "archi_drift",
+        "archi_api",
+        "archi_scaffold",
+        "archi_element",
+        "archi_relation",
+    ] {
+        assert!(source.contains(tool), "工具面含 `{tool}`");
+    }
 }
 
 // ---------------------------------------------------------------------------
-// 拼装 / 降级 / 模块 doc 纪律
+// 零语法教学 / 零结构诊断词
 // ---------------------------------------------------------------------------
 
-/// 组合：`knowledge()` 全文 = `skeleton.trim_end()` + 目录路径段（前缀相等 + 真包含）。
+/// 异常（矩阵 4 面）：语法教学段全离场——零可解析 TOML 围栏、零键形示例、零字段值域
+/// 行、零 `metadata = { … }` 示例（形态归 `archi_scaffold` 词典与写工具参数描述）。
 #[test]
-fn knowledge全文以骨架起手() {
+fn 语法教学段全离场() {
+    let source = skeleton();
+    assert_eq!(source.matches("```").count(), 0, "零代码围栏");
+    for stale in ["[element.\"", "[[relation]]", "metadata = {", "path = ["] {
+        assert!(!source.contains(stale), "零键形示例 `{stale}`");
+    }
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        for key in [
+            "kind = ",
+            "gate = ",
+            "api = ",
+            "entry = ",
+            "doc = ",
+            "summary = ",
+        ] {
+            assert!(!trimmed.starts_with(key), "零字段值域行（`{key}`）：{line}");
+        }
+        assert!(
+            !trimmed.starts_with("- `kind`"),
+            "零 kind 四值 bullet 教学：{line}"
+        );
+    }
+}
+
+/// 异常（穷举诊断词）：结构诊断词零命中（诊断只由工具 `Err` 与 drift 读数承载）。
+#[test]
+fn 零结构诊断可执行词() {
+    let source = skeleton();
+    for kind in DiagnosticKind::ALL {
+        assert!(
+            !source.contains(kind.as_str()),
+            "诊断词 `{}` 不得下沉骨架",
+            kind.as_str()
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 体量门限
+// ---------------------------------------------------------------------------
+
+/// 边界（矩阵 2 数）：骨架 1458 B ≤ 1500 B、全文 1601 B ≤ 1700 B，两值同批冻结
+/// （内容变更须同批更新，MUST NOT 抬锚）。
+#[test]
+fn 骨架与全文双门限冻结() {
+    let skeleton_bytes = lf_bytes(skeleton().trim_end());
+    assert_eq!(
+        skeleton_bytes, 1458,
+        "骨架体量实测 1458 B（LF 归一）已冻结；内容变更须同批更新本值与全文锚"
+    );
+    assert!(
+        skeleton_bytes <= 1500,
+        "骨架体量 {skeleton_bytes} B 超过门限 1500 B"
+    );
+
+    let full_bytes = lf_bytes(&text());
+    assert_eq!(
+        full_bytes, 1601,
+        "全文体量实测 1601 B（LF 归一）已冻结；内容变更须同批更新本值与骨架锚"
+    );
+    assert!(
+        full_bytes <= 1700,
+        "全文体量 {full_bytes} B 超过门限 1700 B"
+    );
+}
+
+/// 边界（矩阵 2 形态）：`knowledge()` 以 `skeleton().trim_end()` 起手，派生段是追加；
+/// 两处派生目录（模型声明目录 / 契约资产目录）逐字在场，段内零索引段。
+#[test]
+fn 派生段零改动() {
     let full = text();
     let head = skeleton().trim_end();
     assert!(full.starts_with(head), "全文以骨架 trim_end 起手");
-    assert!(full.len() > head.len(), "派生段确有追加");
+    assert!(full.len() > head.len(), "派生段确为追加");
+
     let suffix = &full[head.len()..];
-    assert!(suffix.contains("模型目录："), "派生段含模型目录");
     assert!(
-        !suffix.contains("元素 kind：") && !suffix.contains("结构诊断："),
-        "词汇与缺省在 md，不在派生段：{suffix}"
+        suffix.contains(&format!(
+            "模型目录：{}",
+            foundation::layout::archi_graph_model_rel_dir()
+        )),
+        "模型声明目录经 layout 派生：{suffix}"
+    );
+    assert!(
+        suffix.contains(&format!(
+            "契约资产：{}/<分层目录…>/<FQN>.md",
+            foundation::layout::archi_models_rel_dir()
+        )),
+        "契约资产目录经 layout 派生：{suffix}"
+    );
+    assert!(
+        !suffix.contains("INDEX.toml"),
+        "派生段零索引路径（索引经架构页视图，不进知识文本）"
     );
 }
 
-/// 异常（表驱动）：骨架为空 / 仅空白 → `Err`（文案含「知识骨架为空」）；`knowledge()`
-/// 不 panic（既有降级不变）。
+// ---------------------------------------------------------------------------
+// 指路面
+// ---------------------------------------------------------------------------
+
+/// 边界：骨架出现的每个 `archi_*` 词都在 `mount::registry()` 命中（零指向不存在工具）。
 #[test]
-fn build空骨架err且knowledge不panic() {
+fn 指路不指向不存在工具() {
+    let source = skeleton();
+    let names: Vec<&str> = crate::sdk::mount::registry()
+        .iter()
+        .map(|mount| mount.definition.name.as_str())
+        .collect();
+    let mut mentioned: Vec<String> = Vec::new();
+    for token in source.split(|ch: char| !(ch.is_alphanumeric() || ch == '_')) {
+        if token.starts_with("archi_") && token.len() > "archi_".len() {
+            mentioned.push(token.to_owned());
+        }
+    }
+    mentioned.sort();
+    mentioned.dedup();
+    assert!(!mentioned.is_empty(), "骨架应点名若干 archi 工具");
+    for tool in mentioned {
+        assert!(
+            names.contains(&tool.as_str()),
+            "骨架点名的 `{tool}` 必须在挂载清单内（零幽灵指路）"
+        );
+    }
+    assert!(
+        names.contains(&"archi_element") && names.contains(&"archi_relation"),
+        "两写工具在挂载清单内（骨架的工具面与清单同源）"
+    );
+}
+
+/// 表驱动（收窄后的行集）：九处指路面逐一在场——`path` / `entry` / `api` / 字段序
+/// （`kind`）/ 覆盖（`composite`）/ 两轴（`archi_api`）/ `config.json` / 结构诊断
+/// （`file:line`）/ 生成物（`MUST NOT 手改`）；`orphanHierarchy` 行离场。
+#[test]
+fn 指令表收窄且新行集可判() {
+    let source = skeleton();
+    for needle in [
+        "`api`",
+        "`entry`",
+        "`doc`",
+        "`kind`",
+        "composite",
+        "archi_api",
+        "config.json",
+        "file:line",
+        "MUST NOT 手改",
+        "`path`",
+    ] {
+        assert!(source.contains(needle), "收窄后的行集含 `{needle}`");
+    }
+    assert!(
+        !source.contains("orphanHierarchy"),
+        "旧结构诊断行离场（对应断言同批删除，零恒真空）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 旧立场零残留
+// ---------------------------------------------------------------------------
+
+/// 异常（矩阵 4 串）：旧立场句式零命中——三条「专用写工具」绝对命题与「写盘仍用
+/// write / edit」旧句（短语由片段拼接，见 [`stale_stances`]）。
+#[test]
+fn 知识面零旧立场() {
+    let source = skeleton();
+    for stale in stale_stances() {
+        assert!(
+            !source.contains(stale.as_str()),
+            "知识面零旧立场句 `{stale}`"
+        );
+    }
+    assert!(
+        source.contains("写：`archi_element`") && source.contains("`archi_relation`"),
+        "知识面以两写工具为写面表述"
+    );
+}
+
+/// 边界：骨架零 `<>` 占位符 / 零模板插值（占位符即「路径未派生」的形态，由
+/// `build` 的 `Err` 兜底）。
+#[test]
+fn 骨架零尖括号占位() {
+    let source = skeleton();
+    for stale in ["<>", "<FQN>", "{{"] {
+        assert!(!source.contains(stale), "骨架零占位形态 `{stale}`");
+    }
+    let error =
+        crate::archi_knowledge::build("# 标题\n\n路径 <> 未派生\n").expect_err("占位符应 Err");
+    assert!(error.contains("占位符"), "文案含占位符：{error}");
+}
+
+// ---------------------------------------------------------------------------
+// 模块 doc 与拼装语义零回归
+// ---------------------------------------------------------------------------
+
+/// 正向：模块头 doc 段落描述随动——职责 / 工具面 / 留给判断 + 派生路径段逐段在场，
+/// 「六段」零命中。
+#[test]
+fn 头注释段落随动() {
+    let source = include_str!("archi_knowledge.rs");
+    for piece in ["职责", "工具面", "留给判断", "派生路径段"] {
+        assert!(source.contains(piece), "模块 doc 含 `{piece}`");
+    }
+    assert!(!source.contains("六段"), "旧「六段」表述零命中");
+    assert!(
+        source.contains("include_str!(\"archi-knowledge.md\")"),
+        "骨架经 `include_str!` 内嵌（编译期静态资产）"
+    );
+    assert!(
+        source.contains("尽力增强、不炸 run"),
+        "降级纪律一条在案（降级语义不变）"
+    );
+}
+
+/// 异常（既有维持）：`build` 对空白骨架 `Err`（文案「知识骨架为空」）、`knowledge()`
+/// 不降级、真实骨架零 `<` 之外的占位形态。
+#[test]
+fn 拼装与降级语义不变() {
     for skeleton in ["", "   \n\t\n"] {
         let error = crate::archi_knowledge::build(skeleton).expect_err("空骨架应 Err");
         assert!(error.contains("知识骨架为空"), "文案含成因：{error}");
@@ -549,106 +310,26 @@ fn build空骨架err且knowledge不panic() {
         crate::archi_knowledge::knowledge().is_some(),
         "真实骨架不降级"
     );
-}
-
-/// 异常：骨架含 `<>` → `build` 返回 `Err`（文案含「占位符」）。
-#[test]
-fn build占位符err含触发点() {
-    let error =
-        crate::archi_knowledge::build("# 标题\n\n路径 <> 未派生\n").expect_err("占位符应 Err");
-    assert!(error.contains("占位符"), "文案含占位符：{error}");
-}
-
-/// 边界（源码自证）：模块 doc 纪律保留「尽力增强、不炸 run」一条。
-#[test]
-fn 模块doc保留降级纪律() {
-    let source = include_str!("archi_knowledge.rs");
     assert!(
-        source.contains("尽力增强、不炸 run"),
-        "doc 纪律一条在案（降级语义不变）"
-    );
-    assert!(
-        source.contains("include_str!(\"archi-knowledge.md\")"),
-        "骨架经 `include_str!` 内嵌（编译期静态资产）"
-    );
-    assert!(!source.contains("契约索引"), "模块 doc 零契约索引残留");
-}
-
-// ===========================================================================
-// 关系第四键 `apis`（`relation-api-dependency-check` / AC-11 / D20）
-//
-// 骨架只留一句纪律：`apis` 是**开放值集**的名字清单（与 `doc` / `entry` 同类），故它
-// 不进任何派生词表；判据长表（`undeclaredApi` / `unusedDeclaration` 一类）也不得下沉
-// 到骨架——实体读数一律看 `archi_drift`。
-// ===========================================================================
-
-/// 正向：关系键面由三键改四键——`（from / to / desc / apis）` 逐字在场，旧三键串缺场。
-#[test]
-fn 骨架关系四键在场() {
-    let source = skeleton();
-    assert!(
-        source.contains("`from` / `to` / `desc` / `apis`"),
-        "关系四键串逐字在场"
-    );
-    assert!(
-        !source.contains("`from` / `to` / `desc`）"),
-        "旧三键串缺场（不并列保留两套键面）"
+        text().contains("模型目录：") && text().contains("契约资产："),
+        "全文恒含派生两段"
     );
 }
 
-/// 边界：`apis` 纪律句含四要素——只写名字 / 可留空 / 生成物面留空 / 结论看
-/// `archi_drift`。
+/// 边界（既有维持）：拼装前缀不变——以骨架 `trim_end` 为前缀、派生段为纯追加
+/// （`full.len() > head.len()`），且骨架首尾分别以标题起、以留白结束。
 #[test]
-fn 骨架apis纪律四要素() {
-    let source = skeleton();
-    let line = source
-        .lines()
-        .find(|line| line.starts_with("- `apis`"))
-        .expect("骨架含 `apis` 纪律行");
-    for needle in ["只写名字", "可留空", "生成物面留空", "archi_drift"] {
-        assert!(line.contains(needle), "纪律要素 `{needle}` 在场：{line}");
-    }
-}
-
-/// 异常：零判据长表——`apis` 的值面 / 两桶判据词不进骨架（读数归 `archi_drift`）。
-#[test]
-fn 骨架零apis判据长表() {
-    let source = skeleton();
-    for piece in [
-        "undeclaredApi",
-        "unusedDeclaration",
-        "docMissing",
-        "usedNotDeclared",
-    ] {
-        assert!(!source.contains(piece), "零判据长表：`{piece}` 不得下沉");
-    }
-}
-
-/// 边界：`apis` 与 `doc` / `entry` 同列（单值 / 开放值集语义句在场），且不进词表
-/// ——四面封闭词表在 md，`apis` 不在其中；派生段只剩两处目录路径。
-#[test]
-fn 骨架apis不入派生词表() {
+fn 拼装前缀不变() {
     let full = text();
-    let head_len = skeleton().trim_end().len();
-    let derived = &full[head_len..];
+    let head = skeleton().trim_end();
+    assert_eq!(&full[..head.len()], head, "前缀逐字等于骨架 trim_end");
+    assert!(full.len() > head.len(), "派生段为追加");
     assert!(
-        !derived.contains("apis"),
-        "派生段零 `apis`（开放值集不进词表）"
+        skeleton().trim_start().starts_with("# 架构模型须知"),
+        "骨架以标题起手"
     );
     assert!(
-        derived.contains("模型目录：") && derived.contains("契约资产："),
-        "派生段只剩两处目录路径：{derived}"
-    );
-    for prefix in ["- `gate`：", "- `api`："] {
-        assert!(
-            skeleton().lines().any(|line| line.starts_with(prefix)),
-            "md 含字段值域行：`{prefix}`"
-        );
-    }
-    assert!(
-        !skeleton()
-            .lines()
-            .any(|line| line.starts_with("- 结构诊断：")),
-        "md 不列结构诊断全量词表"
+        !skeleton().trim_end().ends_with(char::is_whitespace),
+        "骨架尾部无残留空白"
     );
 }

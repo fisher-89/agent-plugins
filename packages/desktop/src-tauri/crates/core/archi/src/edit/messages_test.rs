@@ -1,4 +1,4 @@
-//! `messages` 的单元测试：`EditErrorKind::ALL` ↔ `criterion()` 的穷尽对拍、19 条判据句
+//! `messages` 的单元测试：`EditErrorKind::ALL` ↔ `criterion()` 的穷尽对拍、23 条判据句
 //! 文案表（逐字）、`message()` 的「判据句：事实」形态与 facts 边界，以及 `EditError`
 //! 的两字段可比性与「只有一条渲染出口」。
 //!
@@ -32,13 +32,17 @@ fn variant(kind: EditErrorKind) -> &'static str {
         EditErrorKind::DeleteHasRelations => "DeleteHasRelations",
         EditErrorKind::RelationNotFound => "RelationNotFound",
         EditErrorKind::RelationDuplicated => "RelationDuplicated",
+        EditErrorKind::RelationDeleteHasFields => "RelationDeleteHasFields",
+        EditErrorKind::RelationDuplicateInBatch => "RelationDuplicateInBatch",
+        EditErrorKind::CascadeCrossFile => "CascadeCrossFile",
+        EditErrorKind::RelationOwnedElsewhere => "RelationOwnedElsewhere",
         EditErrorKind::RenderSelfCheck => "RenderSelfCheck",
         EditErrorKind::ReadBackMismatch => "ReadBackMismatch",
     }
 }
 
-/// 判据句文案表（design 数据模型表第二列，19 条逐字；变体名 → 判据句）。
-const CRITERIA: [(&str, &str); 19] = [
+/// 判据句文案表（design 数据模型表第二列，23 条逐字；变体名 → 判据句）。
+const CRITERIA: [(&str, &str); 23] = [
     ("ModelHasDiagnostics", "模型存在结构诊断，拒绝写回"),
     ("ElementNotFound", "元素不存在"),
     ("ElementNotTable", "元素声明不是表形态"),
@@ -56,6 +60,13 @@ const CRITERIA: [(&str, &str); 19] = [
     ("DeleteHasRelations", "元素仍被关系引用，拒绝删除"),
     ("RelationNotFound", "关系不存在"),
     ("RelationDuplicated", "关系多处声明"),
+    ("RelationDeleteHasFields", "内联删边项带了字段"),
+    (
+        "RelationDuplicateInBatch",
+        "同一批 relations 重复声明同一目标",
+    ),
+    ("CascadeCrossFile", "级联闭包跨模型文件"),
+    ("RelationOwnedElsewhere", "内联边声明在别的模型文件"),
     ("RenderSelfCheck", "写回渲染自证失败"),
     ("ReadBackMismatch", "回读不一致"),
 ];
@@ -69,17 +80,17 @@ fn expected_criterion(kind: EditErrorKind) -> &'static str {
         .unwrap_or_else(|| panic!("文案表应覆盖变体 {}", variant(kind)))
 }
 
-/// 正向：`ALL` 恰 19 值、逐值无重复；文案表覆盖的变体集合与 `ALL` 逐值相等。
+/// 正向：`ALL` 恰 23 值、逐值无重复；文案表覆盖的变体集合与 `ALL` 逐值相等。
 #[test]
 #[allow(non_snake_case)]
 fn ALL与criterion分支集合逐值相等() {
-    assert_eq!(EditErrorKind::ALL.len(), 19, "ALL 恰 19 值");
+    assert_eq!(EditErrorKind::ALL.len(), 23, "ALL 恰 23 值");
 
     let names: BTreeSet<&str> = EditErrorKind::ALL
         .iter()
         .map(|kind| variant(*kind))
         .collect();
-    assert_eq!(names.len(), 19, "ALL 无重复变体");
+    assert_eq!(names.len(), 23, "ALL 无重复变体");
     assert_eq!(
         names,
         CRITERIA
@@ -95,12 +106,12 @@ fn ALL与criterion分支集合逐值相等() {
         .collect();
     assert_eq!(
         criteria.len(),
-        19,
+        23,
         "criterion 逐值互异（ALL 无重复的等价证明）"
     );
 }
 
-/// 正向：逐值与文案表逐字相等（19 条 needle 表驱动）。
+/// 正向：逐值与文案表逐字相等（23 条 needle 表驱动）。
 #[test]
 fn criterion逐值逐字对齐文案表() {
     for kind in EditErrorKind::ALL {
@@ -123,7 +134,7 @@ fn 判据句逐值非空且互异() {
         assert_eq!(criterion, criterion.trim(), "{} 首尾无空白", variant(kind));
         assert!(seen.insert(criterion), "判据句互异：{criterion}");
     }
-    assert_eq!(seen.len(), 19);
+    assert_eq!(seen.len(), 23);
 }
 
 /// 异常：逐值零「改档」（操作中立）、零动态占位（判据句恒为 `&'static str`，
@@ -222,4 +233,34 @@ fn 构造单点两入参形态同值() {
     let from_literal: EditError = error(EditErrorKind::TargetInvalid, "落点事实");
     let from_string = error(EditErrorKind::TargetInvalid, String::from("落点事实"));
     assert_eq!(from_literal, from_string, "`impl Into<String>` 两臂同值");
+}
+
+/// 正向：四个新变体在册——`RelationDeleteHasFields` / `RelationDuplicateInBatch` /
+/// `CascadeCrossFile` / `RelationOwnedElsewhere` 逐值在 `ALL` 中且 `criterion()` 非空。
+#[test]
+#[allow(non_snake_case)]
+fn 四新变体在册() {
+    for kind in [
+        EditErrorKind::RelationDeleteHasFields,
+        EditErrorKind::RelationDuplicateInBatch,
+        EditErrorKind::CascadeCrossFile,
+        EditErrorKind::RelationOwnedElsewhere,
+    ] {
+        assert!(
+            EditErrorKind::ALL.contains(&kind),
+            "{} 在 ALL 中",
+            variant(kind)
+        );
+        assert!(
+            !kind.criterion().trim().is_empty(),
+            "{} 的判据句非空",
+            variant(kind)
+        );
+        assert_eq!(
+            kind.criterion(),
+            expected_criterion(kind),
+            "{} 的判据句与文案表逐字相等",
+            variant(kind)
+        );
+    }
 }

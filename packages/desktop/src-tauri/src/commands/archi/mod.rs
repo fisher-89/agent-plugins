@@ -15,10 +15,10 @@
 //! diff 与待落盘产物全在 `archi`——命令层零领域规则（不建图、不解析、不推导）。
 //! 写命令两条（`archi_set_gate` / `archi_api_generate`）：前者的写前校验在
 //! `archi::edit::plan_element_upsert`（写回原语族——gate 改档 = `ElementSpec { gate }`
-//! 的一次调用）且落盘经命令层共用原子写
-//! （`commands::atomic::write_atomic`），后者的写盘单点在
-//! `archi_runtime::api_artifacts::write_artifacts`（只增只改、从不删）；其余七条
-//! MUST NOT 写盘。
+//! 的一次调用，与 agent 写工具 `archi_element` 共用同一实现 ⇒ 同一份文本）且落盘经
+//! `agent_runtime::write_atomic`（全仓唯一落盘实现，见 `commands::atomic` 的薄委托），
+//! 后者的写盘单点在 `archi_runtime::api_artifacts::write_artifacts`（只增只改、从不删）；
+//! 其余七条 MUST NOT 写盘。命令面不暴露 `expect`（乐观锁在 `plan_*` 入参，`None` 即不校验）。
 //!
 //! 空白 / 不可读 root 一律 `Err`（画布无 root 画不出东西；静默空图会与「模型为
 //! 空」的冷启动合法态不可辨）。
@@ -142,6 +142,10 @@ pub fn archi_set_gate(root: String, element: String, gate: GateTier) -> Result<(
 /// [`archi_set_gate`] 的领域组装纯函数：root 检查 → 写前校验与待落盘产物（
 /// `archi::edit` 的写回原语族：gate 改档 = `ElementSpec { gate }` 的一次调用）→
 /// 原子写回。任一校验失败零写入。
+///
+/// 与 agent 写工具 `archi_element`（`gate` 项）共用同一 `plan_element_upsert` ⇒ 同一份
+/// 文本；命令面**不暴露** `expect`（前端单用户、无并发写场景），该省略不是「绕过乐观锁
+/// 校验」——校验点在同一 `plan_*` 入参，`None` 即不校验。
 pub fn archi_set_gate_inner(root: &Path, element: &str, gate: GateTier) -> Result<(), String> {
     check_root(root)?;
     let spec = ElementSpec {
@@ -149,8 +153,8 @@ pub fn archi_set_gate_inner(root: &Path, element: &str, gate: GateTier) -> Resul
         gate: Some(gate),
         ..Default::default()
     };
-    let plan = plan_element_upsert(root, &spec).map_err(|error| error.message())?;
-    write_atomic(&plan.file, &plan.content)
+    let outcome = plan_element_upsert(root, &spec).map_err(|error| error.message())?;
+    write_atomic(&outcome.write.file, &outcome.write.content)
 }
 
 /// 架构漂移检查（两模式；命令层零判定）。

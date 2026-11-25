@@ -88,6 +88,17 @@ async fn execute_json(context: &ArchiContext, name: &str, input: Value) -> Value
     serde_json::from_str(&text).expect("结果为 JSON 串")
 }
 
+/// 旧立场的禁止短语（按片段拼接：产品源码面对这些整串零字面命中——AC-12a 含测试
+/// 夹具面；判据仍在，禁的是「字面持有」）。
+fn stale_stances() -> Vec<String> {
+    vec![
+        ["无专用", "写工具"].concat(),
+        ["不设专用", "写工具"].concat(),
+        ["写盘仍用", "既有"].concat(),
+        ["写盘仍走", "既有"].concat(),
+    ]
+}
+
 // ---------------------------------------------------------------------------
 // 上下文构造
 // ---------------------------------------------------------------------------
@@ -2050,4 +2061,1009 @@ async fn archi_drift空架构域仍出报告() {
     let context = ArchiContext::new(dir.path().to_path_buf());
     let value = execute_json(&context, crate::sdk::tools::ARCHI_DRIFT_TOOL, json!({})).await;
     assert_eq!(value["status"], "skipped", "无模型即 skipped");
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：两写工具（`archi_element` / `archi_relation`）——响应面、E1 硬闸、
+// E2 前置、保护闸、幂等与乐观锁闭环
+// ---------------------------------------------------------------------------
+
+use crate::sdk::mount::WRITE_LIMITS;
+use crate::sdk::mount::{ARCHI_ELEMENT_TOOL, ARCHI_RELATION_TOOL};
+use crate::sdk::protect::ProtectRules;
+
+/// 带保护规则集的上下文（真实用户配置 + 真实 `ProtectRules::load`）。
+fn with_protect(root: &Path) -> ArchiContext {
+    ArchiContext::new(root.to_path_buf()).with_protect(ProtectRules::load(Some(root)))
+}
+
+/// 元素写的成功响应体（`archi_element` 的三通道面）。
+async fn element_write(context: &ArchiContext, input: Value) -> Value {
+    execute_json(context, ARCHI_ELEMENT_TOOL, input).await
+}
+
+/// 正向：upsert 新建 ⇒ 响应含 `warnings`（数组）/ `action = "upsert"` / `element` /
+/// `file`（repo 相对 POSIX）/ `hash`（`sha256:`）/ `created = true` / `changed`（数组）/
+/// `relations` 四计数 / `counts` / `model`；盘上字节 == `plan_element_upsert` 的 `content`。
+#[tokio::test]
+async fn 元素写响应三通道齐备且落盘同文本() {
+    let dir = healthy("element-write-ok");
+    let context = with_protect(dir.path());
+    // 期望文本先在原地计算（同一引擎随后被工具调用消费；顺序颠倒会让「重放」变成
+    // 「在案元素给 kind」）
+    let mut spec = archi::edit::ElementSpec {
+        fqn: "App.Auth.Token".to_owned(),
+        ..Default::default()
+    };
+    spec.kind = Some(ElementKind::Module);
+    spec.path = Some(vec!["./src/auth/token/".to_owned()]);
+    spec.summary = Some(Some("令牌".to_owned()));
+    let expected =
+        archi::edit::plan_element_upsert(dir.path(), &spec).expect("同一规格的计划应成功");
+
+    let payload = element_write(
+        &context,
+        json!({
+            "action": "upsert",
+            "element": "App.Auth.Token",
+            "kind": "module",
+            "path": ["./src/auth/token/"],
+            "summary": "令牌",
+        }),
+    )
+    .await;
+
+    assert_eq!(payload["action"], json!("upsert"), "动作回显");
+    assert_eq!(payload["element"], json!("App.Auth.Token"), "元素回显");
+    assert!(
+        payload["file"]
+            .as_str()
+            .is_some_and(|file| file.ends_with("01-core.toml")),
+        "file 为 repo 相对 POSIX：{}",
+        payload["file"]
+    );
+    assert!(
+        payload["hash"]
+            .as_str()
+            .is_some_and(|hash| hash.starts_with("sha256:")),
+        "hash 形态 sha256:<hex>：{}",
+        payload["hash"]
+    );
+    assert_eq!(payload["created"], json!(true), "首次新建");
+    assert!(
+        payload["warnings"].is_array(),
+        "warnings 恒在场（空数组 = 无异常）"
+    );
+    assert_eq!(
+        payload["relations"],
+        json!({ "created": 0, "updated": 0, "deleted": 0, "unchanged": 0 }),
+        "无内联边 ⇒ 四计数皆 0（不是省略）"
+    );
+    assert_eq!(
+        payload["counts"],
+        json!({ "elements": 4, "relations": 1 }),
+        "本文件计数"
+    );
+    assert_eq!(
+        payload["model"],
+        json!({ "elements": 4, "relations": 1 }),
+        "全模型计数"
+    );
+    let changed: Vec<&str> = payload["changed"]
+        .as_array()
+        .expect("changed 为数组")
+        .iter()
+        .map(|field| field.as_str().expect("字段名为串"))
+        .collect();
+    for field in &changed {
+        assert!(
+            ["kind", "gate", "api", "entry", "path", "doc", "summary", "metadata"].contains(field),
+            "changed 是参数面字段名子集：{field}"
+        );
+    }
+
+    // 落盘文本 == `plan_element_upsert` 的 content（同一引擎，零第二份渲染）
+    assert_eq!(
+        fs::read_to_string(&expected.write.file).expect("读目标失败"),
+        expected.write.content,
+        "盘上字节 == plan 的 content"
+    );
+}
+
+/// 正向：`archi_relation` 薄形——`warnings` **恒空数组** / `action` / `from` / `to` /
+/// `file` / `hash` / `created` / `changed` ⊆ {`desc`, `apis`}；零 `counts` / `model` /
+/// `relations` 键。
+#[tokio::test]
+async fn 关系写薄形无计数() {
+    let dir = healthy("relation-write-ok");
+    let context = with_protect(dir.path());
+    let payload = execute_json(
+        &context,
+        ARCHI_RELATION_TOOL,
+        json!({ "action": "upsert", "from": "App.Billing", "to": "App.Auth", "desc": "计费回调认证" }),
+    )
+    .await;
+
+    let mut keys: Vec<&str> = payload
+        .as_object()
+        .expect("薄形为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec!["action", "changed", "created", "file", "from", "hash", "to", "warnings"],
+        "薄形键面封闭（零 counts / model / relations）"
+    );
+    assert_eq!(payload["warnings"], json!([]), "关系写 warnings 恒空数组");
+    assert_eq!(payload["created"], json!(true), "新对 ⇒ created");
+    assert_eq!(
+        payload["changed"],
+        json!(["desc"]),
+        "changed ⊆ {{desc, apis}}"
+    );
+    assert!(
+        payload["file"]
+            .as_str()
+            .is_some_and(|file| file.ends_with("01-core.toml")),
+        "新增关系落 from 元素文件：{}",
+        payload["file"]
+    );
+}
+
+/// 异常（矩阵多形态）：值域 / 必填硬闸逐项拒绝并点名字段与合法值；多处违例
+/// **一次报全**（`；` 分隔）。
+#[tokio::test]
+#[allow(non_snake_case)]
+async fn E1值域一次报全() {
+    let dir = healthy("element-e1-domain");
+    let context = with_protect(dir.path());
+    let long_fqn = "A".repeat(WRITE_LIMITS.fqn + 1);
+
+    for (input, needle) in [
+        (
+            json!({ "action": "modify", "element": "App.Auth" }),
+            "action",
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "kind": "service" }),
+            "kind",
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "gate": "hard" }),
+            "gate",
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "api": "partial" }),
+            "api",
+        ),
+        (
+            json!({ "action": "upsert", "element": "   " }),
+            "element 不得为空白",
+        ),
+        (
+            json!({ "action": "upsert", "element": long_fqn }),
+            "element 超上限",
+        ),
+        (
+            json!({
+                "action": "upsert",
+                "element": "App.Auth",
+                "relations": [{ "to": "App.Billing", "action": "replace" }],
+            }),
+            "relations[1].action 非法值",
+        ),
+    ] {
+        let error = context
+            .execute(ARCHI_ELEMENT_TOOL, &input)
+            .await
+            .expect_err("值域违例必须 Err");
+        assert!(error.contains(needle), "Err 应点名 {needle}：{error}");
+    }
+
+    // 一次报全：两处违例同批出现且以 `；` 分隔
+    let error = context
+        .execute(
+            ARCHI_ELEMENT_TOOL,
+            &json!({ "action": "modify", "element": "App.Auth", "kind": "service" }),
+        )
+        .await
+        .expect_err("多处违例必须 Err");
+    assert!(
+        error.contains('；') && error.contains("action") && error.contains("kind"),
+        "一次报全（两处违例同批）：{error}"
+    );
+    assert_eq!(error.lines().count(), 1, "违例串单行");
+}
+
+/// 异常（穷举上限）：逐字段超限各 `Err`，文案点名字段与上限（数字取自
+/// `WRITE_LIMITS`）。
+#[tokio::test]
+#[allow(non_snake_case)]
+async fn E1上限逐字段拒() {
+    let dir = healthy("element-e1-limits");
+    let context = with_protect(dir.path());
+    let big = |limit: usize| "x".repeat(limit + 1);
+    let too_many = |limit: usize| {
+        (0..=limit)
+            .map(|index| format!("p{index}"))
+            .collect::<Vec<String>>()
+    };
+    let metadata: serde_json::Map<String, Value> = (0..=WRITE_LIMITS.metadata_items)
+        .map(|index| (format!("k{index}"), json!("v")))
+        .collect();
+    let relations: Vec<Value> = (0..=WRITE_LIMITS.relations)
+        .map(|index| json!({ "to": format!("App.E{index}") }))
+        .collect();
+    let long_key = big(WRITE_LIMITS.metadata_key);
+
+    let cases: Vec<(Value, String)> = vec![
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "path": too_many(WRITE_LIMITS.path_items) }),
+            "path 超上限".to_owned(),
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "path": [big(WRITE_LIMITS.path_item)] }),
+            "path[0] 超上限".to_owned(),
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "metadata": Value::Object(metadata) }),
+            "metadata 超上限".to_owned(),
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "metadata": { long_key: "v" } }),
+            "metadata 键".to_owned(),
+        ),
+        (
+            json!({
+                "action": "upsert",
+                "element": "App.Auth",
+                "metadata": { "k": big(WRITE_LIMITS.metadata_value) },
+            }),
+            "metadata[\"k\"] 超上限".to_owned(),
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "relations": relations }),
+            "relations 超上限".to_owned(),
+        ),
+        (
+            json!({
+                "action": "upsert",
+                "element": "App.Auth",
+                "relations": [{ "to": "App.Billing", "apis": too_many(WRITE_LIMITS.relation_apis) }],
+            }),
+            "relations[1].apis 超上限".to_owned(),
+        ),
+        (
+            json!({
+                "action": "upsert",
+                "element": "App.Auth",
+                "relations": [{ "to": "App.Billing", "apis": [big(WRITE_LIMITS.relation_api)] }],
+            }),
+            "relations[1].apis[0] 超上限".to_owned(),
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "summary": big(WRITE_LIMITS.text) }),
+            "summary 超上限".to_owned(),
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "entry": big(WRITE_LIMITS.pointer) }),
+            "entry 超上限".to_owned(),
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "file": big(WRITE_LIMITS.file) }),
+            "file 超上限".to_owned(),
+        ),
+    ];
+    for (input, needle) in cases {
+        let error = context
+            .execute(ARCHI_ELEMENT_TOOL, &input)
+            .await
+            .expect_err("超限必须 Err");
+        assert!(error.contains(&needle), "Err 应点名 `{needle}`：{error}");
+    }
+}
+
+/// 异常（矩阵形态）：类型面与跨字段互斥——`path` 非数组 / `metadata` 非对象 /
+/// `relations` 非对象数组 / 项缺 `to` / `cascade = true` 配 `upsert`。
+#[tokio::test]
+#[allow(non_snake_case)]
+async fn E1类型与跨字段互斥() {
+    let dir = healthy("element-e1-types");
+    let context = with_protect(dir.path());
+    for (input, needle) in [
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "path": "src/auth" }),
+            "path 必须是字符串数组或 null",
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "metadata": ["a"] }),
+            "metadata 必须是对象或 null",
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "relations": ["App.Billing"] }),
+            "relations[1] 必须是对象",
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "relations": [{}] }),
+            "relations[1].to 必填",
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "cascade": true }),
+            "cascade 仅 action = delete",
+        ),
+    ] {
+        let error = context
+            .execute(ARCHI_ELEMENT_TOOL, &input)
+            .await
+            .expect_err("类型 / 互斥违例必须 Err");
+        assert!(error.contains(needle), "Err 应含 `{needle}`：{error}");
+    }
+}
+
+/// 异常（矩阵 2 入口）：模型含结构诊断 ⇒ 两写臂各 `Err`，文案 ==
+/// `dto::graph_diagnostics_error` 全量形（含种类与 `file:line`）、零落盘。
+#[tokio::test]
+async fn 结构诊断前置零落盘() {
+    let dir = tempdir("write-diagnostics");
+    // `package` 两条 `path` ⇒ parser 结构诊断（模型停摆形态）
+    write_model(
+        dir.path(),
+        "01-core.toml",
+        "# 坏模型\n[element.\"App\"]\nkind = \"package\"\npath = [\"a\", \"b\"]\n",
+    );
+    let context = with_protect(dir.path());
+    let expected = archi::dto::graph_diagnostics_error(
+        &archi::dto::graph_view(dir.path())
+            .expect("模型可读")
+            .diagnostics,
+    );
+    let before = snapshot(dir.path());
+
+    for (tool, input) in [
+        (
+            ARCHI_ELEMENT_TOOL,
+            json!({ "action": "upsert", "element": "App.Auth", "kind": "domain" }),
+        ),
+        (
+            ARCHI_RELATION_TOOL,
+            json!({ "action": "upsert", "from": "App", "to": "App.Auth" }),
+        ),
+    ] {
+        let error = context
+            .execute(tool, &input)
+            .await
+            .expect_err("结构诊断前置必须 Err");
+        assert_eq!(
+            error, expected,
+            "{tool} 的文案 == graph_diagnostics_error 全量形"
+        );
+        assert!(error.contains("01-core.toml:"), "文案含 file:line：{error}");
+    }
+    assert_eq!(snapshot(dir.path()), before, "结构诊断前置零落盘");
+}
+
+/// 异常（矩阵形态）：`plan_*` 错误映射——元素缺席 / 落点非法 / `expect` 不匹配 /
+/// 批量重复违例 ⇒ `Err` 以判据句起始，判据句与事实之间恰一个全角 `：`，首行自足。
+#[tokio::test]
+async fn 写面err即message且第一行自足() {
+    let dir = healthy("element-plan-errors");
+    let context = with_protect(dir.path());
+
+    let cases = [
+        (
+            json!({ "action": "delete", "element": "App.Legacy" }),
+            "元素不存在",
+            "模型共 3 个元素",
+        ),
+        (
+            json!({ "action": "upsert", "element": "Orphan", "kind": "domain" }),
+            "落点非法",
+            "新建必须给出 file",
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "summary": "x", "expect": "sha256:错值" }),
+            "目标文件已变",
+            "重读后再试",
+        ),
+        (
+            json!({
+                "action": "upsert",
+                "element": "App.Auth",
+                "relations": [{ "to": "App.Billing" }, { "to": "App.Billing" }],
+            }),
+            "同一批 relations 重复声明同一目标",
+            "只出现一次",
+        ),
+    ];
+    for (input, criterion, needle) in cases {
+        let error = context
+            .execute(ARCHI_ELEMENT_TOOL, &input)
+            .await
+            .expect_err("写面判据必须 Err");
+        assert!(
+            error.starts_with(criterion),
+            "Err 以判据句起始（`{criterion}`）：{error}"
+        );
+        assert_eq!(
+            error.matches('：').count(),
+            1,
+            "判据句与事实恰一个全角冒号分隔：{error}"
+        );
+        let first = error.lines().next().unwrap_or_default();
+        assert_eq!(first, error, "判据串单行（第一行自足）");
+        assert!(
+            first.contains(needle),
+            "首行自足（失败动作 / 出路 `{needle}`）：{first}"
+        );
+    }
+
+    // 内联边已声明在别的文件 ⇒ 点名该文件并指向 `archi_relation`
+    let dir = tempdir("element-owned-elsewhere");
+    write_model(
+        dir.path(),
+        "01-app.toml",
+        concat!(
+            "# 01 · app
+",
+            "[element.\"App\"]
+",
+            "kind = \"package\"
+",
+            "
+",
+            "[element.\"App.Auth\"]
+",
+            "kind = \"domain\"
+",
+            "
+",
+            "[element.\"App.Billing\"]
+",
+            "kind = \"domain\"
+",
+        ),
+    );
+    write_model(
+        dir.path(),
+        "02-relations.toml",
+        "# 02 · 关系
+[[relation]]
+from = \"App.Auth\"
+to = \"App.Billing\"
+",
+    );
+    let context = with_protect(dir.path());
+    let error = context
+        .execute(
+            ARCHI_ELEMENT_TOOL,
+            &json!({
+                "action": "upsert",
+                "element": "App.Auth",
+                "summary": "认证",
+                "relations": [{ "to": "App.Billing" }],
+            }),
+        )
+        .await
+        .expect_err("内联边在他处必须 Err");
+    assert!(
+        error.contains("内联边声明在别的模型文件")
+            && error.contains("02-relations.toml")
+            && error.contains("改用 archi_relation"),
+        "点名文件并给出改用路径：{error}"
+    );
+}
+
+/// 异常（矩阵 2 形态）：用户规则 glob 命中**解析后的目标文件** ⇒ `Err` 为既有族拒串
+/// （`%s` / `%t` 已替换）、零落盘；未命中 ⇒ 正常写入。
+#[tokio::test]
+async fn 命中用户规则即拒写() {
+    let dir = healthy("element-protect");
+    // 用户规则用**绝对 glob**（相对 glob 会按 `**/` 前缀归一，跨平台匹配面不稳）
+    let root_text = dir.path().to_string_lossy().replace('\\', "/");
+    let model_glob = format!("{root_text}/.dev-team/architecture/graph/model/**");
+    let config = json!({
+        "write_protection": {
+            "files": [{ "glob": model_glob, "reason": "架构模型只经写工具" }]
+        }
+    });
+    let config_path = foundation::layout::config_path(dir.path());
+    fs::create_dir_all(config_path.parent().expect("配置有父目录")).expect("建配置目录失败");
+    fs::write(
+        &config_path,
+        serde_json::to_string_pretty(&config).expect("配置序列化"),
+    )
+    .expect("写配置文件失败");
+    let context = with_protect(dir.path());
+    let before = snapshot(dir.path());
+
+    let error = context
+        .execute(
+            ARCHI_ELEMENT_TOOL,
+            &json!({ "action": "upsert", "element": "App.Auth", "summary": "被拒" }),
+        )
+        .await
+        .expect_err("命中用户规则必须拒写");
+    assert!(
+        error.contains("架构模型只经写工具") && !error.contains("%s") && !error.contains("%t"),
+        "既有族拒串且占位已替换：{error}"
+    );
+    assert_eq!(snapshot(dir.path()), before, "拒写零落盘");
+
+    // 未命中：另一个根无用户规则 ⇒ 正常写入
+    let open_dir = healthy("element-protect-pass");
+    let context = with_protect(open_dir.path());
+    element_write(
+        &context,
+        json!({ "action": "upsert", "element": "App.Auth", "summary": "放行" }),
+    )
+    .await;
+}
+
+/// 异常：`ArchiContext::new(root)` 直接调写臂 ⇒ `Err` 并声明「生产不可达」（不静默
+/// 放行）。
+#[tokio::test]
+async fn 未注入规则集不静默放行() {
+    let dir = healthy("element-no-protect");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let error = context
+        .execute(
+            ARCHI_ELEMENT_TOOL,
+            &json!({ "action": "upsert", "element": "App.Auth", "summary": "x" }),
+        )
+        .await
+        .expect_err("未注入规则集必须 Err");
+    assert!(
+        error.contains("写入保护规则未装配") && error.contains("生产不可达"),
+        "显式拒绝并声明生产不可达：{error}"
+    );
+}
+
+/// 边界（矩阵 2 形态）：干净写 ⇒ `warnings == []`（键在场、零省略）；同值重复写 ⇒
+/// `changed == []`、`created == false`、盘上字节与首次逐字节相等、两次 `hash` 相同。
+#[tokio::test]
+async fn warnings恒在场且幂等零字节变化() {
+    let dir = healthy("element-idempotent");
+    let context = with_protect(dir.path());
+    write_file(dir.path(), "src/billing/README.md", "# 计费\n");
+    let input = json!({
+        "action": "upsert",
+        "element": "App.Billing",
+        "api": "none",
+        "doc": "./src/billing/README.md",
+    });
+    let file = dir
+        .path()
+        .join(".dev-team/architecture/graph/model/01-core.toml");
+
+    let first = element_write(&context, input.clone()).await;
+    assert_eq!(first["warnings"], json!([]), "干净写 ⇒ 空数组（键仍在）");
+    assert_eq!(first["changed"], json!(["api", "doc"]), "首次改动字段");
+    assert_eq!(first["created"], json!(false), "在案元素不新建");
+    let bytes_after_first = fs::read(&file).expect("读模型失败");
+
+    let second = element_write(&context, input).await;
+    assert_eq!(
+        second["changed"],
+        json!([]),
+        "同值重放 ⇒ changed 空（幂等）"
+    );
+    assert_eq!(second["created"], json!(false));
+    assert_eq!(first["hash"], second["hash"], "两次 hash 相同");
+    assert_eq!(
+        fs::read(&file).expect("读模型失败"),
+        bytes_after_first,
+        "同值重放零字节变化"
+    );
+}
+
+/// 边界：满字段面 + 多条 warning 的成功响应 < `MAX_RESULT_BYTES`（未触达截断）。
+#[tokio::test]
+async fn 成功响应永不触达截断() {
+    let dir = healthy("element-response-size");
+    let context = with_protect(dir.path());
+    write_file(dir.path(), "src/new/README.md", "# 新域\n");
+    let long_text = "说".repeat(WRITE_LIMITS.text);
+    let metadata: serde_json::Map<String, Value> = (0..WRITE_LIMITS.metadata_items)
+        .map(|index| (format!("k{index}"), json!("v")))
+        .collect();
+    let input = json!({
+        "action": "upsert",
+        "element": "App.Core",
+        "kind": "module",
+        "path": ["./src/new/"],
+        "summary": long_text,
+        "metadata": Value::Object(metadata),
+        "relations": [{ "to": "App.Auth", "desc": long_text }],
+    });
+    let text = context
+        .execute(ARCHI_ELEMENT_TOOL, &input)
+        .await
+        .expect("满字段面写应成功");
+    assert!(
+        text.len() < MAX_RESULT_BYTES,
+        "成功响应体量 {} B 应小于上限 {MAX_RESULT_BYTES} B",
+        text.len()
+    );
+}
+
+/// 边界（矩阵形态）：脏入参不 panic——`null` / 数字 / 数组 / 嵌套对象 / 多余键 ⇒
+/// `Err` 或成功，零 panic；`relations: null` 与省略同义。
+#[tokio::test]
+async fn 脏入参不panic() {
+    let dir = healthy("element-dirty-input");
+    let context = with_protect(dir.path());
+    for input in [
+        Value::Null,
+        json!(7),
+        json!(["a"]),
+        json!({ "action": "upsert", "element": "App.Auth", "path": { "nested": [1, 2] } }),
+        json!({ "action": "upsert", "element": "App.Auth", "summary": "x", "unknown_field": "y" }),
+    ] {
+        let result = context.execute(ARCHI_ELEMENT_TOOL, &input).await;
+        assert!(
+            result.is_ok() || result.is_err(),
+            "脏入参零 panic（只判返回形态）"
+        );
+    }
+    let omitted = element_write(
+        &context,
+        json!({ "action": "upsert", "element": "App.Auth", "summary": "无 relations 键" }),
+    )
+    .await;
+    let null_relations = element_write(
+        &context,
+        json!({
+            "action": "upsert",
+            "element": "App.Auth",
+            "summary": "无 relations 键",
+            "relations": null,
+        }),
+    )
+    .await;
+    assert_eq!(
+        omitted["hash"], null_relations["hash"],
+        "relations: null 与省略同义（出边不动、文本同值）"
+    );
+}
+
+/// 正向（组合：`archi_module` → `archi_element` → 响应 `hash`）：`archi_module(element)`
+/// 取 `fileHash` → `archi_element { expect: fileHash }` 成功 → 响应 `hash` 作下一次
+/// `expect` 再次成功；两次响应 `hash` 与盘面 `file_hash` 同值。
+#[tokio::test]
+#[allow(non_snake_case)]
+async fn fileHash到expect到hash闭环() {
+    let dir = healthy("element-expect-roundtrip");
+    let context = with_protect(dir.path());
+    let file = dir
+        .path()
+        .join(".dev-team/architecture/graph/model/01-core.toml");
+
+    let detail = execute_json(
+        &context,
+        ARCHI_MODULE_TOOL,
+        json!({ "element": "App.Auth" }),
+    )
+    .await;
+    let file_hash = detail["fileHash"]
+        .as_str()
+        .expect("module 出参含 fileHash")
+        .to_owned();
+    assert_eq!(
+        file_hash,
+        archi::drift::file_hash(&file),
+        "fileHash 与 drift::file_hash(声明文件) 逐字相等"
+    );
+
+    let first = element_write(
+        &context,
+        json!({
+            "action": "upsert",
+            "element": "App.Auth",
+            "summary": "认证域（改）",
+            "expect": file_hash,
+        }),
+    )
+    .await;
+    let first_hash = first["hash"].as_str().expect("响应含 hash").to_owned();
+    assert_eq!(
+        first_hash,
+        archi::drift::file_hash(&file),
+        "响应 hash == 盘面 file_hash"
+    );
+
+    let second = element_write(
+        &context,
+        json!({
+            "action": "upsert",
+            "element": "App.Auth",
+            "summary": "认证域（再改）",
+            "expect": first_hash,
+        }),
+    )
+    .await;
+    assert_eq!(
+        second["hash"],
+        json!(archi::drift::file_hash(&file)),
+        "上一次响应的 hash 可作下一次 expect"
+    );
+}
+
+/// 异常（矩阵 2 形态）：先写一次再以**旧** `expect` 写 ⇒ `ExpectMismatch` + 盘上零
+/// 变化；写臂在 `plan_*` 之后才判保护闸（非法落点的 `Err` 来自 `plan_*` 而非保护串）。
+#[tokio::test]
+async fn 旧expect拒且保护闸后置() {
+    let dir = healthy("element-stale-expect");
+    let context = with_protect(dir.path());
+    let file = dir
+        .path()
+        .join(".dev-team/architecture/graph/model/01-core.toml");
+    let stale = archi::drift::file_hash(&file);
+
+    element_write(
+        &context,
+        json!({ "action": "upsert", "element": "App.Auth", "summary": "第一改" }),
+    )
+    .await;
+    let after_first = fs::read(&file).expect("读模型失败");
+
+    let error = context
+        .execute(
+            ARCHI_ELEMENT_TOOL,
+            &json!({
+                "action": "upsert",
+                "element": "App.Auth",
+                "summary": "第二改",
+                "expect": stale,
+            }),
+        )
+        .await
+        .expect_err("旧 expect 必须 Err");
+    assert!(
+        error.starts_with("目标文件已变") && error.contains("重读后再试"),
+        "文案点名判据与出路：{error}"
+    );
+    assert_eq!(
+        fs::read(&file).expect("读模型失败"),
+        after_first,
+        "旧 expect 零落盘"
+    );
+
+    // 非法落点：Err 来自 plan（落点判据），不来自保护串
+    let error = context
+        .execute(
+            ARCHI_ELEMENT_TOOL,
+            &json!({ "action": "upsert", "element": "Orphan", "kind": "domain" }),
+        )
+        .await
+        .expect_err("非法落点必须 Err");
+    assert!(
+        error.contains("新建必须给出 file"),
+        "落点判据先于保护闸：{error}"
+    );
+    assert!(
+        !error.contains("写入保护") && !error.contains("配置权威"),
+        "非保护串：{error}"
+    );
+}
+
+/// 异常（源码锚）：`SCAFFOLD_TEMPLATE` 首行指向两写工具（零旧立场句）。
+#[test]
+fn 草稿模板改指两写工具() {
+    let source = include_str!("archi_tool.rs");
+    let first_line = source
+        .lines()
+        .find(|line| line.contains("新元素模板"))
+        .expect("模板首行在场");
+    assert!(
+        first_line.contains("archi_element") && first_line.contains("archi_relation"),
+        "模板首行指向两写工具：{first_line}"
+    );
+    assert!(
+        first_line.contains("工具表达不了的才手改"),
+        "模板首行保留手改出口：{first_line}"
+    );
+    for stale in stale_stances() {
+        assert!(
+            !source.contains(stale.as_str()),
+            "archi_tool.rs 零旧立场句 `{stale}`"
+        );
+    }
+    assert_eq!(
+        source.matches("fn element_payload").count(),
+        1,
+        "元素写执行体恰一处"
+    );
+    assert_eq!(
+        source.matches("fn relation_payload").count(),
+        1,
+        "关系写执行体恰一处"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更（D-19）：值域查表单源与写面口径单源
+// ---------------------------------------------------------------------------
+
+/// 值域判据句的期望形态：合法值清单由 `ALL` 现算（测试内零手抄词表与分隔符）。
+fn expected_domain_error<T: Copy>(
+    raw: &str,
+    name: &str,
+    all: &[T],
+    as_str: impl Fn(T) -> &'static str,
+) -> String {
+    let vocabulary = all
+        .iter()
+        .copied()
+        .map(as_str)
+        .collect::<Vec<_>>()
+        .join(" / ");
+    format!("{name} 非法值 {raw:?}（合法值：{vocabulary}）")
+}
+
+/// 正向（矩阵 3 字段 × 2 入口）：同一非法 `kind` 值经 `archi_element`（E1）与
+/// `archi_scaffold`（草稿）两入口 ⇒ `Err` 串**逐字相同**，且逐字等于单条判据句
+/// 「`{name} 非法值 "{raw}"（合法值：…）`」（合法值序由 `ElementKind::ALL` 现算）；
+/// `gate` / `api` 两字段在 E1 面同句式。
+#[tokio::test]
+async fn 值域判据句单条且两入口同文() {
+    let dir = healthy("domain-value-single-sentence");
+    let context = with_protect(dir.path());
+
+    for raw in ["service", "Domain", "packagex"] {
+        let expected = expected_domain_error(raw, "kind", &ElementKind::ALL, ElementKind::as_str);
+        let scaffold_error = context
+            .execute(ARCHI_SCAFFOLD_TOOL, &json!({ "kind": raw }))
+            .await
+            .expect_err("草稿侧值集外应 Err");
+        let element_error = context
+            .execute(
+                ARCHI_ELEMENT_TOOL,
+                &json!({ "action": "upsert", "element": "App.Auth", "kind": raw }),
+            )
+            .await
+            .expect_err("E1 值集外应 Err");
+        assert_eq!(
+            scaffold_error, expected,
+            "草稿侧判据句单条：{scaffold_error}"
+        );
+        assert_eq!(element_error, expected, "E1 侧判据句单条：{element_error}");
+        assert_eq!(scaffold_error, element_error, "两入口同一判据句");
+    }
+
+    for (input, expected) in [
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "gate": "hard" }),
+            expected_domain_error("hard", "gate", &GateTier::ALL, GateTier::as_str),
+        ),
+        (
+            json!({ "action": "upsert", "element": "App.Auth", "api": "partial" }),
+            expected_domain_error("partial", "api", &ApiStatus::ALL, ApiStatus::as_str),
+        ),
+    ] {
+        let error = context
+            .execute(ARCHI_ELEMENT_TOOL, &input)
+            .await
+            .expect_err("值集外应 Err");
+        assert_eq!(error, expected, "E1 同句式判据句：{error}");
+    }
+}
+
+/// 异常（源码锚，D-19 ①）：值域查表唯一核——`fn domain_value` 恰一处、查表动作（`find`）
+/// 只在该核内；三词表只以实参形态下发（`kind` 两处 = 草稿 + E1，`gate` / `api` 各一处），
+/// 零第二份 `ElementKind::ALL` 查表；旧文案零残留。
+#[test]
+fn 值域查表一处() {
+    let source = include_str!("archi_tool.rs");
+    assert_eq!(
+        source.matches("fn domain_value<").count(),
+        1,
+        "值域核恰一处"
+    );
+    assert_eq!(
+        source.matches("find(|candidate|").count(),
+        1,
+        "查表动作只在该私有核内"
+    );
+    assert_eq!(
+        source.matches("ElementKind::ALL").count(),
+        2,
+        "kind 词表只经两处实参下发（草稿 + E1）"
+    );
+    for vocabulary in ["GateTier::ALL", "ApiStatus::ALL"] {
+        assert_eq!(
+            source.matches(vocabulary).count(),
+            1,
+            "{vocabulary} 只经 E1 一处实参下发"
+        );
+    }
+    let legacy = ["非法 ", "kind:"].concat();
+    assert!(!source.contains(&legacy), "旧文案零残留（D-19 ①）");
+}
+
+/// `marker` 行正上方的连续行注释块（`///`）；遇到空行或非注释行即止。
+fn doc_above(source: &str, marker: &str) -> String {
+    let lines = source.lines().collect::<Vec<_>>();
+    let index = lines
+        .iter()
+        .position(|line| line.contains(marker))
+        .expect("锚行在场");
+    let mut doc = lines[..index]
+        .iter()
+        .rev()
+        .map(|line| line.trim())
+        .take_while(|line| line.starts_with("///"))
+        .collect::<Vec<_>>();
+    doc.reverse();
+    doc.join("\n")
+}
+
+/// `SCAFFOLD_TEMPLATE` 的行内首行（`r#"` 之后、首行文本）。
+fn template_first_line(source: &str) -> String {
+    source
+        .lines()
+        .find(|line| line.contains("const SCAFFOLD_TEMPLATE"))
+        .and_then(|line| line.split_once("r#\""))
+        .map(|(_, head)| head.to_owned())
+        .expect("SCAFFOLD_TEMPLATE 首行在场")
+}
+
+/// 异常（源码锚，D-19 ②）：模块头、`scaffold_payload` 函数 doc、`SCAFFOLD_TEMPLATE`
+/// 首行**三处**各含两写工具名（落盘走两写工具是同一口径）；`write` / `edit` 这两名在
+/// 三处只在「工具表达不了的才手改」句里出现（hand-edit 是唯一出口，不是主写面）；
+/// 旧立场句全文零命中。
+#[test]
+fn 写面口径三处同源() {
+    let source = include_str!("archi_tool.rs");
+    let hand_edit = "工具表达不了的才手改";
+
+    let module_head = source
+        .lines()
+        .take_while(|line| line.starts_with("//!"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let scaffold_doc = doc_above(source, "fn scaffold_payload");
+    let template_head = template_first_line(source);
+
+    // 草稿模板首行与 `scaffold_payload` doc 必须给出同一句手改出口（模板是工具输出，
+    // doc 是维护面口径）；模块头只需点名两写工具，不强制复述该句。
+    for (label, text) in [
+        ("scaffold_payload doc", scaffold_doc.as_str()),
+        ("SCAFFOLD_TEMPLATE 首行", template_head.as_str()),
+    ] {
+        assert!(text.contains(hand_edit), "{label} 含手改出口一句：{text}");
+    }
+
+    for (label, text) in [
+        ("模块头", module_head.as_str()),
+        ("scaffold_payload doc", scaffold_doc.as_str()),
+        ("SCAFFOLD_TEMPLATE 首行", template_head.as_str()),
+    ] {
+        assert!(!text.trim().is_empty(), "{label} 非空");
+        assert!(
+            text.contains("archi_element"),
+            "{label} 含 archi_element：{text}"
+        );
+        assert!(
+            text.contains("archi_relation"),
+            "{label} 含 archi_relation：{text}"
+        );
+        for sentence in text.split('。') {
+            let mentions_hand_tools = sentence.contains("`write`") || sentence.contains("`edit`");
+            if mentions_hand_tools {
+                assert!(
+                    sentence.contains(hand_edit),
+                    "{label} 的手改工具名只出现在手改出口句：{sentence}"
+                );
+            }
+        }
+    }
+
+    for stale in stale_stances() {
+        assert!(
+            !source.contains(stale.as_str()),
+            "archi_tool.rs 零旧立场句 `{stale}`"
+        );
+    }
 }

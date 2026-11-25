@@ -33,7 +33,7 @@ const CONFIG_SOURCE: &str = "config";
 /// 不命中矩阵，收口档位不得随矩阵 `None` 一并丢）：
 /// - `explore` 来源 = 六工具名（write 移除）+ `create_explore_note` + 两只只读
 ///   DB 工具（单源见 desktop-agent-db-tools）；
-/// - `archi` 来源 = 七工具名 + 五 archi 名 + 架构会话知识 preamble；该臂以
+/// - `archi` 来源 = 七工具名 + 七 archi 名（读五 + 写两）+ 架构会话知识 preamble；该臂以
 ///   `source` 短路命中，零 `source_ref` 读取（不碰相位解析，`source_ref` 取任意
 ///   值下发面不变）；
 /// - `config` 来源 = 六工具名（只读探测面 + 唯一提案出口，**无** `write` / `edit`、
@@ -90,6 +90,8 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
         names.push(mount::ARCHI_API_TOOL);
         names.push(mount::ARCHI_DRIFT_TOOL);
         names.push(mount::ARCHI_SCAFFOLD_TOOL);
+        names.push(mount::ARCHI_ELEMENT_TOOL);
+        names.push(mount::ARCHI_RELATION_TOOL);
         // 知识为尽力增强项：拼装失败（`None`）只丢 preamble 位，工具面与收口前
         // 自检装配（`before_done` 档位）不受影响
         return injected(
@@ -208,21 +210,26 @@ fn change_phase_role(source_ref: &str) -> Option<(&str, &str)> {
 /// archi 工具面注入矩阵单源（8 行含兜底行，`(phase, role)` → 下发工具名清单；
 /// 未命中即零 archi 工具）。矩阵只决定**下发面**，不决定 prompt 文本。
 ///
-/// `drift` 只给两处**直接产出漂移**的相位（写完模型 / 改完代码）；`scaffold` 只给
-/// 两处写权相位与 archi 臂。`code-review` / `acceptance` 仍只读模型面（保守案：时机
-/// 差是理由，不是给 evaluator 发读数工具的充分理由）。
+/// `drift` 只给两处**直接产出漂移**的相位（写完模型 / 改完代码）；`scaffold` 与两写工具
+/// 只给两处写权相位与 archi 臂——两写工具的下发集合 MUST 与 [`model_write_lock`] 的不挂锁
+/// 集合逐格相等（「有工具但锁着」与「锁开了却没工具」都是错配）。`code-review` /
+/// `acceptance` 仍只读模型面（保守案：时机差是理由，不是给 evaluator 发读数工具的充分理由）。
 fn archi_matrix(phase: &str, role: &str) -> Option<Vec<&'static str>> {
     match (phase, role) {
         ("proposal", "executor") => Some(vec![
             mount::ARCHI_SEARCH_TOOL,
             mount::ARCHI_MODULE_TOOL,
             mount::ARCHI_SCAFFOLD_TOOL,
+            mount::ARCHI_ELEMENT_TOOL,
+            mount::ARCHI_RELATION_TOOL,
         ]),
         ("dev-design", "executor") => Some(vec![
             mount::ARCHI_MODULE_TOOL,
             mount::ARCHI_SEARCH_TOOL,
             mount::ARCHI_DRIFT_TOOL,
             mount::ARCHI_SCAFFOLD_TOOL,
+            mount::ARCHI_ELEMENT_TOOL,
+            mount::ARCHI_RELATION_TOOL,
         ]),
         ("dev-design", "evaluator") => {
             Some(vec![mount::ARCHI_MODULE_TOOL, mount::ARCHI_SEARCH_TOOL])

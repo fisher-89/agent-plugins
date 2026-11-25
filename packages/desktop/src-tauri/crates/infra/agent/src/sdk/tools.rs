@@ -7,8 +7,8 @@ use crate::sdk::bash;
 // 名字常量本体驻挂载清单（单点）；本模块与 `archi_tool` 经此再导出引用，
 // 使「定义 / 常量只有一份」与「读面模块零改动」两约束同时成立。
 pub(crate) use crate::sdk::mount::{
-    ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_MODULE_TOOL, ARCHI_SCAFFOLD_TOOL, ARCHI_SEARCH_TOOL,
-    DB_QUERY_TOOL, DB_TABLES_TOOL, PROPOSE_CONFIG_TOOL,
+    ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_ELEMENT_TOOL, ARCHI_MODULE_TOOL, ARCHI_RELATION_TOOL,
+    ARCHI_SCAFFOLD_TOOL, ARCHI_SEARCH_TOOL, DB_QUERY_TOOL, DB_TABLES_TOOL, PROPOSE_CONFIG_TOOL,
 };
 
 /// glob 单次结果上限（防大目录扫描灌爆上下文）。
@@ -45,16 +45,18 @@ fn string_field(input: &Value, field: &str) -> Result<String, String> {
 }
 
 /// 沙箱校验对象提取：工具名 → 入参中的路径类字段值（glob 为 pattern，
-/// 其余为 path；未知工具 None——policy 已先行拒绝，此处兜底）。五个架构只读工具
-/// 与两只只读 DB 工具均无路径参数，显式返回 None（不进路径沙箱改写面——未来入参
-/// 改名也不引入改写）；`propose_config` 同属显式 None 面——其候选里可能出现名为
-/// `path` 的**数据键**，改写它等于篡改用户配置。
+/// 其余为 path；未知工具 None——policy 已先行拒绝，此处兜底）。七个架构工具
+/// （五只读 + 两写）与两只只读 DB 工具均无路径参数，显式返回 None（不进路径沙箱改写面
+/// ——未来入参改名也不引入改写；两写工具的落点由 `file` / 父元素推得）；`propose_config`
+/// 同属显式 None 面——其候选里可能出现名为 `path` 的**数据键**，改写它等于篡改用户配置。
 pub fn input_path<'a>(name: &str, input: &'a Value) -> Option<&'a str> {
     if name == ARCHI_MODULE_TOOL
         || name == ARCHI_SEARCH_TOOL
         || name == ARCHI_API_TOOL
         || name == ARCHI_DRIFT_TOOL
         || name == ARCHI_SCAFFOLD_TOOL
+        || name == ARCHI_ELEMENT_TOOL
+        || name == ARCHI_RELATION_TOOL
         || name == DB_TABLES_TOOL
         || name == DB_QUERY_TOOL
         || name == PROPOSE_CONFIG_TOOL

@@ -1,16 +1,29 @@
 //! 写回原语族：纯函数 `apply_*`（源文本进、改写后的完整源文本出）与计划函数
-//! `plan_*`（读盘定位 + 纯函数 + 待落盘产物 [`ModelWrite`]）。
+//! `plan_*`（读盘定位 + 纯函数 + 待落盘产物 [`ModelWrite`] + 反馈面 [`WriteOutcome`]）。
 //!
-//! 两层沿同一个固定形状：`apply_*` 只碰文本（零文件系统），`plan_*` 只读盘
+//! 三层形状固定：`apply_*` 只碰文本（零文件系统）；`plan_*` 只读盘
 //! （`parse_dir` 结构诊断前置 → 存在性 / 落点 / 端点前置 → 读源 → `expect` → `apply_*`
-//! → 填 `hash`）。**零写盘、零子进程、零 Tauri**——模型落盘不在本模块（写盘单点在
-//! 壳层的原子写）。
+//! → 填 `hash` → 装反馈面）；反馈面（[`warnings`]）只重述既有判据面的词。
+//! **零写盘、零子进程、零 Tauri**——模型落盘不在本模块（落盘单点是 infra 侧的原子写，
+//! 壳层命令面与 agent 写工具共用一份实现）。
 //!
 //! 产出顺序固定为「改 AST → 渲染 → 表头计数回填 → 重解析自证零诊断 → 回读逐字段
 //! 一致」，且被自证 / 被回读的文本**逐字等于**交出的 `content`（MUST NOT 先验后改）。
 //! 渲染经 `toml_edit`：既有键原位不动（更新时沿用原值的 decor），新键追加到元素表尾，
 //! 新建元素按 `kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata`
 //! 规范序整表写出。
+//!
+//! **内联出边**：[`ElementSpec::relations`] 在一次元素写回里批量 upsert / delete 出边，
+//! 四条约束——同批 `to` 唯一、`action = delete` 项禁带字段、内联边只作用于目标文件
+//! （已声明在他处即 [`EditErrorKind::RelationOwnedElsewhere`]）、未列出的既有边零改动。
+//!
+//! **落点四情形**：既有元素落其声明文件（不同 `file` 即拒绝）；新建省略 `file` 落**父
+//! 元素**文件；单段 FQN 省略 `file` 即拒绝；给了 `file` 而目标文件缺席必须同时给
+//! [`ElementSpec::create`]（新文件表头由本模块按写后重解析计数生成）。
+//!
+//! **删除与级联**：删除纯函数只有一个形态 [`apply_element_delete`]（[`DeleteSet`] =
+//! 元素集 + 关系对集；单元素删除是集合恰一个元素的退化形）。`cascade` 只承诺**同一模型
+//! 文件内**的子树与出入边闭包，闭包跨文件即 [`EditErrorKind::CascadeCrossFile`]。
 //!
 //! 关系面的落点 = 既有 `(from, to)` 的**声明文件**（可以不是 `from` 元素文件）、新增
 //! 关系的 `from` 元素文件；同一 `(from, to)` 多处声明（模型面跨文件 / 同一源内）即
@@ -23,11 +36,13 @@
 //! parser，越界值经自证链变成 `RenderSelfCheck`。
 
 mod messages;
+pub mod warnings;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use foundation::layout::archi_graph_model_dir;
+use serde::Serialize;
 use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, TableLike, Value};
 
 use crate::drift::file_hash_of;
@@ -37,6 +52,7 @@ use crate::model::{Diagnostic, Element, Model, Relation};
 use crate::parse::{self, SourceParser, TomlParser};
 
 pub use messages::{EditError, EditErrorKind};
+pub use warnings::{delete_warnings, upsert_warnings, EditWarning};
 
 use messages::error;
 
@@ -51,7 +67,7 @@ pub struct ModelWrite {
     pub hash: String,
 }
 
-/// 元素写回规格：`fqn` + 可写字段的三态 + `kind`（新建判别）+ 落点 + 乐观锁。
+/// 元素写回规格：`fqn` + 可写字段的三态 + `kind`（新建判别）+ 内联出边 + 落点 + 乐观锁。
 #[derive(Debug, Clone, Default)]
 pub struct ElementSpec {
     /// 目标元素完整限定名
@@ -72,10 +88,121 @@ pub struct ElementSpec {
     pub summary: Option<Option<String>>,
     /// 自由元数据（内联表写出）：`Some(空集合)` 删键
     pub metadata: Option<BTreeMap<String, String>>,
+    /// 内联出边（省略 / 空数组 = 出边不动；批量四条见模块 doc）
+    pub relations: Vec<RelationSpec>,
     /// 新建落点（repo 相对、模型声明目录一级 `*.toml`）；既有元素只允许同值
     pub file: Option<String>,
+    /// 新建文件的显式许可（目标文件缺席而给了 `file` 时必须为 `true`）
+    pub create: bool,
     /// 目标文件**当前**内容哈希（`None` = 不校验）
     pub expect: Option<String>,
+}
+
+/// 写面动作（封闭二值）：内联出边的 `action` 与两写工具的顶层 `action` 共用这一份词表。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum WriteAction {
+    /// 建或改（缺省）
+    #[default]
+    Upsert,
+    /// 删
+    Delete,
+}
+
+impl WriteAction {
+    /// 线格式小写词。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WriteAction::Upsert => "upsert",
+            WriteAction::Delete => "delete",
+        }
+    }
+
+    /// 全部合法值（清单单点：参数 `enum` 与执行体值域检查同源）。
+    pub const ALL: [WriteAction; 2] = [WriteAction::Upsert, WriteAction::Delete];
+
+    /// 线格式词 → 值（词表外 `None`）。
+    pub fn parse(raw: &str) -> Option<WriteAction> {
+        WriteAction::ALL
+            .into_iter()
+            .find(|action| action.as_str() == raw)
+    }
+}
+
+/// 内联出边的唯一入参形态：`to` + 三态字段（`desc` / `apis`）+ 动作。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelationSpec {
+    /// 目标元素 FQN
+    pub to: String,
+    /// 关系说明：`None` 不动、`Some(None)` 删键
+    pub desc: Option<Option<String>>,
+    /// 关系的 apis：`None` 不动、`Some(空集合)` 删键
+    pub apis: Option<Vec<String>>,
+    /// 本条边的动作（缺省 `Upsert`）
+    pub action: WriteAction,
+}
+
+/// 删除动作的唯一入参形态：待删元素集 + 待删关系对集。
+///
+/// 单元素删除只是「集合恰含一个 FQN」的退化形——MUST NOT 另有第二种删除形态。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DeleteSet {
+    /// 待删元素 FQN
+    pub elements: BTreeSet<String>,
+    /// 待删关系对 `(from, to)`
+    pub relations: BTreeSet<(String, String)>,
+}
+
+impl DeleteSet {
+    /// 单元素退化形。
+    pub fn of(fqn: impl Into<String>) -> DeleteSet {
+        let mut elements = BTreeSet::new();
+        elements.insert(fqn.into());
+        DeleteSet {
+            elements,
+            relations: BTreeSet::new(),
+        }
+    }
+}
+
+/// 元素 / 关系计数（本文件 `counts` 与全模型 `model` 共用一形）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct WriteCounts {
+    /// 元素条数
+    pub elements: usize,
+    /// 关系条数
+    pub relations: usize,
+}
+
+/// 内联出边四态计数（四者之和恒等于入参 `relations` 长度）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct RelationTally {
+    /// 新建
+    pub created: usize,
+    /// 改值
+    pub updated: usize,
+    /// 删除
+    pub deleted: usize,
+    /// 值已相同（幂等）
+    pub unchanged: usize,
+}
+
+/// 计划层产物：待落盘三元组 + 反馈面（`warnings` 恒在场，空数组 = 无异常）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteOutcome {
+    /// 待落盘产物（绝对路径 + 全文 + 写后哈希）
+    pub write: ModelWrite,
+    /// 已落盘、未阻断的事实（七条判据的子集；关系写面恒空）
+    pub warnings: Vec<EditWarning>,
+    /// 实际变化的参数面字段名（空 = 幂等）
+    pub changed: Vec<String>,
+    /// 本次是否新建（幂等凭据）
+    pub created: bool,
+    /// 内联出边四态计数
+    pub relations: RelationTally,
+    /// 写后本文件计数（重解析结果）
+    pub counts: WriteCounts,
+    /// 全模型计数（前值 ± 本次增量）
+    pub model: WriteCounts,
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +211,11 @@ pub struct ElementSpec {
 
 /// 单文件元素 upsert：元素缺席 ⇒ 按 `kind` 新建；在案 + `kind` 有值 ⇒
 /// `ElementAlreadyExists`；在案则逐位三态改写（既有键序与既有键的 decor 不动）。
+///
+/// 元素字段写回之后按 [`RelationSpec::action`] 逐条 upsert / delete 内联出边，未列出的
+/// 既有边零改动；被回读的对象是**同一份**交付文本（自证与回读共用 [`finish`] 的收口）。
 pub fn apply_element_spec(source: &str, spec: &ElementSpec) -> Result<String, EditError> {
+    check_relation_batch(&spec.relations)?;
     let mut document = parse_source(source)?;
     let declared = document
         .as_table()
@@ -118,32 +249,77 @@ pub fn apply_element_spec(source: &str, spec: &ElementSpec) -> Result<String, Ed
         write_element_fields(&mut entry, spec);
         table.insert(&spec.fqn, Item::Table(entry));
     }
-    finish(document, |model| verify_element(model, spec))
+    let expected = apply_inline_relations(&mut document, &spec.fqn, &spec.relations)?;
+    finish(document, |model| {
+        verify_element(model, spec)?;
+        verify_inline_relations(model, &spec.fqn, &spec.relations)?;
+        verify_relation_count(model, expected)
+    })
 }
 
-/// 单文件删元素表：缺 `element` 表 ⇒ `ElementTableMissing`、元素缺席 ⇒
-/// `ElementNotFound`（事实段列该文件现有元素）。子元素 / 关系前置归
-/// [`plan_element_delete`]（跨文件）。
-pub fn apply_element_delete(source: &str, fqn: &str) -> Result<String, EditError> {
+/// 单文件删除：按集合删关系对与元素表。
+///
+/// 缺 `element` 表 ⇒ `ElementTableMissing`；元素刻意 / 关系缺席 ⇒ `ElementNotFound` /
+/// `RelationNotFound`（事实段列该文件现有元素 / 关系对）。子元素与引用前置归
+/// [`plan_element_delete`]（跨文件、级联闭包）。
+pub fn apply_element_delete(source: &str, set: &DeleteSet) -> Result<String, EditError> {
     let mut document = parse_source(source)?;
-    let table = document
-        .as_table_mut()
-        .get_mut("element")
-        .and_then(Item::as_table_like_mut)
-        .ok_or_else(|| error(EditErrorKind::ElementTableMissing, "无从定位元素"))?;
-    if table.remove(fqn).is_none() {
-        let existing: Vec<&str> = table.iter().map(|(key, _)| key).collect();
-        return Err(error(
-            EditErrorKind::ElementNotFound,
-            format!("{fqn}（现有元素：{}）", existing.join(" / ")),
-        ));
+    if !set.relations.is_empty() {
+        let entries = relation_entries_mut(&mut document)?;
+        let mut missing: Vec<String> = Vec::new();
+        for (from, to) in &set.relations {
+            let hits = relation_indexes(entries, from, to);
+            if hits.len() >= 2 {
+                return Err(relation_duplicated_in_source(from, to, hits.len()));
+            }
+            match hits.first().copied() {
+                Some(index) => {
+                    entries.remove(index);
+                }
+                None => missing.push(relation_pair_of(from, to)),
+            }
+        }
+        if !missing.is_empty() {
+            return Err(relation_absent_error(entries, &missing.join(" / ")));
+        }
     }
-    finish(document, |model| match model.element(fqn) {
-        None => Ok(()),
-        Some(_) => Err(error(
-            EditErrorKind::ReadBackMismatch,
-            format!("{fqn} 仍可回读——未删净"),
-        )),
+    if !set.elements.is_empty() {
+        let table = document
+            .as_table_mut()
+            .get_mut("element")
+            .and_then(Item::as_table_like_mut)
+            .ok_or_else(|| error(EditErrorKind::ElementTableMissing, "无从定位元素"))?;
+        let mut missing: Vec<String> = Vec::new();
+        for fqn in &set.elements {
+            if table.remove(fqn).is_none() {
+                missing.push(fqn.clone());
+            }
+        }
+        if !missing.is_empty() {
+            let existing: Vec<&str> = table.iter().map(|(key, _)| key).collect();
+            return Err(error(
+                EditErrorKind::ElementNotFound,
+                format!(
+                    "{}（现有元素：{}）",
+                    missing.join(" / "),
+                    existing.join(" / ")
+                ),
+            ));
+        }
+    }
+    finish(document, |model| {
+        for fqn in &set.elements {
+            if model.element(fqn).is_some() {
+                return Err(error(
+                    EditErrorKind::ReadBackMismatch,
+                    format!("{fqn} 仍可回读——未删净"),
+                ));
+            }
+        }
+        for (from, to) in &set.relations {
+            verify_relation_absent(model, from, to)?;
+        }
+        Ok(())
     })
 }
 
@@ -195,16 +371,7 @@ pub fn apply_relation_delete(source: &str, from: &str, to: &str) -> Result<Strin
         return Err(relation_duplicated_in_source(from, to, hits.len()));
     }
     let Some(index) = hits.first().copied() else {
-        let existing: Vec<String> = entries.iter().map(table_pair).collect();
-        let listed = if existing.is_empty() {
-            "（该文件没有关系）".to_owned()
-        } else {
-            format!("（该文件现有关系：{}）", existing.join(" / "))
-        };
-        return Err(error(
-            EditErrorKind::RelationNotFound,
-            format!("{from} → {to}{listed}"),
-        ));
+        return Err(relation_absent_error(entries, &relation_pair_of(from, to)));
     };
     entries.remove(index);
     finish(document, |model| {
@@ -217,8 +384,13 @@ pub fn apply_relation_delete(source: &str, from: &str, to: &str) -> Result<Strin
 // 计划层（读盘、零写盘）
 // ---------------------------------------------------------------------------
 
-/// 元素 upsert 的计划：定位 + 前置 + 读源 + `expect` + [`apply_element_spec`] + `hash`。
-pub fn plan_element_upsert(root: &Path, spec: &ElementSpec) -> Result<ModelWrite, EditError> {
+/// 元素 upsert 的计划：定位 + 前置 + 读源 + `expect` + [`apply_element_spec`] + `hash`
+/// + 反馈面（`changed` / `created` / `relations` / `counts` / `model` / `warnings`）。
+///
+/// 落点四情形（设计 D-4）：既有元素落其声明文件；新建省略 `file` 落父元素文件；单段
+/// FQN 省略 `file` 即拒绝；给了 `file` 而目标文件缺席必须同时给 `create`——新文件表头由
+/// 本函数按写后重解析计数生成后再自证。
+pub fn plan_element_upsert(root: &Path, spec: &ElementSpec) -> Result<WriteOutcome, EditError> {
     let graph = load_model(root)?;
     let model = graph.model();
     let existing = model.element(&spec.fqn);
@@ -235,32 +407,55 @@ pub fn plan_element_upsert(root: &Path, spec: &ElementSpec) -> Result<ModelWrite
     if creating {
         check_create(&spec.fqn, spec.kind)?;
     }
-    let file = check_target(root, &spec.fqn, spec.file.as_deref(), existing)?;
-    if creating {
-        if let Some((parent, _)) = spec.fqn.rsplit_once('.') {
-            if model.element(parent).is_none() {
-                return Err(error(
-                    EditErrorKind::ParentMissing,
-                    format!(
-                        "{} 的父 {parent} 未声明——祖先须显式声明，先声明父元素",
-                        spec.fqn
-                    ),
-                ));
-            }
-        }
-    }
-    let source = read_source(&file, creating)?;
-    check_expect(&file, &source, spec.expect.as_deref())?;
-    let content = apply_element_spec(&source, spec)?;
-    Ok(write_of(file, &content))
+    let target = check_target(
+        root,
+        &spec.fqn,
+        spec.file.as_deref(),
+        spec.create,
+        existing,
+        model,
+    )?;
+    check_relation_batch(&spec.relations)?;
+    check_inline_relations(root, model, &spec.fqn, &target.file, &spec.relations)?;
+    let changed = changed_fields(existing, spec);
+    let tally = relation_tally(model, &spec.fqn, &spec.relations);
+    let source = read_source(&target.file, creating)?;
+    check_expect(&target.file, &source, spec.expect.as_deref())?;
+    let body = apply_element_spec(&source, spec)?;
+    let content = if target.fresh {
+        new_file_content(&target.file, &body)?
+    } else {
+        body
+    };
+    let write = write_of(target.file, &content);
+    let written = recount(&write.content)?;
+    let counts = counts_of(&written);
+    let warnings = written
+        .element(&spec.fqn)
+        .map(|element| upsert_warnings(root, element, &changed, creating))
+        .unwrap_or_default();
+    Ok(WriteOutcome {
+        write,
+        warnings,
+        changed,
+        created: creating,
+        relations: tally,
+        counts,
+        model: model_counts(model, element_delta(creating), relation_delta(tally)),
+    })
 }
 
-/// 元素删除的计划：元素必须存在，且有直接子元素 / 被任一关系引用即拒绝（fail-closed）。
+/// 元素删除的计划：元素必须存在。
+///
+/// `cascade = false`（缺省）有直接子元素 / 被任一关系引用即拒绝（fail-closed，措辞逐字
+/// 保留）；`cascade = true` 先算**同一模型文件内**的闭包（子树 ∪ 出入边），跨文件即
+/// [`EditErrorKind::CascadeCrossFile`] 且零文本产出。
 pub fn plan_element_delete(
     root: &Path,
     fqn: &str,
+    cascade: bool,
     expect: Option<&str>,
-) -> Result<ModelWrite, EditError> {
+) -> Result<WriteOutcome, EditError> {
     let graph = load_model(root)?;
     let model = graph.model();
     let element = model.element(fqn).ok_or_else(|| {
@@ -269,37 +464,59 @@ pub fn plan_element_delete(
             format!("{fqn}（模型共 {} 个元素）", model.elements.len()),
         )
     })?;
-    let children = graph.children(fqn);
-    if !children.is_empty() {
-        return Err(error(
-            EditErrorKind::DeleteHasChildren,
-            format!("{fqn} 的子元素：{}", children.join(" / ")),
-        ));
-    }
-    let blocking: BTreeSet<String> = graph
-        .depends_on(fqn)
-        .into_iter()
-        .chain(graph.depended_by(fqn))
-        .map(relation_pair)
-        .collect();
-    if !blocking.is_empty() {
-        return Err(error(
-            EditErrorKind::DeleteHasRelations,
-            format!(
-                "{fqn}：{}",
-                blocking.into_iter().collect::<Vec<String>>().join(" / ")
-            ),
-        ));
-    }
-    let file = root.join(&element.file);
+    let declared_file = element.file.clone();
+    let set = if cascade {
+        cascade_set(&graph, fqn, &declared_file)?
+    } else {
+        let children = graph.children(fqn);
+        if !children.is_empty() {
+            return Err(error(
+                EditErrorKind::DeleteHasChildren,
+                format!("{fqn} 的子元素：{}", children.join(" / ")),
+            ));
+        }
+        let blocking: BTreeSet<String> = graph
+            .depends_on(fqn)
+            .into_iter()
+            .chain(graph.depended_by(fqn))
+            .map(relation_pair)
+            .collect();
+        if !blocking.is_empty() {
+            return Err(error(
+                EditErrorKind::DeleteHasRelations,
+                format!(
+                    "{fqn}：{}",
+                    blocking.into_iter().collect::<Vec<String>>().join(" / ")
+                ),
+            ));
+        }
+        DeleteSet::of(fqn)
+    };
+    let file = root.join(&declared_file);
     let source = read_source(&file, false)?;
     check_expect(&file, &source, expect)?;
-    let content = apply_element_delete(&source, fqn)?;
-    Ok(write_of(file, &content))
+    let content = apply_element_delete(&source, &set)?;
+    let write = write_of(file, &content);
+    let written = recount(&write.content)?;
+    Ok(WriteOutcome {
+        write,
+        warnings: delete_warnings(root, fqn),
+        changed: Vec::new(),
+        created: false,
+        relations: RelationTally::default(),
+        counts: counts_of(&written),
+        model: model_counts(
+            model,
+            -(set.elements.len() as isize),
+            -(set.relations.len() as isize),
+        ),
+    })
 }
 
 /// 关系 upsert 的计划：两端点须在案；落点 = 既有 `(from, to)` 的**声明文件**（可以
 /// 不是 `from` 元素文件）、新增关系落 `from` 元素声明文件；模型面多处声明 fail-closed。
+///
+/// 反馈面薄形：`warnings` 恒空、`relations` 计一条、`changed` 为 `desc` / `apis` 的子集。
 pub fn plan_relation_upsert(
     root: &Path,
     from: &str,
@@ -307,32 +524,53 @@ pub fn plan_relation_upsert(
     desc: Option<Option<&str>>,
     apis: Option<&[String]>,
     expect: Option<&str>,
-) -> Result<ModelWrite, EditError> {
+) -> Result<WriteOutcome, EditError> {
     let graph = load_model(root)?;
-    let (from_element, _) = endpoints(graph.model(), from, to)?;
-    let hits = relation_hits(graph.model(), from, to);
+    let model = graph.model();
+    let (from_element, _) = endpoints(model, from, to)?;
+    let hits = relation_hits(model, from, to);
     check_relation_unique(&hits)?;
     let file = match hits.first() {
         Some(relation) => root.join(&relation.file),
         None => root.join(&from_element.file),
     };
+    let created = hits.is_empty();
+    let changed = relation_changed(hits.first().copied(), desc, apis);
     let source = read_source(&file, false)?;
     check_expect(&file, &source, expect)?;
     let content = apply_relation_upsert(&source, from, to, desc, apis)?;
-    Ok(write_of(file, &content))
+    let write = write_of(file, &content);
+    let written = recount(&write.content)?;
+    Ok(WriteOutcome {
+        write,
+        warnings: Vec::new(),
+        changed: changed.clone(),
+        created,
+        relations: RelationTally {
+            created: usize::from(created),
+            updated: usize::from(!created && !changed.is_empty()),
+            deleted: 0,
+            unchanged: usize::from(!created && changed.is_empty()),
+        },
+        counts: counts_of(&written),
+        model: model_counts(model, 0, isize::from(created)),
+    })
 }
 
 /// 关系删除的计划：两端点须在案；既有 `(from, to)` 的**声明文件**即落点（可以不是
 /// `from` 元素文件）；模型面缺席 / 多处声明都在读盘前 fail-closed。
+///
+/// 反馈面同薄形：`warnings` 恒空、`relations` 计一条（`deleted`）、`changed` 空。
 pub fn plan_relation_delete(
     root: &Path,
     from: &str,
     to: &str,
     expect: Option<&str>,
-) -> Result<ModelWrite, EditError> {
+) -> Result<WriteOutcome, EditError> {
     let graph = load_model(root)?;
-    endpoints(graph.model(), from, to)?;
-    let hits = relation_hits(graph.model(), from, to);
+    let model = graph.model();
+    endpoints(model, from, to)?;
+    let hits = relation_hits(model, from, to);
     check_relation_unique(&hits)?;
     let Some(relation) = hits.first() else {
         let existing: Vec<String> = graph
@@ -354,7 +592,22 @@ pub fn plan_relation_delete(
     let source = read_source(&file, false)?;
     check_expect(&file, &source, expect)?;
     let content = apply_relation_delete(&source, from, to)?;
-    Ok(write_of(file, &content))
+    let write = write_of(file, &content);
+    let written = recount(&write.content)?;
+    Ok(WriteOutcome {
+        write,
+        warnings: Vec::new(),
+        changed: Vec::new(),
+        created: false,
+        relations: RelationTally {
+            created: 0,
+            updated: 0,
+            deleted: 1,
+            unchanged: 0,
+        },
+        counts: counts_of(&written),
+        model: model_counts(model, 0, -1),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -871,6 +1124,386 @@ fn verify_relation_absent(model: &Model, from: &str, to: &str) -> Result<(), Edi
     }
 }
 
+/// 写后交付文本的重解析（计数与写后元素事实的**唯一**来源，D-2）。
+///
+/// 自证链已解析一次，本函数再解析一次是为了让 `counts` / `model` / `warnings` 与「被
+/// 交付的文本」同源——MUST NOT 另写一份计数实现。
+fn recount(content: &str) -> Result<Model, EditError> {
+    let parsed = TomlParser::parse(content);
+    if !parsed.diagnostics.is_empty() {
+        return Err(self_check_failure(&parsed.diagnostics));
+    }
+    Ok(parsed.model)
+}
+
+/// 本文件计数（写后重解析结果）。
+fn counts_of(model: &Model) -> WriteCounts {
+    WriteCounts {
+        elements: model.elements.len(),
+        relations: model.relations.len(),
+    }
+}
+
+/// 全模型计数（前值 ± 本次增量）。
+fn model_counts(prior: &Model, element_delta: isize, relation_delta: isize) -> WriteCounts {
+    WriteCounts {
+        elements: shift(prior.elements.len(), element_delta),
+        relations: shift(prior.relations.len(), relation_delta),
+    }
+}
+
+/// 计数平移（下界零；越界只会出现在「模型被并发改动」这一不可达路径）。
+fn shift(base: usize, delta: isize) -> usize {
+    (base as isize + delta).max(0) as usize
+}
+
+/// 元素增量：新建 +1，改写在案 0。
+fn element_delta(creating: bool) -> isize {
+    isize::from(creating)
+}
+
+/// 关系增量（`created − deleted`）。
+fn relation_delta(tally: RelationTally) -> isize {
+    tally.created as isize - tally.deleted as isize
+}
+
+/// 新建文件的表头前置（D-5）：渲染完成后按写后重解析计数起手，再解析最终文本自证零诊断
+/// ——被交付的文本恒等于被自证的文本。
+///
+/// `<名>` = 文件名去 `.toml` 后缀的**字面**（不剥序号、不猜语义）。
+fn new_file_content(file: &Path, body: &str) -> Result<String, EditError> {
+    let counted = TomlParser::parse(body);
+    if !counted.diagnostics.is_empty() {
+        return Err(self_check_failure(&counted.diagnostics));
+    }
+    let name = file
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    let stem = name.strip_suffix(".toml").unwrap_or(name);
+    let content = format!(
+        "# {stem}（{} 元素 / {} 关系）\n\n{body}",
+        counted.model.elements.len(),
+        counted.model.relations.len()
+    );
+    let verified = TomlParser::parse(&content);
+    if !verified.diagnostics.is_empty() {
+        return Err(self_check_failure(&verified.diagnostics));
+    }
+    Ok(content)
+}
+
+/// `changed` = 参数面字段名的子集（实际变化者；`created` 时 = 实际给出的字段名）。
+///
+/// 字段序与参数面一致（`kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` /
+/// `metadata`），使「同值重放 ⇒ 空数组」成为幂等凭据。
+fn changed_fields(existing: Option<&Element>, spec: &ElementSpec) -> Vec<String> {
+    let created = existing.is_none();
+    let mut changed: Vec<String> = Vec::new();
+    if created && spec.kind.is_some() {
+        changed.push("kind".to_owned());
+    }
+    if let Some(gate) = spec.gate {
+        if created || existing.map(|element| element.gate) != Some(gate) {
+            changed.push("gate".to_owned());
+        }
+    }
+    if let Some(api) = spec.api {
+        if created || existing.map(|element| element.api) != Some(api) {
+            changed.push("api".to_owned());
+        }
+    }
+    if let Some(entry) = &spec.entry {
+        if created || existing.map(|element| &element.entry) != Some(entry) {
+            changed.push("entry".to_owned());
+        }
+    }
+    if let Some(path) = &spec.path {
+        if created || existing.map(|element| &element.path) != Some(path) {
+            changed.push("path".to_owned());
+        }
+    }
+    if let Some(doc) = &spec.doc {
+        if created || existing.map(|element| &element.doc) != Some(doc) {
+            changed.push("doc".to_owned());
+        }
+    }
+    if let Some(summary) = &spec.summary {
+        if created || existing.map(|element| &element.summary) != Some(summary) {
+            changed.push("summary".to_owned());
+        }
+    }
+    if let Some(metadata) = &spec.metadata {
+        if created || existing.map(|element| &element.metadata) != Some(metadata) {
+            changed.push("metadata".to_owned());
+        }
+    }
+    changed
+}
+
+/// 内联出边四态计数（按每对 `to` 的**写前**状态；四者之和恒等于入参长度）。
+fn relation_tally(model: &Model, from: &str, relations: &[RelationSpec]) -> RelationTally {
+    let mut tally = RelationTally::default();
+    for spec in relations {
+        match spec.action {
+            WriteAction::Delete => tally.deleted += 1,
+            WriteAction::Upsert => match find_relation(model, from, &spec.to) {
+                None => tally.created += 1,
+                Some(relation) => {
+                    let desc_same = match spec.desc.as_ref() {
+                        None => true,
+                        Some(None) => relation.description.is_none(),
+                        Some(Some(text)) => relation.description.as_deref() == Some(text.as_str()),
+                    };
+                    let apis_same = match &spec.apis {
+                        None => true,
+                        Some(names) => &relation.apis == names,
+                    };
+                    if desc_same && apis_same {
+                        tally.unchanged += 1;
+                    } else {
+                        tally.updated += 1;
+                    }
+                }
+            },
+        }
+    }
+    tally
+}
+
+/// 关系 upsert 的 `changed`（`desc` / `apis` 的子集）。
+fn relation_changed(
+    existing: Option<&Relation>,
+    desc: Option<Option<&str>>,
+    apis: Option<&[String]>,
+) -> Vec<String> {
+    let mut changed: Vec<String> = Vec::new();
+    if let Some(change) = desc {
+        let expected = change.map(str::to_owned);
+        if existing.map(|relation| &relation.description) != Some(&expected) {
+            changed.push("desc".to_owned());
+        }
+    }
+    if let Some(names) = apis {
+        if existing.map(|relation| relation.apis.as_slice()) != Some(names) {
+            changed.push("apis".to_owned());
+        }
+    }
+    changed
+}
+
+/// 批量约束的纯文本面两条：同批 `to` 唯一、`action = delete` 项禁带字段。
+///
+/// 错误定位用 **1 基下标**且与 `action` / `to` 同时出现（设计 D-12「一次报全」的第一处）。
+fn check_relation_batch(relations: &[RelationSpec]) -> Result<(), EditError> {
+    let mut seen: Vec<&str> = Vec::with_capacity(relations.len());
+    for (index, spec) in relations.iter().enumerate() {
+        if seen.contains(&spec.to.as_str()) {
+            return Err(error(
+                EditErrorKind::RelationDuplicateInBatch,
+                format!(
+                    "relations[{}]（action = {}，to = {:?}）与前项重复——同一 to 在一批里只出现一次",
+                    index + 1,
+                    spec.action.as_str(),
+                    spec.to
+                ),
+            ));
+        }
+        seen.push(&spec.to);
+        if spec.action == WriteAction::Delete && (spec.desc.is_some() || spec.apis.is_some()) {
+            return Err(error(
+                EditErrorKind::RelationDeleteHasFields,
+                format!(
+                    "relations[{}]（action = delete，to = {:?}）不得带 desc / apis——删除动作与字段赋值互斥",
+                    index + 1,
+                    spec.to
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// 内联出边的落点与端点前置：跨文件声明即点名并指向 `archi_relation`，端点缺席即
+/// [`EditErrorKind::RelationEndpointMissing`]。
+fn check_inline_relations(
+    root: &Path,
+    model: &Model,
+    from: &str,
+    target: &Path,
+    relations: &[RelationSpec],
+) -> Result<(), EditError> {
+    if relations.is_empty() {
+        return Ok(());
+    }
+    let target_relative = crate::api::display(root, target);
+    for spec in relations {
+        let hits = relation_hits(model, from, &spec.to);
+        check_relation_unique(&hits)?;
+        if let Some(relation) = hits.first() {
+            if relation.file != target_relative {
+                return Err(error(
+                    EditErrorKind::RelationOwnedElsewhere,
+                    format!(
+                        "{} 现声明于 {}——内联边只作用于目标文件 {target_relative}；这条改用 archi_relation（落其声明文件）",
+                        relation_pair_of(from, &spec.to),
+                        relation.file
+                    ),
+                ));
+            }
+        }
+        if model.element(&spec.to).is_none() {
+            return Err(error(
+                EditErrorKind::RelationEndpointMissing,
+                format!("{from} → {}：{} 未声明", spec.to, spec.to),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// 内联出边的批量写回：`action` 逐条 upsert / delete，返回写后该文件的关系条数。
+///
+/// 复用独立的 [`write_relation_fields`] / [`new_relation_table`] / [`relation_indexes`]
+/// ——MUST NOT 另写第二套关系渲染。
+fn apply_inline_relations(
+    document: &mut DocumentMut,
+    from: &str,
+    relations: &[RelationSpec],
+) -> Result<usize, EditError> {
+    if relations.is_empty() {
+        // 无内联边 ⇒ 不碰 `relation` 键（新建空条目数组会改动渲染文本）
+        return Ok(document
+            .as_table()
+            .get("relation")
+            .and_then(Item::as_array_of_tables)
+            .map_or(0, ArrayOfTables::len));
+    }
+    let entries = relation_entries_mut(document)?;
+    let mut count = entries.len();
+    for spec in relations {
+        let hits = relation_indexes(entries, from, &spec.to);
+        if hits.len() >= 2 {
+            return Err(relation_duplicated_in_source(from, &spec.to, hits.len()));
+        }
+        match spec.action {
+            WriteAction::Upsert => {
+                let desc = spec.desc.as_ref().map(Option::as_deref);
+                let apis = spec.apis.as_deref();
+                match hits.first().copied() {
+                    Some(index) => {
+                        if let Some(table) = entries.get_mut(index) {
+                            write_relation_fields(table, desc, apis);
+                        }
+                    }
+                    None => {
+                        entries.push(new_relation_table(from, &spec.to, desc, apis));
+                        count += 1;
+                    }
+                }
+            }
+            WriteAction::Delete => {
+                let Some(index) = hits.first().copied() else {
+                    return Err(relation_absent_error(
+                        entries,
+                        &relation_pair_of(from, &spec.to),
+                    ));
+                };
+                entries.remove(index);
+                count = count.saturating_sub(1);
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// 内联出边的回读：upsert 逐对校验 `desc` / `apis`，delete 校验缺席（同一自证链）。
+fn verify_inline_relations(
+    model: &Model,
+    from: &str,
+    relations: &[RelationSpec],
+) -> Result<(), EditError> {
+    for spec in relations {
+        match spec.action {
+            WriteAction::Upsert => verify_relation_upsert(
+                model,
+                from,
+                &spec.to,
+                spec.desc.as_ref().map(Option::as_deref),
+                spec.apis.as_deref(),
+            )?,
+            WriteAction::Delete => verify_relation_absent(model, from, &spec.to)?,
+        }
+    }
+    Ok(())
+}
+
+/// 级联闭包（**同一模型文件内**）：子树递归 ∪ 任一端在闭包内的关系；跨文件即
+/// [`EditErrorKind::CascadeCrossFile`] 且零文本产出（一次计划只承载一个文件、一次原子写）。
+fn cascade_set(graph: &ModelGraph, fqn: &str, declared_file: &str) -> Result<DeleteSet, EditError> {
+    let model = graph.model();
+    let mut elements: BTreeSet<String> = BTreeSet::new();
+    collect_subtree(graph, fqn, &mut elements);
+    let mut relations: BTreeSet<(String, String)> = BTreeSet::new();
+    for relation in &model.relations {
+        if elements.contains(&relation.from) || elements.contains(&relation.to) {
+            relations.insert((relation.from.clone(), relation.to.clone()));
+        }
+    }
+    let mut crossing: Vec<String> = Vec::new();
+    for member in &elements {
+        if let Some(element) = model.element(member) {
+            if element.file != declared_file {
+                crossing.push(format!("{member}（{}）", element.file));
+            }
+        }
+    }
+    for (from, to) in &relations {
+        for relation in relation_hits(model, from, to) {
+            if relation.file != declared_file {
+                crossing.push(format!("{}（{}）", relation_pair(relation), relation.file));
+            }
+        }
+    }
+    if !crossing.is_empty() {
+        crossing.sort();
+        crossing.dedup();
+        return Err(error(
+            EditErrorKind::CascadeCrossFile,
+            format!(
+                "{fqn} 的级联闭包跨出 {declared_file}：{}——cascade 只作用于同一模型文件，跨文件请逐文件删除",
+                crossing.join(" / ")
+            ),
+        ));
+    }
+    Ok(DeleteSet {
+        elements,
+        relations,
+    })
+}
+
+/// 子树递归收集（含自身；`children` 是 FQN 最长前缀推导的单点）。
+fn collect_subtree(graph: &ModelGraph, fqn: &str, out: &mut BTreeSet<String>) {
+    if !out.insert(fqn.to_owned()) {
+        return;
+    }
+    for child in graph.children(fqn) {
+        collect_subtree(graph, child, out);
+    }
+}
+
+/// 关系缺席的错误装配（独立删边与内联删边共用同一文案族——MUST NOT 为内联路径另写
+/// 「不存在就静默跳过」的宽松版）。
+fn relation_absent_error(entries: &ArrayOfTables, pair: &str) -> EditError {
+    let existing: Vec<String> = entries.iter().map(table_pair).collect();
+    let listed = if existing.is_empty() {
+        "（该文件没有关系）".to_owned()
+    } else {
+        format!("（该文件现有关系：{}）", existing.join(" / "))
+    };
+    error(EditErrorKind::RelationNotFound, format!("{pair}{listed}"))
+}
+
 /// 结构诊断前置 + 建图（层级与邻接判据全走 [`ModelGraph`]，MUST NOT 自写前缀扫描）。
 fn load_model(root: &Path) -> Result<ModelGraph, EditError> {
     let outcome = parse::parse_dir(root);
@@ -909,14 +1542,28 @@ fn check_create(fqn: &str, kind: Option<ElementKind>) -> Result<(), EditError> {
     Ok(())
 }
 
-/// 落点判据（最小版）：既有元素落其声明文件（给了不同 `file` 即拒绝），新建元素落
-/// 调用方显式给出的模型声明目录一级 `*.toml`（目录缺席不代建）。
+/// 落点判断产物：目标文件绝对路径 + 是否**新建文件**（后者决定表头前置）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TargetPlan {
+    file: PathBuf,
+    fresh: bool,
+}
+
+/// 落点四情形：既有元素落其声明文件（给了不同 `file` 即拒绝）；新建省略 `file` 落
+/// **父元素**文件；单段 FQN 省略 `file` 即拒绝（新分层的落点必是人的判断）；给了
+/// `file` 而目标文件缺席必须同时给 `create`（防拼错名字造出幽灵文件）。
+///
+/// 祖先须显式声明是既有前置：多段 FQN 的父元素不在案即 [`EditErrorKind::ParentMissing`]，
+/// 与落点是否显式给出无关（否则会造出 `orphanHierarchy`）。MUST NOT 按 `kind` / 首段 FQN
+/// 推落点——文件名里的语义序号不可推导。
 fn check_target(
     root: &Path,
     fqn: &str,
     file: Option<&str>,
+    create: bool,
     existing: Option<&Element>,
-) -> Result<PathBuf, EditError> {
+    model: &Model,
+) -> Result<TargetPlan, EditError> {
     if let Some(element) = existing {
         if let Some(given) = file {
             if given != element.file {
@@ -929,13 +1576,36 @@ fn check_target(
                 ));
             }
         }
-        return Ok(root.join(&element.file));
+        return Ok(TargetPlan {
+            file: root.join(&element.file),
+            fresh: false,
+        });
     }
+    let parent_file = match fqn.rsplit_once('.') {
+        Some((parent, _)) => {
+            let parent_element = model.element(parent).ok_or_else(|| {
+                error(
+                    EditErrorKind::ParentMissing,
+                    format!("{fqn} 的父 {parent} 未声明——祖先须显式声明，先声明父元素"),
+                )
+            })?;
+            Some(parent_element.file.clone())
+        }
+        None => None,
+    };
     let Some(file) = file else {
-        return Err(error(
-            EditErrorKind::TargetInvalid,
-            format!("{fqn} 未给 file——新建必须显式给出模型声明目录一级的 *.toml"),
-        ));
+        let Some(parent_file) = parent_file else {
+            return Err(error(
+                EditErrorKind::TargetInvalid,
+                format!(
+                    "{fqn} 是单段 FQN（无父元素）——新建必须给出 file（模型声明目录一级的 *.toml）"
+                ),
+            ));
+        };
+        return Ok(TargetPlan {
+            file: root.join(&parent_file),
+            fresh: false,
+        });
     };
     if !is_single_model_file_name(file) {
         return Err(error(
@@ -950,7 +1620,15 @@ fn check_target(
             format!("{} 不存在（写面不代建目录）", dir.display()),
         ));
     }
-    Ok(dir.join(file))
+    let path = dir.join(file);
+    let fresh = !path.is_file();
+    if fresh && !create {
+        return Err(error(
+            EditErrorKind::TargetInvalid,
+            format!("{file} 不存在——新建文件需给 create = true（防拼错名字造出幽灵文件）"),
+        ));
+    }
+    Ok(TargetPlan { file: path, fresh })
 }
 
 /// 名称是否「模型声明目录一级的 `*.toml`」（单段、非绝对）。
@@ -1026,3 +1704,6 @@ mod mod_test;
 
 #[cfg(test)]
 mod messages_test;
+
+#[cfg(test)]
+mod warnings_test;

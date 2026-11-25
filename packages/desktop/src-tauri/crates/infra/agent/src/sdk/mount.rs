@@ -11,7 +11,8 @@
 
 use std::sync::OnceLock;
 
-use archi::dto::{ElementKind, GateTier};
+use archi::dto::{ApiStatus, ElementKind, GateTier};
+use archi::edit::WriteAction;
 use rig::completion::ToolDefinition;
 
 use crate::sdk::archi_drift_view::DRIFT_SCOPES;
@@ -56,9 +57,63 @@ pub(crate) const ARCHI_API_TOOL: &str = "archi_api";
 /// 与契约面）。执行体同上；**恒全量、零写盘**——报告落盘者恒为门禁 runner。
 pub(crate) const ARCHI_DRIFT_TOOL: &str = "archi_drift";
 
-/// `archi_scaffold` 专用只读工具名（新元素 TOML 草稿 = 字段词典：逐字段一行纪律与值域
-/// + 关系四键模板）。执行体同上**只读零写盘**——写面仍是既有 `write` / `edit`，故本工具不在「专用写工具」之列。
+/// `archi_scaffold` 专用只读工具名（新元素 TOML 草稿 = 字段词典：逐字段一行纪律与值域、
+/// 关系四键模板）。执行体同上**只读零写盘**——模型写面是两个写工具
+/// `archi_element` / `archi_relation`（见同名常量），本工具只出模板。
 pub(crate) const ARCHI_SCAFFOLD_TOOL: &str = "archi_scaffold";
+
+/// `archi_element` 专用**写**工具名（元素 upsert / delete，可内联出边）。执行体在
+/// [`crate::sdk::archi_tool`]，下发面单源在注入矩阵。
+pub(crate) const ARCHI_ELEMENT_TOOL: &str = "archi_element";
+
+/// `archi_relation` 专用**写**工具名（单条关系 upsert / delete）。执行体同上。
+pub(crate) const ARCHI_RELATION_TOOL: &str = "archi_relation";
+
+/// 两写工具的入参上限（**数字单点**：schema 键值与执行体 E1 硬闸取自同一组常量，
+/// MUST NOT 在两处各写一份）。
+pub(crate) struct WriteLimits {
+    /// 元素 / 端点 FQN
+    pub(crate) fqn: usize,
+    /// `path` 条数
+    pub(crate) path_items: usize,
+    /// 单条 `path`
+    pub(crate) path_item: usize,
+    /// `metadata` 条数
+    pub(crate) metadata_items: usize,
+    /// `metadata` 键
+    pub(crate) metadata_key: usize,
+    /// `metadata` 值
+    pub(crate) metadata_value: usize,
+    /// `relations` 条数
+    pub(crate) relations: usize,
+    /// `relations[].apis` 条数（`archi_relation` 的 `apis` 同值）
+    pub(crate) relation_apis: usize,
+    /// 单条 `relations[].apis`
+    pub(crate) relation_api: usize,
+    /// `summary` / 关系 `desc`
+    pub(crate) text: usize,
+    /// `entry` / `doc` 指针
+    pub(crate) pointer: usize,
+    /// `file`（模型声明目录一级 `*.toml`）
+    pub(crate) file: usize,
+}
+
+/// 两写工具入参上限的唯一定义（256 / 32 / 1024 / 32 / 64 / 512 / 64 / 32 / 128 / 512 /
+/// 1024 / 256）。
+pub(crate) const WRITE_LIMITS: WriteLimits = WriteLimits {
+    fqn: 256,
+    path_items: 32,
+    path_item: 1024,
+    metadata_items: 32,
+    metadata_key: 64,
+    metadata_value: 512,
+    relations: 64,
+    relation_apis: 32,
+    relation_api: 128,
+    text: 512,
+    pointer: 1024,
+    file: 256,
+};
 
 /// `propose_config` 专用工具名（config 会话唯一提案出口）：常量本体驻执行体模块
 /// [`crate::sdk::config_propose`]，本清单再导出供装配臂 / 沙箱白名单引用。
@@ -71,7 +126,7 @@ pub(crate) enum ToolTier {
     /// 只读面（read / grep / glob / ls / archi_module / archi_search / archi_api /
     /// archi_drift / archi_scaffold / propose_config）
     Read,
-    /// 写面（write / edit / create_explore_note）
+    /// 写面（write / edit / create_explore_note / archi_element / archi_relation）
     Write,
     /// 执行面（bash）
     Execute,
@@ -86,7 +141,7 @@ pub(crate) enum ToolExec {
     Pure,
     /// `create_explore_note`：`LoopTurn.explore_note` 上下文
     ExploreNote,
-    /// 五个 archi 只读工具：`LoopTurn.archi` 上下文
+    /// 七个 archi 工具（五只读 + 两写）：`LoopTurn.archi` 上下文
     Archi,
     /// 两个 DB 只读工具：`LoopTurn.db` 上下文（两工具共用一个执行体，工具名
     /// 由 loop 侧传入——与 `Archi` 同形）
@@ -112,19 +167,20 @@ pub(crate) struct ToolMount {
 /// 构造）。
 static REGISTRY: OnceLock<Vec<ToolMount>> = OnceLock::new();
 
-/// 十六项静态挂载清单（唯一工具事实源）。**前七项仍是七内建**——`tools: None`
+/// 十八项静态挂载清单（唯一工具事实源）。**前七项仍是七内建**——`tools: None`
 /// 的语义载体（[`definitions`] 直接取前七项）。
 pub(crate) fn registry() -> &'static [ToolMount] {
     REGISTRY.get_or_init(build_registry)
 }
 
-/// 十六个字面构造项按序：七内建（Read ×4 / Write ×2 / Execute ×1 + `Pure`）→
+/// 十八个字面构造项按序：七内建（Read ×4 / Write ×2 / Execute ×1 + `Pure`）→
 /// `create_explore_note`（Write / `ExploreNote`）→ 五 archi 只读（Read / `Archi`）
-/// → 两 DB 只读（Read / `Db`，定义见 [`db_tables_definition`] /
-/// [`db_query_definition`]）→ `propose_config`（Read / `Config`，定义见
-/// [`crate::sdk::config_propose::definition`]）。
+/// → 两 archi 写（Write / `Archi`，定义见 [`archi_element_definition`] /
+/// [`archi_relation_definition`]）→ 两 DB 只读（Read / `Db`，定义见
+/// [`db_tables_definition`] / [`db_query_definition`]）→ `propose_config`（Read /
+/// `Config`，定义见 [`crate::sdk::config_propose::definition`]）。
 fn build_registry() -> Vec<ToolMount> {
-    let mut mounts: Vec<ToolMount> = Vec::with_capacity(16);
+    let mut mounts: Vec<ToolMount> = Vec::with_capacity(18);
     for name in TOOL_NAMES {
         mounts.push(ToolMount {
             definition: generic_definition(name),
@@ -164,6 +220,16 @@ fn build_registry() -> Vec<ToolMount> {
     mounts.push(ToolMount {
         definition: archi_scaffold_definition(),
         tier: ToolTier::Read,
+        exec: ToolExec::Archi,
+    });
+    mounts.push(ToolMount {
+        definition: archi_element_definition(),
+        tier: ToolTier::Write,
+        exec: ToolExec::Archi,
+    });
+    mounts.push(ToolMount {
+        definition: archi_relation_definition(),
+        tier: ToolTier::Write,
         exec: ToolExec::Archi,
     });
     mounts.push(ToolMount {
@@ -257,6 +323,7 @@ fn archi_module_definition() -> ToolDefinition {
              出边与入边（对端 FQN + 说明）、直接子元素与入口文档单值 doc（仅 api = none 元素有值；declared 走 api.contractPath，正文用 read 自取）；\
              省略 element 返回全部元素的薄概览，每条含 hasPath（缺 path 的元素一次判出）；\
              单元素响应另给 resolvedEntry（入口解析结果：显式命中 / 约定默认命中 / 不可用成因）；\
+             单元素响应另给 fileHash（该元素声明文件的当前内容哈希）——可直接作 archi_element / archi_relation 的 expect；\
              新元素的字段形态用 archi_scaffold 取模板；\
              `api.schemaPath` / `api.generatedPath` 给另两条生成物路径（`contractPath` 已指手写真相）。\
              模型写坏时返回结构化诊断（先修模型）",
@@ -354,7 +421,8 @@ fn archi_scaffold_definition() -> ToolDefinition {
         name: ARCHI_SCAFFOLD_TOOL.to_owned(),
         description: concat!(
             "取新元素 TOML 草稿，同时是字段词典：模型元素字段面逐字段一行纪律与值域 + 关系四键模板，",
-            "只读零写盘——写面仍是既有 write / edit。kind 省略取 domain，值集见 enum。",
+            "只读零写盘——模型写面是两个写工具 archi_element / archi_relation，本工具只出模板。",
+            "kind 省略取 domain，值集见 enum。",
             "草稿可直接抄改（单段占位 FQN，多段时先声明祖先），改完用 archi_drift 自查",
         )
         .to_owned(),
@@ -364,6 +432,186 @@ fn archi_scaffold_definition() -> ToolDefinition {
                 "kind": { "type": "string", "enum": ElementKind::ALL.map(ElementKind::as_str), "description": "元素 kind 四值之一（省略取 domain）" }
             },
             "required": []
+        }),
+    }
+}
+
+/// `archi_element` 定义（写面平铺 schema：逐字段 `description` 写明缺省与陷阱，`enum`
+/// 全由封闭词表派生，上限取 [`WRITE_LIMITS`]）。
+///
+/// 描述面只答三件事（形态归 `archi_scaffold` 词典与参数 `description`）：写盘原子且坏
+/// 文本不可产出、`expect` ↔ `hash` 闭环、`cascade` 只同一模型文件。
+fn archi_element_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: ARCHI_ELEMENT_TOOL.to_owned(),
+        description: concat!(
+            "写架构模型的一个元素（元素 upsert / delete，可内联出边）：参数面即字段清单，",
+            "工具负责渲染 + 重解析自证 + 回读 ⇒ 坏文本不可产出（任一失败即 Err 且零落盘）。",
+            "三态：字段省略 = 不动、给 null = 清空、给值 = 设值。",
+            "乐观锁：expect 填目标文件当前内容哈希（上一轮响应的 hash 或 archi_module 的 fileHash 可直接用），",
+            "不匹配即 Err 且不写盘；响应里的 hash 就是写后新值。",
+            "cascade 只作用于**同一模型文件内**的子树与出入边（闭包跨文件即 Err 点名文件与阻塞项）。",
+            "字段值域与形态看本工具各参数与 archi_scaffold 词典；写完用 archi_drift 自查"
+        )
+        .to_owned(),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": WriteAction::ALL.map(WriteAction::as_str),
+                    "description": "必填：upsert（建或改）/ delete（删；只取 element / cascade / expect）"
+                },
+                "element": {
+                    "type": "string",
+                    "maxLength": WRITE_LIMITS.fqn,
+                    "description": "必填：元素完整 FQN（如 Backend.Core.Billing）"
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": ElementKind::ALL.map(ElementKind::as_str),
+                    "description": "元素种类（四值语义见 archi_scaffold 词典）：新建必填；在案元素给了即 Err"
+                },
+                "gate": {
+                    "type": "string",
+                    "enum": GateTier::ALL.map(GateTier::as_str),
+                    "description": format!("门禁档位，合法值 {}；缺省 off（新元素 ratchet 起点）", vocabulary(GateTier::ALL.map(GateTier::as_str)))
+                },
+                "api": {
+                    "type": "string",
+                    "enum": ApiStatus::ALL.map(ApiStatus::as_str),
+                    "description": format!("契约状态，合法值 {}；缺省 declared（none = 显式声明本模块无 API，此时入口文档写在 doc）", vocabulary(ApiStatus::ALL.map(ApiStatus::as_str)))
+                },
+                "entry": {
+                    "type": ["string", "null"],
+                    "maxLength": WRITE_LIMITS.pointer,
+                    "description": "实现入口指针（repo 相对 POSIX）：省略 = 不动，null = 清键；只在约定默认指不到时写"
+                },
+                "path": {
+                    "type": ["array", "null"],
+                    "maxItems": WRITE_LIMITS.path_items,
+                    "items": { "type": "string", "maxLength": WRITE_LIMITS.path_item },
+                    "description": "覆盖路径（`./` 前缀、目录尾 `/`、文件到扩展名）：省略 = 不动，[] = 清键；基数随 kind——package 至多一条包根（纯容器可留空）、module 必填、domain / composite 选填"
+                },
+                "doc": {
+                    "type": ["string", "null"],
+                    "maxLength": WRITE_LIMITS.pointer,
+                    "description": "入口文档指针（repo 相对 POSIX）：只有 api = none 的元素可写；省略 = 不动，null = 清键"
+                },
+                "summary": {
+                    "type": ["string", "null"],
+                    "maxLength": WRITE_LIMITS.text,
+                    "description": "一行摘要：省略 = 不动，null = 清键"
+                },
+                "metadata": {
+                    "type": ["object", "null"],
+                    "maxProperties": WRITE_LIMITS.metadata_items,
+                    "additionalProperties": { "type": "string", "maxLength": WRITE_LIMITS.metadata_value },
+                    "description": format!("自由元数据表，值 MUST 是字符串（键 ≤{} 字符）；省略 = 不动，空对象 = 清键", WRITE_LIMITS.metadata_key)
+                },
+                "relations": {
+                    "type": "array",
+                    "maxItems": WRITE_LIMITS.relations,
+                    "description": "内联出边：省略 / [] = 出边不动，未列出的既有边零改动；同批 to 唯一；action = delete 项不得带 desc / apis；只作用于目标文件（已声明在他处即 Err 并指向 archi_relation）",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "to": {
+                                "type": "string",
+                                "maxLength": WRITE_LIMITS.fqn,
+                                "description": "目标元素 FQN（必填；须已在案）"
+                            },
+                            "desc": {
+                                "type": ["string", "null"],
+                                "maxLength": WRITE_LIMITS.text,
+                                "description": "关系说明：省略 = 不动，null = 清键"
+                            },
+                            "apis": {
+                                "type": "array",
+                                "maxItems": WRITE_LIMITS.relation_apis,
+                                "items": { "type": "string", "maxLength": WRITE_LIMITS.relation_api },
+                                "description": "关系的 apis（只写名字）：省略 = 不动，[] = 清键"
+                            },
+                            "action": {
+                                "type": "string",
+                                "enum": WriteAction::ALL.map(WriteAction::as_str),
+                                "description": "本条的动（缺省 upsert；delete = 删该边，不存在即 Err）"
+                            }
+                        },
+                        "required": ["to"]
+                    }
+                },
+                "expect": {
+                    "type": "string",
+                    "description": "目标文件当前内容哈希（sha256:<hex>）：省略 = 不校验；取上一轮响应的 hash 或 archi_module 的 fileHash"
+                },
+                "file": {
+                    "type": "string",
+                    "maxLength": WRITE_LIMITS.file,
+                    "description": "新建落点（模型声明目录一级 *.toml）：省略 = 落父元素所在文件；既有元素只允许同值（迁文件属独立语义）"
+                },
+                "create": {
+                    "type": "boolean",
+                    "description": "新建文件需显式许可：file 指向的文件不存在且无 create 即 Err；缺省 false"
+                },
+                "cascade": {
+                    "type": "boolean",
+                    "description": "仅 action = delete：级联删除同一模型文件内的子树与出入边；缺省 false。配 action = upsert 即 Err"
+                }
+            },
+            "required": ["action", "element"]
+        }),
+    }
+}
+
+/// `archi_relation` 定义（单条关系 upsert / delete；响应是薄形，不付全量重解析）。
+fn archi_relation_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: ARCHI_RELATION_TOOL.to_owned(),
+        description: concat!(
+            "写架构模型的一条关系（关系 upsert / delete）：参数面即关系字段清单，",
+            "工具负责渲染 + 重解析自证 + 回读 ⇒ 坏文本不可产出（任一失败即 Err 且零落盘）。",
+            "落点 = 该关系声明的文件；新增关系落 from 元素所在文件。",
+            "乐观锁：expect 填目标文件当前内容哈希（上一轮响应的 hash 或 archi_module 的 fileHash），",
+            "不匹配即 Err 且不写盘；响应里的 hash 就是写后新值。",
+            "一次只动一条边——同一元素的多条边用 archi_element 的内联 relations，计数用 archi_drift 取"
+        )
+        .to_owned(),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": WriteAction::ALL.map(WriteAction::as_str),
+                    "description": "必填：upsert（建或改）/ delete（删该边，不存在即 Err）"
+                },
+                "from": {
+                    "type": "string",
+                    "maxLength": WRITE_LIMITS.fqn,
+                    "description": "必填：起点元素 FQN（须已在案）"
+                },
+                "to": {
+                    "type": "string",
+                    "maxLength": WRITE_LIMITS.fqn,
+                    "description": "必填：终点元素 FQN（须已在案）"
+                },
+                "desc": {
+                    "type": ["string", "null"],
+                    "maxLength": WRITE_LIMITS.text,
+                    "description": "关系说明：省略 = 不动，null = 清键"
+                },
+                "apis": {
+                    "type": "array",
+                    "maxItems": WRITE_LIMITS.relation_apis,
+                    "items": { "type": "string", "maxLength": WRITE_LIMITS.relation_api },
+                    "description": "关系的 apis（只写名字）：省略 = 不动，[] = 清键"
+                },
+                "expect": {
+                    "type": "string",
+                    "description": "目标文件当前内容哈希（sha256:<hex>）：省略 = 不校验；取上一轮响应的 hash 或 archi_module 的 fileHash"
+                }
+            },
+            "required": ["action", "from", "to"]
         }),
     }
 }

@@ -13,6 +13,7 @@ use agent::AgentRunner;
 
 pub use compose::{compose_turn, ComposedTurn};
 pub use model_catalog::{catalog, CatalogModel, CatalogProtocol, ModelCatalog};
+pub use sdk::atomic::write_atomic;
 pub use sdk::config::EngineConfig;
 pub use sdk::log::{append_engine_log, init_engine_log, install_engine_panic_hook};
 pub use sdk::model_spec::{parse_model_spec, ModelSpec, ModelSpecError};

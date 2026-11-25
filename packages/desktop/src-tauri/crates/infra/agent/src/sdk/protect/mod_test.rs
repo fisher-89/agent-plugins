@@ -1264,3 +1264,157 @@ fn written_paths与保护闸同源() {
         "同一命令被保护闸拒绝（同一提取面）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 本变更：写模型工具的落点判定入口 `evaluate_target`（AC-14）
+// ---------------------------------------------------------------------------
+
+/// 正向（矩阵 2 入口）：用户规则 glob 命中目标路径 ⇒ `Some(拒串)`，且与
+/// `evaluate("write", {path: 同路径})` 的串**逐字相等**（同一规则序、同一 `deny_for`）；
+/// `%s` / `%t` 已替换为路径与 `tool` 实参。
+#[test]
+fn 与write路径判定同串() {
+    let dir = tempdir("target-same-string");
+    let target = dir.path().join("archi-model").join("01-core.toml");
+    let glob = format!("{}/archi-model/**", normalized(dir.path()));
+    let rules = with_rules(vec![user_rule(&glob, Some("架构模型只经写工具"))]);
+
+    for tool in ["archi_element", "archi_relation"] {
+        let by_target = rules
+            .evaluate_target(tool, &target)
+            .unwrap_or_else(|| panic!("{tool} 的目标文件命中用户规则"));
+        let by_evaluate = rules
+            .evaluate(
+                "write",
+                &serde_json::json!({ "path": target.to_string_lossy() }),
+                dir.path(),
+            )
+            .expect("write 路径判定同样命中");
+        assert_eq!(by_target, by_evaluate, "两入口同一规则序与同一拒串");
+        assert!(
+            !by_target.contains("%s") && !by_target.contains("%t"),
+            "拒串占位已替换：{by_target}"
+        );
+        assert!(
+            by_target.contains("架构模型只经写工具"),
+            "拒串含用户 reason：{by_target}"
+        );
+    }
+}
+
+/// 正向（矩阵 2 形态）：内置规则命中 ⇒ 内置拒串（内置在前、首命中即拒）；用户规则与
+/// 内置同时命中 ⇒ 返回内置串（规则序不变）。
+#[test]
+fn 内置优先且首命中即定() {
+    let dir = tempdir("target-builtin-first");
+    let target = layout::config_path(dir.path());
+    let config_glob = format!("{}/{}", normalized(dir.path()), config_relative());
+    let rules = with_rules(vec![user_rule(&config_glob, Some("用户也拦"))]);
+
+    let reason = rules
+        .evaluate_target("archi_element", &target)
+        .expect("内置规则命中配置文件");
+    assert!(
+        reason.contains("配置权威"),
+        "内置拒串在前（用户规则同命中也不改串）：{reason}"
+    );
+}
+
+/// 异常（矩阵 2 形态）：路径不在任何规则内 ⇒ `None`；空规则集 ⇒ `None`
+/// （`with_rules(vec![])` 只留内置规则）。
+#[test]
+fn 未命中放行() {
+    let dir = tempdir("target-pass");
+    let target = dir.path().join("src").join("main.rs");
+    let glob = format!("{}/archi-model/**", normalized(dir.path()));
+    let rules = with_rules(vec![user_rule(&glob, None)]);
+    assert_eq!(rules.evaluate_target("archi_element", &target), None);
+
+    let empty = with_rules(Vec::new());
+    assert_eq!(empty.evaluate_target("archi_relation", &target), None);
+}
+
+/// 边界（矩阵 3 形态）：同一路径的反斜杠形态 / `./` 前缀 / 尾随形式经
+/// `rules::normalize` 后与 `evaluate_path` 同判定（同归一链、同拒串）。
+#[test]
+fn 两入口同归一链() {
+    let dir = tempdir("target-normalize");
+    let glob = format!("{}/archi-model/**", normalized(dir.path()));
+    let rules = with_rules(vec![user_rule(&glob, None)]);
+    let base = format!("{}/archi-model/01-core.toml", normalized(dir.path()));
+
+    // 相对形态：`evaluate_target` 的入参已是绝对路径（落点由 `plan_*` 解析），
+    // 归一链只做分隔符与 `./` 处理——绝对形态与相对形态的差异在归一后消失。
+    let relative_joined = dir.path().join("archi-model/01-core.toml");
+    assert!(
+        rules
+            .evaluate_target("archi_element", &relative_joined)
+            .is_some(),
+        "拼接形态经归一同判"
+    );
+    for shape in [
+        base.clone(),
+        base.replace('/', "\\"),
+        format!("./{base}"),
+        format!("{base}/"),
+    ] {
+        let by_path = rules.evaluate(
+            "edit",
+            &serde_json::json!({ "path": shape.clone() }),
+            dir.path(),
+        );
+        let by_target = rules.evaluate_target("edit", Path::new(&shape));
+        assert_eq!(by_path, by_target, "形态 {shape:?} 两入口同归一链、同拒串");
+    }
+}
+
+/// 边界（矩阵 2 形态）：目标路径不存在于盘 ⇒ 判定照常（不查盘、不 panic）；同一
+/// 规则集连续两次调用同结果。
+#[test]
+fn 判定不查盘() {
+    let dir = tempdir("target-no-io");
+    let glob = format!("{}/absent/**", normalized(dir.path()));
+    let rules = with_rules(vec![user_rule(&glob, None)]);
+    let absent = dir.path().join("absent").join("ghost.toml");
+    assert!(!absent.exists(), "判据用路径刻意不在盘");
+
+    let first = rules.evaluate_target("archi_element", &absent);
+    let second = rules.evaluate_target("archi_element", &absent);
+    assert!(first.is_some(), "不在盘的路径照常命中（判定零 IO）");
+    assert_eq!(first, second, "同一规则集两次调用同结果");
+}
+
+/// 异常：`evaluate` 的三路分派零变化——`write` / `edit` 走路径、`bash` 走命令面、
+/// 其余（含七个 archi 工具名）恒 `None`（写模型工具**不经** `evaluate`）。
+#[test]
+fn evaluate分派逐字不变() {
+    let dir = tempdir("target-dispatch");
+    let target = dir.path().join("archi-model").join("01-core.toml");
+    let glob = format!("{}/archi-model/**", normalized(dir.path()));
+    let rules = with_rules(vec![user_rule(&glob, None)]);
+    let input = serde_json::json!({ "path": target.to_string_lossy(), "command": "echo x" });
+
+    for tool in [
+        "archi_module",
+        "archi_search",
+        "archi_api",
+        "archi_drift",
+        "archi_scaffold",
+        "archi_element",
+        "archi_relation",
+    ] {
+        assert_eq!(
+            rules.evaluate(tool, &input, dir.path()),
+            None,
+            "{tool} 不在 evaluate 的工具名分派内（落点由 evaluate_target 判）"
+        );
+    }
+    assert!(
+        rules.evaluate("write", &input, dir.path()).is_some(),
+        "write 仍走路径判定"
+    );
+    assert!(
+        rules.evaluate("edit", &input, dir.path()).is_some(),
+        "edit 仍走路径判定"
+    );
+}
