@@ -213,7 +213,7 @@ pub(crate) async fn run(
     handle: RunHandle,
 ) -> Vec<Message> {
     let started = Instant::now();
-    let mut usage = Usage::default();
+    let mut usage = TurnUsage::default();
     // 下发面单源：挂载清单按会话注入面组装，RunStarted.tools 与成员校验自同一
     // 清单派生（零第二份名单——定义 / 上报 / 校验三者天然一致）。非法名 `Err`
     // 不静默降级为空工具面（降级会让模型「什么都不能用」而非可归因报错）
@@ -304,7 +304,9 @@ pub(crate) async fn run(
         // 续跑循环：同一 turn_index 内一发再发，直到收口或转为工具执行
         let tool_calls: Vec<ToolCall> = 'continuation: loop {
             // 上下文防线（每次发请求前，第二调用点）
-            history = defend(model, history, &turn.defense, &turn.liveness, &sender).await;
+            let (defended, defense_action) =
+                defend(model, history, &turn.defense, &turn.liveness, &sender).await;
+            history = defended;
             // 系统提示词 = 会话快照正文，逐字进恰一条 System；本模块零文件读取
             let mut chat_history = Vec::with_capacity(history.len() + 1);
             if let Some(preamble) = turn.injections.preamble.as_deref() {
@@ -462,7 +464,14 @@ pub(crate) async fn run(
                     .await;
                 tokio::time::sleep(delay).await;
             };
-            usage += turn_usage;
+            usage.total += turn_usage;
+            if turn_usage.is_reported() {
+                usage.requests.push(request_usage_sample(
+                    turn_index,
+                    &turn_usage,
+                    defense_action,
+                ));
+            }
             if choice.is_empty() {
                 // 空 choice 仍是异常终局（纯拒答 / 网关自造值常回零内容）→
                 // 先于「空轮收敛」处理，否则拒答被当成无话可说的自然结束
@@ -878,7 +887,7 @@ async fn fail_on_abnormal_finish(
     finish_reason: Option<&FinishReason>,
     turn_index: u64,
     started: Instant,
-    usage: &Usage,
+    usage: &TurnUsage,
 ) -> bool {
     let Some((subtype, cause)) = abnormal_finish(finish_reason) else {
         return false;
@@ -958,20 +967,28 @@ fn outcome_result(call: ToolCall, content: String) -> ToolResult {
 /// 降级 `hard_prune` 并以 `fallback:true` 留痕），run 不失败收敛。notice
 /// 消费端关闭时尽力流出（外层续轮的下一发自然退出）。摘要调用带请求相位
 /// 活性预算（悬挂的摘要请求同样会挂起整轮）。
+///
+/// 返回本次防线动作（[`DefenseAction`]）：随下一请求的 usage 样本落库，
+/// 命中率断崖可直接归因到历史改写，不必靠轮级聚合反推。
 async fn defend(
     model: &DynModel<Completion>,
     history: Vec<Message>,
     defense: &ContextDefense,
     liveness: &StreamLiveness,
     sender: &mpsc::Sender<AgentEventKind>,
-) -> Vec<Message> {
+) -> (Vec<Message>, DefenseAction) {
     let (pruned, notices) = context::prune(history, defense);
+    let mut action = if notices.is_empty() {
+        DefenseAction::None
+    } else {
+        DefenseAction::Pruned
+    };
     for notice in &notices {
         forward_notice(sender, notice).await;
     }
     let current = pruned;
     if !defense.over_l3(&current) {
-        return current;
+        return (current, action);
     }
     let before = context::estimate_history(&current);
     match tokio::time::timeout(
@@ -994,7 +1011,8 @@ async fn defend(
                 },
             )
             .await;
-            compacted
+            action = DefenseAction::Compacted;
+            (compacted, action)
         }
         Ok(Err(error)) => {
             append_engine_log(&format!("L3 摘要失败降级硬裁: {error}"));
@@ -1002,7 +1020,7 @@ async fn defend(
             // hard_prune 的 notice 载荷内）
             let (hard, notice) = context::hard_prune(current, defense);
             forward_notice(sender, &notice).await;
-            hard
+            (hard, DefenseAction::Compacted)
         }
         Err(_) => {
             append_engine_log(&format!(
@@ -1011,7 +1029,7 @@ async fn defend(
             ));
             let (hard, notice) = context::hard_prune(current, defense);
             forward_notice(sender, &notice).await;
-            hard
+            (hard, DefenseAction::Compacted)
         }
     }
 }
@@ -1126,12 +1144,66 @@ fn sandbox_rewrite(root: &std::path::Path, name: &str, input: &Value) -> Result<
     Ok(rewritten)
 }
 
+/// 本次请求前防线对历史做过的动作（逐请求 usage 样本的归因标记）：历史被
+/// 改写 ⇒ 缓存前缀自改写点起断崖，该请求必然整段未命中；标记为 `none` 的
+/// 请求若也未命中，成因在别处（缓存 TTL 过期 / 新会话首请求）。resume 重建
+/// 后的首请求由 `context_pruned` notice 先于 `RunStarted` 留痕（轮内零动作，
+/// 样本不重复标记）。
+#[derive(Clone, Copy)]
+enum DefenseAction {
+    None,
+    Pruned,
+    Compacted,
+}
+
+impl DefenseAction {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Pruned => "pruned",
+            Self::Compacted => "compacted",
+        }
+    }
+}
+
+/// 轮级 usage 累计 + 逐请求样本（`TurnDone.usage` 载荷的唯一装配源）。
+///
+/// 累计字段面不变（仍是轮级求和，会话统计按顶层键鸭子求和）；`requests` 为
+/// 观测附加样本，空时不挂键——无用量报告的轮与会话统计口径逐字同形。
+#[derive(Default)]
+struct TurnUsage {
+    total: Usage,
+    requests: Vec<Value>,
+}
+
+/// 逐请求 usage 样本：provider 报告的全部计数字段原样 + 轮序号 + 防线动作。
+fn request_usage_sample(turn_index: u64, usage: &Usage, defense: DefenseAction) -> Value {
+    let mut sample =
+        serde_json::to_value(usage).unwrap_or_else(|_| Value::Object(Default::default()));
+    if let Value::Object(map) = &mut sample {
+        map.insert("turn_index".to_owned(), Value::from(turn_index));
+        map.insert("defense".to_owned(), Value::from(defense.as_str()));
+    }
+    sample
+}
+
+/// `TurnDone.usage` 载荷：轮级累计字段原样 + 非空的逐请求样本数组。
+fn usage_payload(total: &Usage, requests: &[Value]) -> Value {
+    let mut payload = serde_json::to_value(total).unwrap_or(Value::Null);
+    if !requests.is_empty() {
+        if let Value::Object(map) = &mut payload {
+            map.insert("requests".to_owned(), Value::Array(requests.to_vec()));
+        }
+    }
+    payload
+}
+
 /// 正常收敛：发送 `TurnDone{is_error:false}`（usage 有值才填，缺失置 null）。
 async fn finish_success(
     sender: &mpsc::Sender<AgentEventKind>,
     turns: u64,
     started: Instant,
-    usage: &Usage,
+    usage: &TurnUsage,
     turn: &LoopTurn,
 ) {
     finish(
@@ -1154,7 +1226,7 @@ async fn finish_error(
     sender: &mpsc::Sender<AgentEventKind>,
     turns: u64,
     started: Instant,
-    usage: &Usage,
+    usage: &TurnUsage,
     turn: &LoopTurn,
     result_subtype: &str,
     cause: String,
@@ -1189,7 +1261,7 @@ async fn finish(
     subtype: &str,
     turns: Option<u64>,
     started: Instant,
-    usage: &Usage,
+    usage: &TurnUsage,
     turn: &LoopTurn,
 ) {
     let kind = AgentEventKind::TurnDone {
@@ -1198,8 +1270,8 @@ async fn finish(
         num_turns: turns,
         duration_ms: Some(started.elapsed().as_millis() as u64),
         cost_usd: None,
-        usage: if usage.is_reported() {
-            serde_json::to_value(usage).unwrap_or(Value::Null)
+        usage: if usage.total.is_reported() {
+            usage_payload(&usage.total, &usage.requests)
         } else {
             Value::Null
         },

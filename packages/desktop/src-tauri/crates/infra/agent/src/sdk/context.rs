@@ -24,8 +24,16 @@ const MAX_DEFENSE_WINDOW: u64 = 400 * 1024;
 const DEFENSE_WINDOW_RATIO_NUM: u64 = 3;
 const DEFENSE_WINDOW_RATIO_DEN: u64 = 5;
 
+/// L2 目标位占触发位的比例（3/5）：过线后一次剪到目标位，迟滞带宽 = 触发位
+/// 的 40%（[1m] 档 ≈ 123k tokens ≈ 百请求量级的增长）。只剪到「刚压线」会让
+/// 数个请求后再次触发——每次剪裁都从首轮对起改写，缓存前缀断崖导致整段
+/// 未命中，成本远高于多保留一段历史。
+const L2_TARGET_RATIO_NUM: u64 = 3;
+const L2_TARGET_RATIO_DEN: u64 = 5;
+
 /// 防线配置（引擎内部，不入 core 契约）：窗长 + 触发比（L2 75% / L3 90%，
-/// 由窗长导出）+ 保护窗 + 单结果 prune 门槛。
+/// 由窗长导出）+ L2 目标位（触发位的 60%，迟滞下半边）+ 保护窗 + 单结果
+/// prune 门槛。
 pub(crate) struct ContextDefense {
     /// 上下文窗长（token 数；来源优先级：该档模型名 `[1m]` 后缀 > provider
     /// `context_length` > 128K 缺省启发式——后缀 / 填列的解析在调用点完成，
@@ -44,8 +52,8 @@ pub(crate) struct ContextDefense {
 
 impl ContextDefense {
     /// 窗长解析：provider `context_length` 缺席（或非法 0）走 128K 缺省；
-    /// 触发比 75% / 90% 与保护窗 40k、prune 门槛 8k 为 design 拍板定值
-    /// （阈值常数留实现期微调窗，结构不动）。
+    /// 触发比 75% / 90%、L2 目标位（触发位的 60%）与保护窗 40k、prune 门槛
+    /// 8k 为 design 拍板定值（阈值常数留实现期微调窗，结构不动）。
     ///
     /// `context_window` 是**标称**窗长，水位推导一律经 [`Self::window`]
     /// 取折算后的防线窗长（标称值本身不参与任何判定）。
@@ -79,6 +87,16 @@ impl ContextDefense {
         self.effective_window().saturating_mul(3) / 4
     }
 
+    /// L2 目标水位：触发位的 60%（迟滞下半边）——过线后一次剪到此位，而非
+    /// 「刚压线」；否则数个请求后又触发，每次都整段重读缓存前缀。
+    ///
+    /// 小窗长档（如 128K 缺省）目标位可能低于保护窗（40k）——此时保护窗
+    /// 地板先于目标生效，行为退化为「剪到保护窗外全丢」，迟滞带宽归零；
+    /// 这是小窗下的既有取舍（地板不可越过），不另设下限。
+    fn l2_target(&self) -> u64 {
+        self.l2_threshold().saturating_mul(L2_TARGET_RATIO_NUM) / L2_TARGET_RATIO_DEN
+    }
+
     /// L3 触发水位：防线窗长 90%——prune 后仍过线即 LLM compaction。
     fn l3_threshold(&self) -> u64 {
         self.effective_window().saturating_mul(9) / 10
@@ -87,6 +105,11 @@ impl ContextDefense {
     /// L2 触发判定：估算水位过 75% 窗长。
     pub(crate) fn over_l2(&self, history: &[Message]) -> bool {
         estimate_history(history) > self.l2_threshold()
+    }
+
+    /// L2 目标位判定：剪裁循环的停止条件（迟滞下半边）。
+    fn over_l2_target(&self, history: &[Message]) -> bool {
+        estimate_history(history) > self.l2_target()
     }
 
     /// L3 触发判定：估算水位过 90% 窗长。
@@ -127,8 +150,11 @@ pub(crate) fn estimate_history(history: &[Message]) -> u64 {
 
 /// L2 确定性剪裁：未过 L2 水位零动作；过线先占位符替换保护窗外单体超门槛的
 /// 老 tool_result（配对完整），不够再丢最老完整轮对（assistant 起至下一
-/// assistant 前的完整交换段，恒保首条 user），孤儿配对清扫兜底。有裁才产
-/// `context_pruned` notice（before / after 为估算 tokens，layer = "l2"）。
+/// assistant 前的完整交换段，恒保首条 user），直到回落至**目标水位**（触发位
+/// 的 60%）而非刚压线——迟滞带宽把剪裁频率压到百请求量级，避免每个请求都
+/// 整段重读缓存前缀；保护窗 + 首条 user 为地板（目标不可达时止于地板）。
+/// 有裁才产 `context_pruned` notice（before / after / target 为估算 tokens，
+/// layer = "l2"）。
 pub(crate) fn prune(
     history: Vec<Message>,
     defense: &ContextDefense,
@@ -140,8 +166,8 @@ pub(crate) fn prune(
     let protected = protected_start(&history, defense);
     // 第一层：超大老工具结果占位符替换（密度不可恢复前的确定性卸载）
     let mut current = replace_oversized_results(history, defense, protected);
-    // 第二层：仍过水位则丢最老完整轮对（配对结构完整优先于历史完整）
-    while defense.over_l2(&current) {
+    // 第二层：仍过目标位则丢最老完整轮对（配对结构完整优先于历史完整）
+    while defense.over_l2_target(&current) {
         match oldest_unit_range(&current, protected_start(&current, defense)) {
             Some((start, end)) => {
                 current.drain(start..end);
@@ -154,7 +180,12 @@ pub(crate) fn prune(
     let notices = if after < before {
         vec![DefenseNotice {
             subtype: "context_pruned".to_owned(),
-            payload: serde_json::json!({ "before": before, "after": after, "layer": "l2" }),
+            payload: serde_json::json!({
+                "before": before,
+                "after": after,
+                "target": defense.l2_target(),
+                "layer": "l2"
+            }),
         }]
     } else {
         Vec::new()

@@ -1207,6 +1207,21 @@ async fn turn_done组装唯一口径_cost恒none_session_id收口_usage承接fin
     );
     assert_eq!(done_usage["output_tokens"], serde_json::json!(22));
     assert_eq!(
+        done_usage["requests"],
+        serde_json::json!([{
+            "turn_index": 1,
+            "defense": "none",
+            "input_tokens": 11,
+            "output_tokens": 22,
+            "total_tokens": 33,
+            "cached_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "tool_use_prompt_tokens": 0,
+            "reasoning_tokens": 0,
+        }]),
+        "逐请求 usage 样本随 TurnDone 落库（命中率归因面）"
+    );
+    assert_eq!(
         session_id.as_deref(),
         Some("sdk-test-0"),
         "sessionId 收口（引擎侧标识上报）"
@@ -2113,12 +2128,12 @@ fn loop源文件零文件读取字样且cwd三处在场() {
 async fn 小窗防线超水位假史_l2剪裁context_pruned流出且正常收敛() {
     let dir = tempdir("l2-prune");
     let model = FakeModel::with_turns(vec![vec![raw_text("完成"), raw_final(usage(2, 2))]]);
-    // 窗长 65_536：L2 水位 49_152（假史约 75k 过线剪裁）、L3 水位 58_982
-    // （剪裁后约 50k 不过线）——隔离 L2 单层可考
+    // 标称窗 100_000 → 生效窗 60_000 → L2 水位 45_000 / L3 水位 54_000
+    // （假史约 75k 过 L2；首层占位符替换后约 50k 落到 L3 下——隔离 L2 单层可考）
     let turn = loop_turn_with_defense(
         dir.path(),
         AgentPermissionMode::BypassPermissions,
-        ContextDefense::resolve(Some(65_536)),
+        ContextDefense::resolve(Some(100_000)),
     );
 
     let events = drive_loop_with_history(model, turn, oversized_seed_history()).await;
@@ -2140,15 +2155,23 @@ async fn 小窗防线超水位假史_l2剪裁context_pruned流出且正常收敛
         "剪裁有效减重"
     );
 
-    // run 不受防线影响：正常收敛
+    // run 不受防线影响：正常收敛；下一请求的 usage 样本带剪裁标记
     let AgentEventKind::TurnDone {
-        subtype, is_error, ..
+        subtype,
+        is_error,
+        usage: done_usage,
+        ..
     } = turn_done_of(&events)
     else {
         panic!("应为 TurnDone");
     };
     assert_eq!(subtype, "success");
     assert!(!*is_error);
+    assert_eq!(
+        done_usage["requests"][0]["defense"],
+        serde_json::json!("pruned"),
+        "剪裁请求的样本标记（命中率断崖可归因）"
+    );
 }
 
 #[tokio::test]
@@ -8857,6 +8880,11 @@ async fn turn_done收口形态不因自检改变() {
         "usage 按轮累加（3 + 4）"
     );
     assert_eq!(done_usage["output_tokens"], serde_json::json!(7));
+    assert_eq!(
+        done_usage["requests"].as_array().map(Vec::len),
+        Some(2),
+        "两请求各一条 usage 样本"
+    );
 
     // 失败行：api_error → usage 无统计记录即缺省 null，其余四字段逐字。
     let dir = tempdir("preclose-done-shape-failure");

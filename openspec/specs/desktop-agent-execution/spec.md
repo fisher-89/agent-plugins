@@ -560,9 +560,9 @@ SDK 引擎 SHALL 对**喂 provider 的请求史**（非 store 转录）实施两
 
 - **窗长来源**：优先级 SHALL 为「该档模型名 `[1m]` 后缀 > provider 可空 `context_length` 列（desktop-agent-management）> 128K 缺省启发式」，且 SHALL 按档（`high` / `low`）独立解析（见「SDK 引擎模型名 `[1m]` 后缀与输出上限定档」）；后缀在场时 `context_length` 被覆盖（MUST NOT 叠加或取小值）；同一标称窗长 SHALL 同时供防线装配与输出上限分档推导（单点取值，MUST NOT 造第二条解析链）；`EngineFacade::with_context_window` 签名不变（语义降为「缺省来源」）；token 估算 SHALL 用 UTF-8 字节启发式（rig-memory `HeuristicTokenCounter` 同款，中文重载比英文经验值准）
 - **防线窗长折算（成本护栏）**：水位推导 SHALL 使用**生效窗长** = 标称窗长 × 60% 与 400k 取小——模型标称窗长再大，L2 / L3 水位 MUST NOT 随之抬到 1M。理由是请求史每轮整段重发，上下文体积是缓存命中 token 量的唯一乘数；`[1m]` 后缀自此只影响 anthropic beta 头与请求可达上限，MUST NOT 同时把防线水位抬到防线永不触发。泵启动日志的 `window=` SHALL 报生效窗长（调用方不重算）
-- **L2 确定性剪裁**（请求前跑，两个调用点：resume 转录重建之后 + loop 每次发请求前）：先 prune 老工具结果——老 tool_result 内容替换为占位符，tool_use / tool_result 配对结构完整，保护最近窗口（40k 保护窗 / 8k prune 门槛）；不够再丢最老完整轮对（rig-memory 算法 + 孤儿配对清理兜底）。**SHALL 保首条 user**（phase agent 首条 user 即任务书）
+- **L2 确定性剪裁**（请求前跑，两个调用点：resume 转录重建之后 + loop 每次发请求前）：先 prune 老工具结果——老 tool_result 内容替换为占位符，tool_use / tool_result 配对结构完整，保护最近窗口（40k 保护窗 / 8k prune 门槛）；不够再丢最老完整轮对（rig-memory 算法 + 孤儿配对清理兜底），直到回落至**目标水位**（触发位的 60%，迟滞带宽 = 触发位的 40%）。只剪到「刚压线」会让数个请求后再次触发，而每次剪裁都从首轮对起改写历史、缓存前缀断崖导致整段未命中——迟滞把剪裁频率压到百请求量级。**保护窗 + 首条 user 为地板**（目标不可达时止于地板；小窗长档目标位可能低于保护窗，迟滞带宽归零属既有取舍）。**SHALL 保首条 user**（phase agent 首条 user 即任务书）
 - **L3 LLM compaction**：剪裁后水位仍升 → 以当前 model 自摘要老历史，新史 = `[摘要, 首条 user, 最近轮对]`；摘要要点集含关键技术决策**及其原因**（参考 opencode）；compaction 失败 SHALL 降级为 L2 硬裁 + SystemNotice 留痕，**MUST NOT 打断 run**（phase agent 场景宁可丢密度不能丢收敛，比 codex 指数退避保守）
-- **可观测**：剪裁与压缩 SHALL 发 `SystemNotice{subtype:"context_pruned"|"context_compacted", payload:{before, after, layer}}`（subtype 开放词典现成）
+- **可观测**：剪裁与压缩 SHALL 发 `SystemNotice{subtype:"context_pruned"|"context_compacted", payload:{before, after, target, layer}}`（subtype 开放词典现成；`target` 仅 L2 携带）。`TurnDone.usage` SHALL 附**逐请求样本** `requests: [{turn_index, defense, …usage 计数字段}]`（`defense ∈ none|pruned|compacted`，标记该请求前防线是否改写历史）——命中率断崖可直接归因到剪裁 / 压缩，不必靠轮级聚合反推；累计计数字段面不变（会话统计仍按顶层键鸭子求和），无用量报告的轮不挂 `requests` 键
 - **不变量**：store 转录**永远全量**——剪裁/压缩只作用于请求史，重放 / 审计 / resume 重建源不受影响；「转录无上限增长」既有边界留痕不变
 - **极限场景留痕**：首条 user 单块自身超窗（巨型 phase prompt + 小窗模型）与单轮即超窗，L1-L3 不覆盖，归 L4 兜底 + 错误细分
 
@@ -570,6 +570,11 @@ SDK 引擎 SHALL 对**喂 provider 的请求史**（非 store 转录）实施两
 
 - **WHEN** 历史含多轮大型工具结果且估算水位过 L2 阈值
 - **THEN** 发请求前老 tool_result 被替换为占位符（配对完整、最近窗口保护、首条 user 在场），`SystemNotice{context_pruned}` 流出，store 转录仍全量
+
+#### Scenario: 过 L2 一次剪到目标水位（迟滞）
+
+- **WHEN** 历史估算水位过 L2 触发位（窗长 75%）且占位符替换后仍过目标位
+- **THEN** 丢最老完整轮对直到回落至**目标水位**（触发位的 60%），而非停在触发位下沿——迟滞带宽避免后续请求反复触发剪裁、每次整段重读缓存前缀；保护窗 + 首条 user 仍为地板（目标不可达时止于地板），`context_pruned` 载荷携 `target`
 
 #### Scenario: compaction 摘要收窄
 
@@ -599,7 +604,7 @@ SDK 引擎 SHALL 对**喂 provider 的请求史**（非 store 转录）实施两
 #### Scenario: 大窗长不抬水位
 
 - **WHEN** 该档模型名带 `[1m]` 后缀（标称窗 1M）而请求史约 500k tokens
-- **THEN** 防线按生效窗长 400k 推导水位（L2 = 300k），该史已过线并被剪裁——1M 标称窗 MUST NOT 使防线在全库典型上下文体积下永不触发
+- **THEN** 防线按生效窗长 400k 推导水位（L2 ≈ 307k = 409,600 × 75%），该史已过线并被剪裁——1M 标称窗 MUST NOT 使防线在全库典型上下文体积下永不触发
 
 ### Requirement: SDK 引擎静态权限与路径沙箱
 
@@ -1692,7 +1697,7 @@ SDK 引擎 SHALL 消费 provider 记录的 `efforts{high, low}`，把「同一�
 | `crates/infra/agent/src/sdk/preamble.rs` | 系统提示词快照合成（**行替换**：原「起播前读 + 每轮重读」表述退役） | `load(root)` 读取 + 32KB char 边界截断 + `<agent_md>` 包装（签名与口径零改动，调用方由引擎改为组合根）；`freeze(knowledge, agent_md)` 合成单点（知识 → 空行 → `AGENT.md` 段，空段跳过、全空 → 空串）；零 core 改动 |
 | `crates/infra/agent/src/sdk/tools.rs` + `bash.rs` | 七工具面与质量 | `TOOL_NAMES` 七项；read 截断 + offset 翻页 + >100KB 无分页参数时前 100 行预览；grep 正则 + 上下文行；全工具单结果字节上限（`MAX_RESULT_BYTES` 50KB）；bash `tokio::process` + git-bash 探测 / `cmd /C` 兜底 / unix `sh -c`；`kill_on_drop` + `taskkill /T /F` 形状清理；超时活性护栏（缺省 120s、范围校验 [1s, 30min]，越界显式拒绝） |
 | `crates/infra/agent/src/sdk/policy.rs` | 三档决策表（bash 分化） | bash：Default 拒、AcceptEdits / Bypass 放；AcceptEdits ≠ Bypass 首次真实分化锁定测试 |
-| `crates/infra/agent/src/sdk/{context,compact}.rs` | L2 / L3 防线 | 标称窗长 = 该档模型名 `[1m]` 后缀 > provider `context_length` > 128K 启发式（按档独立）；生效窗长 = 标称 × 60% 与 400k 取小（水位一律据此推导）；字节启发式 token 估算（bytes ÷ 4）；prune 占位符（8k 门槛）+ 轮对裁剪 + 保首条 user；LLM compaction（失败降级硬裁，run 不中断）；`context_pruned` / `context_compacted` SystemNotice；调用点 = resume 重建后 + 每请求前；store 转录全量不变 |
+| `crates/infra/agent/src/sdk/{context,compact}.rs` | L2 / L3 防线 | 标称窗长 = 该档模型名 `[1m]` 后缀 > provider `context_length` > 128K 启发式（按档独立）；生效窗长 = 标称 × 60% 与 400k 取小（水位一律据此推导）；字节启发式 token 估算（bytes ÷ 4）；prune 占位符（8k 门槛）+ 轮对裁剪（迟滞：剪到触发位 60% 目标，保护窗 + 首条 user 为地板）+ 保首条 user；LLM compaction（失败降级硬裁，run 不中断）；`context_pruned` / `context_compacted` SystemNotice；`TurnDone.usage.requests` 逐请求样本（`defense` 归因）；调用点 = resume 重建后 + 每请求前；store 转录全量不变 |
 | `crates/infra/agent/src/sdk/reasoning.rs`（新） | 思考块投影与回放 | `ISSUER = "anthropic"`；`project(&Sealed<Reasoning>) -> Vec<AgentBlock>`（逐载荷成块，不拼接）；`replay(thinking, signature, redacted) -> Option<AssistantContent>`（凭证即回放权，redacted 优先）；`strip_all(history)` 跨轮剔除（重建史入口单点，滤空消息原样保留防空白消息）；`without_reasoning(message)` 单条剔除口径（摘要转录用） |
 | `crates/infra/agent/src/sdk/blocks.rs`（新） | 密封块双向分派 | `project_choice` / `assistant_content` / `user_content` 三入口；与增量层 `normalize` 对称——遍历与变体分派单点，域模块只持 wire 原语 |
 | `crates/infra/agent/src/sdk/resume.rs` | 重建与思考回放口径 | `assistant_content` 带凭证的 `Thinking` 块经 `reasoning::replay` 回放；跨轮剔除不在重建侧（`runner::open_session` 重建后以 `reasoning::strip_all` 单点执行） |

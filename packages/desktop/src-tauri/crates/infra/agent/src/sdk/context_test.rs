@@ -17,6 +17,11 @@ fn l2_threshold_of(window: u64) -> u64 {
     window * 3 / 4
 }
 
+/// L2 目标水位 tokens（触发位 × 3/5，与实现推导式同源）。
+fn l2_target_of(window: u64) -> u64 {
+    l2_threshold_of(window) * 3 / 5
+}
+
 /// 小窗防线：标称窗 107 → 生效窗 64（×60% 取整）→ L2 水位 48 tokens。
 /// 少 tokens 即触线的测试底座（标称值按 60% 折算口径反推）。
 fn defense_small() -> ContextDefense {
@@ -348,9 +353,10 @@ fn prune保护窗内超门槛工具结果不裁() {
 }
 
 #[test]
-fn prune占位不够时丢最老完整轮对且次老保留() {
+fn prune占位不够时丢轮对直到目标位或地板() {
     // [首条 user, 老轮对(assistant+超大 tool_result), 大块 filler, 次老 assistant]
-    // → 占位替换后估算仍超水位 → 最老完整轮对整段移除，次老轮对保留
+    // → 占位替换后估算仍超触发水位 → 连续丢完整轮对；小窗下目标位（28）低于
+    // 保护窗，「次老」不再天然保留——循环丢到无可丢轮对（首条 user 地板）为止。
     let history = vec![
         Message::user("任务书"),
         assistant_with_call("tu_old"),
@@ -376,12 +382,10 @@ fn prune占位不够时丢最老完整轮对且次老保留() {
         !tool_call_ids(&pruned).contains(&"tu_old".to_owned()),
         "老轮对 tool_use 随段移除"
     );
-    // 次老轮对保留 + 首条 user 保全
-    assert_eq!(pruned[0], Message::user("任务书"), "首条 user 恒在场");
     assert_eq!(
-        pruned.last(),
-        Some(&Message::assistant("次老轮对的回应")),
-        "次老轮对保留"
+        pruned,
+        vec![Message::user("任务书")],
+        "小窗目标不可达：丢到首条 user 地板"
     );
     assert_eq!(notices.len(), 1, "轮对移除产出 notice");
 }
@@ -411,6 +415,88 @@ fn prune任意剪裁强度下首条user恒在场() {
         Some(&Message::user("任务书 🎉")),
         "硬裁强度下首条 user 原样（phase agent 任务书保全）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// prune 迟滞：过线一次剪到目标位（而非刚压线）；保护窗地板优先于目标
+// ---------------------------------------------------------------------------
+
+/// N 个 7k tokens 的轮对（单结果低于 8k prune 门槛，第一层占位符不接手；
+/// 每个轮对本身体量一致，便于断言「丢到目标位」的深度）。
+fn many_small_units_history(units: usize) -> Vec<Message> {
+    let mut history = vec![Message::user("任务书")];
+    for index in 0..units {
+        let call = format!("tu_{index}");
+        history.push(assistant_with_call(&call));
+        history.push(tool_result_at_tokens(&call, 7_000));
+    }
+    history
+}
+
+#[test]
+fn prune过l2一次剪到目标水位而非刚压线() {
+    // 200K 标称窗 → 生效窗 120_000 → L2 90_000 / 目标位 54_000。
+    let defense = ContextDefense::resolve(Some(200_000));
+    let target = l2_target_of(defense.window());
+    let history = many_small_units_history(15);
+    let before = estimate_history(&history);
+    assert!(
+        before > l2_threshold_of(defense.window()),
+        "基座前置：过 L2 水位 ({before})"
+    );
+
+    let (pruned, notices) = prune(history, &defense);
+
+    let after = estimate_history(&pruned);
+    assert!(
+        after <= target,
+        "一次剪到目标水位（after={after} target={target}）"
+    );
+    assert_eq!(
+        pruned[0],
+        Message::user("任务书"),
+        "首条 user 恒在场（迟滞不破地板）"
+    );
+    // 深裁证据：第 5 个轮对在「刚压线」行为下必然保留，目标位剪裁应移除
+    assert!(
+        tool_result_text(&pruned, "tu_4").is_none(),
+        "目标位剪裁移除多轮对"
+    );
+    assert!(
+        tool_result_text(&pruned, "tu_14").is_some(),
+        "保护窗内最近轮对保留"
+    );
+    assert_eq!(notices.len(), 1, "有裁才有 notice");
+    assert_eq!(
+        notices[0].payload["target"],
+        json!(target),
+        "notice 携目标水位"
+    );
+    assert_eq!(notices[0].payload["after"], json!(after));
+}
+
+#[test]
+fn prune目标位低于保护窗时止于地板且再剪零动作() {
+    // 小窗：L2 48 / 目标位 28，均低于 40k 保护窗——目标不可达，剪裁止于
+    // 「首条 user + 保护窗」地板；地板态再剪零动作（幂等）。
+    let defense = defense_small();
+    let target = l2_target_of(defense.window());
+    let mut history = many_small_units_history(4);
+    history.push(user_at_tokens(50_000));
+
+    let (pruned, notices) = prune(history, &defense);
+
+    let after = estimate_history(&pruned);
+    assert!(
+        after > target,
+        "保护窗地板高于目标位（after={after} target={target}）"
+    );
+    assert_eq!(pruned[0], Message::user("任务书"), "首条 user 恒在场");
+    assert_eq!(notices.len(), 1, "有裁才有 notice");
+
+    let (again, notices) = prune(pruned.clone(), &defense);
+    assert!(notices.is_empty(), "地板态再剪零动作");
+    assert_eq!(again, pruned, "地板态再剪史不变");
 }
 
 #[test]
