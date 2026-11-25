@@ -164,7 +164,7 @@ App SHALL 提供 workspace 选择与恢复能力：
 
 前端 SHALL 以 React + TS 实现，取数收在 hooks（`useChangeList` / `useChangeDetail` / `useWorkspaces`）内：由用户显式刷新动作触发 invoke；`useWorkspaces` 为唯一例外——启动时自动触发一次以支撑自动恢复，此后仍由用户动作触发。MUST NOT 实现文件 watch、后台轮询或事件订阅。例外（desktop-agent-execution）：agent 调试页的运行事件经 Tauri Channel 实时订阅——该订阅属执行流通道（`agent_start` 命令作用域流），不属于查询取数模型；agent 域查询取数（历史 run 列表 / 事件重放）仍由用户显式动作触发 invoke。例外（desktop-notification-hub）：壳层的通知收件箱经 Tauri Channel 订阅后端通知事件的实时增量（并取回初值未读计数）——该订阅同属执行流通道（与 agent 执行流同列，且与 change run 的变更通知通道分属不同驱动源），不是查询取数；其时序、初值、失败面与过滤口径归该能力持有，本条只登记例外存在；该例外 MUST NOT 被读作放开后台轮询，通知列表仍由抽屉打开时的显式 invoke 拉取。刷新 SHALL 覆盖两个层级：workspace 级（重取列表）与 change 级（重取当前详情）。未来替换为推送时 SHALL 仅改动 hooks 内部实现，视图层不感知取数方式。
 
-视图 SHALL 至少呈现：change 列表（代际标注、按月分组）、phase 流水线（attempt / verdict / checklist 展开）、经 renderer 注册表渲染的产物区（含 markdown 文档与 tasks 进度）、workspace 清单（sidebar 侧栏）、Agent 调试页（事件时间线）。列表刷新入口 SHALL 位于清单页（`ChangeListView`）头部并保留 `disabled={loading}` 语义，MUST NOT 回迁 header。
+视图 SHALL 至少呈现：change 列表（代际标注、按月分组）、phase 流水线（attempt / verdict）、经 renderer 注册表渲染的产物区（含 markdown 文档与 tasks 进度）、workspace 清单（sidebar 侧栏）、Agent 调试页（事件时间线）。列表刷新入口 SHALL 位于清单页（`ChangeListView`）头部并保留 `disabled={loading}` 语义，MUST NOT 回迁 header。
 
 #### Scenario: 刷新按钮触发重取
 

@@ -318,9 +318,6 @@ fn 读命令id透传_列表详情产物与core查询serde等值且归档条目�
     let location =
         core_queries::locate_change(&layout, record.worktree.as_deref(), record.name.as_str())
             .expect("记录供给定位应命中");
-    let phases = store
-        .list_phase_records("seeded-active")
-        .expect("相位史应成功");
     let via_artifact = read_artifact(
         state.clone(),
         root.clone(),
@@ -330,7 +327,7 @@ fn 读命令id透传_列表详情产物与core查询serde等值且归档条目�
     )
     .expect("产物读取应 Some");
     let via_core_artifact =
-        workflow::artifacts::read_artifact(&location.dir, &phases, "tasks-progress", "tasks.md")
+        workflow::artifacts::read_artifact(&location.dir, "tasks-progress", "tasks.md")
             .expect("core 产物读取应 Some");
     assert_eq!(
         serde_json::to_value(&via_artifact).expect("命令结果序列化失败"),

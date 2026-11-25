@@ -1645,25 +1645,9 @@ const PROPOSAL_DESCRIPTOR: ArtifactDescriptor = {
   phase: 'proposal',
 };
 
-/** 清单信封 fixture 的清单归属相位（checklist 挂列头按 payload.phase）。 */
-const CHECKLIST_DESCRIPTOR: ArtifactDescriptor = {
-  kind: 'eval-checklist',
-  source: 'phases/proposal/attempt-1.md',
-  title: '评估清单',
-  phase: 'proposal',
-};
-
 /** session_detail 调用清单（抽屉转录重查的观察锚）。 */
 function sessionDetailCalls(): unknown[][] {
   return invokeMock.mock.calls.filter(([name]) => name === 'session_detail');
-}
-
-function checklistEnvelope(): ArtifactEnvelope {
-  return envelope({
-    kind: 'eval-checklist',
-    title: '评估清单',
-    payload: { phase: 'proposal', attempt: 1, verdict: 'pass', items: [] },
-  });
 }
 
 /** 运行步节点行 fixture（统一查询活面步表行）。 */
@@ -1690,18 +1674,17 @@ describe('ChangeDetailView：素材挂载两参与 memo 依赖收窄（AC-4 / D6
     vi.mocked(mountMaterials).mockClear();
   });
 
-  it('正向：mountMaterials 两参调用（detail + artifacts，无 graph 位置）→ 文档归列与 eval-checklist 挂列头照常', async () => {
+  it('正向：mountMaterials 两参调用（detail + artifacts，无 graph 位置）→ 文档归列照常', async () => {
     const spy = vi.mocked(mountMaterials);
-    const artifacts = [proposalDoc(), checklistEnvelope()];
+    const artifacts = [proposalDoc()];
     renderDetail({
-      detail: detail({ artifacts: [PROPOSAL_DESCRIPTOR, CHECKLIST_DESCRIPTOR] }),
+      detail: detail({ artifacts: [PROPOSAL_DESCRIPTOR] }),
       artifacts: {
         'markdown-doc:proposal.md': proposalDoc(),
-        'eval-checklist:phases/proposal/attempt-1.md': checklistEnvelope(),
       },
     });
     await screen.findByTestId('flow-graph');
-    await waitFor(() => expect(screen.getByTestId('column-docs').textContent).toBe('2 份文档'));
+    await waitFor(() => expect(screen.getByTestId('column-docs').textContent).toBe('1 份文档'));
 
     // 调用形态：恰两参（graph 位置缺席——挂载层不再接收图）
     expect(spy.mock.calls.length).toBeGreaterThan(0);
@@ -1710,7 +1693,7 @@ describe('ChangeDetailView：素材挂载两参与 memo 依赖收窄（AC-4 / D6
       expect(call[0]).toMatchObject({ id: CHANGE_ID });
       expect(call[1]).toEqual(expect.any(Array));
     }
-    // 真实组合产出：proposal 列头挂文档 + 清单两条（列头徽章计数为运行时证据）
+    // 真实组合产出：proposal 列头挂文档一条（列头徽章计数为运行时证据）
     const lastCall = spy.mock.calls[spy.mock.calls.length - 1];
     expect(lastCall[1]).toHaveLength(artifacts.length);
     fireEvent.click(screen.getAllByTestId('flow-column')[0]);

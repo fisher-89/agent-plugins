@@ -317,7 +317,7 @@ pub fn change_detail(
     let manifest = table;
     let artifacts = location
         .as_ref()
-        .map(|location| discover_artifacts(&location.dir, &entries, manifest))
+        .map(|location| discover_artifacts(&location.dir, manifest))
         .unwrap_or_default();
     // source：定位命中随定位；定位 miss 自 record.status 映射（状态面在的
     // 呈现形态——worktree 被删 / 未 merge 的建档记录）

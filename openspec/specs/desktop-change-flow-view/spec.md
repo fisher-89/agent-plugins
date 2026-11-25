@@ -48,7 +48,7 @@ change 详情页 SHALL 以 react-flow 流程图承载执行史，节点模型 SH
 
 ### Requirement: 10 列手工坐标布局
 
-布局 SHALL 采用手工坐标，MUST NOT 引入 dagre / elk 等自动布局引擎：`x = colIndex × COL_W`（`colIndex` = 该 phase 在 `detail.pipeline` 出线序中的下标，列总数 = 该 change `workflow_type` 相位表长度：requirement 10 列、test-only 7 列；未走过的站呈现空列），`y = 列内执行序 × ROW_H`。同 phase 的全部 step 节点 SHALL 纵向对齐成一列。phase 列 SHALL 以 react-flow v12 subflow 承载（`parentId` + `extent: 'parent'`），列头展示 phase 名与该站过程文档徽章（含 eval-checklist 素材，见「过程素材挂载规则」）。前端 `layout.ts` 的 `PIPELINE_PHASES` 常量 SHALL 退役（列序由 `detail.pipeline.map(p => p.phase)` 出线承载，MUST NOT 前端自持静态相位序）。COL_W / ROW_H 常量取值由 design 定夺。视口 SHALL 默认 100% 缩放（MUST NOT 初始 fitView 适配），滚轮 SHALL 平移画布，显式刷新重绘时 SHALL 保留当前视口。
+布局 SHALL 采用手工坐标，MUST NOT 引入 dagre / elk 等自动布局引擎：`x = colIndex × COL_W`（`colIndex` = 该 phase 在 `detail.pipeline` 出线序中的下标，列总数 = 该 change `workflow_type` 相位表长度：requirement 10 列、test-only 7 列；未走过的站呈现空列），`y = 列内执行序 × ROW_H`。同 phase 的全部 step 节点 SHALL 纵向对齐成一列。phase 列 SHALL 以 react-flow v12 subflow 承载（`parentId` + `extent: 'parent'`），列头展示 phase 名与该站过程文档徽章（见「过程素材挂载规则」）。前端 `layout.ts` 的 `PIPELINE_PHASES` 常量 SHALL 退役（列序由 `detail.pipeline.map(p => p.phase)` 出线承载，MUST NOT 前端自持静态相位序）。COL_W / ROW_H 常量取值由 design 定夺。视口 SHALL 默认 100% 缩放（MUST NOT 初始 fitView 适配），滚轮 SHALL 平移画布，显式刷新重绘时 SHALL 保留当前视口。
 
 #### Scenario: 列对齐与空列随 workflow_type 恒定
 
@@ -100,10 +100,9 @@ change 详情页 SHALL 以 react-flow 流程图承载执行史，节点模型 SH
 
 ### Requirement: 过程素材挂载规则
 
-素材挂载 SHALL 为**单层：文档挂列**（列头承载该站全部过程素材，含过程文档与 eval-checklist 信封）。
+素材挂载 SHALL 为**单层：文档挂列**（列头承载该站全部过程文档）。
 
 - 过程文档（`artifacts` 中 `markdown-doc` / `tasks-progress` 类）SHALL 经 **后端 phase 清单归属**挂到 phase 列（列头徽章，每站一份、不随 attempt 重复）：`proposal.md` 与 `specs/**` → proposal、`design.md` 与 `tasks.md` → dev-design、`test-reports/**` → test-execution——归属 SHALL 来自源码 phase 清单（desktop-workflow-write-face「相位定义有序 step 序列与 artifact 清单」）经 detail 出线，前端 `docColumn(source)` 字符串→列静态映射 SHALL 退役。清单未声明归属的文档 SHALL 落入「未归属」处理（design 定夺展示位置），MUST NOT 误挂到错误站。`explore.md` MUST NOT 入图（探索在流程之外，不属于任何站）。
-- eval-checklist 信封（payload 自带 `phase` + `attempt` + `verdict` + `items`）SHALL 挂到对应 **phase 列头**（`artifactColumn` 已有 pipeline 外相位校验，`EvalChecklistRenderer` 已能渲染全套元数据，列头抽屉经 `ArtifactTabs` 即达），不再挂节点。
 
 `nodeChecklists` SHALL 退役：`FlowMaterials` 仅保留 `columnDocs`；`NODE_PRECEDENCE` / `locateNode` 删除；`mountMaterials` 签名去 `graph` 参数（连带 `useFlowGraphData` 的 materials memo 依赖收窄为 `[detail, artifacts]`）。file_log 挂载 SHALL 保持退役（file_log 条目挂节点规则与 `scope='workflow'` 图外独立面板随载体退役一并删除）。
 
@@ -124,16 +123,11 @@ change 详情页 SHALL 以 react-flow 流程图承载执行史，节点模型 SH
 - **WHEN** 打开任一 change 详情，产物清单含 `explore.md`
 - **THEN** explore.md 不出现在图中，图上无文件徽章挂靠，无 workflow 独立面板渲染
 
-#### Scenario: eval-checklist 挂列头
-
-- **WHEN** 某 change 的 implement 站存在带 `phase`/`attempt` payload 的 eval-checklist 信封
-- **THEN** 该信封挂 implement 列头（列头抽屉经 `ArtifactTabs` 呈现 checklist 条目与 verdict），`FlowMaterials.nodeChecklists` 无此条目、`mountMaterials` 不接收 `graph`
-
 ### Requirement: 右侧抽屉单一交互入口
 
 phase 列头与 runtime step 节点 SHALL 提供同一交互入口：点击打开右侧抽屉。抽屉 SHALL 为**单列布局**（宽度约 960px 并保留 `max-w-[85vw]`，右贴边定位不变），内容按选中类型分派：
 
-- **列头**：该站过程文档 + eval-checklist 素材（`columnDocs`，经 `ArtifactTabs` 渲染）；
+- **列头**：该站过程文档（`columnDocs`，经 `ArtifactTabs` 渲染）；
 - **WorkerAgent step 节点**（`role !== null`）：单列会话转录（复用 `SessionTranscriptPanel`，按节点 `sessionId` 直查；槽位缺席时呈「此步无会话记录」空态）；
 - **带 `outputRef` 的 step 节点**（static-check / test-execution / mutation-test）：单列 stdout 面板（新组件，见「节点点击判据与 stdout 输出面板」）。
 
@@ -150,7 +144,7 @@ phase 列头与 runtime step 节点 SHALL 提供同一交互入口：点击打�
 #### Scenario: 节点点击抽屉双列内容
 
 - **WHEN** 点击 implement#2（fail → retry pass 的第二个 attempt，会话记录在场）节点
-- **THEN** 左列呈该 attempt 的会话元信息与 executor / evaluator / decision 转录 tab，右列自上而下为该站文档、attempt#2 的 report 与 checklist，无文件表节
+- **THEN** 左列呈该 attempt 的会话元信息与 executor / evaluator / decision 转录 tab，右列自上而下为该站文档与 attempt#2 的 report，无文件表节
 
 #### Scenario: 列头点击同入口左列空态
 
@@ -159,7 +153,7 @@ phase 列头与 runtime step 节点 SHALL 提供同一交互入口：点击打�
 
 #### Scenario: 双列各自滚动
 
-- **WHEN** 某 attempt 的会话转录、report 与 checklist 内容均超出可视高度
+- **WHEN** 某 attempt 的会话转录、report 内容均超出可视高度
 - **THEN** 左列时间线在左列内滚动、右列二分节在右列内滚动，抽屉本体 MUST NOT 退回整列单滚
 
 #### Scenario: WorkerAgent 节点点击单列转录
@@ -175,7 +169,7 @@ phase 列头与 runtime step 节点 SHALL 提供同一交互入口：点击打�
 #### Scenario: 列头点击同入口
 
 - **WHEN** 点击 dev-design 列头
-- **THEN** 打开与节点点击相同的右侧抽屉，单列呈该站过程文档（design.md / tasks.md）与 eval-checklist 素材，无会话转录区
+- **THEN** 打开与节点点击相同的右侧抽屉，单列呈该站过程文档（design.md / tasks.md），无会话转录区
 
 #### Scenario: 双列结构已退役
 
@@ -679,12 +673,12 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 | `packages/desktop/src/views/changes/flow/graph.ts` + `types.ts` | 转换层扩展 | 节点模型增运行态与节点类型可辨维度；`PIPELINE_PHASES` 列布局、attempt 缺号兜底不变；边转换改 `runs[].edges` 直读（见下两行 `graph.ts` / `graph.test.ts` 契约）；纯函数直测保持绿 |
 | ReactFlow 渲染薄层组件（新） | 图呈现 | `@xyflow/react` v12 subflow（`parentId` + `extent: 'parent'`）；9 列恒定 + 默认 100% 视口 + 滚轮平移（禁滚轮缩放）；eval 实心 / active pulse / stale 半透明 |
 | `packages/desktop/src/views/changes/flow/` 节点 / 列组件 | 运行态渲染 | Agent / Tool / Git / Gate 徽章可辨（`GROUP_LABEL` 展示文案）；pulse 运行态与既有 active 视觉同款；收口后回落派生规则 |
-| 右侧抽屉组件（新） | 素材详情 | 二分节【本站文档 / eval report+checklist】（文件表节随 file_log 退役删除）；文档节复用 `renderers/registry`（`ArtifactView`）；单一交互入口 |
+| 右侧抽屉组件（新） | 素材详情 | 单列分派【本站文档 / 会话转录 / stdout】（文件表节随 file_log 退役删除）；文档节复用 `renderers/registry`（`ArtifactView`）；单一交互入口 |
 | `packages/desktop/src/views/changes/change-detail-view.tsx` | id 寻址与单态呈现 | `useParams<'id'>`；`flow-empty` 文档形态分支删除；页内身份源统一（URL id），无 `detail.name` 作寻址残留；归档 change 照常呈图；发起 / 停止 / phase 间确认 / ask 应答卡片；生命周期状态与可用操作对齐；代际徽章、损坏警示条、`WorkflowPanel`（file_log 图外面板）删除 |
 | `packages/desktop/src/views/changes/change-list-view.tsx` | 清单词汇清零与 db 单源 | `InventoryBadge` 与 unparsable 标注删除；清单 db 单源（文档形态条目不再入列，见 desktop-change-queries） |
 | `packages/desktop/src/views/changes/flow/detail-drawer.tsx` | 右列三分节 → 二分节 | 文件表节删除；左列会话区、滚动与单一交互入口不变 |
 | `packages/desktop/src/views/changes/flow/file-log-table.tsx` | **（删除）** | file_log 文件表组件及测试随载体退役删除 |
-| `packages/desktop/src/views/changes/flow/attachments.ts` | 挂载分支收缩 | file_log 挂节点与 scope='workflow' 分支删除；文档挂列 + checklist 挂节点保持 |
+| `packages/desktop/src/views/changes/flow/attachments.ts` | 挂载分支收缩 | file_log 挂节点与 scope='workflow' 分支删除；文档挂列保持（评估 checklist 不入流表面） |
 | 会话转录联动 | 节点 ↔ 转录 | 复用 `AgentSessionView`（desktop-agent-chat-infra，只读消费点：不接 composer、不呈发送 / 停止），无第二套对话渲染组件与第二套转录查询 hook；运行中实时流（会话订阅面载荷直投）、收口后转录库重放一致 |
 | 运行状态 Channel 订阅 | 实时刷新例外 | 执行流通道例外（沿 agent 执行先例）；增量并入不触发 `get_change_detail` 全量重取；收口释放订阅 |
 | `src/commands/` change-flow 命令组（desktop-change-orchestration） | IPC 面 | 发起 / 停止 / 应答 / 确认契约见 desktop-change-orchestration「运行控制命令面」 |

@@ -10,7 +10,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::envelope::ArtifactCandidate;
 use super::markdown_doc::{MarkdownDocPlugin, KIND};
 use super::registry::{discover_artifacts, ArtifactInput, ArtifactPlugin};
 use crate::state::ArtifactSpec;
@@ -99,13 +98,9 @@ fn requirement_manifest() -> &'static [PhaseDefinition] {
 
 /// 以清单上下文直接调用插件 matcher（`spec` 显式供给）。
 fn matches_file(change_dir: &Path, rel_path: &str, spec: &'static ArtifactSpec) -> bool {
-    let candidate = ArtifactCandidate::File {
-        relative_path: PathBuf::from(rel_path),
-    };
     let input = ArtifactInput {
         change_dir,
-        phases: &[],
-        candidate: &candidate,
+        relative_path: Path::new(rel_path),
         spec: Some(spec),
     };
     MarkdownDocPlugin.matches(&input)
@@ -117,13 +112,9 @@ fn parse_file(
     rel_path: &str,
     spec: &'static ArtifactSpec,
 ) -> Option<super::ArtifactEnvelope> {
-    let candidate = ArtifactCandidate::File {
-        relative_path: PathBuf::from(rel_path),
-    };
     let input = ArtifactInput {
         change_dir,
-        phases: &[],
-        candidate: &candidate,
+        relative_path: Path::new(rel_path),
         spec: Some(spec),
     };
     MarkdownDocPlugin.parse(&input)
@@ -132,13 +123,9 @@ fn parse_file(
 /// IPC 直查面（清单缺席，`spec = None`）：parse 只读文件本体，title 回落名单 /
 /// 文件名主干。
 fn parse_without_spec(change_dir: &Path, rel_path: &str) -> Option<super::ArtifactEnvelope> {
-    let candidate = ArtifactCandidate::File {
-        relative_path: PathBuf::from(rel_path),
-    };
     let input = ArtifactInput {
         change_dir,
-        phases: &[],
-        candidate: &candidate,
+        relative_path: Path::new(rel_path),
         spec: None,
     };
     MarkdownDocPlugin.parse(&input)
@@ -178,7 +165,7 @@ fn requirement清单驱动发现_phase归属随清单() {
     change.write("design.md", "# 设计");
     change.write("specs/alpha/spec.md", "# 规格 alpha");
 
-    let descriptors = discover_artifacts(&change.0, &[], requirement_manifest());
+    let descriptors = discover_artifacts(&change.0, requirement_manifest());
 
     let pairs: Vec<(&str, &str)> = descriptors
         .iter()
@@ -227,7 +214,7 @@ fn specs前缀glob深路径命中() {
     change.write("specs/x/y/spec.md", "# 深层规格");
     change.write("specs/level1/level2/level3/spec.md", "# 更深规格");
 
-    let descriptors = discover_artifacts(&change.0, &[], requirement_manifest());
+    let descriptors = discover_artifacts(&change.0, requirement_manifest());
     let sources: Vec<&str> = descriptors
         .iter()
         .filter(|d| d.kind == KIND)
@@ -254,13 +241,9 @@ fn 清单未命中的md文件不再入列() {
     change.write("note.md", "# 随手记");
 
     // matcher 面：清单未命中（spec 为 None）→ 恒 false
-    let candidate = ArtifactCandidate::File {
-        relative_path: PathBuf::from("explore.md"),
-    };
     let input = ArtifactInput {
         change_dir: &change.0,
-        phases: &[],
-        candidate: &candidate,
+        relative_path: Path::new("explore.md"),
         spec: None,
     };
     assert!(
@@ -269,7 +252,7 @@ fn 清单未命中的md文件不再入列() {
     );
 
     // 发现面：真件清单不含这些文件 → 零候选
-    let descriptors = discover_artifacts(&change.0, &[], requirement_manifest());
+    let descriptors = discover_artifacts(&change.0, requirement_manifest());
     assert!(
         descriptors.is_empty(),
         "清单未命中的 .md 零入列：{descriptors:?}"
@@ -277,7 +260,7 @@ fn 清单未命中的md文件不再入列() {
 
     // 扩展名判据确已退役：同目录 .md 在清单内才入列（对照面）
     change.write("proposal.md", "# 提案");
-    let descriptors = discover_artifacts(&change.0, &[], requirement_manifest());
+    let descriptors = discover_artifacts(&change.0, requirement_manifest());
     let sources: Vec<&str> = descriptors.iter().map(|d| d.source.as_str()).collect();
     assert_eq!(sources, vec!["proposal.md"], "仅清单命中的 md 入列");
 }
@@ -294,26 +277,11 @@ fn 清单命中的其它kind候选markdown不收() {
         "kind = tasks-progress 的清单声明不被 markdown-doc 收录"
     );
     // 同一文件命中 markdown-doc 清单声明时才收录（kind 由清单绑定）
-    let descriptors = discover_artifacts(&change.0, &[], PROPOSAL_ONLY_MANIFEST);
+    let descriptors = discover_artifacts(&change.0, PROPOSAL_ONLY_MANIFEST);
     assert!(
         descriptors.is_empty(),
         "tasks.md 不在这份清单里：{descriptors:?}"
     );
-}
-
-/// eval 候选（PhaseRecord 投影分支）永不命中 markdown-doc。
-#[test]
-fn eval候选不命中markdown() {
-    let change = TempChange::new("eval-candidate");
-    let candidate = ArtifactCandidate::EvalEntry { index: 0 };
-    let input = ArtifactInput {
-        change_dir: &change.0,
-        phases: &[],
-        candidate: &candidate,
-        spec: Some(&PROPOSAL_DOC),
-    };
-    assert!(!MarkdownDocPlugin.matches(&input));
-    assert!(MarkdownDocPlugin.parse(&input).is_none());
 }
 
 /// 清单命中但文件缺失 → parse 返回 None（best-effort，不 panic）。
@@ -350,7 +318,7 @@ fn legacy名单命中时title标注与排序生效() {
 
     // 排序：现役名单（proposal）先于 legacy 名单（test-design）
     change.write("proposal.md", "# 现役提案");
-    let descriptors = discover_artifacts(&change.0, &[], TWO_DOC_MANIFEST);
+    let descriptors = discover_artifacts(&change.0, TWO_DOC_MANIFEST);
     let doc_titles: Vec<&str> = descriptors
         .iter()
         .filter(|d| d.kind == KIND)
@@ -497,7 +465,7 @@ fn 文件名特殊字符时source为相对posix路径() {
         evaluator: None,
     }];
 
-    let descriptors = discover_artifacts(&change.0, &[], SYMBOL_MANIFEST);
+    let descriptors = discover_artifacts(&change.0, SYMBOL_MANIFEST);
     let sources: Vec<&str> = descriptors
         .iter()
         .filter(|d| d.kind == KIND)

@@ -6,7 +6,7 @@ use std::fs;
 
 use serde_json::json;
 
-use super::envelope::{ArtifactCandidate, ArtifactEnvelope};
+use super::envelope::ArtifactEnvelope;
 use super::registry::{ArtifactInput, ArtifactPlugin};
 
 pub const KIND: &str = "tasks-progress";
@@ -43,15 +43,11 @@ impl ArtifactPlugin for TasksProgressPlugin {
     }
 
     fn matches(&self, input: &ArtifactInput) -> bool {
-        matches!(input.candidate, ArtifactCandidate::File { .. }) && is_declared_tasks(input)
+        is_declared_tasks(input)
     }
 
     fn parse(&self, input: &ArtifactInput) -> Option<ArtifactEnvelope> {
-        let relative_path = match input.candidate {
-            ArtifactCandidate::File { relative_path } => relative_path,
-            ArtifactCandidate::EvalEntry { .. } => return None,
-        };
-        let text = fs::read_to_string(input.change_dir.join(relative_path)).ok()?;
+        let text = fs::read_to_string(input.change_dir.join(input.relative_path)).ok()?;
         let (done, pending) = count_checkboxes(&text);
         let total = done + pending;
         Some(ArtifactEnvelope {

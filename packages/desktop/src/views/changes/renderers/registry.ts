@@ -1,7 +1,6 @@
 import type { ComponentType } from 'react';
 
 import type { ArtifactEnvelope } from '../../../types/dto';
-import { EvalChecklistRenderer } from './eval-checklist-renderer';
 import { Fallback } from './fallback';
 import { MarkdownDocRenderer } from './markdown-doc-renderer';
 import { TasksProgressRenderer } from './tasks-progress-renderer';
@@ -9,10 +8,9 @@ import { TasksProgressRenderer } from './tasks-progress-renderer';
 /** 信封渲染组件类型：入参单个 ArtifactEnvelope */
 export type RendererComponent = ComponentType<{ envelope: ArtifactEnvelope }>;
 
-// 第一波三个 renderer 注册；新增产物 = 新增一个模块 + 在此追加一行
+// 两 renderer 注册；新增产物 = 新增一个模块 + 在此追加一行
 const renderers: Record<string, RendererComponent> = {
   'markdown-doc': MarkdownDocRenderer,
-  'eval-checklist': EvalChecklistRenderer,
   'tasks-progress': TasksProgressRenderer,
 };
 

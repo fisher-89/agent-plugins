@@ -5,8 +5,8 @@ use crate::verdict::MAX_REPORT_CHARS;
 
 /// 白名单项可操作产物段：`` `<相对路径>`（<产物标题>） ``，多项以「、」分隔；
 /// 相位零声明产物时显式标注「无声明产物」（沉默会让决策 agent 误判产物未
-/// 列出）。评估 checklist 不在本段：它由 PhaseRecord 投影而来、非相位声明
-/// 产物，`artifact_manifest` 本就零 `eval-checklist` 项。
+/// 列出）。评估 checklist 不在本段：它由相位落账面承载、非相位声明产物，
+/// `artifact_manifest` 本就零评估清单项。
 fn backtrack_option_artifacts(option: &BacktrackOption) -> String {
     if option.artifacts.is_empty() {
         return "无声明产物".to_owned();

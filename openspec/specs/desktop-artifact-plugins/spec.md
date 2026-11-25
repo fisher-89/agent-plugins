@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义桌面端中间产物的插件化架构：`ArtifactEnvelope` 稳定信封作为 Rust 解析侧与 React 渲染侧的唯一共享知识，matcher + parser 编译期静态注册表实现产物类型扩展不改核心，第一波落地三个插件实例，未注册 kind 由 Fallback 兜底永不白屏。
+定义桌面端中间产物的插件化架构：`ArtifactEnvelope` 稳定信封作为 Rust 解析侧与 React 渲染侧的唯一共享知识，matcher + parser 编译期静态注册表实现产物类型扩展不改核心，第一波落地两个插件实例，未注册 kind 由 Fallback 兜底永不白屏。
 
 ## Requirements
 
@@ -12,7 +12,7 @@
 
 ```
 ArtifactEnvelope {
-  kind:          String   # 契约 ID（如 "eval-checklist"），不含 openspec 字样
+  kind:          String   # 契约 ID（如 "tasks-progress"），不含 openspec 字样
   version:       u32      # 产物格式版本
   title:         String
   payload:       JSON     # kind 自描述结构化负载
@@ -46,22 +46,21 @@ workflow crate 的 `artifacts/` 模块 SHALL 提供 matcher + parser 的 trait �
 - **WHEN** phase 清单声明 proposal / design / tasks / specs / explore 等 markdown 产物
 - **THEN** 候选由清单相对路径枚举产生，`markdown-doc` 插件的 matcher 命中并产出信封；不存在清单之外的文档探测路径、无 `enumerate_candidates` 全树扫描
 
-### Requirement: 第一波三个插件实例
+### Requirement: 第一波两个插件实例
 
 MVP SHALL 将服务第一刀视图的产物实现为第一波插件实例，使抽象从第一天被真实实例校准：
 
 | kind | 内容 |
 |------|------|
 | `markdown-doc` | markdown 产物文档（proposal / design / tasks / specs / explore，按代际匹配） |
-| `eval-checklist` | eval 条目的 checklist 展开（item / pass / evidence） |
 | `tasks-progress` | tasks.md 勾选进度（统计 `- [ ]` / `- [x]`） |
 
-每个 kind SHALL 同时具备 Rust 侧 matcher + parser 与 React 侧 renderer 注册。候选来源 SHALL 为 phase 清单驱动：`markdown-doc` / `tasks-progress` 按清单相对路径枚举命中（title / rank 名单逻辑保留），matches 判定改「清单类型 == markdown-doc / tasks-progress」而非「扩展名 == md」；`eval-checklist` 为 PhaseRecord 投影（payload 自带 `phase` + `attempt`），SHALL 保持 `(phase, attempt)` 关联分支，不走相对路径清单（与其余两插件来源不同，统一表达方式由 design 定稿）。`file-log`、`test-report-summary`、`html-report-ref` 不在 MVP 范围，SHALL 随第二刀对应视图（file_log 时间线 / reports 渲染 / mutation 内嵌）以插件加法方式落地。
+每个 kind SHALL 同时具备 Rust 侧 matcher + parser 与 React 侧 renderer 注册。候选来源 SHALL 为 phase 清单驱动：`markdown-doc` / `tasks-progress` 按清单相对路径枚举命中（title / rank 名单逻辑保留），matches 判定改「清单类型 == markdown-doc / tasks-progress」而非「扩展名 == md」。`file-log`、`test-report-summary`、`html-report-ref` 不在 MVP 范围，SHALL 随第二刀对应视图（file_log 时间线 / reports 渲染 / mutation 内嵌）以插件加法方式落地。
 
-#### Scenario: 三个 kind 全部可产出
+#### Scenario: 两个 kind 全部可产出
 
 - **WHEN** 对含完整 v2 数据的 fixture change 发起产物发现
-- **THEN** 三个 kind 均可被 matcher 命中并解析出信封（就各自清单声明的源文件 / PhaseRecord 投影）
+- **THEN** 两个 kind 均可被 matcher 命中并解析出信封（就各自清单声明的源文件）
 
 #### Scenario: markdown-doc 清单来源
 
@@ -84,7 +83,7 @@ MVP SHALL 将服务第一刀视图的产物实现为第一波插件实例，使�
 
 ### Requirement: 清单驱动发现与全树扫描退役
 
-产物发现 SHALL 以 phase 定义清单为唯一候选来源：`discover_artifacts(change_dir, phases)` 签名 SHALL 变为「读 phase 定义清单 → 按相对路径枚举匹配 change 目录 → 插件 parse」（`enumerate_candidates` 文件树遍历 + eval 序号候选整个退役）；`ArtifactDescriptor.source` SHALL 继续以相对 POSIX 路径（`encode_file_source`）作关联键，phase 归属 SHALL 由清单声明供给（不再由前端 `docColumn` 派生）。`eval-checklist` SHALL 为 PhaseRecord 投影分支（`(phase, attempt)` 关联），不参与相对路径枚举；与其余清单驱动插件的统一表达方式由 design 定稿。清单未命中的文件 MUST NOT 进入候选集（白名单/清单驱动取代全量扫描），`registry.rs` 的 `collect_files` 全树遍历 SHALL 退役。
+产物发现 SHALL 以 phase 定义清单为唯一候选来源：`discover_artifacts(change_dir, manifest)` 按清单相对路径枚举匹配 change 目录后交插件 parse；`ArtifactDescriptor.source` SHALL 继续以相对 POSIX 路径（`encode_file_source`）作关联键，phase 归属 SHALL 由清单声明供给（不再由前端 `docColumn` 派生）。清单未命中的文件 MUST NOT 进入候选集（白名单/清单驱动取代全量扫描），`registry.rs` 的 `collect_files` 全树遍历 SHALL 退役。
 
 #### Scenario: 白名单清单驱动
 
@@ -96,15 +95,10 @@ MVP SHALL 将服务第一刀视图的产物实现为第一波插件实例，使�
 - **WHEN** 某清单命中的 markdown 产物产出 `ArtifactDescriptor`
 - **THEN** `source` 为该文件相对 POSIX 路径（既有 `encode_file_source` 口径），phase 归属自清单声明，前端可直接按 source 挂列（无 docColumn 映射）
 
-#### Scenario: eval-checklist 投影分支保留
-
-- **WHEN** 某 change 的 PhaseRecord 含带 checklist 的 attempt
-- **THEN** `eval-checklist` 仍经 PhaseRecord 投影产出（`(phase, attempt)` 关联），不依赖相对路径清单、不参与文件枚举
-
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `workflow::artifacts` | 信封 + trait + 静态注册表 | `ArtifactEnvelope { kind, version, title, payload, fallback_text }`；matcher + parser 自注册；无 dylib |
-| `workflow::artifacts` 第一波实例 | 三类产物解析 | markdown-doc / eval-checklist / tasks-progress；其余 kind 随第二刀以插件加法落地 |
+| `workflow::artifacts` 第一波实例 | 两类产物解析 | markdown-doc / tasks-progress；其余 kind 随第二刀以插件加法落地 |
 | 前端 `views/changes/renderers/` | renderer 注册表 + Fallback | 按 kind 路由；未注册 → Fallback（fallback_text + kind 徽标） |

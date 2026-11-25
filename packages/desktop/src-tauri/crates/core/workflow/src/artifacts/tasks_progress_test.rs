@@ -10,7 +10,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::envelope::ArtifactCandidate;
 use super::registry::{discover_artifacts, ArtifactInput, ArtifactPlugin};
 use super::tasks_progress::{TasksProgressPlugin, KIND};
 use crate::state::ArtifactSpec;
@@ -83,22 +82,20 @@ static EMPTY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
     evaluator: None,
 }];
 
-fn tasks_candidate() -> ArtifactCandidate {
-    ArtifactCandidate::File {
-        relative_path: PathBuf::from("tasks.md"),
-    }
+/// tasks.md 候选相对路径（清单命中面恒为 tasks.md）。
+fn tasks_path() -> &'static Path {
+    Path::new("tasks.md")
 }
 
 /// 清单上下文入参（`spec` 显式供给；`None` = 清单未命中）。
 fn input_for<'a>(
     change_dir: &'a Path,
-    candidate: &'a ArtifactCandidate,
+    relative_path: &'a Path,
     spec: Option<&'static ArtifactSpec>,
 ) -> ArtifactInput<'a> {
     ArtifactInput {
         change_dir,
-        phases: &[],
-        candidate,
+        relative_path,
         spec,
     }
 }
@@ -116,8 +113,7 @@ fn 清单命中tasks候选收录并解析计数() {
         "tasks.md",
         "- [ ] 待办一\n- [x] 已办一\n- [ ] 待办二\n- [x] 已办二\n- [x] 已办三\n",
     );
-    let candidate = tasks_candidate();
-    let input = input_for(&change.0, &candidate, Some(&TASKS_SPEC));
+    let input = input_for(&change.0, tasks_path(), Some(&TASKS_SPEC));
 
     assert!(TasksProgressPlugin.matches(&input));
     let envelope = TasksProgressPlugin.parse(&input).expect("应产出信封");
@@ -148,7 +144,7 @@ fn requirement清单驱动发现_phase归属随清单() {
     change.write("tasks.md", "- [x] 一\n- [ ] 二\n");
 
     let manifest = phase_table("requirement").expect("requirement 表恒可达");
-    let descriptors = discover_artifacts(&change.0, &[], manifest);
+    let descriptors = discover_artifacts(&change.0, manifest);
 
     let tasks: Vec<(&str, &str, &str)> = descriptors
         .iter()
@@ -171,26 +167,23 @@ fn requirement清单驱动发现_phase归属随清单() {
 fn 清单未命中的tasks文件不入列() {
     let change = TempChange::new("undeclared-tasks");
     change.write("tasks.md", "- [x] 一\n");
-    let candidate = tasks_candidate();
-
-    // 清单缺席（spec = None）→ matcher false
-    let input = input_for(&change.0, &candidate, None);
+    let input = input_for(&change.0, tasks_path(), None);
     assert!(
         !TasksProgressPlugin.matches(&input),
         "清单未命中的 tasks.md 不命中（旧文件名判据退役）"
     );
 
     // 清单声明 kind 为其它插件 → 本插件不收（kind 由清单绑定）
-    let input = input_for(&change.0, &candidate, Some(&DOC_SPEC));
+    let input = input_for(&change.0, tasks_path(), Some(&DOC_SPEC));
     assert!(!TasksProgressPlugin.matches(&input));
 
     // 发现面：清单外的 tasks.md 零候选（同目录对照）
-    let descriptors = discover_artifacts(&change.0, &[], EMPTY_MANIFEST);
+    let descriptors = discover_artifacts(&change.0, EMPTY_MANIFEST);
     assert!(
         !descriptors.iter().any(|d| d.kind == KIND),
         "空清单下零 tasks-progress 候选：{descriptors:?}"
     );
-    let descriptors = discover_artifacts(&change.0, &[], TASKS_ONLY_MANIFEST);
+    let descriptors = discover_artifacts(&change.0, TASKS_ONLY_MANIFEST);
     assert_eq!(descriptors.len(), 1, "清单命中恰一条");
 }
 
@@ -203,8 +196,7 @@ fn 清单命中但语法不可解析时零进度best_effort() {
         "tasks.md",
         "任务列表（未使用复选框语法）\n1. 第一条\n2. 第二条\n",
     );
-    let candidate = tasks_candidate();
-    let input = input_for(&change.0, &candidate, Some(&TASKS_SPEC));
+    let input = input_for(&change.0, tasks_path(), Some(&TASKS_SPEC));
 
     assert!(TasksProgressPlugin.matches(&input), "matcher 只看清单绑定");
     let envelope = TasksProgressPlugin
@@ -218,7 +210,7 @@ fn 清单命中但语法不可解析时零进度best_effort() {
     let other = TempChange::new("unparsable-other");
     other.write("design.md", "# 设计");
     other.write("tasks.md", "无复选框内容\n");
-    let descriptors = discover_artifacts(&other.0, &[], TASKS_ONLY_MANIFEST);
+    let descriptors = discover_artifacts(&other.0, TASKS_ONLY_MANIFEST);
     assert!(
         descriptors.iter().any(|d| d.kind == KIND),
         "best-effort：其余候选不受阻断"
@@ -230,8 +222,7 @@ fn 清单命中但语法不可解析时零进度best_effort() {
 fn 清单命中但文件缺失时解析为空() {
     let change = TempChange::new("missing");
     change.write("proposal.md", "# 提案");
-    let candidate = tasks_candidate();
-    let input = input_for(&change.0, &candidate, Some(&TASKS_SPEC));
+    let input = input_for(&change.0, tasks_path(), Some(&TASKS_SPEC));
 
     assert!(TasksProgressPlugin.matches(&input), "matcher 只看清单绑定");
     assert!(
@@ -249,8 +240,7 @@ fn 清单命中但文件缺失时解析为空() {
 fn 空tasks文件产出零计数信封() {
     let change = TempChange::new("empty");
     change.write("tasks.md", "");
-    let candidate = tasks_candidate();
-    let input = input_for(&change.0, &candidate, Some(&TASKS_SPEC));
+    let input = input_for(&change.0, tasks_path(), Some(&TASKS_SPEC));
 
     assert!(TasksProgressPlugin.matches(&input));
     let envelope = TasksProgressPlugin.parse(&input).expect("空文件仍产出信封");
@@ -264,9 +254,9 @@ fn 空tasks文件产出零计数信封() {
 fn 全部勾选与全部未勾两极端() {
     let all_done = TempChange::new("all-done");
     all_done.write("tasks.md", "- [x] 一\n- [X] 二\n");
-    let done_candidate = tasks_candidate();
+    let done_candidate = tasks_path();
     let envelope = TasksProgressPlugin
-        .parse(&input_for(&all_done.0, &done_candidate, Some(&TASKS_SPEC)))
+        .parse(&input_for(&all_done.0, done_candidate, Some(&TASKS_SPEC)))
         .expect("信封");
     assert_eq!(envelope.payload["done"], 2);
     assert_eq!(envelope.payload["pending"], 0);
@@ -274,11 +264,11 @@ fn 全部勾选与全部未勾两极端() {
 
     let all_pending = TempChange::new("all-pending");
     all_pending.write("tasks.md", "- [ ] 一\n- [ ] 二\n- [ ] 三\n");
-    let pending_candidate = tasks_candidate();
+    let pending_candidate = tasks_path();
     let envelope = TasksProgressPlugin
         .parse(&input_for(
             &all_pending.0,
-            &pending_candidate,
+            pending_candidate,
             Some(&TASKS_SPEC),
         ))
         .expect("信封");
@@ -295,10 +285,8 @@ fn 缩进嵌套复选框计数_普通行与行内字样不计() {
         "tasks.md",
         "- [x] 顶层\n  - [ ] 嵌套待办\n\t- [x] 制表符缩进已完成\n- 普通列表行\n正文里出现 [x] 与 - [ ] 字样的段落不算\n> 引用块行首不是列表标记，不计\n",
     );
-    let candidate = tasks_candidate();
-
     let envelope = TasksProgressPlugin
-        .parse(&input_for(&change.0, &candidate, Some(&TASKS_SPEC)))
+        .parse(&input_for(&change.0, tasks_path(), Some(&TASKS_SPEC)))
         .expect("信封");
     // 计入：顶层 [x]、空格缩进 [ ]、制表符缩进 [x] → done=2 pending=1
     assert_eq!(envelope.payload["done"], 2);
@@ -319,10 +307,8 @@ fn 超长tasks文件计数不截断() {
         }
     }
     change.write("tasks.md", &content);
-    let candidate = tasks_candidate();
-
     let envelope = TasksProgressPlugin
-        .parse(&input_for(&change.0, &candidate, Some(&TASKS_SPEC)))
+        .parse(&input_for(&change.0, tasks_path(), Some(&TASKS_SPEC)))
         .expect("信封");
     assert_eq!(envelope.payload["total"], 1500);
     assert_eq!(envelope.payload["done"], 500);

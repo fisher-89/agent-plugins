@@ -643,8 +643,8 @@ pub fn phase_table(workflow_type: &str) -> Option<&'static [PhaseDefinition]> {
 /// 回溯白名单项：相位 id + 表内自描述的特性文案 + 相位声明产物清单（决策
 /// agent 判断回溯目标的上下文；描述单一来源 = `PhaseDefinition.description`、
 /// 产物单一来源 = `PhaseDefinition.artifact_manifest`，调用方零第二份文案 /
-/// 清单映射）。评估 checklist 不在产物清单内——它是 PhaseRecord 投影，非相位
-/// 声明产物（清单本就零 `eval-checklist` 项）。
+/// 清单映射）。评估 checklist 不在产物清单内——它由相位落账面承载，非相位
+/// 声明产物。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BacktrackOption {
     pub phase: String,

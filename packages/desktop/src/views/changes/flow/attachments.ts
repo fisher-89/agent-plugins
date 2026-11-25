@@ -13,19 +13,6 @@ function artifactColumn(phase: string | null, pipelinePhases: Set<string>): stri
   return `col:${phase}`;
 }
 
-/** eval-checklist payload 最小形状（仅 phase + attempt，供挂载定位；渲染收窄归 renderers 层） */
-interface ChecklistRefPayload {
-  phase: string;
-  attempt: number | null;
-}
-
-function isChecklistRef(value: unknown): value is ChecklistRefPayload {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as Partial<ChecklistRefPayload>;
-  if (typeof candidate.phase !== 'string') return false;
-  return candidate.attempt === null || typeof candidate.attempt === 'number';
-}
-
 function append<T>(record: Record<string, T[]>, key: string, value: T): void {
   const bucket = record[key];
   if (bucket === undefined) record[key] = [value];
@@ -33,10 +20,10 @@ function append<T>(record: Record<string, T[]>, key: string, value: T): void {
 }
 
 /**
- * 素材挂载单层：文档按清单归属、eval-checklist 按 payload 自带 `phase` 归属，**均
- * 挂 phase 列头**（`columnDocs` 键 = 列 id；列头抽屉经 `ArtifactTabs` 呈现该站
- * 全部过程素材，checklist 全套元数据由 `EvalChecklistRenderer` 渲染）。挂节点规则
- * 随 eval / active 相位节点退役一并删除（`nodeChecklists` 退役）。
+ * 素材挂载单层：文档按清单归属挂 phase 列头（`columnDocs` 键 = 列 id；列头抽屉
+ * 经 `ArtifactTabs` 呈现该站全部过程文档）。挂节点规则随 eval / active 相位节点
+ * 退役一并删除（`nodeChecklists` 退役）；评估 checklist 不入流表面——它只驻
+ * agent 会话的 `finish_step` 卡。
  */
 export function mountMaterials(detail: ChangeDetail, envelopes: ArtifactEnvelope[]): FlowMaterials {
   const materials: FlowMaterials = { columnDocs: {} };
@@ -50,10 +37,6 @@ export function mountMaterials(detail: ChangeDetail, envelopes: ArtifactEnvelope
       const descriptor = detail.artifacts[index];
       if (descriptor === undefined) continue;
       const column = artifactColumn(descriptor.phase, pipelinePhases);
-      if (column !== null) append(materials.columnDocs, column, envelope);
-    } else if (envelope.kind === 'eval-checklist' && isChecklistRef(envelope.payload)) {
-      // payload 自带 phase（pipeline 外相位不挂列——归属校验与文档同式）
-      const column = artifactColumn(envelope.payload.phase, pipelinePhases);
       if (column !== null) append(materials.columnDocs, column, envelope);
     }
   }

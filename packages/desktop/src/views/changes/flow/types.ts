@@ -100,9 +100,8 @@ export interface FlowGraph {
 }
 
 /**
- * 挂载后的过程素材（单层：文档 + eval-checklist 均挂列）：`columnDocs` 键 = 列 id
- * `col:<phase>`，值为该站过程文档（`markdown-doc` / `tasks-progress`）与
- * eval-checklist 信封（挂列头后经 `ArtifactTabs` 渲染全套元数据）。
+ * 挂载后的过程素材（单层：文档挂列）：`columnDocs` 键 = 列 id
+ * `col:<phase>`，值为该站过程文档（`markdown-doc` / `tasks-progress`）。
  */
 export interface FlowMaterials {
   columnDocs: Record<string, ArtifactEnvelope[]>;

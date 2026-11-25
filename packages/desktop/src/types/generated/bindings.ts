@@ -1399,21 +1399,21 @@ export type ArchivePreflight = {
 };
 
 /**
- *  产物寻址清单项：`source` 为 change 内相对 POSIX 路径或 eval 条目序号串；
- *  `phase` 为**清单归属**（文件候选 = 清单声明相位；eval 候选 = PhaseRecord 投影
- *  的相位）——前端按本归属挂列，MUST NOT 重建第二份静态映射表。
+ *  产物寻址清单项：`source` 为 change 内相对 POSIX 路径；
+ *  `phase` 为**清单归属**（清单声明的相位）——前端按本归属挂列，MUST NOT 重建
+ *  第二份静态映射表。
  */
 export type ArtifactDescriptor = {
 	kind: string,
 	source: string,
 	title: string,
-	/**  phase 归属（清单声明 / PhaseRecord 投影供给） */
+	/**  phase 归属（清单声明供给） */
 	phase: string,
 };
 
 /**  中间产物信封：所有产物以统一形状经 IPC 传递。 */
 export type ArtifactEnvelope = {
-	/**  契约 ID（如 "eval-checklist"），前端据此路由 renderer */
+	/**  契约 ID（如 "tasks-progress"），前端据此路由 renderer */
 	kind: string,
 	/**  产物格式版本 */
 	version: number,

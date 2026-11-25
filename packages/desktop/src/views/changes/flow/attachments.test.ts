@@ -27,8 +27,8 @@ const REQUIREMENT_PHASES = [
 // ---------------------------------------------------------------------------
 // mountMaterials 单测：挂载层为纯函数（无 Mock）。文档归属 = 后端清单出线
 //（`detail.artifacts[].phase`）——前端字符串 → 列静态映射表（docColumn）已退役，
-// 归属规则全部经 mountMaterials 公共输出覆盖测试（AC-7）；eval-checklist 按
-// payload.phase 归属挂 phase 列头（不接收 graph，挂载与节点无关）。
+// 归属规则全部经 mountMaterials 公共输出覆盖测试（AC-7）；评估 checklist 不入
+// 流表面（仅驻 agent 会话的 finish_step 卡）。
 // ---------------------------------------------------------------------------
 
 function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
@@ -93,7 +93,6 @@ function envelopesFor(artifacts: ArtifactDescriptor[]): ArtifactEnvelope[] {
   const payloads: Record<string, unknown> = {
     'markdown-doc': { markdown: `# ${'文档'}` },
     'tasks-progress': { total: 1, done: 1, pending: 0 },
-    'eval-checklist': null,
   };
   return artifacts.map((item) => envelope(item.kind, item.title, payloads[item.kind] ?? null));
 }
@@ -160,8 +159,8 @@ describe('mountMaterials：文档挂列（清单归属 detail.artifacts[].phase�
   });
 });
 
-describe('mountMaterials：记录挂列头（eval-checklist）', () => {
-  it('eval-checklist 信封 payload { phase, attempt } → 按 payload.phase 归属挂对应 phase 列头', () => {
+describe('mountMaterials：eval-checklist 退役（不挂列）', () => {
+  it('eval-checklist 信封即使 payload 带本表相位 → 不入任何列（artifact 面已退役）', () => {
     const base = detail();
     const checklist = envelope('eval-checklist', '评估清单', {
       phase: 'dev-design',
@@ -170,47 +169,22 @@ describe('mountMaterials：记录挂列头（eval-checklist）', () => {
       items: [],
     });
     const materials = mountMaterials(base, [checklist]);
-    expect(materials.columnDocs['col:dev-design']).toEqual([checklist]);
-  });
-
-  it('eval-checklist payload 形状不合规（null / 缺字段 / 类型不符）→ 不挂载任何列', () => {
-    const base = detail();
-    const broken = [
-      envelope('eval-checklist', 'payload null', null),
-      envelope('eval-checklist', '缺 phase', { attempt: 2 }),
-      envelope('eval-checklist', '缺 attempt', { phase: 'dev-design' }),
-      envelope('eval-checklist', '类型不符', { phase: 3, attempt: '2' }),
-    ];
-    const materials = mountMaterials(base, broken);
     expect(materials.columnDocs).toEqual({});
   });
 });
 
 describe('mountMaterials：聚合与空态', () => {
-  it('同列多文档、同列多素材 → 数组聚合保序不覆盖', () => {
+  it('同列多文档 → 数组聚合保序不覆盖', () => {
     const artifacts = [
       descriptor('markdown-doc', 'proposal.md', '提案'),
       descriptor('markdown-doc', 'specs/x/spec.md', '规格'),
     ];
     const base = detail({ artifacts });
-    const first = envelope('eval-checklist', '清单一', {
-      phase: 'dev-design',
-      attempt: 2,
-      verdict: null,
-      items: [],
-    });
-    const second = envelope('eval-checklist', '清单二', {
-      phase: 'dev-design',
-      attempt: 2,
-      verdict: null,
-      items: [],
-    });
-    const materials = mountMaterials(base, [...envelopesFor(artifacts), first, second]);
+    const materials = mountMaterials(base, envelopesFor(artifacts));
     expect(materials.columnDocs['col:proposal'].map((item) => item.title)).toEqual([
       '提案',
       '规格',
     ]);
-    expect(materials.columnDocs['col:dev-design']).toEqual([first, second]);
   });
 
   it('全空入参（envelopes=[]）→ FlowMaterials 单键齐全且全空，不抛错', () => {
@@ -220,38 +194,21 @@ describe('mountMaterials：聚合与空态', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 挂载单层（change-flow-show-step-only，AC-4 / D6）：eval-checklist 挂 phase 列头
-// （payload.phase 归属），不再挂节点——NODE_PRECEDENCE / nodeChecklists 退役，
-// 挂载与 eval / active 节点在场与否无关
+// 挂载单层（change-flow-show-step-only，AC-4 / D6）：文档挂 phase 列头，
+// 挂载与 eval / active 节点在场与否无关——NODE_PRECEDENCE / nodeChecklists 退役
 // ---------------------------------------------------------------------------
 
-describe('mountMaterials：NODE_PRECEDENCE 退役（checklist 恒挂列头）', () => {
-  it('节点全缺席（pipeline 各站零 attempt + activePhase 在场）→ checklist 仍挂 payload.phase 列头', () => {
+describe('mountMaterials：挂载与节点在场无关', () => {
+  it('节点全缺席（pipeline 各站零 attempt + activePhase 在场）→ 文档仍按清单归属挂列头', () => {
+    const artifacts = [descriptor('markdown-doc', 'design.md', '设计')];
     const base = detail({
+      artifacts,
       pipeline: REQUIREMENT_PHASES.map((phase) => ({ phase, attempts: [] })),
       activePhase: { phase: 'dev-design', attempt: 3, startAt: '2026-09-05T00:00:00Z' },
     });
-    const checklist = envelope('eval-checklist', '评估清单', {
-      phase: 'dev-design',
-      attempt: 3,
-      verdict: 'pass',
-      items: [],
-    });
-    const materials = mountMaterials(base, [checklist]);
+    const materials = mountMaterials(base, envelopesFor(artifacts));
     expect(Object.keys(materials.columnDocs)).toEqual(['col:dev-design']);
-    expect(materials.columnDocs['col:dev-design']).toEqual([checklist]);
-  });
-
-  it('payload.phase 为 pipeline 外相位 → 不误挂任何列（归属校验兜底）', () => {
-    const base = detail();
-    const checklist = envelope('eval-checklist', '评估清单', {
-      phase: 'ghost-phase',
-      attempt: 1,
-      verdict: 'pass',
-      items: [],
-    });
-    const materials = mountMaterials(base, [checklist]);
-    expect(materials.columnDocs).toEqual({});
+    expect(materials.columnDocs['col:dev-design']).toHaveLength(1);
   });
 });
 
@@ -290,9 +247,8 @@ describe('mountMaterials：file_log 挂载分支退役', () => {
     expect('nodeFiles' in materials).toBe(false);
     expect('outsideFiles' in materials).toBe(false);
     expect('nodeChecklists' in materials).toBe(false);
-    // 零文件挂载节点、零图外素材：仅 eval-checklist 挂 dev-design 列头
-    expect(Object.keys(materials.columnDocs)).toEqual(['col:dev-design']);
-    expect(materials.columnDocs['col:dev-design']).toEqual([envelopes[0]]);
+    // 零文件挂载节点、零图外素材：退役 kind（eval-checklist / file-log）均不挂载
+    expect(materials.columnDocs).toEqual({});
   });
 });
 
@@ -342,30 +298,6 @@ describe('mountMaterials：test-only 列相位集（归属校验随 pipeline）'
     expect(materials.columnDocs['col:dev-design']).toBeUndefined();
     expect(materials.columnDocs['col:implement']).toBeUndefined();
     expect(materials.columnDocs['col:proposal']).toHaveLength(1);
-  });
-
-  it('正向：eval-checklist payload.phase = code-analyze（test-only 表内相位）→ 照常挂 code-analyze 列头', () => {
-    const checklist = envelope('eval-checklist', '代码分析评估清单', {
-      phase: 'code-analyze',
-      attempt: 1,
-      verdict: 'pass',
-      items: [],
-    });
-    const materials = mountMaterials(testOnlyDetail(), [checklist]);
-
-    expect(materials.columnDocs['col:code-analyze']).toEqual([checklist]);
-  });
-
-  it('异常：eval-checklist payload.phase 为 test-only 表外相位 → 不误挂任何列', () => {
-    const base = testOnlyDetail();
-    const broken = [
-      envelope('eval-checklist', '表外相位', { phase: 'dev-design', attempt: 1 }),
-      envelope('eval-checklist', '表外相位', { phase: 'implement', attempt: 1 }),
-      envelope('eval-checklist', '表外相位', { phase: 'code-review', attempt: 1 }),
-    ];
-    const materials = mountMaterials(base, broken);
-
-    expect(materials.columnDocs).toEqual({});
   });
 
   it('边界：全空入参（test-only 空 pipeline）→ columnDocs 单键空对象，不抛错', () => {

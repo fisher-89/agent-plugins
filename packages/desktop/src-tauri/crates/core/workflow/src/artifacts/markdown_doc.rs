@@ -10,7 +10,7 @@ use std::path::Path;
 
 use serde_json::json;
 
-use super::envelope::{ArtifactCandidate, ArtifactEnvelope};
+use super::envelope::ArtifactEnvelope;
 use super::registry::{ArtifactInput, ArtifactPlugin};
 
 pub const KIND: &str = "markdown-doc";
@@ -116,23 +116,17 @@ impl ArtifactPlugin for MarkdownDocPlugin {
     }
 
     fn order(&self, input: &ArtifactInput) -> u32 {
-        match input.candidate {
-            ArtifactCandidate::File { relative_path } => doc_rank(&posix_path(relative_path)),
-            ArtifactCandidate::EvalEntry { .. } => 0,
-        }
+        doc_rank(&posix_path(input.relative_path))
     }
 
     fn matches(&self, input: &ArtifactInput) -> bool {
-        matches!(input.candidate, ArtifactCandidate::File { .. }) && is_declared_doc(input)
+        is_declared_doc(input)
     }
 
     fn parse(&self, input: &ArtifactInput) -> Option<ArtifactEnvelope> {
         // 文件候选非清单上下文（IPC 直查面）：按 source 重建的候选亦可解析（信封
         // 读取不依赖清单，只有 matcher 依赖）
-        let relative_path = match input.candidate {
-            ArtifactCandidate::File { relative_path } => relative_path,
-            ArtifactCandidate::EvalEntry { .. } => return None,
-        };
+        let relative_path = input.relative_path;
         let markdown_text = fs::read_to_string(input.change_dir.join(relative_path)).ok()?;
         let title = doc_title(
             &posix_path(relative_path),

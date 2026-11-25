@@ -867,7 +867,6 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 | `packages/desktop/src/components/agent/message-cards/blocks.tsx`（`FinishStepCard`，判据不变） | 形态判据 | `isCheckListFinish` 仍以「`report` 为字符串且 `items` 为数组」为唯一判据（MUST NOT 加「`title` 在场」类前置条件）；decision 形态与 JSON 回退分支零改动 |
 | `packages/desktop/src/components/agent/message-cards/tool-cards.tsx` | 零改动面 | `BUILD_IN_TOOL_CARDS['finish_step']` 注册项与键面不变 |
 | `packages/desktop/src/lib/agent-adapter.ts` | 零改动面 | `finish_step` 仍是普通工具部件（`tool-finish_step`），配对与输出载荷形状不变 |
-| `packages/desktop/src/views/changes/renderers/**` | 零改动面 | `eval-checklist` 抽屉仍呈落账面 `item` / `pass` / `evidence`，不补 `id`、不读 `title` |
 | `packages/desktop/src/types/generated/**` | 零改动面 | 本变更不出线新 IPC 类型，`bindings:export` 再生成后零 diff |
 
 ### 模块增量：bash 工具卡折叠态意图行（bash-tool-description-param）

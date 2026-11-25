@@ -144,8 +144,7 @@ pub fn read_artifact(
     let layout = resolve(Path::new(&root));
     let record = store.find_change_record(&id).ok().flatten()?;
     let location = locate_change(&layout, record.worktree.as_deref(), record.name.as_str())?;
-    let phases = store.list_phase_records(&id).unwrap_or_default();
-    core_read_artifact(&location.dir, &phases, &kind, &source)
+    core_read_artifact(&location.dir, &kind, &source)
 }
 
 /// 运行中增量读的出线载荷（`exec::ExecOutputDelta` 的 1:1 映射）。

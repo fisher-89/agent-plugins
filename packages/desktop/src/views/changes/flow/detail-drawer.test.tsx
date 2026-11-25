@@ -316,53 +316,20 @@ function readExecCalls(): unknown[][] {
 }
 
 describe('DetailDrawer：列头单列（该站过程素材）', () => {
-  it('正向：selection.scope === column → 单列 ArtifactTabs 呈现该站文档 + eval-checklist，无会话转录区', async () => {
-    const checklist = envelope('eval-checklist', '评估清单', {
-      phase: 'dev-design',
-      attempt: 2,
-      verdict: 'pass',
-      items: [{ item: '接口已定', pass: true, evidence: 'L1-10' }],
-    });
+  it('正向：selection.scope === column → 单列呈现该站文档，无会话转录区', async () => {
     const state = world([], {
-      'col:dev-design': [
-        envelope('markdown-doc', '设计文档', { markdown: '# 设计正文' }),
-        checklist,
-      ],
+      'col:dev-design': [envelope('markdown-doc', '设计文档', { markdown: '# 设计正文' })],
     });
     renderDrawer(state, { scope: 'column', phase: 'dev-design' });
 
     expect(screen.getByTestId('detail-drawer').textContent).toContain('dev-design');
-    const tabs = screen.getAllByTestId('artifact-tab');
-    expect(tabs.map((tab) => tab.textContent)).toEqual(['设计文档', '评估清单']);
     // base-ui 抽屉经 portal 挂 body：以壳 testid 域内文本为断言面
     expect(screen.getByTestId('drawer-column-section').textContent).toContain('设计正文');
-    // 列头分派不落会话区 / stdout 面（单列语义）
+    // 单素材直达渲染器（无 tab 条）；列头分派不落会话区 / stdout 面（单列语义）
+    expect(screen.queryAllByTestId('artifact-tab')).toHaveLength(0);
     expect(screen.queryByTestId('session-transcript-panel')).toBeNull();
     expect(screen.queryByTestId('stdout-panel')).toBeNull();
     expect(invokeMock).not.toHaveBeenCalled();
-  });
-
-  it('正向：切到 eval-checklist tab → 渲染清单内容（挂列头的 checklist 与文档同列聚合）', async () => {
-    const checklist = envelope('eval-checklist', '评估清单', {
-      phase: 'dev-design',
-      attempt: 2,
-      verdict: 'fail',
-      items: [{ item: '接口已定', pass: false, evidence: 'design.md 缺接口段' }],
-    });
-    const state = world([], {
-      'col:dev-design': [
-        envelope('markdown-doc', '设计文档', { markdown: '# 设计正文' }),
-        checklist,
-      ],
-    });
-    renderDrawer(state, { scope: 'column', phase: 'dev-design' });
-
-    fireEvent.click(screen.getAllByTestId('artifact-tab')[1]);
-
-    const checklistNode = await screen.findByTestId('checklist');
-    expect(checklistNode.textContent).toContain('接口已定');
-    expect(checklistNode.textContent).toContain('design.md 缺接口段');
-    expect(within(checklistNode).getByTestId('checklist-verdict').textContent).toBe('fail');
   });
 
   it('边界：该站零素材 → 空态文案（列头照常开抽屉，不炸）', () => {

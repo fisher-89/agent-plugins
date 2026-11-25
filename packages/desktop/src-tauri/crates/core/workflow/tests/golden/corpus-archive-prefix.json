@@ -2,12 +2,6 @@
   "activePhase": null,
   "artifacts": [
     {
-      "kind": "eval-checklist",
-      "phase": "proposal",
-      "source": "0",
-      "title": "评估清单 · proposal · 第 1 次"
-    },
-    {
       "kind": "markdown-doc",
       "phase": "proposal",
       "source": "proposal.md",

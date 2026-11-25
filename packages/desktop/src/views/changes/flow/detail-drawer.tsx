@@ -49,7 +49,7 @@ function selectionTitle(selection: DrawerSelection, node: FlowNode | null): stri
   return `${node.phase} · attempt ${node.attempt} · ${node.kind}`;
 }
 
-/** 列头单列：该站过程素材（过程文档 + eval-checklist 信封）经 ArtifactTabs 呈现 */
+/** 列头单列：该站过程文档经 ArtifactTabs 呈现 */
 function ColumnMaterialsSection({
   materials,
 }: {
