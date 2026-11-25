@@ -2,12 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "Backend.Core.Foundation.schema.json",
   "title": "Backend.Core.Foundation",
-  "$comment": "本文件由元素的契约 markdown 生成，勿手改：手改将在下次 generate 时被覆盖，且 api:check 零 diff 门会失败",
+  "$comment": "本文件是手写接口真相（不是生成物）：导出名 / 签名 / 类型的唯一持有者；`x-function.description` 只写调用方要知道的语义、MUST NOT 复述签名；改完用 `archi_api` 的 `check` 自查",
   "$defs": {},
   "properties": {
     "is_archi_rel_path": {
       "x-function": {
         "owner": "layout",
+        "description": "相对仓库根的路径是否落在架构域之内：`/` 与 `\\` 都先归一，剥掉前导 `./` 与末尾分隔符后，前两层依次是架构域顶层目录名与架构目录名即命中。归档遇到冲突时判断「这批里有没有模型文件」只有这一条依据，调用方 MUST NOT 自己去比较目录名的字面量。",
         "params": [
           {
             "name": "rel",
@@ -24,6 +25,7 @@
     "archi_rel_dir": {
       "x-function": {
         "owner": "layout",
+        "description": "架构域根相对仓库根的路径（`<顶层>/architecture`）：`/` 分隔、无前导 `./`，只做字符串前缀比对、不落磁盘路径，故不接根目录入参。它自己没有直接调用方，只是契约资产 / 契约索引 / 模型声明三条路径的共同前缀——架构域那两个目录名因此只写一次。",
         "params": [],
         "returns": {
           "type": "string"
@@ -33,6 +35,7 @@
     "archi_models_rel_dir": {
       "x-function": {
         "owner": "layout",
+        "description": "契约资产目录相对仓库根的路径（`<archi_rel_dir>/models`）。三处在用：契约索引说明段里的「契约面：目录」（MUST NOT 写成索引自己所在的 `graph` 目录）、架构会话的知识文本、写保护面判断「这次写是否落在架构域里」。整个串从 `archi_rel_dir` 接出，架构域的两个目录名不重复。",
         "params": [],
         "returns": {
           "type": "string"
@@ -42,6 +45,7 @@
     "archi_graph_rel_dir": {
       "x-function": {
         "owner": "layout",
+        "description": "契约索引目录相对仓库根的路径（`<archi_rel_dir>/graph`），与契约资产目录同级相邻、MUST NOT 混用。用在写保护面判断「这次写是否落在架构域里」，模型声明的路径从它接出（`graph` 这个名字不重复）。",
         "params": [],
         "returns": {
           "type": "string"
@@ -51,6 +55,7 @@
     "archi_graph_model_rel_dir": {
       "x-function": {
         "owner": "layout",
+        "description": "模型声明目录相对仓库根的路径（`<archi_graph_rel_dir>/model`）：架构会话知识文本里的「模型目录」与扫描排除都用它，调用方 MUST NOT 自己拼 `model`。",
         "params": [],
         "returns": {
           "type": "string"
@@ -60,6 +65,7 @@
     "workspace_identity_segment": {
       "x-function": {
         "owner": "identity",
+        "description": "workspace 的身份串 `{可读部分}-{hash}`：可读部分取根目录最后一层的名字（非法字符换成 `_`、按字符截到 24 个、去掉末尾的 `.` 与空格），清洗完为空时只剩 hash；hash 取根目录字符串（调用方保证已规范化）的 SHA-256 前 16 字节、32 位小写十六进制。按工作区分库、分目录的命名都用它，不同根不撞名。",
         "params": [
           {
             "name": "canonical_root",
@@ -76,6 +82,7 @@
     "is_pruned_dir_name": {
       "x-function": {
         "owner": "prune",
+        "description": "目录名是否属于「依赖与工具产物」：以 `.` 开头，或命中那份名单。探测时跳过与清理时排除用的是同一条判断——名单改一处，两个地方同时生效。",
         "params": [
           {
             "name": "name",
@@ -92,6 +99,7 @@
     "is_reserved_path": {
       "x-function": {
         "owner": "windows_name",
+        "description": "路径里是否含有 Windows 保留设备名的某一层：任意一层、ASCII 大小写不敏感，每层里第一个 `.` 或 `:` 之前的部分命中就算（扩展名、`:` 之后的流名都不改变结论），行尾空格先按 Win32 的归一规则剥掉。写入面拒收时只有这一条依据；`COM0` 不算保留（git 允许）、`LPT0` 算。",
         "params": [
           {
             "name": "path",
@@ -108,6 +116,7 @@
     "is_set": {
       "x-function": {
         "owner": "CancelFlag",
+        "description": "取消标志有没有被置上（宽松内存序读：只保证「置上之后再读能看见」，不承担其它同步作用）。置上可以重复，重复置没有副作用。",
         "params": [],
         "returns": {
           "type": "boolean"
