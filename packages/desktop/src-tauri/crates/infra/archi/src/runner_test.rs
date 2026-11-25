@@ -753,6 +753,51 @@ fn write_contract(root: &Path, fqn: &str, content: &str) {
     write(root, &relative, content);
 }
 
+/// 落一份**接口定义文件**（`<FQN>.schema.json`，手写真相；空留白形态即合法最小件）。
+///
+/// 判据面只在「`api = declared` ∧ schema 在盘」时纳管——需要一条**纳管档**判据的夹具
+/// 必须先把接口文件放到盘上。
+fn write_schema(root: &Path, fqn: &str) {
+    let path = archi::api::paths::schema_path(root, fqn).expect("合法 FQN");
+    let relative = path
+        .strip_prefix(root)
+        .expect("repo 相对路径")
+        .to_string_lossy()
+        .replace('\\', "/");
+    write(
+        root,
+        &relative,
+        &format!(
+            "{{\n  \"$id\": \"{fqn}.schema.json\",\n  \"title\": \"{fqn}\",\n  \
+             \"$defs\": {{}},\n  \"properties\": {{}}\n}}\n"
+        ),
+    );
+}
+
+/// 与代码签名**不一致**的接口定义（`file_stem` 的返回位声明为 `integer`）。
+///
+/// 判据面的事实源是 `.schema.json`（手写真相），故不一致必须落在接口文件上——文档
+/// `<FQN>.md` 只写理由、零结构，改了它不影响任何判据。
+fn write_mismatched_schema(root: &Path, fqn: &str) {
+    let path = archi::api::paths::schema_path(root, fqn).expect("合法 FQN");
+    let relative = path
+        .strip_prefix(root)
+        .expect("repo 相对路径")
+        .to_string_lossy()
+        .replace('\\', "/");
+    write(
+        root,
+        &relative,
+        &format!(
+            "{{\n  \"$id\": \"{fqn}.schema.json\",\n  \"title\": \"{fqn}\",\n  \
+             \"$defs\": {{}},\n  \"properties\": {{\n    \"file_stem\": {{\n      \
+             \"x-function\": {{\n        \"owner\": \"LocalArchiCheck\",\n        \
+             \"params\": [{{ \"name\": \"timestamp\", \"schema\": {{ \"type\": \"string\" }} }}],\n        \
+             \"returns\": {{ \"type\": \"integer\" }}\n      }}\n    }}\n  }}\n}}\n"
+        ),
+    );
+}
+
 /// 单元素模型（含祖先链声明，避免 `orphanHierarchy` 结构错）。
 fn declared_chain_model(fqn: &str, element_root: &str, api: &str) -> String {
     let segments: Vec<&str> = fqn.split('.').collect();
@@ -1126,6 +1171,7 @@ fn api_findings不影响passed() {
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
     );
     write_contract(with_contract.path(), fqn, &mismatched_contract(fqn));
+    write_mismatched_schema(with_contract.path(), fqn);
     let after = run(
         with_contract.path(),
         "demo",
@@ -1305,8 +1351,12 @@ fn 透传查表值经paths单点() {
 // 门禁布尔随 error 档判据变化（warn 档不阻断 / 存量 docMissing 债不阻断）
 // ===========================================================================
 
-/// 异常（AC-4）：仅 `warn` 档 apiFindings（`apiDocMissing`）⇒ `passed == true` 且摘要
+/// 异常（AC-4）：仅 `warn` 档 apiFindings（`docMissing`）⇒ `passed == true` 且摘要
 /// 仍为「通过」（OQ-5 的呈现缺口按现文案断言，MUST NOT 顺手修）。
+///
+/// 纳管口径 = `api = declared` ∧ `<FQN>.schema.json` 在盘，故 pending 落**空留白接口件**
+/// 且**不落**派生 `<FQN>.md` ⇒ 唯一判据是 `docMissing`（warn 且纳管），`status` 抬到
+/// `warnings` 而门禁仍通过。
 #[test]
 fn warn档判据不阻断门禁() {
     let temp = TempDir::new().expect("建临时目录");
@@ -1329,13 +1379,9 @@ fn warn档判据不阻断门禁() {
         "crates/infra/pending/src/lib.rs",
         "pub fn pending() -> String { String::new() }\n",
     );
-    // 试点元素的含 fence 载体把契约面打开；pending 的载体在盘但正文无 fence
+    // 试点元素的载体在盘（自身零判据）；pending 的接口件在盘但派生 md 缺失 ⇒ `docMissing`
     write_contract(temp.path(), pilot, &pilot_contract(pilot));
-    write_contract(
-        temp.path(),
-        pending,
-        &format!("# {pending}\n\n## 职能\n\n契约尚未展开。\n"),
-    );
+    write_schema(temp.path(), pending);
 
     let outcome = run(
         temp.path(),
@@ -1349,7 +1395,7 @@ fn warn档判据不阻断门禁() {
         report
             .api_findings
             .iter()
-            .any(|finding| finding.kind == ArchiApiFindingKind::ApiDocMissing),
+            .any(|finding| finding.kind == ArchiApiFindingKind::DocMissing),
         "warn 档判据在案：{:?}",
         report
             .api_findings
@@ -1403,12 +1449,14 @@ path = []
         "src/pilot/src/lib.rs",
         "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
     );
-    // 唯一一份含 fence 的载体（把契约面打开，自身零判据）；其余 44 个元素无载体
+    // 试点元素的接口文件把契约面打开（启用判据 = `api = declared` ∧ schema 在盘），
+    // 该元素自身文档在盘、入口齐备 ⇒ 零判据；其余 44 个元素只有模型声明 ⇒ 各一条 `docMissing`
     write_contract(
         temp.path(),
         "App.Core.Pilot",
         &pilot_contract("App.Core.Pilot"),
     );
+    write_schema(temp.path(), "App.Core.Pilot");
 
     let outcome = run(
         temp.path(),

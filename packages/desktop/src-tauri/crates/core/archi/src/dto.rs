@@ -4,7 +4,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::drift::report::ArchiDriftOccurrence;
-use crate::graph::ModelGraph;
+use crate::graph::{ModelGraph, Neighborhood};
 use crate::model::{Diagnostic, Element, Relation};
 use crate::parse;
 use crate::{diff, search};
@@ -76,17 +76,17 @@ impl GateTier {
     pub const ALL: [GateTier; 3] = [GateTier::Off, GateTier::Warn, GateTier::Strict];
 }
 
-/// 契约状态指针（封闭二值；缺省 `Declared`）。
+/// 接口承诺开关（封闭二值；缺省 `Declared`）。
 ///
-/// 语义：`declared` = 本模块承诺有公共 API 契约（缺省）、`none` = 显式声明本模块
+/// 语义：`declared` = 本模块承诺有公共接口面（缺省）、`none` = 显式声明本模块
 /// 无 API。它是元素的**属性**而非协议正文——签名 / 符号 / 接口定义 MUST NOT 出现在
-/// 模型里（契约权威在架构域 `models/<分层目录…>/` 的契约资产，本枚举只是状态指针）。
+/// 模型里（接口权威在同目录的 `<FQN>.schema.json`，本枚举只是状态指针）。
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "lowercase")]
 pub enum ApiStatus {
-    /// 承诺有契约（缺省）
+    /// 承诺有接口面（缺省）
     #[default]
     Declared,
     /// 显式声明本模块无 API
@@ -290,24 +290,25 @@ impl SearchScope {
 // 线面 DTO（specta::Type → bindings.ts）
 // ---------------------------------------------------------------------------
 
-/// 契约状态的线面投影（并列字段，**投影只报文件在案事实**）：
+/// 接口状态与三条路径的线面投影（并列字段，**投影只报文件在案事实**）：
 ///
-/// - `status` = 契约文件是否在案（`declared` / `none`）；
-/// - `none` 时三个路径字段为 `null`；在案时三者为 repo 相对 POSIX 路径（`schema`
-///   与生成物即使尚未生成也给路径串）。
+/// - `status` = **接口文件在案**（`declared` ⟺ `<FQN>.schema.json` 在盘；`none` 否则）；
+/// - 三条路径**各自独立**：`contractPath` 是文档（`<FQN>.md`，理由）、`schemaPath` 是
+///   接口（`<FQN>.schema.json`，手写真相）、`generatedPath` 是生成物（`.i.rs` /
+///   `.i.ts`）——各自在盘才出串（生成物有可用入口即给串，即便尚未生成）。
 ///
 /// 该字段 MUST NOT 回写模型字段（模型存的是意图，投影报的是事实——「`declared`
 /// 而文件缺失」是迁移期主形态，不得被投影抹平），MUST NOT 承载协议正文。
-/// `declared` 元素的 `contract_path` 同时是它的**入口文档**路径（模型 `doc` 字段对它
-/// 不可写）。
+/// **字段名 `contract_path` 是文档路径**（历史命名）：名字不改以免动 IPC 形状，
+/// 语义以本 doc 为准，改名留清理轮。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiApiRef {
-    /// 契约状态（文件在案事实）
+    /// 接口状态（接口文件在案事实）
     pub status: ApiStatus,
-    /// 契约文件（`<archi_models_dir>/<分层目录…>/<FQN>.md`）的 repo 相对路径
+    /// **文档**（`<archi_models_dir>/<分层目录…>/<FQN>.md`）的 repo 相对路径
     pub contract_path: Option<String>,
-    /// schema 生成物（同目录 `<FQN>.schema.json`）的 repo 相对路径
+    /// **接口**（同目录 `<FQN>.schema.json`，手写真相而非生成物）的 repo 相对路径
     pub schema_path: Option<String>,
     /// 元素生成物（实现入口同级的 `<入口主干>.i.rs` / `<入口主干>.i.ts`）的 repo 相对
     /// 路径；无可用入口（`Absent` / `Invalid`）⇒ `null`
@@ -368,14 +369,14 @@ pub struct ArchiApiMeta {
     pub common_digest: String,
 }
 
-/// 契约生成物新鲜度的出线事实（`archi_api_check` 出参）。
+/// 生成物新鲜度的出线事实（`archi_api_check` 出参）。
 ///
 /// 三类差异合起来恰是「点生成会写什么」的完整清单；三列元素为 repo 相对 POSIX
 /// 串（经 `api::display` 单点产出，MUST NOT 在命令层或前端另归一）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiApiCheck {
-    /// 契约面是否启用（`api::enabled` 单点判定）
+    /// 接口面是否启用（`api::enabled` 单点判定）
     pub enabled: bool,
     /// 生成载元（`api::meta()` 投影）
     pub meta: ArchiApiMeta,
@@ -422,7 +423,7 @@ pub struct ArchiElement {
     pub model_line: u32,
     /// 节点标记（本期恒 `none`）
     pub mark: NodeMark,
-    /// 契约状态指针（模型字段的拷贝；协议正文不进模型）
+    /// 接口承诺开关（模型字段的拷贝；协议正文不进模型）
     pub api: ApiStatus,
     /// 实现入口指针（模型字段的拷贝；线格式 `entry`，缺省 `null`，**显式字段不省略**
     /// ——与「投影不补默认值」同款）
@@ -513,7 +514,7 @@ pub struct ArchiElementBrief {
     pub kind: ElementKind,
     /// gate 档位
     pub gate: GateTier,
-    /// 契约状态指针（模型字段的拷贝）
+    /// 接口承诺开关（模型字段的拷贝）
     pub api: ApiStatus,
     /// 一行摘要
     pub summary: Option<String>,
@@ -569,6 +570,238 @@ pub struct ArchiDependedBy {
     pub description: Option<String>,
 }
 
+/// 模块三份资产的结构面（`assets`）：三段各自 `present`，**MUST NOT 全或全无**。
+///
+/// 旧的三路径全或无投影把「三份资产各自的存在事实」压成一个开关；这里每段独立回答自己
+/// 在不在盘、有多大、该读什么。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiAssetSet {
+    /// 拓扑（模型声明位置与出入度数；零额外读盘）
+    pub topology: ArchiTopologyAsset,
+    /// 接口（`<FQN>.schema.json`；只给键名摘要，不给 content）
+    pub interface: ArchiInterfaceAsset,
+    /// 文档（`<FQN>.md`；只给 `##` 段名与体量，不给正文）
+    pub doc: ArchiDocAsset,
+}
+
+/// 拓扑资产：元素在模型里的声明位置与度数（键名 `in` 是 Rust 关键字，故字段名带后缀、
+/// 线格式由 `rename` 出线）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiTopologyAsset {
+    /// 元素声明所在文件（repo 相对 POSIX，即 `element.modelFile`）
+    pub file: String,
+    /// 元素声明所在行（1 起始，即 `element.modelLine`）
+    pub line: u32,
+    /// 出边数（该元素依赖别人几条）
+    pub out: usize,
+    /// 入边数（别人依赖它几条）
+    #[serde(rename = "in")]
+    pub in_degree: usize,
+}
+
+/// 接口资产：`<FQN>.schema.json` 的键名摘要与一句话判读（**零 content**）。
+///
+/// 三个数组即定义：`ops` = 带 `x-function` 的 `properties` 键、`types` = `$defs` 本地定义
+/// 键、`reexports` = 纯 `$ref` alias 键。整读接口文件会灌爆上下文，且键名已够定位。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiInterfaceAsset {
+    /// 接口定义文件的 repo 相对路径（派生不出路径时为 `null`）
+    pub path: Option<String>,
+    /// 文件是否在盘（`false` 时三数组为空、`bytes = 0`）
+    pub present: bool,
+    /// 文件字节数（不在盘 ⇒ `0`）
+    pub bytes: u64,
+    /// 操作键（`properties` 里带 `x-function` 的键）
+    pub ops: Vec<String>,
+    /// 本模块自有类型键（`$defs` 里非纯 `$ref` alias 者）
+    pub types: Vec<String>,
+    /// 透传键（`$defs` 里的纯 `$ref` alias 者）
+    pub reexports: Vec<String>,
+    /// 一句话判读（`abstract` 是 Rust 保留字，故字段名带后缀、线格式由 `rename` 出线）
+    #[serde(rename = "abstract")]
+    pub abstract_note: String,
+}
+
+/// 文档资产：`<FQN>.md` 的段名与体量（**零正文**）。
+///
+/// 文档无结构（段名任意），故只报段名让调用方判断「要不要整读」；正文一律用 `read` 取。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiDocAsset {
+    /// 文档的 repo 相对路径（派生不出路径时为 `null`）
+    pub path: Option<String>,
+    /// 文件是否在盘（`false` 时 `headings` 为空、`bytes` / `lines` 为 `0`）
+    pub present: bool,
+    /// 文件字节数（不在盘 ⇒ `0`）
+    pub bytes: u64,
+    /// 文件行数（不在盘 ⇒ `0`）
+    pub lines: u32,
+    /// `## ` 级段名（不含 `#` 前缀，按文件序）
+    pub headings: Vec<String>,
+}
+
+/// 接口面一句话判读的静态常量（`assets.interface.abstract` 的六形态，优先级见
+/// [`interface_asset`]）。
+const INTERFACE_UNREADABLE: &str = "接口文件不可解析（用 `archi_api` 的 `check` 看诊断）";
+/// 接口面留白（schema 在盘、无 op 无类型）。
+const INTERFACE_BLANK: &str = "接口面留白（schema 在盘且无 op / 无类型）";
+/// 接口面未写（schema 不在盘）。
+const INTERFACE_ABSENT: &str = "接口未写（`.schema.json` 不在盘）";
+/// 只声明了操作。
+const INTERFACE_OPS_ONLY: &str = "只有操作";
+/// 只声明了类型。
+const INTERFACE_TYPES_ONLY: &str = "只有类型";
+/// 操作与类型都有。
+const INTERFACE_BOTH: &str = "既有操作也有类型";
+/// 含透传 alias。
+const INTERFACE_REEXPORTS: &str = "含透传";
+
+/// `archi_module` 的读法指引（**静态常量**，零变量插值）：写在响应里而不是 prompt 里——
+/// 这段话写进 prompt 会被 `AGENT.md` 的体量淹没，写进返回值才在调用点生效。
+const READING: &str = "理解本模块已足够：拓扑看 file/line 与出入边、接口看 `assets.interface` 的键名、文档看 `assets.doc` 的段名。文档正文用 `read` 整读（文档无结构，MUST NOT 用 `grep` / `offset` 拼凑）。接口不必整读：键名即定义，需要细节时直接读 `.schema.json` 的相关片段。";
+
+/// 拓扑资产装配（零额外读盘：`file` / `line` 与出入度数都在手）。
+fn topology_asset(element: &Element, neighborhood: &Neighborhood<'_>) -> ArchiTopologyAsset {
+    ArchiTopologyAsset {
+        file: element.file.clone(),
+        line: element.line,
+        out: neighborhood.depends_on.len(),
+        in_degree: neighborhood.depended_by.len(),
+    }
+}
+
+/// 接口资产装配：只读 `<FQN>.schema.json` 的**键名**与体量。
+///
+/// **坏 JSON 不 `Err`**（D-9）：`archi_module` 是定位 / 导航面，坏文件不能让 agent 连拓扑都
+/// 看不见——`present = true`、`bytes` 照实、三数组为空、`abstract` 指向 `archi_api` 的
+/// `check`。报告面（`findings` / `drift`）仍 `ApiError` 停摆，不产半真报告。
+fn interface_asset(root: &Path, fqn: &str) -> ArchiInterfaceAsset {
+    let path = crate::api::paths::schema_path(root, fqn);
+    let present = path.as_ref().is_some_and(|path| path.is_file());
+    let display = path.as_ref().map(|path| crate::api::display(root, path));
+    if !present {
+        return ArchiInterfaceAsset {
+            path: display,
+            present: false,
+            bytes: 0,
+            ops: Vec::new(),
+            types: Vec::new(),
+            reexports: Vec::new(),
+            abstract_note: INTERFACE_ABSENT.to_owned(),
+        };
+    }
+    let resolved = path.expect("present 已在上面判过");
+    let bytes = std::fs::metadata(&resolved)
+        .map(|meta| meta.len())
+        .unwrap_or(0);
+    let Ok(source) = std::fs::read_to_string(&resolved) else {
+        return ArchiInterfaceAsset {
+            path: display,
+            present: true,
+            bytes,
+            ops: Vec::new(),
+            types: Vec::new(),
+            reexports: Vec::new(),
+            abstract_note: INTERFACE_UNREADABLE.to_owned(),
+        };
+    };
+    let Ok(schema) = serde_json::from_str::<serde_json::Value>(&source) else {
+        return ArchiInterfaceAsset {
+            path: display,
+            present: true,
+            bytes,
+            ops: Vec::new(),
+            types: Vec::new(),
+            reexports: Vec::new(),
+            abstract_note: INTERFACE_UNREADABLE.to_owned(),
+        };
+    };
+    let ops: Vec<String> = schema
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .map(|properties| {
+            properties
+                .iter()
+                .filter(|(_, property)| property.get(crate::api::contract::X_FUNCTION).is_some())
+                .map(|(name, _)| name.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut types: Vec<String> = Vec::new();
+    let mut reexports: Vec<String> = Vec::new();
+    for (name, definition) in schema
+        .get("$defs")
+        .and_then(serde_json::Value::as_object)
+        .into_iter()
+        .flatten()
+    {
+        if crate::api::check::is_pure_ref_alias(definition) {
+            reexports.push(name.clone());
+        } else {
+            types.push(name.clone());
+        }
+    }
+    let abstract_note = interface_abstract(&ops, &types, &reexports);
+    ArchiInterfaceAsset {
+        path: display,
+        present: true,
+        bytes,
+        ops,
+        types,
+        reexports,
+        abstract_note,
+    }
+}
+
+/// 接口摘要的六形态判读（优先级 = 含透传 > 空 > 只有操作 > 只有类型 > 两者都有）。
+fn interface_abstract(ops: &[String], types: &[String], reexports: &[String]) -> String {
+    if !reexports.is_empty() {
+        return INTERFACE_REEXPORTS.to_owned();
+    }
+    match (ops.is_empty(), types.is_empty()) {
+        (true, true) => INTERFACE_BLANK.to_owned(),
+        (false, true) => INTERFACE_OPS_ONLY.to_owned(),
+        (true, false) => INTERFACE_TYPES_ONLY.to_owned(),
+        (false, false) => INTERFACE_BOTH.to_owned(),
+    }
+}
+
+/// 文档资产装配：只读 `##` 段名 + 行数 + 字节（**零正文**）。
+fn doc_asset(root: &Path, fqn: &str) -> ArchiDocAsset {
+    let path = crate::api::paths::contract_path(root, fqn);
+    let present = path.as_ref().is_some_and(|path| path.is_file());
+    let display = path.as_ref().map(|path| crate::api::display(root, path));
+    if !present {
+        return ArchiDocAsset {
+            path: display,
+            present: false,
+            bytes: 0,
+            lines: 0,
+            headings: Vec::new(),
+        };
+    }
+    let resolved = path.expect("present 已在上面判过");
+    let bytes = std::fs::metadata(&resolved)
+        .map(|meta| meta.len())
+        .unwrap_or(0);
+    let source = std::fs::read_to_string(&resolved).unwrap_or_default();
+    let headings: Vec<String> = source
+        .lines()
+        .filter_map(|line| line.trim_end().strip_prefix("## "))
+        .map(|heading| heading.trim().to_owned())
+        .collect();
+    ArchiDocAsset {
+        path: display,
+        present: true,
+        bytes,
+        lines: source.lines().count() as u32,
+        headings,
+    }
+}
+
 /// 单元素详情（定位工具的响应面；与 IPC `archi_module` 同一投影）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -581,10 +814,11 @@ pub struct ArchiModuleDetail {
     pub depended_by: Vec<ArchiDependedBy>,
     /// 直接子元素 FQN（字典序）
     pub children: Vec<String>,
-    /// 入口文档指针：单值、仅 `api = none` 元素有值；`declared` 恒 `null`，其入口文档
-    /// 走 `api.contractPath`
+    /// 模型 `doc` 字段的原样投影（**约定字段，零判据读者**：约定只有 `api = none` 的
+    /// 元素会写，`declared` 写了也照原样出线）；呈现规则（只在 `api = none` 渲染
+    /// 「入口文档」段）不在投影层
     pub doc: Option<String>,
-    /// 契约状态与三路径的并列字段
+    /// 接口状态与三条路径的并列字段（文档 / 接口 / 生成物各自独立）
     pub api: ArchiApiRef,
     /// 入口解析结果（显式命中 / 约定默认命中 / 不可用成因）
     pub resolved_entry: ArchiResolvedEntry,
@@ -594,6 +828,10 @@ pub struct ArchiModuleDetail {
     /// MUST NOT 与 `archi_drift` 报告的 `modelHash` 比较（后者是全量聚合、非同粒度），
     /// MUST NOT 承担「模型是否被改动」的判定（那是 `assets_hash` 的用途）。
     pub file_hash: String,
+    /// 三份资产的结构面（拓扑 / 接口 / 文档，三段各自 `present`）
+    pub assets: ArchiAssetSet,
+    /// 一句话读法指引（静态文本，零变量插值）
+    pub reading: String,
 }
 
 /// 检索结果（薄条目 + 入口文档路径串）。
@@ -602,7 +840,7 @@ pub struct ArchiModuleDetail {
 pub struct ArchiSearchResult {
     /// 命中元素（FQN 字典序）
     pub elements: Vec<ArchiElementBrief>,
-    /// 命中的入口文档路径（repo 相对 POSIX，路径字典序）
+    /// 命中的资产路径（文档 / 接口两条固定规则；repo 相对 POSIX，路径字典序）
     pub doc: Vec<String>,
 }
 
@@ -782,7 +1020,7 @@ pub fn graph_view(root: &Path) -> Result<ArchiGraph, String> {
     })
 }
 
-/// 单元素投影：元素 + 邻域（出边 / 入边 / 直接子元素）+ 入口文档单值 + 契约面。
+/// 单元素投影：元素 + 邻域（出边 / 入边 / 直接子元素）+ `doc` 单值 + 接口面 + 三份资产。
 /// 结构错 → `Err`（附诊断清单）；元素缺席 → `Err`（附元素总数提示）。
 pub fn module_detail(root: &Path, fqn: &str) -> Result<ArchiModuleDetail, String> {
     let loaded = load(root);
@@ -831,16 +1069,21 @@ pub fn module_detail(root: &Path, fqn: &str) -> Result<ArchiModuleDetail, String
             .iter()
             .map(|child| (*child).to_owned())
             .collect(),
-        // 入口文档只出线一处：`api = none` 出模型原文，`declared` 恒 `null`（其入口文档
-        // 走 `api.contractPath`——两处同时给出会让前端渲两条）
-        doc: (element.api == ApiStatus::None)
-            .then(|| element.doc.clone())
-            .flatten(),
-        // 契约状态的定位与投影单点在 `crate::api`（本层零路径拼接、零二次读模型）
+        // `doc` 原样投影（该字段零判据读者：写了不报、指不到不报）；前端「入口文档」段
+        // 仍只在 `api = none` 渲染，预期呈现规则不进投影层
+        doc: element.doc.clone(),
+        // 接口状态的定位与投影单点在 `crate::api`（本层零路径拼接、零二次读模型）
         api: crate::api::api_ref_of(root, &projected, current),
         resolved_entry: resolve_entry(root, &projected, current),
         // 单文件哈希与 `drift::file_hash` 同一函数（读侧闭环；`modelFile` 已在手 ⇒ 零额外定位）
         file_hash: crate::drift::file_hash(&root.join(&element.file)),
+        // 三资产一次给全：拓扑取模型事实、接口读键名、文档读段名（各自 present 独立）
+        assets: ArchiAssetSet {
+            topology: topology_asset(element, &neighborhood),
+            interface: interface_asset(root, fqn),
+            doc: doc_asset(root, fqn),
+        },
+        reading: READING.to_owned(),
     })
 }
 

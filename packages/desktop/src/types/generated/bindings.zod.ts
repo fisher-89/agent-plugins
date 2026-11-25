@@ -763,7 +763,7 @@ export const ArchiApiFindingSchema = z.strictObject({
 	get occurrences() { return z.array(ArchiDriftOccurrenceSchema); },
 });
 
-export const ArchiApiFindingKindSchema = z.union([z.literal("apiEntryMissing"), z.literal("apiMissing"), z.literal("apiUndeclared"), z.literal("apiSignatureMismatch"), z.literal("apiUnexpected"), z.literal("apiShadowing"), z.literal("apiRefMissing"), z.literal("apiNestedCrossCrate"), z.literal("apiReexportDrift"), z.literal("apiConstructorDeclared"), z.literal("docMissing"), z.literal("docNotFound"), z.literal("apiDocMissing")]);
+export const ArchiApiFindingKindSchema = z.union([z.literal("apiEntryMissing"), z.literal("apiMissing"), z.literal("apiUndeclared"), z.literal("apiSignatureMismatch"), z.literal("apiUnexpected"), z.literal("apiShadowing"), z.literal("apiRefMissing"), z.literal("apiNestedCrossCrate"), z.literal("apiConstructorDeclared"), z.literal("docMissing")]);
 
 export const ArchiApiMetaSchema = z.strictObject({
 	get toolVersion() { return z.string(); },
@@ -780,6 +780,12 @@ export const ArchiApiRefSchema = z.strictObject({
 export const ArchiApiWriteOutcomeSchema = z.strictObject({
 	get written() { return z.array(z.string()); },
 	get unchanged() { return z.array(z.string()); },
+});
+
+export const ArchiAssetSetSchema = z.strictObject({
+	get topology() { return ArchiTopologyAssetSchema; },
+	get interface() { return ArchiInterfaceAssetSchema; },
+	get doc() { return ArchiDocAssetSchema; },
 });
 
 export const ArchiChangeSummarySchema = z.strictObject({
@@ -812,6 +818,14 @@ export const ArchiDiagnosticSchema = z.strictObject({
 });
 
 export const ArchiDiagnosticKindSchema = z.union([z.literal("syntaxError"), z.literal("missingField"), z.literal("invalidValue"), z.literal("unknownField"), z.literal("duplicateElement"), z.literal("cycle"), z.literal("dependsOnAncestor"), z.literal("unknownReference"), z.literal("orphanHierarchy")]);
+
+export const ArchiDocAssetSchema = z.strictObject({
+	get path() { return z.string().nullable(); },
+	get present() { return z.boolean(); },
+	get bytes() { return z.number(); },
+	get lines() { return z.int().min(0).max(4294967295); },
+	get headings() { return z.array(z.string()); },
+});
 
 export const ArchiDriftEntrySchema = z.strictObject({
 	get kind() { return ArchiDriftKindSchema; },
@@ -927,6 +941,16 @@ export const ArchiGraphSchema = z.strictObject({
 	get diagnostics() { return z.array(ArchiDiagnosticSchema); },
 });
 
+export const ArchiInterfaceAssetSchema = z.strictObject({
+	get path() { return z.string().nullable(); },
+	get present() { return z.boolean(); },
+	get bytes() { return z.number(); },
+	get ops() { return z.array(z.string()); },
+	get types() { return z.array(z.string()); },
+	get reexports() { return z.array(z.string()); },
+	get abstract() { return z.string(); },
+});
+
 export const ArchiMatchedElementSchema = z.strictObject({
 	get element() { return z.string(); },
 	get files() { return z.array(z.string()); },
@@ -941,6 +965,8 @@ export const ArchiModuleDetailSchema = z.strictObject({
 	get api() { return ArchiApiRefSchema; },
 	get resolvedEntry() { return ArchiResolvedEntrySchema; },
 	get fileHash() { return z.string(); },
+	get assets() { return ArchiAssetSetSchema; },
+	get reading() { return z.string(); },
 });
 
 export const ArchiObservationKindSchema = z.union([z.literal("unfulfilledDeclaration"), z.literal("unusedDeclaration")]);
@@ -986,6 +1012,13 @@ export const ArchiScanReportSchema = z.strictObject({
 });
 
 export const ArchiSuppressViaSchema = z.union([z.literal("config"), z.literal("inline")]);
+
+export const ArchiTopologyAssetSchema = z.strictObject({
+	get file() { return z.string(); },
+	get line() { return z.int().min(0).max(4294967295); },
+	get out() { return z.number(); },
+	get in() { return z.number(); },
+});
 
 export const ArchiUnresolvedFileSchema = z.strictObject({
 	get file() { return z.string(); },

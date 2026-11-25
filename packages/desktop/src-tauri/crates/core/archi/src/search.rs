@@ -3,12 +3,13 @@ use crate::dto::SearchScope;
 use crate::graph::ModelGraph;
 use crate::model::Element;
 
-/// 检索结果（元素 FQN 清单 + 入口文档路径串）。
+/// 检索结果（元素 FQN 清单 + 资产路径串）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchOutcome {
     /// 命中元素 FQN（字典序）
     pub element_fqns: Vec<String>,
-    /// 命中的入口文档路径（`path` 非空元素的在盘载体，路径字典序）
+    /// 命中的资产路径（`path` 非空元素的在盘 `<FQN>.md` ∪ 在盘 `<FQN>.schema.json`，
+    /// 路径字典序）
     pub doc: Vec<String>,
 }
 
@@ -40,16 +41,23 @@ pub fn search(
         outcome.element_fqns.dedup();
     }
     if scope != SearchScope::Elements {
-        // 语料 = `path` 非空元素的在盘入口文档载体（与判据面同一集合、同一载体派生）
+        // 语料 = 两条固定规则：在盘 `<FQN>.md`（文档）∪ 在盘 `<FQN>.schema.json`（接口）。
+        // 两条都不经 `api` 状态、不经模型 `doc` 字段——`carrier_path` 已退役，检索面 MUST NOT
+        // 复活第二次载体派生。
         outcome.doc = graph
             .model()
             .elements
             .iter()
             .filter(|element| !element.path.is_empty())
-            .filter_map(|element| {
-                let carrier = api::paths::carrier_path(root, &crate::dto::to_element(element))?;
-                carrier.is_file().then(|| api::display(root, &carrier))
+            .flat_map(|element| {
+                [
+                    api::paths::contract_path(root, &element.fqn),
+                    api::paths::schema_path(root, &element.fqn),
+                ]
             })
+            .flatten()
+            .filter(|path| path.is_file())
+            .map(|path| api::display(root, &path))
             .filter(|path| matches_doc(path, &tokens))
             .collect();
         outcome.doc.sort();
@@ -73,7 +81,7 @@ fn matches_element(element: &Element, tokens: &[String]) -> bool {
     contains_all(&haystack, tokens)
 }
 
-/// 入口文档命中判据：路径与文件名去扩展名（**不读正文**）。
+/// 资产路径命中判据：路径与文件名去扩展名（**不读正文**）。
 fn matches_doc(doc: &str, tokens: &[String]) -> bool {
     let mut haystack = String::with_capacity(doc.len() + 32);
     haystack.push_str(doc);

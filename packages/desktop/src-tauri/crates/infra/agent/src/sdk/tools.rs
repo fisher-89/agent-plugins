@@ -76,8 +76,8 @@ pub async fn execute(root: &Path, name: &str, input: &Value) -> Result<String, S
         "grep" => grep(input).await,
         "glob" => glob(root, input).await,
         "ls" => list_dir(input).await,
-        "write" => write(input).await,
-        "edit" => edit(input).await,
+        "write" => write(root, input).await,
+        "edit" => edit(root, input).await,
         "bash" => bash::execute(root, input).await,
         other => Err(format!("未知工具: {other}")),
     };
@@ -369,9 +369,13 @@ async fn list_dir(input: &Value) -> Result<String, String> {
 
 /// write：全量覆写；父目录缺失自动创建（sandbox 的宽容 canonicalize 已
 /// 允许缺失尾段，两侧口径一致）。
-async fn write(input: &Value) -> Result<String, String> {
+///
+/// **接口定义写闸**：落盘前先校验候选正文（接口文件必过，其余路径零校验），失败即 `Err`
+/// 且零落盘——`create_dir_all` 排在闸之后，故「校验失败却留下新目录」也不会发生。
+async fn write(root: &Path, input: &Value) -> Result<String, String> {
     let path = string_field(input, "path")?;
     let content = string_field(input, "content")?;
+    let interface = validate_interface(root, &path, &content)?;
     if let Some(parent) = Path::new(&path).parent() {
         tokio::fs::create_dir_all(parent)
             .await
@@ -380,12 +384,19 @@ async fn write(input: &Value) -> Result<String, String> {
     tokio::fs::write(&path, &content)
         .await
         .map_err(|e| format!("写入失败: {e}"))?;
-    Ok(format!("已写入 {path}（{} 字节）", content.len()))
+    let mut message = format!("已写入 {path}（{} 字节）", content.len());
+    if interface {
+        message.push_str(INTERFACE_VERIFIED_NOTE);
+    }
+    Ok(message)
 }
 
 /// edit：精确串替换——old_string 必须命中；多处命中需 replace_all 或唯一化
 /// 串；替换后回写。
-async fn edit(input: &Value) -> Result<String, String> {
+///
+/// 接口定义写闸的校验对象是**替换后的候选正文**（不是旧文）：命中与唯一性两条既有闸
+/// 先行（它们的失败与接口无关），随后过校验、最后写盘。
+async fn edit(root: &Path, input: &Value) -> Result<String, String> {
     let path = string_field(input, "path")?;
     let old = string_field(input, "old_string")?;
     let new = string_field(input, "new_string")?;
@@ -413,8 +424,59 @@ async fn edit(input: &Value) -> Result<String, String> {
     } else {
         (text.replacen(&old, &new, 1), 1)
     };
-    tokio::fs::write(&path, updated)
+    let interface = validate_interface(root, &path, &updated)?;
+    tokio::fs::write(&path, &updated)
         .await
         .map_err(|e| format!("写回失败: {e}"))?;
-    Ok(format!("已替换 {replaced} 处"))
+    let mut message = format!("已替换 {replaced} 处");
+    if interface {
+        message.push_str(INTERFACE_VERIFIED_NOTE);
+    }
+    Ok(message)
+}
+
+/// 写闸通过后的回执尾行（只在目标是接口定义文件时追加；其余路径响应逐字不变）。
+const INTERFACE_VERIFIED_NOTE: &str = "\n接口已校验";
+
+/// 接口定义写闸：目标路径落在 `<root>/<archi_models_rel_dir>/**/<FQN>.schema.json` 时，
+/// 用 [`archi::validate_schema`] 校验候选正文。
+///
+/// 返回「是否校验过」（回执据此加一行）。**射程封闭**：只有接口文件进校验面，其余一切
+/// 路径（源码 / 文档 / 模型 TOML / `INDEX.toml` / `.i.rs` / `.i.ts`）写前零校验的既有
+/// 承诺逐字不变。**校验单点**：与装载期（`load_contracts`）调用的是同一个函数，本层
+/// MUST NOT 另写一份 JSON / JSON Schema 校验。
+fn validate_interface(root: &Path, path: &str, content: &str) -> Result<bool, String> {
+    let Some(fqn) = schema_target_fqn(root, path) else {
+        return Ok(false);
+    };
+    archi::validate_schema(&fqn, content)
+        .map_err(|error| format!("接口定义文件 `{path}` 校验失败：{}", error.message()))?;
+    Ok(true)
+}
+
+/// 路径 → 接口文件主干（FQN）：命中 `<root>/<archi_models_rel_dir>/**/<FQN>.schema.json`
+/// 时返回 FQN，否则 `None`。
+///
+/// 前缀经 [`foundation::layout`] 派生（MUST NOT 行内拼 `models` 段），文件主干经
+/// [`archi::schema_fqn`] 反查（MUST NOT 在此再切一次后缀）。相对路径按 `root` 拼绝对；
+/// `sandbox` 已把入参改写成 root 内绝对路径，此处两种形态都接住。
+fn schema_target_fqn(root: &Path, path: &str) -> Option<String> {
+    let candidate = Path::new(path);
+    let absolute = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        root.join(candidate)
+    };
+    let models = foundation::layout::archi_models_dir(root);
+    let relative = match absolute.strip_prefix(&models) {
+        Ok(relative) => relative.to_path_buf(),
+        Err(_) => {
+            // root 侧经符号链接 / `..` 落盘时，字面前缀会与实际路径失配；两侧各解析一次再比
+            let resolved = absolute.canonicalize().ok()?;
+            let prefix = models.canonicalize().ok()?;
+            resolved.strip_prefix(&prefix).ok()?.to_path_buf()
+        }
+    };
+    let file_name = relative.file_name()?.to_str()?;
+    archi::schema_fqn(file_name).map(str::to_owned)
 }

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "App.Mod.schema.json",
+  "title": "App.Mod",
+  "$defs": {},
+  "properties": {
+    "file_stem": {
+      "x-function": {
+        "params": [
+          {
+            "name": "timestamp",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "returns": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

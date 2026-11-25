@@ -42,6 +42,8 @@ const CONFIG_SOURCE: &str = "config";
 /// - `change` 来源按 `source_ref` 尾三段解析 `(phase, role)` 查 archi 工具面
 ///   矩阵，命中即把勾选名并入七工具名清单，**矩阵之后恒 push `db_tables` /
 ///   `db_query` 两名**（不分 phase / 不分矩阵命中，与 `ask` 位恒 `Flow` 同构）；
+///   `preamble` 位与写权**同源**：`model_write_lock(provenance).is_none()` ⇒ 同一份架构
+///   会话知识，否则 `None`（单一判据，MUST NOT 另立一份矩阵命中判定）；
 /// - 其余来源（**非 change、非 config** 的 debug 等）显式构造 `tools = None`（内建
 ///   七件）+ 零 archi 工具 + `ask = Some(Generic)`——MUST NOT 以默认构造兜底（默认值
 ///   的 `ask = None` 即静默禁用，通用会话会失去 ask）。
@@ -150,10 +152,16 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
         Some("decision") => Some(agent::FinishSpec::Decision),
         _ => None,
     };
+    // 知识段与写权同源（单一判据）：`model_write_lock` 不挂锁 ⇒ 注入同一份架构会话知识；
+    // 拼装失败降级 `None`（知识是尽力增强项，不影响工具面与收口前自检）
+    let preamble = model_write_lock(provenance)
+        .is_none()
+        .then(crate::archi_knowledge::knowledge)
+        .flatten();
     // change 来源的 ask 档位恒 Flow（不分 role / 不分矩阵命中）
     injected(
         &names,
-        None,
+        preamble,
         finish,
         Some(agent::AskMode::Flow),
         None,
@@ -214,11 +222,17 @@ fn change_phase_role(source_ref: &str) -> Option<(&str, &str)> {
 /// 只给两处写权相位与 archi 臂——两写工具的下发集合 MUST 与 [`model_write_lock`] 的不挂锁
 /// 集合逐格相等（「有工具但锁着」与「锁开了却没工具」都是错配）。`code-review` /
 /// `acceptance` 仍只读模型面（保守案：时机差是理由，不是给 evaluator 发读数工具的充分理由）。
+///
+/// **`api` 给两处写权相位**（本变更扩面）：接口定义成了手写真相，`bootstrap` 双草稿与
+/// `link` 算 `$ref` 的价值恰在起草相位；`scaffold` 的描述也指向它（不补即「指向一个未下发
+/// 的工具」）。`api` 是**只读**档，扩面不扩写权——两写工具的矩阵集与 `model_write_lock` 的
+/// 同集纪律逐字不变。两行的向量序即 spec 所列。
 fn archi_matrix(phase: &str, role: &str) -> Option<Vec<&'static str>> {
     match (phase, role) {
         ("proposal", "executor") => Some(vec![
-            mount::ARCHI_SEARCH_TOOL,
             mount::ARCHI_MODULE_TOOL,
+            mount::ARCHI_SEARCH_TOOL,
+            mount::ARCHI_API_TOOL,
             mount::ARCHI_SCAFFOLD_TOOL,
             mount::ARCHI_ELEMENT_TOOL,
             mount::ARCHI_RELATION_TOOL,
@@ -226,6 +240,7 @@ fn archi_matrix(phase: &str, role: &str) -> Option<Vec<&'static str>> {
         ("dev-design", "executor") => Some(vec![
             mount::ARCHI_MODULE_TOOL,
             mount::ARCHI_SEARCH_TOOL,
+            mount::ARCHI_API_TOOL,
             mount::ARCHI_DRIFT_TOOL,
             mount::ARCHI_SCAFFOLD_TOOL,
             mount::ARCHI_ELEMENT_TOOL,

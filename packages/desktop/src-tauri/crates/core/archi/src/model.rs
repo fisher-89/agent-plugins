@@ -42,10 +42,12 @@ pub struct Element {
     pub kind: ElementKind,
     /// gate 档位（缺省 `off`）
     pub gate: GateTier,
-    /// 契约状态指针（缺省 `declared`）：同时是**入口文档载体的开关**——`declared` ⇒
-    /// 入口文档 = 派生 `<models>/<分层目录…>/<FQN>.md`、`none` ⇒ 入口文档 = [`Element::doc`]。
-    /// 协议正文 MUST NOT 进模型——签名 / 导出符号 / 接口定义写在架构域 `models/`
-    /// 目录的契约资产里（与模型同树，契约 md 即入口文档）。
+    /// 接口承诺开关（缺省 `declared`）：`declared` = 断言本模块应有一份
+    /// `<models>/<分层目录…>/<FQN>.schema.json`、`none` = 显式无接口面（schema 在盘即违约）。
+    ///
+    /// **它不再兼任入口文档载体的开关**：文档（资产①）的落点恒为派生
+    /// `<models>/<分层目录…>/<FQN>.md`，与 `api` 无关。协议正文 MUST NOT 进模型——签名 /
+    /// 导出符号 / 接口定义写在架构域 `models/` 目录的接口定义文件里（与文档同目录）。
     pub api: ApiStatus,
     /// 实现入口指针（缺省 `None`）：单值、repo 相对 POSIX，与 `path` 同口径
     /// （`./` 前缀由归一剥除、不参与身份）。四条判据（基准 / 落位 / 存在 /
@@ -54,8 +56,13 @@ pub struct Element {
     pub entry: Option<String>,
     /// 覆盖路径（原文，不归一）
     pub path: Vec<String>,
-    /// 入口文档指针：单值、repo 相对 POSIX；只有 `api = none` 元素可写；`declared` 的
-    /// 入口文档恒为派生 `contract_path`
+    /// 文档指针（**约定，非机械判据**）：单值、repo 相对 POSIX；约定只有 `api = none`
+    /// 的元素会写（`declared` 元素的文档在派生落点）。
+    ///
+    /// **零判据读者**：判据面 / 纳管面 / 路径派生面 / 检索语料面都不读它——写了不报、
+    /// 指不到盘也不报（`apiUnexpected` 的形态② 已随字段惰性化删除）。保留它是为了外部
+    /// 工作区写了 `doc` 不突然变成 `unknownField` 结构错；其值仅供 `archi_module` 投影与
+    /// 画布「入口文档」段呈现。
     pub doc: Option<String>,
     /// 一行摘要
     pub summary: Option<String>,

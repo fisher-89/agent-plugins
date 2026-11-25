@@ -1,0 +1,522 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\infra\agent)
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\emit\mod_test.rs:204:9
+    |
+204 |         &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input")`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+    = note: `#[warn(clippy::needless_borrows_for_generic_args)]` on by default
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\emit\mod_test.rs:246:48
+    |
+246 |         let source = mirrored_schema_text(FQN, &format!("\"{name}\": {definition}"), "");
+    |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `format!("\"{name}\": {definition}")`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\emit\mod_test.rs:698:9
+    |
+698 |         &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input")`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\emit\mod_test.rs:855:9
+    |
+855 |         &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input")`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\emit\rust_test.rs:545:9
+    |
+545 | /         &format!(
+546 | |             "{}, {}",
+547 | |             reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+548 | |             reexport_def(
+...   |
+553 | |         ),
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+    |
+545 ~         format!(
+546 +             "{}, {}",
+547 +             reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+548 +             reexport_def(
+549 +                 FQN,
+550 +                 "AgentBlocks",
+551 +                 "App.Frontend.Components.Agent.AgentBlocks"
+552 +             )
+553 ~         ),
+    |
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\emit\rust_test.rs:900:9
+    |
+900 |         &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input")`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\emit\rust_test.rs:1040:9
+     |
+1040 |         &reexport_def(FQN, "AgentInput", r#"App.Frontend\nComponents.Agent"#),
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "AgentInput", r#"App.Frontend\nComponents.Agent"#)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\emit\rust_test.rs:1467:9
+     |
+1467 |         &format!(r#"{{"params": {params}, "returns": {returns}}}"#),
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `format!(r#"{{"params": {params}, "returns": {returns}}}"#)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\emit\ts_test.rs:421:9
+    |
+421 |         &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input")`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\emit\ts_test.rs:460:9
+    |
+460 | /         &format!(
+461 | |             "{}, {}",
+462 | |             reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+463 | |             r#""Item": {"type": "object", "properties": {}}"#
+464 | |         ),
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+    |
+460 ~         format!(
+461 +             "{}, {}",
+462 +             reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+463 +             r#""Item": {"type": "object", "properties": {}}"#
+464 ~         ),
+    |
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\emit\ts_test.rs:528:9
+    |
+528 |         &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input")`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\emit\ts_test.rs:560:9
+    |
+560 |         &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input")`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\emit\ts_test.rs:683:9
+    |
+683 |         &format!(r#"{{"params": {params}, "returns": {returns}}}"#),
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `format!(r#"{{"params": {params}, "returns": {returns}}}"#)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\emit\ts_test.rs:942:9
+    |
+942 | /         &format!(
+943 | |             "{}, {}",
+944 | |             reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+945 | |             reexport_def(
+...   |
+950 | |         ),
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+    |
+942 ~         format!(
+943 +             "{}, {}",
+944 +             reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+945 +             reexport_def(
+946 +                 FQN,
+947 +                 "AgentBlocks",
+948 +                 "App.Frontend.Components.Agent.AgentBlocks"
+949 +             )
+950 ~         ),
+    |
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\emit\ts_test.rs:1217:9
+     |
+1217 |         &reexport_def(FQN, "Archived", FQN),
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "Archived", FQN)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\emit\ts_test.rs:1274:9
+     |
+1274 |         &reexport_def(FQN, "Archived", FQN),
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "Archived", FQN)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\emit\ts_test.rs:1430:9
+     |
+1430 |         &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input")`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\emit\ts_test.rs:1754:13
+     |
+1754 |             &reexport_def(FQN, "Archived", FQN),
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "Archived", FQN)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\emit\ts_test.rs:1760:13
+     |
+1760 |             &reexport_def(FQN, "Archived", FQN),
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "Archived", FQN)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\emit\ts_test.rs:1791:13
+     |
+1791 |             &reexport_def(FQN, "Archived", FQN),
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "Archived", FQN)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\emit\ts_test.rs:1960:9
+     |
+1960 |         &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input")`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\extract\mod_test.rs:1533:9
+     |
+1533 |         &format!(r#""Widget": {{"type": "object", "properties": {{"f": {fragment}}}{required}}}"#),
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `format!(r#""Widget": {{"type": "object", "properties": {{"f": {fragment}}}{required}}}"#)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\extract\mod_test.rs:1542:9
+     |
+1542 | /         &format!(
+1543 | |             r#""Widget": {{"type": "object", "properties": {{"a": {fragment}, "b": {fragment}}}, "required": ["a"]}}"#
+1544 | |         ),
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+     |
+1542 ~         format!(
+1543 +             r#""Widget": {{"type": "object", "properties": {{"a": {fragment}, "b": {fragment}}}, "required": ["a"]}}"#
+1544 ~         ),
+     |
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\contract_test.rs:355:44
+    |
+355 |     let source = mirrored_schema_text(FQN, &format!("\"Widget\": {definition}"), "");
+    |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `format!("\"Widget\": {definition}")`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\mod_test.rs:266:9
+    |
+266 |         &format!("\"{op}\": {{ \"x-function\": {signature} }}"),
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `format!("\"{op}\": {{ \"x-function\": {signature} }}")`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\mod_test.rs:815:17
+    |
+815 | / ...   &format!(
+816 | | ...       "\"T\": {{ \"type\": \"object\", \"properties\": {{ \"call\": {{ \"type\": \"array\", \"items\": {{ \"x-function\": {fu...
+817 | | ...   ),
+    | |_______^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+    |
+815 ~                 format!(
+816 +                     "\"T\": {{ \"type\": \"object\", \"properties\": {{ \"call\": {{ \"type\": \"array\", \"items\": {{ \"x-function\": {function} }} }} }} }}"
+817 ~                 ),
+    |
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\mod_test.rs:826:17
+    |
+826 | /                 &format!(
+827 | |                     "\"T\": {{ \"type\": \"object\", \"additionalProperties\": {{ \"x-function\": {function} }} }}"
+828 | |                 ),
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+    |
+826 ~                 format!(
+827 +                     "\"T\": {{ \"type\": \"object\", \"additionalProperties\": {{ \"x-function\": {function} }} }}"
+828 ~                 ),
+    |
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\mod_test.rs:837:17
+    |
+837 | /                 &format!(
+838 | |                     "\"T\": {{ \"oneOf\": [{{ \"type\": \"string\" }}, {{ \"x-function\": {function} }}] }}"
+839 | |                 ),
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+    |
+837 ~                 format!(
+838 +                     "\"T\": {{ \"oneOf\": [{{ \"type\": \"string\" }}, {{ \"x-function\": {function} }}] }}"
+839 ~                 ),
+    |
+
+warning: the borrowed expression implements the required traits
+   --> crates\core\archi\src\api\mod_test.rs:848:17
+    |
+848 |                 &format!("\"T\": {{ \"x-function\": {function} }}"),
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `format!("\"T\": {{ \"x-function\": {function} }}")`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\mod_test.rs:1072:40
+     |
+1072 |         &mirrored_schema_text(backend, &reexport_def(backend, "AgentView", frontend), ""),
+     |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(backend, "AgentView", frontend)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\mod_test.rs:1085:13
+     |
+1085 | /             &format!(
+1086 | |                 "{}, {}",
+1087 | |                 reexport_def(frontend, "Accept", backend),
+1088 | |                 r#""Item": {"type": "object", "properties": {}}"#
+1089 | |             ),
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+     |
+1085 ~             format!(
+1086 +                 "{}, {}",
+1087 +                 reexport_def(frontend, "Accept", backend),
+1088 +                 r#""Item": {"type": "object", "properties": {}}"#
+1089 ~             ),
+     |
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\mod_test.rs:1655:13
+     |
+1655 | /             &format!(
+1656 | |                 "{}, {}",
+1657 | |                 r#""Alpha": {"type": "object", "properties": {}}"#,
+1658 | |                 reexport_def(fqn, "AgentInput", "App.Core.Beta")
+1659 | |             ),
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+     |
+1655 ~             format!(
+1656 +                 "{}, {}",
+1657 +                 r#""Alpha": {"type": "object", "properties": {}}"#,
+1658 +                 reexport_def(fqn, "AgentInput", "App.Core.Beta")
+1659 ~             ),
+     |
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\mod_test.rs:3456:13
+     |
+3456 | /             &format!(
+3457 | |                 "{}, {}, {}",
+3458 | |                 reexport_def(consumer, "Loop", keyword_target),
+3459 | |                 reexport_def(consumer, "Base", valid_target),
+3460 | |                 r#""Thing": {"type": "object", "properties": {}}"#
+3461 | |             ),
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+     |
+3456 ~             format!(
+3457 +                 "{}, {}, {}",
+3458 +                 reexport_def(consumer, "Loop", keyword_target),
+3459 +                 reexport_def(consumer, "Base", valid_target),
+3460 +                 r#""Thing": {"type": "object", "properties": {}}"#
+3461 ~             ),
+     |
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\mod_test.rs:3614:13
+     |
+3614 | /             &format!(
+3615 | |                 "{}, {}",
+3616 | |                 reexport_def(consumer, "AgentInput", target),
+3617 | |                 r#""Thing": {"type": "object", "properties": {}}"#
+3618 | |             ),
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+     |
+3614 ~             format!(
+3615 +                 "{}, {}",
+3616 +                 reexport_def(consumer, "AgentInput", target),
+3617 +                 r#""Thing": {"type": "object", "properties": {}}"#
+3618 ~             ),
+     |
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\mod_test.rs:3686:13
+     |
+3686 | /             &format!(
+3687 | |                 "{}, {}",
+3688 | |                 reexport_def(consumer, "AgentInput", target),
+3689 | |                 r#""Thing": {"type": "object", "properties": {}}"#
+3690 | |             ),
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+     |
+3686 ~             format!(
+3687 +                 "{}, {}",
+3688 +                 reexport_def(consumer, "AgentInput", target),
+3689 +                 r#""Thing": {"type": "object", "properties": {}}"#
+3690 ~             ),
+     |
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\mod_test.rs:4547:13
+     |
+4547 |             &format!(r#""W": {{"type": "object", "x-common": {{"degraded": {value}}}}}"#),
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `format!(r#""W": {{"type": "object", "x-common": {{"degraded": {value}}}}}"#)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\mod_test.rs:4815:9
+     |
+4815 | /         &format!(
+4816 | |             "{}, {}",
+4817 | |             r#""useAgentInput": { "x-function": {"params": [], "returns": {"type": "boolean"}} }"#,
+4818 | |             r#""useSession": { "x-function": {"params": [], "returns": {"type": "boolean"}} }"#
+4819 | |         ),
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+     |
+4815 ~         format!(
+4816 +             "{}, {}",
+4817 +             r#""useAgentInput": { "x-function": {"params": [], "returns": {"type": "boolean"}} }"#,
+4818 +             r#""useSession": { "x-function": {"params": [], "returns": {"type": "boolean"}} }"#
+4819 ~         ),
+     |
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\paths_test.rs:2050:13
+     |
+2050 | /             &format!(
+2051 | |                 "{}, {}, {}, {}",
+2052 | |                 reexport_def(fqn, "AgentView", dotted_target),
+2053 | |                 reexport_def(fqn, "Empty", empty_target),
+2054 | |                 reexport_def(fqn, "Base", valid_target),
+2055 | |                 r#""Thing": {"type": "object", "properties": {}}"#
+2056 | |             ),
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+     |
+2050 ~             format!(
+2051 +                 "{}, {}, {}, {}",
+2052 +                 reexport_def(fqn, "AgentView", dotted_target),
+2053 +                 reexport_def(fqn, "Empty", empty_target),
+2054 +                 reexport_def(fqn, "Base", valid_target),
+2055 +                 r#""Thing": {"type": "object", "properties": {}}"#
+2056 ~             ),
+     |
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\api\paths_test.rs:2198:44
+     |
+2198 |     let source = mirrored_schema_text(fqn, &reexport_def(fqn, "Archived", fqn), "");
+     |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `reexport_def(fqn, "Archived", fqn)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+
+warning: the borrowed expression implements the required traits
+    --> crates\core\archi\src\drift\mod_test.rs:2273:13
+     |
+2273 | /             &format!(
+2274 | |                 "{}, {}, {}",
+2275 | |                 r#""alpha": { "x-function": {"params": [], "returns": {"type": "string"}} }"#,
+2276 | |                 r#""beta": { "x-function": {"params": [], "returns": {"type": "string"}} }"#,
+2277 | |                 r#""gamma": { "x-function": {"params": [], "returns": {"type": "string"}} }"#
+2278 | |             ),
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_borrows_for_generic_args
+help: change this to
+     |
+2273 ~             format!(
+2274 +                 "{}, {}, {}",
+2275 +                 r#""alpha": { "x-function": {"params": [], "returns": {"type": "string"}} }"#,
+2276 +                 r#""beta": { "x-function": {"params": [], "returns": {"type": "string"}} }"#,
+2277 +                 r#""gamma": { "x-function": {"params": [], "returns": {"type": "string"}} }"#
+2278 ~             ),
+     |
+
+warning: `archi` (lib test) generated 40 warnings (run `cargo clippy --fix --lib -p archi --tests -- ` to apply 40 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.17s
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml && pnpm run bindings:zod-check
+[zod-bindings] degraded: agentStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: agentSessionWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: watchSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: notificationSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+$ tsc --noEmit -p tsconfig.zod.json
+$ cargo run -q --manifest-path src-tauri/Cargo.toml -p archi-api-gen -- --check
+$ vp check && knip
+[1m[94mpass:[39m[0m All 291 files are correctly formatted [2m(704ms, 16 threads)[0m
+[1m[94mpass:[39m[0m Found no warnings, lint errors, or type errors in 281 files [2m(1.4s, 16 threads)[0m
+Configuration hints (1)
+src/**/*.i.ts    knip.json  Remove from ignore

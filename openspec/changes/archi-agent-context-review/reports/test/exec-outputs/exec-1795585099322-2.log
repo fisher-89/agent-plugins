@@ -1,0 +1,2860 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\workflow)
+    Checking archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi)
+    Checking orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\orchestration)
+    Checking store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\infra\store)
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\infra\checks)
+    Checking vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\infra\vcs)
+error[E0432]: unresolved import `crate::api::contract::parse`
+  --> crates\core\archi\src\api\emit\mod_test.rs:14:28
+   |
+14 | use crate::api::contract::{parse, Contract};
+   |                            ^^^^^ no `parse` in `api::contract`
+   |
+   = help: consider importing this module instead:
+           crate::parse
+
+error[E0432]: unresolved import `crate::api::schema::build_schema`
+  --> crates\core\archi\src\api\emit\mod_test.rs:18:26
+   |
+18 | use crate::api::schema::{build_schema, verify_defs};
+   |                          ^^^^^^^^^^^^ no `build_schema` in `api::schema`
+
+error[E0432]: unresolved import `crate::api::contract::parse`
+  --> crates\core\archi\src\api\emit\rust_test.rs:13:28
+   |
+13 | use crate::api::contract::{parse, Contract};
+   |                            ^^^^^ no `parse` in `api::contract`
+   |
+   = help: consider importing this module instead:
+           crate::parse
+
+error[E0432]: unresolved import `crate::api::schema::build_schema`
+  --> crates\core\archi\src\api\emit\rust_test.rs:18:5
+   |
+18 | use crate::api::schema::build_schema;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `build_schema` in `api::schema`
+
+error[E0432]: unresolved import `crate::api::contract::parse`
+  --> crates\core\archi\src\api\emit\ts_test.rs:15:28
+   |
+15 | use crate::api::contract::{parse, Contract};
+   |                            ^^^^^ no `parse` in `api::contract`
+   |
+   = help: consider importing this module instead:
+           crate::parse
+
+error[E0432]: unresolved import `crate::api::schema::build_schema`
+  --> crates\core\archi\src\api\emit\ts_test.rs:20:5
+   |
+20 | use crate::api::schema::build_schema;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `build_schema` in `api::schema`
+
+error[E0432]: unresolved import `crate::api::contract::parse`
+  --> crates\core\archi\src\api\extract\mod_test.rs:20:5
+   |
+20 | use crate::api::contract::parse;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `parse` in `api::contract`
+   |
+help: consider importing this module instead
+   |
+20 - use crate::api::contract::parse;
+20 + use crate::parse;
+   |
+
+error[E0432]: unresolved import `crate::api::schema::build_schema`
+  --> crates\core\archi\src\api\extract\mod_test.rs:24:5
+   |
+24 | use crate::api::schema::build_schema;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `build_schema` in `api::schema`
+
+error[E0432]: unresolved import `crate::api::contract::parse`
+  --> crates\core\archi\src\api\check_test.rs:17:28
+   |
+17 | use crate::api::contract::{parse, Contract};
+   |                            ^^^^^ no `parse` in `api::contract`
+   |
+   = help: consider importing this module instead:
+           crate::parse
+
+error[E0432]: unresolved import `crate::api::schema::build_schema`
+  --> crates\core\archi\src\api\check_test.rs:20:5
+   |
+20 | use crate::api::schema::build_schema;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `build_schema` in `api::schema`
+
+error[E0432]: unresolved import `super::contract::parse`
+  --> crates\core\archi\src\api\contract_test.rs:13:39
+   |
+13 | use super::contract::{is_constructor, parse, verify, Contract, ContractOp};
+   |                                       ^^^^^ no `parse` in `api::contract`
+   |
+   = help: consider importing this module instead:
+           crate::parse
+
+error[E0432]: unresolved import `super::schema::build_schema`
+  --> crates\core\archi\src\api\contract_test.rs:14:5
+   |
+14 | use super::schema::build_schema;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `build_schema` in `api::schema`
+
+error[E0432]: unresolved import `crate::api::contract::parse`
+  --> crates\core\archi\src\api\mod_test.rs:22:5
+   |
+22 | use crate::api::contract::parse;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `parse` in `api::contract`
+   |
+help: consider importing this module instead
+   |
+22 - use crate::api::contract::parse;
+22 + use crate::parse;
+   |
+
+error[E0432]: unresolved imports `super::doc_facts`, `super::DocFact`
+    --> crates\core\archi\src\api\mod_test.rs:5710:13
+     |
+5710 | use super::{doc_facts, DocFact};
+     |             ^^^^^^^^^  ^^^^^^^ no `DocFact` in `api`
+     |             |
+     |             no `doc_facts` in `api`
+
+error[E0432]: unresolved import `crate::api::contract::parse`
+  --> crates\core\archi\src\api\paths_test.rs:16:5
+   |
+16 | use crate::api::contract::parse;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `parse` in `api::contract`
+   |
+help: consider importing this module instead
+   |
+16 - use crate::api::contract::parse;
+16 + use crate::parse;
+   |
+
+error[E0432]: unresolved import `crate::api::schema::build_schema`
+  --> crates\core\archi\src\api\paths_test.rs:20:5
+   |
+20 | use crate::api::schema::build_schema;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `build_schema` in `api::schema`
+
+error[E0432]: unresolved imports `super::paths::carrier_path`, `super::paths::doc_path`
+    --> crates\core\archi\src\api\paths_test.rs:2710:20
+     |
+2710 | use super::paths::{carrier_path, doc_path, is_repo_relative};
+     |                    ^^^^^^^^^^^^  ^^^^^^^^ no `doc_path` in `api::paths`
+     |                    |
+     |                    no `carrier_path` in `api::paths`
+
+error[E0432]: unresolved import `super::contract::parse`
+  --> crates\core\archi\src\api\schema_test.rs:16:5
+   |
+16 | use super::contract::parse;
+   |     ^^^^^^^^^^^^^^^^^^^^^^ no `parse` in `api::contract`
+   |
+help: consider importing this module instead
+   |
+16 - use super::contract::parse;
+16 + use crate::parse;
+   |
+
+error[E0432]: unresolved import `super::schema::build_schema`
+  --> crates\core\archi\src\api\schema_test.rs:18:34
+   |
+18 | use super::schema::{build_index, build_schema, degraded_marks, verify_defs, DEGRADED_KINDS};
+   |                                  ^^^^^^^^^^^^ no `build_schema` in `api::schema`
+
+error[E0432]: unresolved import `crate::api::paths::doc_path`
+  --> crates\core\archi\src\edit\warnings_test.rs:16:40
+   |
+16 | use crate::api::paths::{contract_path, doc_path};
+   |                                        ^^^^^^^^ no `doc_path` in `api::paths`
+
+error[E0432]: unresolved imports `super::contract::FENCE_OP`, `super::contract::FENCE_TYPES`
+    --> crates\core\archi\src\api\contract_test.rs:2218:27
+     |
+2218 |     use super::contract::{FENCE_OP, FENCE_TYPES};
+     |                           ^^^^^^^^  ^^^^^^^^^^^ no `FENCE_TYPES` in `api::contract`
+     |                           |
+     |                           no `FENCE_OP` in `api::contract`
+
+error[E0432]: unresolved imports `super::contract::info_tokens`, `super::contract::FENCE_OP`, `super::contract::FENCE_TYPES`
+    --> crates\core\archi\src\api\contract_test.rs:2291:27
+     |
+2291 |     use super::contract::{info_tokens, FENCE_OP, FENCE_TYPES};
+     |                           ^^^^^^^^^^^  ^^^^^^^^  ^^^^^^^^^^^ no `FENCE_TYPES` in `api::contract`
+     |                           |            |
+     |                           |            no `FENCE_OP` in `api::contract`
+     |                           no `info_tokens` in `api::contract`
+
+error[E0432]: unresolved imports `super::contract::info_tokens`, `super::contract::FENCE_OP`, `super::contract::FENCE_TYPES`
+    --> crates\core\archi\src\api\contract_test.rs:2325:27
+     |
+2325 |     use super::contract::{info_tokens, FENCE_OP, FENCE_TYPES};
+     |                           ^^^^^^^^^^^  ^^^^^^^^  ^^^^^^^^^^^ no `FENCE_TYPES` in `api::contract`
+     |                           |            |
+     |                           |            no `FENCE_OP` in `api::contract`
+     |                           no `info_tokens` in `api::contract`
+
+error[E0432]: unresolved imports `super::contract::info_tokens`, `super::contract::FENCE_OP`, `super::contract::FENCE_TYPES`
+    --> crates\core\archi\src\api\contract_test.rs:2350:27
+     |
+2350 |     use super::contract::{info_tokens, FENCE_OP, FENCE_TYPES};
+     |                           ^^^^^^^^^^^  ^^^^^^^^  ^^^^^^^^^^^ no `FENCE_TYPES` in `api::contract`
+     |                           |            |
+     |                           |            no `FENCE_OP` in `api::contract`
+     |                           no `info_tokens` in `api::contract`
+
+error[E0432]: unresolved import `super::has_api_fence`
+    --> crates\core\archi\src\api\contract_test.rs:2351:9
+     |
+2351 |     use super::has_api_fence;
+     |         ^^^^^^^^^^^^^^^^^^^^ no `has_api_fence` in `api`
+
+error[E0433]: cannot find `DocFact` in `super`
+   --> crates\core\archi\src\api\check_test.rs:255:28
+    |
+255 |                     super::DocFact::Present {
+    |                            ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+   --> crates\core\archi\src\api\check_test.rs:368:36
+    |
+368 |         .with_doc_fact(fqn, super::DocFact::Missing);
+    |                                    ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+   --> crates\core\archi\src\api\check_test.rs:674:41
+    |
+674 |             .with_doc_fact(&fqn, super::DocFact::Missing);
+    |                                         ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+   --> crates\core\archi\src\api\check_test.rs:915:52
+    |
+915 |         .with_doc_fact("App.Core.Deferred", super::DocFact::Missing);
+    |                                                    ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+    --> crates\core\archi\src\api\check_test.rs:1699:58
+     |
+1699 |             fixture = fixture.with_doc_fact(&fqn, super::DocFact::Missing);
+     |                                                          ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+    --> crates\core\archi\src\api\check_test.rs:1713:38
+     |
+1713 |         .with_doc_fact(&long, super::DocFact::Missing);
+     |                                      ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+    --> crates\core\archi\src\api\check_test.rs:2332:40
+     |
+2332 |             .with_doc_fact(fqn, super::DocFact::Present { has_api_fence });
+     |                                        ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+    --> crates\core\archi\src\api\check_test.rs:2347:36
+     |
+2347 |         .with_doc_fact(fqn, super::DocFact::Absent);
+     |                                    ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+    --> crates\core\archi\src\api\check_test.rs:2380:36
+     |
+2380 |         .with_doc_fact(fqn, super::DocFact::Missing);
+     |                                    ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+    --> crates\core\archi\src\api\check_test.rs:2485:20
+     |
+2485 |             super::DocFact::Present {
+     |                    ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+    --> crates\core\archi\src\api\check_test.rs:2534:36
+     |
+2534 |         .with_doc_fact(fqn, super::DocFact::Missing);
+     |                                    ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+    --> crates\core\archi\src\api\check_test.rs:2545:20
+     |
+2545 |             super::DocFact::Present {
+     |                    ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+    --> crates\core\archi\src\api\check_test.rs:2643:38
+     |
+2643 |         .with_doc_fact(blank, super::DocFact::Absent)
+     |                                      ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+    --> crates\core\archi\src\api\check_test.rs:2644:41
+     |
+2644 |         .with_doc_fact(declared, super::DocFact::Missing);
+     |                                         ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+    --> crates\core\archi\src\api\check_test.rs:2703:36
+     |
+2703 |         .with_doc_fact(fqn, super::DocFact::Missing)
+     |                                    ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+    --> crates\core\archi\src\api\check_test.rs:2776:39
+     |
+2776 |         .with_doc_fact(parent, super::DocFact::Missing)
+     |                                       ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0433]: cannot find `DocFact` in `super`
+    --> crates\core\archi\src\api\check_test.rs:2777:38
+     |
+2777 |         .with_doc_fact(child, super::DocFact::Missing);
+     |                                      ^^^^^^^ could not find `DocFact` in `super`
+
+error[E0425]: cannot find type `DocFact` in module `super`
+   --> crates\core\archi\src\api\check_test.rs:194:44
+    |
+194 |     doc_overrides: BTreeMap<String, super::DocFact>,
+    |                                            ^^^^^^^ not found in `super`
+
+error[E0425]: cannot find type `DocFact` in module `super`
+   --> crates\core\archi\src\api\check_test.rs:210:56
+    |
+210 |     fn with_doc_fact(mut self, fqn: &str, fact: super::DocFact) -> Self {
+    |                                                        ^^^^^^^ not found in `super`
+
+error[E0425]: cannot find type `DocFact` in module `super`
+   --> crates\core\archi\src\api\check_test.rs:248:52
+    |
+248 |     fn doc_facts(&self) -> BTreeMap<String, super::DocFact> {
+    |                                                    ^^^^^^^ not found in `super`
+
+error[E0425]: cannot find type `DocFact` in module `super`
+   --> crates\core\archi\src\api\check_test.rs:249:48
+    |
+249 |         let mut facts: BTreeMap<String, super::DocFact> = self
+    |                                                ^^^^^^^ not found in `super`
+
+error[E0425]: cannot find function `doc_facts` in module `super`
+   --> crates\core\archi\src\api\check_test.rs:269:32
+    |
+269 |         let doc_facts = super::doc_facts(self.temp.root(), &self.elements);
+    |                                ^^^^^^^^^ not found in `super`
+
+error[E0425]: cannot find type `DocFact` in module `super`
+    --> crates\core\archi\src\api\check_test.rs:1661:44
+     |
+1661 |     let doc_facts: BTreeMap<String, super::DocFact> = BTreeMap::new();
+     |                                            ^^^^^^^ not found in `super`
+
+error[E0425]: cannot find function `build_schema` in module `super::schema`
+    --> crates\core\archi\src\api\mod_test.rs:3576:40
+     |
+3576 |     let schema: Value = super::schema::build_schema(&contract, &meta).expect("装配应成功");
+     |                                        ^^^^^^^^^^^^ not found in `super::schema`
+
+    Checking archi-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\infra\archi)
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\infra\agent)
+error[E0432]: unresolved import `archi::api::contract::parse`
+  --> crates\core\archi\tests\pilot_test.rs:16:44
+   |
+16 | use archi::api::contract::{is_constructor, parse, verify, Contract};
+   |                                            ^^^^^ no `parse` in `api::contract`
+
+error[E0432]: unresolved import `archi::api::schema::build_schema`
+  --> crates\core\archi\tests\pilot_test.rs:22:39
+   |
+22 | use archi::api::schema::{build_index, build_schema, ApiFormStatus, IndexEntry};
+   |                                       ^^^^^^^^^^^^ no `build_schema` in `api::schema`
+
+    Checking archi-api-gen v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\tools\archi-api-gen)
+For more information about this error, try `rustc --explain E0432`.
+error: could not compile `archi` (test "pilot_test") due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error[E0599]: no variant or associated item named `ApiDocMissing` found for enum `archi::ArchiApiFindingKind` in the current scope
+    --> crates\infra\archi\src\runner_test.rs:1352:65
+     |
+1352 |             .any(|finding| finding.kind == ArchiApiFindingKind::ApiDocMissing),
+     |                                                                 ^^^^^^^^^^^^^ variant or associated item not found in `archi::ArchiApiFindingKind`
+     |
+help: there is a variant with a similar name
+     |
+1352 -             .any(|finding| finding.kind == ArchiApiFindingKind::ApiDocMissing),
+1352 +             .any(|finding| finding.kind == ArchiApiFindingKind::ApiMissing),
+     |
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `archi-runtime` (lib test) due to 1 previous error
+error[E0599]: no method named `contains` found for struct `archi::BootstrapDrafts` in the current scope
+   --> crates\tools\archi-api-gen\src\main_test.rs:853:16
+    |
+853 |         !draft.contains("unused"),
+    |                ^^^^^^^^ method not found in `archi::BootstrapDrafts`
+    |
+help: some of the expressions' fields have a method of the same name
+    |
+853 |         !draft.doc.contains("unused"),
+    |                ++++
+853 |         !draft.schema.contains("unused"),
+    |                +++++++
+
+error[E0277]: `archi::BootstrapDrafts` doesn't implement `std::fmt::Display`
+   --> crates\tools\archi-api-gen\src\main_test.rs:855:1
+    |
+855 | {draft}"
+    | ^^^^^^^ `archi::BootstrapDrafts` cannot be formatted with the default formatter
+    |
+    = help: the trait `std::fmt::Display` is not implemented for `archi::BootstrapDrafts`
+    = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+Some errors have detailed explanations: E0277, E0599.
+For more information about an error, try `rustc --explain E0277`.
+error: could not compile `archi-api-gen` (bin "archi-api-gen" test) due to 2 previous errors
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+   --> crates\core\archi\src\api\extract\mod_test.rs:630:18
+    |
+630 |             text.contains(&format!("### {op}")),
+    |                  ^^^^^^^^ method not found in `api::BootstrapDrafts`
+    |
+   ::: crates\core\archi\src\api\mod.rs:124:1
+    |
+124 | pub struct BootstrapDrafts {
+    | -------------------------- method `contains` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+            candidate #1: `bitflags::traits::Flags`
+            candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+    |
+630 |             text.doc.contains(&format!("### {op}")),
+    |                  ++++
+630 |             text.schema.contains(&format!("### {op}")),
+    |                  +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+   --> crates\core\archi\src\api\extract\mod_test.rs:631:37
+    |
+631 |             "草稿逐个列出取数面的 op `{op}`：\n{text}"
+    |                                                ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+    |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+   --> crates\core\archi\src\api\mod.rs:124:1
+    |
+124 | pub struct BootstrapDrafts {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+   --> crates\core\archi\src\api\extract\mod_test.rs:635:15
+    |
+635 |         !text.contains("### new"),
+    |               ^^^^^^^^ method not found in `api::BootstrapDrafts`
+    |
+   ::: crates\core\archi\src\api\mod.rs:124:1
+    |
+124 | pub struct BootstrapDrafts {
+    | -------------------------- method `contains` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+            candidate #1: `bitflags::traits::Flags`
+            candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+    |
+635 |         !text.doc.contains("### new"),
+    |               ++++
+635 |         !text.schema.contains("### new"),
+    |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+   --> crates\core\archi\src\api\extract\mod_test.rs:636:28
+    |
+636 |         "构造器不进草稿（由生成器产出）：\n{text}"
+    |                                            ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+    |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+   --> crates\core\archi\src\api\mod.rs:124:1
+    |
+124 | pub struct BootstrapDrafts {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+   --> crates\core\archi\src\api\extract\mod_test.rs:645:18
+    |
+645 |             text.contains(&format!("\"{name}\"")),
+    |                  ^^^^^^^^ method not found in `api::BootstrapDrafts`
+    |
+   ::: crates\core\archi\src\api\mod.rs:124:1
+    |
+124 | pub struct BootstrapDrafts {
+    | -------------------------- method `contains` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+            candidate #1: `bitflags::traits::Flags`
+            candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+    |
+645 |             text.doc.contains(&format!("\"{name}\"")),
+    |                  ++++
+645 |             text.schema.contains(&format!("\"{name}\"")),
+    |                  +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+   --> crates\core\archi\src\api\extract\mod_test.rs:646:47
+    |
+646 |             "草稿的 api-types 含取数面的类型 `{name}`：\n{text}"
+    |                                                          ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+    |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+   --> crates\core\archi\src\api\mod.rs:124:1
+    |
+124 | pub struct BootstrapDrafts {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+   --> crates\core\archi\src\api\extract\ts_test.rs:931:16
+    |
+931 |         !draft.contains("unused"),
+    |                ^^^^^^^^ method not found in `api::BootstrapDrafts`
+    |
+   ::: crates\core\archi\src\api\mod.rs:124:1
+    |
+124 | pub struct BootstrapDrafts {
+    | -------------------------- method `contains` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+            candidate #1: `bitflags::traits::Flags`
+            candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+    |
+931 |         !draft.doc.contains("unused"),
+    |                ++++
+931 |         !draft.schema.contains("unused"),
+    |                +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+   --> crates\core\archi\src\api\extract\ts_test.rs:932:55
+    |
+932 |         "`bootstrap` 草稿内零 `unused` 词（Unused 生产面不可达）：\n{draft}"
+    |                                                                     ^^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+    |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+   --> crates\core\archi\src\api\mod.rs:124:1
+    |
+124 | pub struct BootstrapDrafts {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0560]: struct `api::ApiCheckInput<'_>` has no field named `doc_facts`
+   --> crates\core\archi\src\api\check_test.rs:241:13
+    |
+241 |             doc_facts: &doc_facts,
+    |             ^^^^^^^^^ `api::ApiCheckInput<'_>` does not have this field
+    |
+    = note: available fields are: `doc_present`
+
+error[E0560]: struct `api::ApiCheckInput<'_>` has no field named `doc_facts`
+   --> crates\core\archi\src\api\check_test.rs:276:13
+    |
+276 |             doc_facts: &doc_facts,
+    |             ^^^^^^^^^ `api::ApiCheckInput<'_>` does not have this field
+    |
+    = note: available fields are: `doc_present`
+
+error[E0560]: struct `api::ApiCheckInput<'_>` has no field named `doc_facts`
+    --> crates\core\archi\src\api\check_test.rs:1187:9
+     |
+1187 |         doc_facts: &fixture.doc_facts(),
+     |         ^^^^^^^^^ `api::ApiCheckInput<'_>` does not have this field
+     |
+     = note: available fields are: `doc_present`
+
+error[E0599]: no variant or associated item named `ApiReexportDrift` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\check_test.rs:1192:64
+     |
+1192 |         .filter(|finding| finding.kind == ArchiApiFindingKind::ApiReexportDrift)
+     |                                                                ^^^^^^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `ApiReexportDrift` not found for this enum
+
+error[E0599]: no variant or associated item named `ApiReexportDrift` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\check_test.rs:1353:31
+     |
+1353 |         (ArchiApiFindingKind::ApiReexportDrift, "reexport"),
+     |                               ^^^^^^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `ApiReexportDrift` not found for this enum
+
+error[E0599]: no variant or associated item named `ApiReexportDrift` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\check_test.rs:1394:30
+     |
+1394 |         ArchiApiFindingKind::ApiReexportDrift,
+     |                              ^^^^^^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `ApiReexportDrift` not found for this enum
+
+error[E0560]: struct `api::ApiCheckInput<'_>` has no field named `doc_facts`
+    --> crates\core\archi\src\api\check_test.rs:1467:9
+     |
+1467 |         doc_facts: &fixture.doc_facts(),
+     |         ^^^^^^^^^ `api::ApiCheckInput<'_>` does not have this field
+     |
+     = note: available fields are: `doc_present`
+
+error[E0560]: struct `api::ApiCheckInput<'_>` has no field named `doc_facts`
+    --> crates\core\archi\src\api\check_test.rs:1571:9
+     |
+1571 |         doc_facts: &doc_facts,
+     |         ^^^^^^^^^ `api::ApiCheckInput<'_>` does not have this field
+     |
+     = note: available fields are: `doc_present`
+
+error[E0560]: struct `api::ApiCheckInput<'_>` has no field named `doc_facts`
+    --> crates\core\archi\src\api\check_test.rs:1580:9
+     |
+1580 |         doc_facts: &doc_facts,
+     |         ^^^^^^^^^ `api::ApiCheckInput<'_>` does not have this field
+     |
+     = note: available fields are: `doc_present`
+
+error[E0560]: struct `api::ApiCheckInput<'_>` has no field named `doc_facts`
+    --> crates\core\archi\src\api\check_test.rs:1668:9
+     |
+1668 |         doc_facts: &doc_facts,
+     |         ^^^^^^^^^ `api::ApiCheckInput<'_>` does not have this field
+     |
+     = note: available fields are: `doc_present`
+
+error[E0560]: struct `api::ApiCheckInput<'_>` has no field named `doc_facts`
+    --> crates\core\archi\src\api\check_test.rs:1679:9
+     |
+1679 |         doc_facts: &doc_facts,
+     |         ^^^^^^^^^ `api::ApiCheckInput<'_>` does not have this field
+     |
+     = note: available fields are: `doc_present`
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\check_test.rs:2383:54
+     |
+2383 |     assert_eq!(count(&findings, ArchiApiFindingKind::DocNotFound), 1);
+     |                                                      ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\check_test.rs:2419:51
+     |
+2419 |             count(&findings, ArchiApiFindingKind::DocNotFound),
+     |                                                   ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\check_test.rs:2443:54
+     |
+2443 |     assert_eq!(count(&findings, ArchiApiFindingKind::DocNotFound), 0);
+     |                                                      ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `ApiDocMissing` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\check_test.rs:2492:54
+     |
+2492 |     assert_eq!(count(&findings, ArchiApiFindingKind::ApiDocMissing), 1);
+     |                                                      ^^^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `ApiDocMissing` not found for this enum
+     |
+help: there is a variant with a similar name
+     |
+2492 -     assert_eq!(count(&findings, ArchiApiFindingKind::ApiDocMissing), 1);
+2492 +     assert_eq!(count(&findings, ArchiApiFindingKind::ApiMissing), 1);
+     |
+
+error[E0599]: no variant or associated item named `ApiDocMissing` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\check_test.rs:2564:55
+     |
+2564 |     assert_eq!(findings[0].kind, ArchiApiFindingKind::ApiDocMissing);
+     |                                                       ^^^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `ApiDocMissing` not found for this enum
+     |
+help: there is a variant with a similar name
+     |
+2564 -     assert_eq!(findings[0].kind, ArchiApiFindingKind::ApiDocMissing);
+2564 +     assert_eq!(findings[0].kind, ArchiApiFindingKind::ApiMissing);
+     |
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\check_test.rs:2695:51
+     |
+2695 |             && count(&clean, ArchiApiFindingKind::DocNotFound) == 0,
+     |                                                   ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\check_test.rs:2706:48
+     |
+2706 |         count(&not_found, ArchiApiFindingKind::DocNotFound),
+     |                                                ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `ApiReexportDrift` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\check_test.rs:2823:31
+     |
+2823 |         (ArchiApiFindingKind::ApiReexportDrift, "reexport"),
+     |                               ^^^^^^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `ApiReexportDrift` not found for this enum
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\check_test.rs:2829:31
+     |
+2829 |         (ArchiApiFindingKind::DocNotFound, "doc"),
+     |                               ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `ApiDocMissing` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\check_test.rs:2830:31
+     |
+2830 |         (ArchiApiFindingKind::ApiDocMissing, "doc"),
+     |                               ^^^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `ApiDocMissing` not found for this enum
+     |
+help: there is a variant with a similar name
+     |
+2830 -         (ArchiApiFindingKind::ApiDocMissing, "doc"),
+2830 +         (ArchiApiFindingKind::ApiMissing, "doc"),
+     |
+
+error[E0560]: struct `api::ApiSnapshot` has no field named `doc_facts`
+   --> crates\core\archi\src\api\mod_test.rs:206:9
+    |
+206 |         doc_facts: BTreeMap::new(),
+    |         ^^^^^^^^^ `api::ApiSnapshot` does not have this field
+    |
+    = note: available fields are: `doc_present`
+
+error[E0560]: struct `api::ApiCheckInput<'_>` has no field named `doc_facts`
+    --> crates\core\archi\src\api\mod_test.rs:1707:9
+     |
+1707 |         doc_facts: &snapshot.doc_facts,
+     |         ^^^^^^^^^ `api::ApiCheckInput<'_>` does not have this field
+     |
+     = note: available fields are: `doc_present`
+
+error[E0609]: no field `doc_facts` on type `api::ApiSnapshot`
+    --> crates\core\archi\src\api\mod_test.rs:1707:30
+     |
+1707 |         doc_facts: &snapshot.doc_facts,
+     |                              ^^^^^^^^^ unknown field
+     |
+     = note: available fields are: `contracts`, `schemas`, `symbols`, `doc_present`
+
+error[E0560]: struct `api::ApiCheckInput<'_>` has no field named `doc_facts`
+    --> crates\core\archi\src\api\mod_test.rs:1813:9
+     |
+1813 |         doc_facts: &snapshot.doc_facts,
+     |         ^^^^^^^^^ `api::ApiCheckInput<'_>` does not have this field
+     |
+     = note: available fields are: `doc_present`
+
+error[E0609]: no field `doc_facts` on type `api::ApiSnapshot`
+    --> crates\core\archi\src\api\mod_test.rs:1813:30
+     |
+1813 |         doc_facts: &snapshot.doc_facts,
+     |                              ^^^^^^^^^ unknown field
+     |
+     = note: available fields are: `contracts`, `schemas`, `symbols`, `doc_present`
+
+error[E0560]: struct `api::ApiCheckInput<'_>` has no field named `doc_facts`
+    --> crates\core\archi\src\api\mod_test.rs:1903:9
+     |
+1903 |         doc_facts: &snapshot.doc_facts,
+     |         ^^^^^^^^^ `api::ApiCheckInput<'_>` does not have this field
+     |
+     = note: available fields are: `doc_present`
+
+error[E0609]: no field `doc_facts` on type `api::ApiSnapshot`
+    --> crates\core\archi\src\api\mod_test.rs:1903:30
+     |
+1903 |         doc_facts: &snapshot.doc_facts,
+     |                              ^^^^^^^^^ unknown field
+     |
+     = note: available fields are: `contracts`, `schemas`, `symbols`, `doc_present`
+
+error[E0560]: struct `api::ApiCheckInput<'_>` has no field named `doc_facts`
+    --> crates\core\archi\src\api\mod_test.rs:1979:9
+     |
+1979 |         doc_facts: &snapshot.doc_facts,
+     |         ^^^^^^^^^ `api::ApiCheckInput<'_>` does not have this field
+     |
+     = note: available fields are: `doc_present`
+
+error[E0609]: no field `doc_facts` on type `api::ApiSnapshot`
+    --> crates\core\archi\src\api\mod_test.rs:1979:30
+     |
+1979 |         doc_facts: &snapshot.doc_facts,
+     |                              ^^^^^^^^^ unknown field
+     |
+     = note: available fields are: `contracts`, `schemas`, `symbols`, `doc_present`
+
+error[E0599]: no method named `starts_with` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2015:18
+     |
+2015 |     assert!(text.starts_with(&format!("# {fqn}")), "H1 = FQN：\n{text}");
+     |                  ^^^^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `starts_with` not found for this struct
+     |
+help: some of the expressions' fields have a method of the same name
+     |
+2015 |     assert!(text.doc.starts_with(&format!("# {fqn}")), "H1 = FQN：\n{text}");
+     |                  ++++
+2015 |     assert!(text.schema.starts_with(&format!("# {fqn}")), "H1 = FQN：\n{text}");
+     |                  +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2015:64
+     |
+2015 |     assert!(text.starts_with(&format!("# {fqn}")), "H1 = FQN：\n{text}");
+     |                                                                 ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2016:18
+     |
+2016 |     assert!(text.contains("## 职能"), "含职能段：\n{text}");
+     |                  ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2016 |     assert!(text.doc.contains("## 职能"), "含职能段：\n{text}");
+     |                  ++++
+2016 |     assert!(text.schema.contains("## 职能"), "含职能段：\n{text}");
+     |                  +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2016:45
+     |
+2016 |     assert!(text.contains("## 职能"), "含职能段：\n{text}");
+     |                                                    ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2017:18
+     |
+2017 |     assert!(text.contains("## 不变量"), "含不变量段：\n{text}");
+     |                  ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2017 |     assert!(text.doc.contains("## 不变量"), "含不变量段：\n{text}");
+     |                  ++++
+2017 |     assert!(text.schema.contains("## 不变量"), "含不变量段：\n{text}");
+     |                  +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2017:47
+     |
+2017 |     assert!(text.contains("## 不变量"), "含不变量段：\n{text}");
+     |                                                        ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2018:18
+     |
+2018 |     assert!(text.contains("### a"), "含 op heading：\n{text}");
+     |                  ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2018 |     assert!(text.doc.contains("### a"), "含 op heading：\n{text}");
+     |                  ++++
+2018 |     assert!(text.schema.contains("### a"), "含 op heading：\n{text}");
+     |                  +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2018:53
+     |
+2018 |     assert!(text.contains("### a"), "含 op heading：\n{text}");
+     |                                                       ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2019:18
+     |
+2019 |     assert!(text.contains("```json api-op"), "含 api-op fence：\n{text}");
+     |                  ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2019 |     assert!(text.doc.contains("```json api-op"), "含 api-op fence：\n{text}");
+     |                  ++++
+2019 |     assert!(text.schema.contains("```json api-op"), "含 api-op fence：\n{text}");
+     |                  +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2019:64
+     |
+2019 |     assert!(text.contains("```json api-op"), "含 api-op fence：\n{text}");
+     |                                                                  ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2021:14
+     |
+2021 |         text.contains("```json api-types"),
+     |              ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2021 |         text.doc.contains("```json api-types"),
+     |              ++++
+2021 |         text.schema.contains("```json api-types"),
+     |              +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2022:30
+     |
+2022 |         "含 api-types fence：\n{text}"
+     |                                ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2024:18
+     |
+2024 |     assert!(text.contains("\"T\""), "api-types 键含 T：\n{text}");
+     |                  ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2024 |     assert!(text.doc.contains("\"T\""), "api-types 键含 T：\n{text}");
+     |                  ++++
+2024 |     assert!(text.schema.contains("\"T\""), "api-types 键含 T：\n{text}");
+     |                  +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2024:55
+     |
+2024 |     assert!(text.contains("\"T\""), "api-types 键含 T：\n{text}");
+     |                                                          ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2026:14
+     |
+2026 |         text.contains("external") || text.contains("crateOnly") || text.contains("testOnly"),
+     |              ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2026 |         text.doc.contains("external") || text.contains("crateOnly") || text.contains("testOnly"),
+     |              ++++
+2026 |         text.schema.contains("external") || text.contains("crateOnly") || text.contains("testOnly"),
+     |              +++++++
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2026:43
+     |
+2026 |         text.contains("external") || text.contains("crateOnly") || text.contains("testOnly"),
+     |                                           ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2026 |         text.contains("external") || text.doc.contains("crateOnly") || text.contains("testOnly"),
+     |                                           ++++
+2026 |         text.contains("external") || text.schema.contains("crateOnly") || text.contains("testOnly"),
+     |                                           +++++++
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2026:73
+     |
+2026 |         text.contains("external") || text.contains("crateOnly") || text.contains("testOnly"),
+     |                                                                         ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2026 |         text.contains("external") || text.contains("crateOnly") || text.doc.contains("testOnly"),
+     |                                                                         ++++
+2026 |         text.contains("external") || text.contains("crateOnly") || text.schema.contains("testOnly"),
+     |                                                                         +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2027:31
+     |
+2027 |         "每符号附 visibility 注释：\n{text}"
+     |                                      ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2032:22
+     |
+2032 |         assert!(text.contains(piece), "含六段之一 `{piece}`：\n{text}");
+     |                      ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2032 |         assert!(text.doc.contains(piece), "含六段之一 `{piece}`：\n{text}");
+     |                      ++++
+2032 |         assert!(text.schema.contains(piece), "含六段之一 `{piece}`：\n{text}");
+     |                      +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2032:58
+     |
+2032 |         assert!(text.contains(piece), "含六段之一 `{piece}`：\n{text}");
+     |                                                                ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `find` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2043:14
+     |
+2043 |         text.find(heading)
+     |              ^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `find` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `find`, perhaps you need to implement one of them:
+             candidate #1: `bstr::ext_slice::ByteSlice`
+             candidate #2: `std::iter::Iterator`
+help: some of the expressions' fields have a method of the same name
+     |
+2043 |         text.doc.find(heading)
+     |              ++++
+2043 |         text.schema.find(heading)
+     |              +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2044:58
+     |
+2044 |             .unwrap_or_else(|| panic!("六段缺 `{heading}`：\n{text}"))
+     |                                                              ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2078:22
+     |
+2078 |         "段序逐字逐序恰六段：\n{draft}"
+     |                                ^^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `trim_end` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2145:25
+     |
+2145 |     let trimmed = draft.trim_end();
+     |                         ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `trim_end` not found for this struct
+     |
+help: some of the expressions' fields have a method of the same name
+     |
+2145 |     let trimmed = draft.doc.trim_end();
+     |                         ++++
+2145 |     let trimmed = draft.schema.trim_end();
+     |                         +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2146:52
+     |
+2146 |     assert!(trimmed.ends_with("```"), "末块以收尾围栏结束：\n{draft}");
+     |                                                              ^^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2150:46
+     |
+2150 |         "语言标 `text` 的说明块恰一处（非 `api-*` 语言标）：\n{draft}"
+     |                                                               ^^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2154:43
+     |
+2154 |         .unwrap_or_else(|| panic!("缺说明块：\n{draft}"));
+     |                                                ^^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2157:45
+     |
+2157 |         .unwrap_or_else(|| panic!("缺承载理由段：\n{draft}"));
+     |                                                    ^^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `lines` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2262:16
+     |
+2262 |         !draft.lines().any(|line| line.starts_with("### ")),
+     |                ^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `lines` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `lines`, perhaps you need to implement one of them:
+             candidate #1: `bstr::ext_slice::ByteSlice`
+             candidate #2: `std::io::BufRead`
+help: some of the expressions' fields have a method of the same name
+     |
+2262 |         !draft.doc.lines().any(|line| line.starts_with("### ")),
+     |                ++++
+2262 |         !draft.schema.lines().any(|line| line.starts_with("### ")),
+     |                +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2263:28
+     |
+2263 |         "零符号 ⇒ 零行首 op 锚点：\n{draft}"
+     |                                     ^^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2266:15
+     |
+2266 |         draft.contains("```json api-types\n{}\n```"),
+     |               ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2266 |         draft.doc.contains("```json api-types\n{}\n```"),
+     |               ++++
+2266 |         draft.schema.contains("```json api-types\n{}\n```"),
+     |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2267:37
+     |
+2267 |         "零符号 ⇒ api-types 为 `{{}}`：\n{draft}"
+     |                                          ^^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2271:56
+     |
+2271 |     assert_eq!(contract.sections.len(), 6, "无符号场景仍六段：\n{draft}");
+     |                                                                 ^^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2294:15
+     |
+2294 |         draft.contains("### "),
+     |               ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2294 |         draft.doc.contains("### "),
+     |               ++++
+2294 |         draft.schema.contains("### "),
+     |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2295:36
+     |
+2295 |         "说明块内的字面三级标题命中裸 contains：\n{draft}"
+     |                                                   ^^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2298:15
+     |
+2298 |         draft.contains("`### <op-id>`"),
+     |               ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2298 |         draft.doc.contains("`### <op-id>`"),
+     |               ++++
+2298 |         draft.schema.contains("`### <op-id>`"),
+     |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2299:26
+     |
+2299 |         "命中源即说明块里的形态示例：\n{draft}"
+     |                                        ^^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `lines` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2303:14
+     |
+2302 | /         draft
+2303 | |             .lines()
+     | |             -^^^^^ method not found in `api::BootstrapDrafts`
+     | |_____________|
+     |
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 |   pub struct BootstrapDrafts {
+     |   -------------------------- method `lines` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `lines`, perhaps you need to implement one of them:
+             candidate #1: `bstr::ext_slice::ByteSlice`
+             candidate #2: `std::io::BufRead`
+help: some of the expressions' fields have a method of the same name
+     |
+2303 |             .doc.lines()
+     |              ++++
+2303 |             .schema.lines()
+     |              +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2307:26
+     |
+2307 |         "行首扫描只数真 op 锚点：\n{draft}"
+     |                                    ^^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `lines` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2328:14
+     |
+2327 | /         draft
+2328 | |             .lines()
+     | |             -^^^^^ method not found in `api::BootstrapDrafts`
+     | |_____________|
+     |
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 |   pub struct BootstrapDrafts {
+     |   -------------------------- method `lines` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `lines`, perhaps you need to implement one of them:
+             candidate #1: `bstr::ext_slice::ByteSlice`
+             candidate #2: `std::io::BufRead`
+help: some of the expressions' fields have a method of the same name
+     |
+2328 |             .doc.lines()
+     |              ++++
+2328 |             .schema.lines()
+     |              +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2332:27
+     |
+2332 |         "四十个 op 各一条行首锚点：\n{draft}"
+     |                                      ^^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `matches` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2335:15
+     |
+2335 |         draft.matches("作者注（本块不参与契约解析）").count(),
+     |               ^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `matches` not found for this struct
+     |
+help: some of the expressions' fields have a method of the same name
+     |
+2335 |         draft.doc.matches("作者注（本块不参与契约解析）").count(),
+     |               ++++
+2335 |         draft.schema.matches("作者注（本块不参与契约解析）").count(),
+     |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2337:30
+     |
+2337 |         "说明块恰一个（不被 op 段复制）：\n{draft}"
+     |                                            ^^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2397:18
+     |
+2397 |             text.contains(&format!(" @ {entry}:1")),
+     |                  ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2397 |             text.doc.contains(&format!(" @ {entry}:1")),
+     |                  ++++
+2397 |             text.schema.contains(&format!(" @ {entry}:1")),
+     |                  +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2399:1
+     |
+2399 | {text}"
+     | ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2404:23
+     |
+2404 |                 !text.contains(&format!(" @ {root}:")),
+     |                       ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2404 |                 !text.doc.contains(&format!(" @ {root}:")),
+     |                       ++++
+2404 |                 !text.schema.contains(&format!(" @ {root}:")),
+     |                       +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2406:1
+     |
+2406 | {text}"
+     | ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2465:15
+     |
+2465 |         !text.contains("used_by"),
+     |               ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2465 |         !text.doc.contains("used_by"),
+     |               ++++
+2465 |         !text.schema.contains("used_by"),
+     |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2466:47
+     |
+2466 |         "骨架 MUST NOT 产出 `used_by`（D19-b 留白）：\n{text}"
+     |                                                        ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2469:15
+     |
+2469 |         !text.contains("引用方"),
+     |               ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2469 |         !text.doc.contains("引用方"),
+     |               ++++
+2469 |         !text.schema.contains("引用方"),
+     |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2470:34
+     |
+2470 |         "骨架 MUST NOT 产出「引用方」字段：\n{text}"
+     |                                              ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2473:15
+     |
+2473 |         !text.contains("usedBy"),
+     |               ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2473 |         !text.doc.contains("usedBy"),
+     |               ++++
+2473 |         !text.schema.contains("usedBy"),
+     |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2474:52
+     |
+2474 |         "骨架 MUST NOT 产出 `usedBy`（camelCase 变体同禁）：\n{text}"
+     |                                                               ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `lines` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2479:10
+     |
+2478 |       let annotations: Vec<&str> = text
+     |  __________________________________-
+2479 | |         .lines()
+     | |         -^^^^^ method not found in `api::BootstrapDrafts`
+     | |_________|
+     |
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 |   pub struct BootstrapDrafts {
+     |   -------------------------- method `lines` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `lines`, perhaps you need to implement one of them:
+             candidate #1: `bstr::ext_slice::ByteSlice`
+             candidate #2: `std::io::BufRead`
+help: some of the expressions' fields have a method of the same name
+     |
+2479 |         .doc.lines()
+     |          ++++
+2479 |         .schema.lines()
+     |          +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2482:53
+     |
+2482 |     assert!(!annotations.is_empty(), "每 op 附一条注记行：\n{text}");
+     |                                                             ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `lines` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2496:10
+     |
+2495 |       let type_notes: Vec<&str> = text
+     |  _________________________________-
+2496 | |         .lines()
+     | |         -^^^^^ method not found in `api::BootstrapDrafts`
+     | |_________|
+     |
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 |   pub struct BootstrapDrafts {
+     |   -------------------------- method `lines` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `lines`, perhaps you need to implement one of them:
+             candidate #1: `bstr::ext_slice::ByteSlice`
+             candidate #2: `std::io::BufRead`
+help: some of the expressions' fields have a method of the same name
+     |
+2496 |         .doc.lines()
+     |          ++++
+2496 |         .schema.lines()
+     |          +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2499:50
+     |
+2499 |     assert!(!type_notes.is_empty(), "类型条目附位置注记：\n{text}");
+     |                                                            ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0277]: can't compare `&str` with `archi::BootstrapDrafts`
+   --> crates\infra\agent\src\sdk\archi_tool_test.rs:644:5
+    |
+644 |     assert_eq!(draft, direct, "与 core 单点逐字相等");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no implementation for `&str == archi::BootstrapDrafts`
+    |
+    = help: the trait `std::cmp::PartialEq<archi::BootstrapDrafts>` is not implemented for `&str`
+    = help: the following other types implement trait `std::cmp::PartialEq<Rhs>`:
+              `&&str` implements `std::cmp::PartialEq<compact_str::CompactString>`
+              `&str` implements `std::cmp::PartialEq<bstr::bstr::BStr>`
+              `&str` implements `std::cmp::PartialEq<bstr::bstring::BString>`
+              `&str` implements `std::cmp::PartialEq<bytes::bytes::Bytes>`
+              `&str` implements `std::cmp::PartialEq<bytes::bytes_mut::BytesMut>`
+              `&str` implements `std::cmp::PartialEq<compact_str::CompactString>`
+              `&str` implements `std::cmp::PartialEq<http::uri::authority::Authority>`
+              `&str` implements `std::cmp::PartialEq<http::uri::path::PathAndQuery>`
+            and 53 others
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2527:18
+     |
+2527 |             text.contains(&format!("### {op}")),
+     |                  ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2527 |             text.doc.contains(&format!("### {op}")),
+     |                  ++++
+2527 |             text.schema.contains(&format!("### {op}")),
+     |                  +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2528:30
+     |
+2528 |             "草稿含 op `{op}`：\n{text}"
+     |                                  ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:2536:18
+     |
+2536 |             text.contains(&format!("\"{}\"", symbol.name)),
+     |                  ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+2536 |             text.doc.contains(&format!("\"{}\"", symbol.name)),
+     |                  ++++
+2536 |             text.schema.contains(&format!("\"{}\"", symbol.name)),
+     |                  +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:2537:41
+     |
+2537 |             "草稿 api-types 含取数面类型 `{}`：\n{text}",
+     |                                                  ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `as_str` found for struct `archi::BootstrapDrafts` in the current scope
+   --> crates\infra\agent\src\sdk\archi_tool_test.rs:808:32
+    |
+808 |                     Some(draft.as_str()),
+    |                                ^^^^^^ method not found in `archi::BootstrapDrafts`
+    |
+help: some of the expressions' fields have a method of the same name
+    |
+808 |                     Some(draft.doc.as_str()),
+    |                                ++++
+808 |                     Some(draft.schema.as_str()),
+    |                                +++++++
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:4047:15
+     |
+4047 |         !text.contains("unused"),
+     |               ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+4047 |         !text.doc.contains("unused"),
+     |               ++++
+4047 |         !text.schema.contains("unused"),
+     |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:4048:56
+     |
+4048 |         "草稿文本零 `unused`（`Visibility::Unused` 生产面不可达）：\n{text}"
+     |                                                                      ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:4417:69
+     |
+4417 |     let findings = vec![api_finding(Some(fqn), ArchiApiFindingKind::DocNotFound)];
+     |                                                                     ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0560]: struct `api::ApiCheckInput<'_>` has no field named `doc_facts`
+    --> crates\core\archi\src\api\mod_test.rs:4532:9
+     |
+4532 |         doc_facts: &snapshot.doc_facts,
+     |         ^^^^^^^^^ `api::ApiCheckInput<'_>` does not have this field
+     |
+     = note: available fields are: `doc_present`
+
+error[E0609]: no field `doc_facts` on type `api::ApiSnapshot`
+    --> crates\core\archi\src\api\mod_test.rs:4532:30
+     |
+4532 |         doc_facts: &snapshot.doc_facts,
+     |                              ^^^^^^^^^ unknown field
+     |
+     = note: available fields are: `contracts`, `schemas`, `symbols`, `doc_present`
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5112:14
+     |
+5112 |         text.contains("<!-- external @ views/agent/input/agent-input.ts:2 -->"),
+     |              ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+5112 |         text.doc.contains("<!-- external @ views/agent/input/agent-input.ts:2 -->"),
+     |              ++++
+5112 |         text.schema.contains("<!-- external @ views/agent/input/agent-input.ts:2 -->"),
+     |              +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5113:29
+     |
+5113 |         "注记指向闭包一跳后的定义文件与行：\n{text}"
+     |                                              ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5116:15
+     |
+5116 |         !text.contains(" @ views/agent/index.ts:"),
+     |               ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+5116 |         !text.doc.contains(" @ views/agent/index.ts:"),
+     |               ++++
+5116 |         !text.schema.contains(" @ views/agent/index.ts:"),
+     |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5117:40
+     |
+5117 |         "注记 MUST NOT 回落成入口串（入口不是定义处）：\n{text}"
+     |                                                          ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5138:14
+     |
+5138 |         text.contains("<!-- external @ crates/x/src/op.rs:1 -->"),
+     |              ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+5138 |         text.doc.contains("<!-- external @ crates/x/src/op.rs:1 -->"),
+     |              ++++
+5138 |         text.schema.contains("<!-- external @ crates/x/src/op.rs:1 -->"),
+     |              +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5139:45
+     |
+5139 |         "注记指向子模块文件（`ApiSymbol.file` 是真值源）：\n{text}"
+     |                                                             ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5142:15
+     |
+5142 |         !text.contains(" @ crates/x/src/lib.rs:"),
+     |               ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+5142 |         !text.doc.contains(" @ crates/x/src/lib.rs:"),
+     |               ++++
+5142 |         !text.schema.contains(" @ crates/x/src/lib.rs:"),
+     |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5143:44
+     |
+5143 |         "注记 MUST NOT 写成入口串（子模块实现不在入口文件里）：\n{text}"
+     |                                                                  ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5182:18
+     |
+5182 |             text.contains(&format!("### {op}")),
+     |                  ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+5182 |             text.doc.contains(&format!("### {op}")),
+     |                  ++++
+5182 |             text.schema.contains(&format!("### {op}")),
+     |                  +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5183:30
+     |
+5183 |             "草稿含 op `{op}`：\n{text}"
+     |                                  ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `lines` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5187:14
+     |
+5187 |         text.lines().filter(|line| line.starts_with("### ")).count(),
+     |              ^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `lines` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `lines`, perhaps you need to implement one of them:
+             candidate #1: `bstr::ext_slice::ByteSlice`
+             candidate #2: `std::io::BufRead`
+help: some of the expressions' fields have a method of the same name
+     |
+5187 |         text.doc.lines().filter(|line| line.starts_with("### ")).count(),
+     |              ++++
+5187 |         text.schema.lines().filter(|line| line.starts_with("### ")).count(),
+     |              +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5189:56
+     |
+5189 |         "草稿 op 集恰 3 条（行首锚点扫描，说明块里的 `### <op-id>` 不计）：\n{text}"
+     |                                                                              ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5193:19
+     |
+5193 |             !text.contains(absent),
+     |                   ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+5193 |             !text.doc.contains(absent),
+     |                   ++++
+5193 |             !text.schema.contains(absent),
+     |                   +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5194:35
+     |
+5194 |             "跨元素条目零命中：`{absent}`\n{text}"
+     |                                            ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5204:18
+     |
+5204 |             text.contains(expected),
+     |                  ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+5204 |             text.doc.contains(expected),
+     |                  ++++
+5204 |             text.schema.contains(expected),
+     |                  +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5205:48
+     |
+5205 |             "草稿 api-types 含闭包类型 `{expected}`：\n{text}"
+     |                                                        ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5209:15
+     |
+5209 |         !text.contains("AgentInputExtraProps"),
+     |               ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+5209 |         !text.doc.contains("AgentInputExtraProps"),
+     |               ++++
+5209 |         !text.schema.contains("AgentInputExtraProps"),
+     |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5210:25
+     |
+5210 |         "未在名单里的类型不进草稿：\n{text}"
+     |                                      ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `matches` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5213:14
+     |
+5213 |         text.matches("\"note\": \"待剪枝").count(),
+     |              ^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `matches` not found for this struct
+     |
+help: some of the expressions' fields have a method of the same name
+     |
+5213 |         text.doc.matches("\"note\": \"待剪枝").count(),
+     |              ++++
+5213 |         text.schema.matches("\"note\": \"待剪枝").count(),
+     |              +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5215:25
+     |
+5215 |         "类型条数 = 闭包类型数：\n{text}"
+     |                                   ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5220:14
+     |
+5220 |         text.contains("待剪枝：类型 @ views/agent/input/agent-input.ts:2"),
+     |              ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+5220 |         text.doc.contains("待剪枝：类型 @ views/agent/input/agent-input.ts:2"),
+     |              ++++
+5220 |         text.schema.contains("待剪枝：类型 @ views/agent/input/agent-input.ts:2"),
+     |              +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5221:25
+     |
+5221 |         "类型注记指向定义文件与行：\n{text}"
+     |                                      ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5224:14
+     |
+5224 |         text.contains("待剪枝：类型 @ views/agent/messages/agent-messages.ts:2"),
+     |              ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+5224 |         text.doc.contains("待剪枝：类型 @ views/agent/messages/agent-messages.ts:2"),
+     |              ++++
+5224 |         text.schema.contains("待剪枝：类型 @ views/agent/messages/agent-messages.ts:2"),
+     |              +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5225:40
+     |
+5225 |         "同名符号的 `file:line` 与 op 注记同源：\n{text}"
+     |                                                   ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5228:15
+     |
+5228 |         !text.contains("@ views/agent/index.ts:"),
+     |               ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+5228 |         !text.doc.contains("@ views/agent/index.ts:"),
+     |               ++++
+5228 |         !text.schema.contains("@ views/agent/index.ts:"),
+     |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5229:31
+     |
+5229 |         "注记面 MUST NOT 出现入口串：\n{text}"
+     |                                        ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `lines` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5364:15
+     |
+5364 |         !text.lines().any(|line| line.starts_with("### ")),
+     |               ^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `lines` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `lines`, perhaps you need to implement one of them:
+             candidate #1: `bstr::ext_slice::ByteSlice`
+             candidate #2: `std::io::BufRead`
+help: some of the expressions' fields have a method of the same name
+     |
+5364 |         !text.doc.lines().any(|line| line.starts_with("### ")),
+     |               ++++
+5364 |         !text.schema.lines().any(|line| line.starts_with("### ")),
+     |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5365:54
+     |
+5365 |         "零符号 ⇒ 零行首 op 锚点（说明块里的 `### <op-id>` 不是锚点）：\n{text}"
+     |                                                                          ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5368:14
+     |
+5368 |         text.contains("```json api-types\n{}\n```"),
+     |              ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+5368 |         text.doc.contains("```json api-types\n{}\n```"),
+     |              ++++
+5368 |         text.schema.contains("```json api-types\n{}\n```"),
+     |              +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5369:37
+     |
+5369 |         "零符号 ⇒ api-types 为 `{{}}`：\n{text}"
+     |                                          ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `lines` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5388:15
+     |
+5388 |         !text.lines().any(|line| line.starts_with("### ")),
+     |               ^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `lines` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `lines`, perhaps you need to implement one of them:
+             candidate #1: `bstr::ext_slice::ByteSlice`
+             candidate #2: `std::io::BufRead`
+help: some of the expressions' fields have a method of the same name
+     |
+5388 |         !text.doc.lines().any(|line| line.starts_with("### ")),
+     |               ++++
+5388 |         !text.schema.lines().any(|line| line.starts_with("### ")),
+     |               +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5389:37
+     |
+5389 |         "目标归属另一个元素 ⇒ 全拒、零行首 op 锚点：\n{text}"
+     |                                                       ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no method named `contains` found for struct `api::BootstrapDrafts` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5392:14
+     |
+5392 |         text.contains("```json api-types\n{}\n```"),
+     |              ^^^^^^^^ method not found in `api::BootstrapDrafts`
+     |
+    ::: crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | -------------------------- method `contains` not found for this struct
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+             candidate #1: `bitflags::traits::Flags`
+             candidate #2: `std::ops::RangeBounds`
+help: some of the expressions' fields have a method of the same name
+     |
+5392 |         text.doc.contains("```json api-types\n{}\n```"),
+     |              ++++
+5392 |         text.schema.contains("```json api-types\n{}\n```"),
+     |              +++++++
+
+error[E0277]: `api::BootstrapDrafts` doesn't implement `std::fmt::Display`
+    --> crates\core\archi\src\api\mod_test.rs:5393:36
+     |
+5393 |         "全拒 ⇒ api-types 为 `{{}}`：\n{text}"
+     |                                        ^^^^^^ `api::BootstrapDrafts` cannot be formatted with the default formatter
+     |
+help: the trait `std::fmt::Display` is not implemented for `api::BootstrapDrafts`
+    --> crates\core\archi\src\api\mod.rs:124:1
+     |
+ 124 | pub struct BootstrapDrafts {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5977:44
+     |
+5977 |         of(malformed, ArchiApiFindingKind::DocNotFound).len(),
+     |                                            ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:5992:40
+     |
+5992 |         of(blank, ArchiApiFindingKind::DocNotFound).len(),
+     |                                        ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\api\mod_test.rs:6001:57
+     |
+6001 |                 && finding.kind == ArchiApiFindingKind::DocNotFound
+     |                                                         ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0609]: no field `doc_facts` on type `api::ApiSnapshot`
+    --> crates\core\archi\src\api\mod_test.rs:6099:18
+     |
+6099 |         snapshot.doc_facts.len(),
+     |                  ^^^^^^^^^ unknown field
+     |
+     = note: available fields are: `contracts`, `schemas`, `symbols`, `doc_present`
+
+error[E0609]: no field `doc_facts` on type `api::ApiSnapshot`
+    --> crates\core\archi\src\api\mod_test.rs:6104:18
+     |
+6104 |         snapshot.doc_facts.get(declared),
+     |                  ^^^^^^^^^ unknown field
+     |
+     = note: available fields are: `contracts`, `schemas`, `symbols`, `doc_present`
+
+error[E0609]: no field `doc_facts` on type `api::ApiSnapshot`
+    --> crates\core\archi\src\api\mod_test.rs:6111:18
+     |
+6111 |         snapshot.doc_facts.get("App.Core.Blank"),
+     |                  ^^^^^^^^^ unknown field
+     |
+     = note: available fields are: `contracts`, `schemas`, `symbols`, `doc_present`
+
+error[E0609]: no field `doc_facts` on type `api::ApiSnapshot`
+    --> crates\core\archi\src\api\mod_test.rs:6135:19
+     |
+6135 |     assert!(empty.doc_facts.is_empty(), "doc_facts 空");
+     |                   ^^^^^^^^^ unknown field
+     |
+     = note: available fields are: `contracts`, `schemas`, `symbols`, `doc_present`
+
+error[E0609]: no field `doc_facts` on type `api::ApiSnapshot`
+    --> crates\core\archi\src\api\mod_test.rs:6143:15
+     |
+6143 |         first.doc_facts, second.doc_facts,
+     |               ^^^^^^^^^ unknown field
+     |
+     = note: available fields are: `contracts`, `schemas`, `symbols`, `doc_present`
+
+error[E0609]: no field `doc_facts` on type `api::ApiSnapshot`
+    --> crates\core\archi\src\api\mod_test.rs:6143:33
+     |
+6143 |         first.doc_facts, second.doc_facts,
+     |                                 ^^^^^^^^^ unknown field
+     |
+     = note: available fields are: `contracts`, `schemas`, `symbols`, `doc_present`
+
+error[E0599]: no variant or associated item named `ApiDocMissing` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\drift\mod_test.rs:2462:65
+     |
+2462 |             .any(|finding| finding.kind == ArchiApiFindingKind::ApiDocMissing),
+     |                                                                 ^^^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `ApiDocMissing` not found for this enum
+     |
+help: there is a variant with a similar name
+     |
+2462 -             .any(|finding| finding.kind == ArchiApiFindingKind::ApiDocMissing),
+2462 +             .any(|finding| finding.kind == ArchiApiFindingKind::ApiMissing),
+     |
+
+error[E0599]: no variant or associated item named `ApiReexportDrift` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+   --> crates\core\archi\src\drift\report_test.rs:616:31
+    |
+616 |         (ArchiApiFindingKind::ApiReexportDrift, "apiReexportDrift"),
+    |                               ^^^^^^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+    |
+   ::: crates\core\archi\src\drift\report.rs:204:1
+    |
+204 | pub enum ArchiApiFindingKind {
+    | ---------------------------- variant or associated item `ApiReexportDrift` not found for this enum
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+   --> crates\core\archi\src\drift\report_test.rs:622:31
+    |
+622 |         (ArchiApiFindingKind::DocNotFound, "docNotFound"),
+    |                               ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+    |
+   ::: crates\core\archi\src\drift\report.rs:204:1
+    |
+204 | pub enum ArchiApiFindingKind {
+    | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `ApiDocMissing` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+   --> crates\core\archi\src\drift\report_test.rs:623:31
+    |
+623 |         (ArchiApiFindingKind::ApiDocMissing, "apiDocMissing"),
+    |                               ^^^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+    |
+   ::: crates\core\archi\src\drift\report.rs:204:1
+    |
+204 | pub enum ArchiApiFindingKind {
+    | ---------------------------- variant or associated item `ApiDocMissing` not found for this enum
+    |
+help: there is a variant with a similar name
+    |
+623 -         (ArchiApiFindingKind::ApiDocMissing, "apiDocMissing"),
+623 +         (ArchiApiFindingKind::ApiMissing, "apiDocMissing"),
+    |
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+   --> crates\core\archi\src\drift\report_test.rs:686:34
+    |
+686 |             ArchiApiFindingKind::DocNotFound
+    |                                  ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+    |
+   ::: crates\core\archi\src\drift\report.rs:204:1
+    |
+204 | pub enum ArchiApiFindingKind {
+    | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `ApiReexportDrift` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\drift\report_test.rs:1064:40
+     |
+1064 |             kind: ArchiApiFindingKind::ApiReexportDrift,
+     |                                        ^^^^^^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `ApiReexportDrift` not found for this enum
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\drift\report_test.rs:1316:58
+     |
+1316 |         has_error_tier(&[finding_of(ArchiApiFindingKind::DocNotFound, Some("App.A"))]),
+     |                                                          ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `ApiDocMissing` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\drift\report_test.rs:1322:45
+     |
+1322 |             finding_of(ArchiApiFindingKind::ApiDocMissing, Some("App.B")),
+     |                                             ^^^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `ApiDocMissing` not found for this enum
+     |
+help: there is a variant with a similar name
+     |
+1322 -             finding_of(ArchiApiFindingKind::ApiDocMissing, Some("App.B")),
+1322 +             finding_of(ArchiApiFindingKind::ApiMissing, Some("App.B")),
+     |
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\drift\report_test.rs:1346:58
+     |
+1346 |         has_error_tier(&[finding_of(ArchiApiFindingKind::DocNotFound, None)]),
+     |                                                          ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `ApiDocMissing` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\drift\report_test.rs:1361:41
+     |
+1361 |         finding_of(ArchiApiFindingKind::ApiDocMissing, Some("App.B")),
+     |                                         ^^^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `ApiDocMissing` not found for this enum
+     |
+help: there is a variant with a similar name
+     |
+1361 -         finding_of(ArchiApiFindingKind::ApiDocMissing, Some("App.B")),
+1361 +         finding_of(ArchiApiFindingKind::ApiMissing, Some("App.B")),
+     |
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\drift\report_test.rs:1418:31
+     |
+1418 |         (ArchiApiFindingKind::DocNotFound, ArchiCheckStatus::Errors),
+     |                               ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\drift\report_test.rs:1443:31
+     |
+1443 |         (ArchiApiFindingKind::DocNotFound, "docNotFound"),
+     |                               ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `ApiDocMissing` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+    --> crates\core\archi\src\drift\report_test.rs:1444:31
+     |
+1444 |         (ArchiApiFindingKind::ApiDocMissing, "apiDocMissing"),
+     |                               ^^^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+     |
+    ::: crates\core\archi\src\drift\report.rs:204:1
+     |
+ 204 | pub enum ArchiApiFindingKind {
+     | ---------------------------- variant or associated item `ApiDocMissing` not found for this enum
+     |
+help: there is a variant with a similar name
+     |
+1444 -         (ArchiApiFindingKind::ApiDocMissing, "apiDocMissing"),
+1444 +         (ArchiApiFindingKind::ApiMissing, "apiDocMissing"),
+     |
+
+error[E0599]: no variant or associated item named `DocNotFound` found for enum `drift::report::ArchiApiFindingKind` in the current scope
+   --> crates\core\archi\src\edit\warnings_test.rs:485:51
+    |
+485 |             "docNotFound" => ArchiApiFindingKind::DocNotFound.severity().as_str(),
+    |                                                   ^^^^^^^^^^^ variant or associated item not found in `drift::report::ArchiApiFindingKind`
+    |
+   ::: crates\core\archi\src\drift\report.rs:204:1
+    |
+204 | pub enum ArchiApiFindingKind {
+    | ---------------------------- variant or associated item `DocNotFound` not found for this enum
+
+error: could not compile `agent-runtime` (lib test) due to 2 previous errors
+Some errors have detailed explanations: E0277, E0425, E0432, E0433, E0560, E0599, E0609.
+error: could not compile `archi` (lib test) due to 210 previous errors
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

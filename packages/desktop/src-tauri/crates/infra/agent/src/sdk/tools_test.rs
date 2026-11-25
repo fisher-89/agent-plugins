@@ -1801,8 +1801,8 @@ fn db近似名落默认path分支() {
 // 工具 description 的 `doc` 纪律（`archi_module` / `archi_search`）
 // ===========================================================================
 
-/// 正向（AC-8）：`archi_module` 描述点名入口文档**单值** `doc` 与「仅 `api = none` 有值 /
-/// `declared` 走 `api.contractPath`」两半；`archi_search` 描述点名入口文档路径。
+/// 正向（AC-8）：`archi_module` 描述点名三资产分工（`doc` 单值 + 接口以 `.schema.json`
+/// 为唯一凭据 + 生成物两条路径）；`archi_search` 描述点名检索语料是两条固定派生规则。
 #[test]
 fn archi_module描述含doc纪律两半() {
     let defs = defs(&archi_injections(true, true), "");
@@ -1810,10 +1810,15 @@ fn archi_module描述含doc纪律两半() {
         .iter()
         .find(|def| def.name == crate::sdk::mount::ARCHI_MODULE_TOOL)
         .expect("archi_module 定义在场");
-    for piece in ["单值 doc", "api = none", "api.contractPath", "入口文档"] {
+    for piece in [
+        "单值 doc",
+        "api.schemaPath",
+        "api.generatedPath",
+        "入口文档",
+    ] {
         assert!(
             module.description.contains(piece),
-            "描述含 doc 纪律片段 {piece:?}：{}",
+            "描述含三资产分工片段 {piece:?}：{}",
             module.description
         );
     }
@@ -1823,8 +1828,10 @@ fn archi_module描述含doc纪律两半() {
         .find(|def| def.name == crate::sdk::mount::ARCHI_SEARCH_TOOL)
         .expect("archi_search 定义在场");
     assert!(
-        search.description.contains("入口文档路径"),
-        "检索描述点名入口文档路径：{}",
+        search
+            .description
+            .contains("派生 <FQN>.md 与 <FQN>.schema.json 两条固定规则"),
+        "检索描述点名两条固定派生规则：{}",
         search.description
     );
 }
@@ -2094,5 +2101,443 @@ fn 常量同源且doc随动() {
     assert!(
         source.contains("七个架构工具"),
         "doc 措辞随动为七个架构工具（五只读 + 两写）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 接口定义写闸（`write` / `edit` → `archi::validate_schema`，AC-4 / AC-5）
+//
+// 射程只有 `<archi_models_dir>/**/<FQN>.schema.json`：命中即校验候选正文、失败零落盘
+// （父目录也不建）、成功回执追加「接口已校验」；其余路径的写盘语义逐字不变。
+// ---------------------------------------------------------------------------
+
+/// 被测元素 FQN（文件名主干与 `$id` / `title` 三处同源）。
+const SCHEMA_FQN: &str = "App.Auth";
+
+/// 接口文件在 root 内的规范相对路径（`<archi_models_rel_dir>/App/App.Auth.schema.json`）。
+fn interface_rel(fqn: &str) -> String {
+    format!(
+        "{}/App/{fqn}.schema.json",
+        foundation::layout::archi_models_rel_dir()
+    )
+}
+
+/// 合法接口定义：1 op `sign` + 1 类型 `Token`（带自我镜像 `$ref`），可过九道闸。
+fn interface_schema(fqn: &str) -> String {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": format!("{fqn}.schema.json"),
+        "title": fqn,
+        "$defs": { "Token": { "type": "object", "properties": {} } },
+        "properties": {
+            "sign": {
+                "x-function": {
+                    "owner": "AuthApi",
+                    "params": [{ "name": "raw", "schema": { "type": "string" } }],
+                    "returns": { "type": "string" }
+                }
+            },
+            "Token": { "$ref": "#/$defs/Token" }
+        }
+    })
+    .to_string()
+}
+
+/// 坏输入 ①：文本层重复键（`serde_json` 会折叠成「后者胜」⇒ 必须在解析前抓）。
+fn duplicate_key_schema(fqn: &str) -> String {
+    format!(
+        "{{\n  \"$id\": \"{fqn}.schema.json\",\n  \"title\": \"{fqn}\",\n  \
+         \"$comment\": \"先写的一句\",\n  \"$comment\": \"后写的一句\",\n  \
+         \"$defs\": {{}},\n  \"properties\": {{}}\n}}\n"
+    )
+}
+
+/// 坏输入 ②：`$id` 与文件名不符（三处持有同一事实，逐字相等才成立）。
+fn wrong_id_schema(fqn: &str) -> String {
+    json!({
+        "$id": format!("{fqn}.other.schema.json"),
+        "title": fqn,
+        "$defs": {},
+        "properties": {}
+    })
+    .to_string()
+}
+
+/// 坏输入 ③：`properties` 的 op 键与 `$defs` 键撞名（同名不成两用）。
+fn colliding_schema(fqn: &str) -> String {
+    json!({
+        "$id": format!("{fqn}.schema.json"),
+        "title": fqn,
+        "$defs": { "Token": { "type": "object", "properties": {} } },
+        "properties": {
+            "Token": { "x-function": { "params": [], "returns": { "type": "string" } } }
+        }
+    })
+    .to_string()
+}
+
+/// 异常（AC-4 ① ② ③）：三类坏输入各一条 `Err`，文案点名接口文件名 + 判据；盘面字节零
+/// 变化——文件不落盘，父目录也未被创建（`create_dir_all` 排在闸之后）。
+#[tokio::test]
+async fn 接口文件写闸三类坏输入零落盘() {
+    let dir = tempdir("gate-bad");
+    let root = root_of(&dir);
+    let path = root.join(interface_rel(SCHEMA_FQN));
+    let parent = path.parent().expect("父目录").to_path_buf();
+    let cases = [
+        ("重复键", duplicate_key_schema(SCHEMA_FQN), "重复声明"),
+        (
+            "$id不符",
+            wrong_id_schema(SCHEMA_FQN),
+            "期望 `App.Auth.schema.json`",
+        ),
+        ("键空间撞名", colliding_schema(SCHEMA_FQN), "同时是操作"),
+    ];
+    for (label, content, needle) in cases {
+        let error =
+            match execute(&root, "write", &json!({ "path": path, "content": content })).await {
+                Ok(text) => panic!("{label} 必须被写闸拒收，实际通过: {text}"),
+                Err(error) => error,
+            };
+        assert!(
+            error.contains("校验失败"),
+            "{label} 文案点明校验失败：{error}"
+        );
+        assert!(
+            error.contains("App.Auth.schema.json"),
+            "{label} 文案点名接口文件名：{error}"
+        );
+        assert!(error.contains(needle), "{label} 判据文案：{error}");
+        assert!(!path.exists(), "{label} 失败后文件零落盘");
+        assert!(!parent.exists(), "{label} 失败后父目录未被创建");
+    }
+}
+
+/// 正向（AC-4 尾段）：合法接口定义写入成功、落盘字节与入参逐字相等，回执追加
+/// 「接口已校验」。
+#[tokio::test]
+async fn 合法接口文件过闸并回执已校验() {
+    let dir = tempdir("gate-ok");
+    let root = root_of(&dir);
+    let path = root.join(interface_rel(SCHEMA_FQN));
+    let content = interface_schema(SCHEMA_FQN);
+
+    let output = execute(&root, "write", &json!({ "path": path, "content": content }))
+        .await
+        .expect("合法接口定义应过闸");
+    assert!(output.contains("已写入"), "既有写入回执：{output}");
+    assert!(
+        output.contains("接口已校验"),
+        "接口文件回执追加「接口已校验」：{output}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("落盘读回"),
+        content,
+        "落盘字节 == 入参 content（写闸不改写正文）"
+    );
+}
+
+/// 边界（AC-4 边界形态）：空内容 `Err` 零落盘；缺失多层父目录的合法内容自动建目录并
+/// 落盘；1 MB 合法内容（`$comment` 填充）照实落盘；已有文件由合法内容覆写为另一份合法
+/// 内容。
+#[tokio::test]
+async fn 接口文件写闸边界形态() {
+    let dir = tempdir("gate-edge");
+    let root = root_of(&dir);
+    let path = root.join(interface_rel(SCHEMA_FQN));
+
+    let empty = execute(&root, "write", &json!({ "path": path, "content": "" }))
+        .await
+        .expect_err("空内容不是合法 JSON ⇒ Err");
+    assert!(empty.contains("不是合法 JSON"), "空文本文案：{empty}");
+    assert!(!path.exists(), "空内容零落盘");
+
+    // 缺失多层父目录（`models` / `App` 两级皆不存在）：合法内容自动建目录并落盘
+    let content = interface_schema(SCHEMA_FQN);
+    execute(&root, "write", &json!({ "path": path, "content": content }))
+        .await
+        .expect("缺失父目录自动创建");
+    assert!(path.is_file(), "父目录创建后落盘");
+
+    // 1 MB 超长但合法的正文：写闸只判契约，不设体量上限
+    let huge = json!({
+        "$id": format!("{SCHEMA_FQN}.schema.json"),
+        "title": SCHEMA_FQN,
+        "$comment": "x".repeat(1024 * 1024),
+        "$defs": {},
+        "properties": {}
+    })
+    .to_string();
+    let output = execute(&root, "write", &json!({ "path": path, "content": huge }))
+        .await
+        .expect("超长合法正文应落盘");
+    assert!(output.contains("接口已校验"), "合法即过闸：{output}");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("读回"),
+        huge,
+        "1 MB 正文逐字落盘"
+    );
+
+    // 覆写：已有的合法上文被另一份合法内容全量替换
+    execute(&root, "write", &json!({ "path": path, "content": content }))
+        .await
+        .expect("覆写成功");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("读回"),
+        content,
+        "覆写为全量替换"
+    );
+}
+
+/// 边界（射程封闭）：同目录 `<FQN>.md`、`<models>` 外的 `<X>.schema.json`、`<root>` 内
+/// 他处的 `schema.json` 一律原样落盘、零校验、回执零「接口已校验」。
+#[tokio::test]
+async fn 非接口路径零校验零回执() {
+    let dir = tempdir("gate-scope");
+    let root = root_of(&dir);
+    let models = foundation::layout::archi_models_dir(&root);
+    let cases = [
+        models.join("App").join(format!("{SCHEMA_FQN}.md")),
+        root.join(".dev-team/architecture/models-x")
+            .join(format!("{SCHEMA_FQN}.schema.json")),
+        root.join("schema.json"),
+    ];
+    for path in cases {
+        let output = match execute(
+            &root,
+            "write",
+            &json!({ "path": path, "content": "不是 JSON {" }),
+        )
+        .await
+        {
+            Ok(text) => text,
+            Err(error) => panic!("{} 不在射程内，不应校验: {error}", path.display()),
+        };
+        assert!(
+            !output.contains("接口已校验"),
+            "{} 不在射程内，回执零校验注记: {output}",
+            path.display()
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("落盘读回"),
+            "不是 JSON {",
+            "非接口路径原样落盘"
+        );
+    }
+}
+
+/// 边界（命中判定五形态）：`<models>/**/<FQN>.schema.json` 命中（坏正文即 `Err`）；
+/// `<models>` 之外的另一棵树、大写后缀 `.schema.JSON`、`<models>` 的兄弟目录同名文件皆不
+/// 命中（坏正文照常落盘）；命中判据是**文件名后缀**（`archi::schema_fqn` 反查），不预判
+/// 主干是否 FQN——主干形态由闸 ③ 的 `$id` 期望值兜住。
+#[tokio::test]
+async fn 写闸命中判定五形态() {
+    let dir = tempdir("gate-hit");
+    let root = root_of(&dir);
+    let models = foundation::layout::archi_models_dir(&root);
+
+    let deep = models
+        .join("Deep")
+        .join("Dir")
+        .join(format!("{SCHEMA_FQN}.schema.json"));
+    let error = execute(&root, "write", &json!({ "path": deep, "content": "{" }))
+        .await
+        .expect_err("目录深处的接口文件同属射程");
+    assert!(error.contains("接口定义文件"), "命中判据不看层级：{error}");
+
+    let outside_dir = tempdir("gate-hit-outside");
+    let outside = outside_dir.path().join(format!("{SCHEMA_FQN}.schema.json"));
+    let miss = [
+        outside,
+        models.join("App").join(format!("{SCHEMA_FQN}.schema.JSON")),
+        root.join(".dev-team/architecture/models.schema.json"),
+    ];
+    for path in miss {
+        match execute(&root, "write", &json!({ "path": path, "content": "{" })).await {
+            Ok(_) => {}
+            Err(error) => panic!("{} 不命中射程，应原样落盘: {error}", path.display()),
+        }
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("落盘读回"),
+            "{",
+            "{} 未过闸、原样落盘",
+            path.display()
+        );
+    }
+
+    // 主干非 FQN 但仍以 `.schema.json` 结尾：文件名命中即进闸（射程判据不看主干），
+    // 坏正文被拒。
+    let non_fqn = models.join("App").join("weird name.schema.json");
+    let error = execute(&root, "write", &json!({ "path": non_fqn, "content": "{" }))
+        .await
+        .expect_err("主干非 FQN 仍是接口文件，坏正文即 Err");
+    assert!(error.contains("不是合法 JSON"), "判据文案：{error}");
+}
+
+/// 异常 / 正向（`edit`）：校验对象是 `old → new` 替换后的**候选正文**——候选非法则 `Err`
+/// 且原文零变化；候选合法则写回并回执；`old_string` 未命中仍走既有文案（闸前）；非接口
+/// 路径零回执。
+#[tokio::test]
+async fn edit校验替换后正文() {
+    let dir = tempdir("gate-edit");
+    let root = root_of(&dir);
+    let path = root.join(interface_rel(SCHEMA_FQN));
+    let content = interface_schema(SCHEMA_FQN);
+    execute(&root, "write", &json!({ "path": path, "content": content }))
+        .await
+        .expect("先落一份合法接口定义");
+
+    // 候选非法：把 `$id` 改成与文件名不符
+    let broken = execute(
+        &root,
+        "edit",
+        &json!({
+            "path": path,
+            "old_string": format!("\"$id\":\"{SCHEMA_FQN}.schema.json\""),
+            "new_string": format!("\"$id\":\"{SCHEMA_FQN}.other.schema.json\""),
+        }),
+    )
+    .await
+    .expect_err("候选正文非法 ⇒ Err");
+    assert!(broken.contains("校验失败"), "候选正文过闸：{broken}");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("读回"),
+        content,
+        "候选非法时原文零变化"
+    );
+
+    // 候选合法：补一条顶层 `$comment`（合法键，白名单内）。锚点是「键名 + 值」的唯一串，
+    // 与 `json!` 的键序无关——`serde_json` 开着 `preserve_order`，按片段猜顺序会脆断。
+    let marker = "候选正文已过闸";
+    let updated = execute(
+        &root,
+        "edit",
+        &json!({
+            "path": path,
+            "old_string": format!("\"title\":\"{SCHEMA_FQN}\""),
+            "new_string": format!("\"title\":\"{SCHEMA_FQN}\",\"$comment\":\"{marker}\""),
+        }),
+    )
+    .await
+    .expect("候选正文合法 ⇒ 写回");
+    assert!(updated.contains("接口已校验"), "写回回执：{updated}");
+    assert!(
+        std::fs::read_to_string(&path)
+            .expect("读回")
+            .contains(marker),
+        "候选正文已落盘"
+    );
+
+    // 未命中：既有错误面在闸之前（与接口无关）
+    let missing = execute(
+        &root,
+        "edit",
+        &json!({ "path": path, "old_string": "不存在的串", "new_string": "x" }),
+    )
+    .await
+    .expect_err("未命中原样报错");
+    assert!(missing.contains("未命中"), "既有文案：{missing}");
+
+    // 非接口路径：零校验零回执
+    let plain = write_rel(&root, "notes/todo.md", "接口外的正文");
+    let output = execute(
+        &root,
+        "edit",
+        &json!({ "path": plain, "old_string": "正文", "new_string": "不是 JSON {" }),
+    )
+    .await
+    .expect("非接口路径替换成功");
+    assert!(!output.contains("接口已校验"), "射程外零回执：{output}");
+}
+
+/// 边界（写闸非保护面）：`<archi_models>` 外路径仍由沙箱链拒绝；档位面零变化（`default`
+/// 拒 `write`、`acceptEdits` 放行）；源码零 `protect::` 调用（写闸不并入保护面）。
+#[test]
+fn 写闸非保护面且档位不变() {
+    let dir = tempdir("gate-tier");
+    let root = root_of(&dir);
+    let outside = tempdir("gate-tier-outside");
+    let input = json!({
+        "path": outside.path().join(format!("{SCHEMA_FQN}.schema.json")),
+        "content": interface_schema(SCHEMA_FQN),
+    });
+    let raw = input_path("write", &input).expect("path 字段在场");
+    let denied = check(&root, raw).expect_err("root 外接口文件写入必须被沙箱链拦截");
+    assert!(denied.contains("越出 workspace root"), "实际: {denied}");
+
+    let write_tier = crate::sdk::mount::registry()
+        .iter()
+        .find(|mount| mount.definition.name == "write")
+        .expect("write 在挂载清单内")
+        .tier;
+    assert_eq!(
+        write_tier,
+        crate::sdk::mount::ToolTier::Write,
+        "write 仍 Write 档"
+    );
+    assert!(
+        !crate::sdk::policy::allows(agent::AgentPermissionMode::Default, write_tier),
+        "default 档仍拒写"
+    );
+    assert!(
+        crate::sdk::policy::allows(agent::AgentPermissionMode::AcceptEdits, write_tier),
+        "acceptEdits 档放行写"
+    );
+
+    let source = source_of("src/sdk/tools.rs");
+    assert!(
+        !source.contains("protect::"),
+        "写闸不并入保护面（零 protect 调用）"
+    );
+}
+
+/// 边界（签名与接线）：`execute` 对外签名逐字不变；`write` / `edit` 调用点各恰一处且传
+/// `root`；校验与反查各只有一份（`archi::validate_schema` / `archi::schema_fqn`）。
+#[test]
+fn 写闸接线单点且对外签名零改() {
+    let source = source_of("src/sdk/tools.rs");
+    assert!(
+        source.contains(
+            "pub async fn execute(root: &Path, name: &str, input: &Value) -> Result<String, String>"
+        ),
+        "execute 对外签名逐字不变"
+    );
+    assert_eq!(
+        source
+            .matches("\"write\" => write(root, input).await")
+            .count(),
+        1,
+        "write 调用点恰一处且传 root"
+    );
+    assert_eq!(
+        source
+            .matches("\"edit\" => edit(root, input).await")
+            .count(),
+        1,
+        "edit 调用点恰一处且传 root"
+    );
+    assert_eq!(
+        source.matches("archi::validate_schema(").count(),
+        1,
+        "校验单点（与装载期同一函数）"
+    );
+    assert_eq!(
+        source.matches("archi::schema_fqn(").count(),
+        1,
+        "文件名反查单点（零第二份后缀切分）"
+    );
+    assert_eq!(
+        source
+            .matches("validate_interface(root, &path, &content)")
+            .count(),
+        1,
+        "write 侧过闸恰一处（校验入参正文）"
+    );
+    assert_eq!(
+        source
+            .matches("validate_interface(root, &path, &updated)")
+            .count(),
+        1,
+        "edit 侧过闸恰一处（校验的是替换后的候选正文）"
     );
 }

@@ -1,8 +1,9 @@
-//! 契约与生成物路径单点：`<root>` 归一、四类路径派生、入口解析链与形态判定、
-//! TS import specifier、跨域 `$ref` 相对前缀。
+//! 模块资产与生成物路径单点：`<root>` 归一、资产落点（`<FQN>.md` 文档 /
+//! `<FQN>.schema.json` 接口）、生成物落点、入口解析链与形态判定、TS import specifier、
+//! 跨域 `$ref` 相对前缀。
 //!
 //! **几乎全是路径运算，零 IO**：[`entry_state`] 的存在性探测是唯一例外——它必须看盘
-//! 才能回答「入口在哪」；[`entry_candidates`] 的候选派生**纯文本、零 IO**。契约目录
+//! 才能回答「入口在哪」；[`entry_candidates`] 的候选派生**纯文本、零 IO**。资产目录
 //! 经 [`foundation::layout::archi_models_dir`]、契约索引经
 //! [`foundation::layout::archi_graph_dir`] 派生：本文件 MUST NOT 行内拼 `models` /
 //! `graph` 段，MUST NOT 手算 `../` 层数（值形态由本文件单点产出，消费方零字面量）。
@@ -23,7 +24,8 @@ use std::path::{Path, PathBuf};
 
 use foundation::layout::{archi_graph_dir, archi_models_dir};
 
-use crate::dto::{ApiStatus, ArchiElement};
+use super::SCHEMA_FILE_SUFFIX;
+use crate::dto::ArchiElement;
 
 /// 索引文件名（`<archi_graph_dir>/INDEX.toml`，全局唯一一份；写盘目标与孤儿扫描
 /// 收面共用同一持有者）。
@@ -274,10 +276,10 @@ pub fn generated_kind(language: Language) -> GeneratedKind {
     }
 }
 
-/// 契约文件路径：`<archi_models_dir>/<分层目录段…>/<FQN>.md`。
+/// 文档（资产①）路径：`<archi_models_dir>/<分层目录段…>/<FQN>.md`。
 ///
-/// 结果同时是 `api = declared` 元素的**入口文档**（[`carrier_path`] 的 declared 分支）：
-/// 契约 md 与入口文档不是两份资产，只是同一落点的两个用途。
+/// **落点恒由 FQN 派生，与 `api` 状态、模型 `doc` 字段都无关**——`declared` 与 `none`
+/// 元素共用这一条派生（`doc` 是零判据读者的呈现事实，不进派生面）。
 ///
 /// FQN 形态非法（空 / 含路径分隔符 / `.` 或 `..` 段 / 绝对前缀）→ `None`：FQN 同时
 /// 充当**文件名**，放行即让下层的 `is_file()` 探测与工具 crate 的写盘越出契约目录。
@@ -288,44 +290,24 @@ pub fn contract_path(root: &Path, fqn: &str) -> Option<PathBuf> {
     Some(dir_of(root, fqn).join(format!("{fqn}.md")))
 }
 
-/// `doc` 字段的归一与形态判据单点：`normalize_root`（`\` → `/`、剥前导 `./`、去尾
-/// `/`）通过 [`is_repo_relative`] 后 `root.join`，否则 `None`。
-///
-/// **`join` 越根的安全边界**：绝对路径 / 盘符会替换 base、`..` 段会上溯——放行即让
-/// 载体探测变成任意文件读取面。形态判据只有这一处（退役的文档关联实现里的等价函数
-/// 已随该能力删除），判据面 / 纳管面 / 检索面 / 投影面 MUST NOT 各写第二份归一。
-pub fn doc_path(root: &Path, doc: &str) -> Option<PathBuf> {
-    let normalized = normalize_root(doc);
-    if !is_repo_relative(&normalized) {
-        return None;
-    }
-    Some(root.join(normalized))
-}
-
-/// **入口文档载体的派生单点**——判据面 / 纳管面 / 检索面 / 投影面共用，MUST NOT 出现
-/// 第二份载体派生。
-///
-/// `api` 状态就是载体开关：`declared` → 派生 [`contract_path`]（契约 md 即入口文档）、
-/// `none` → 模型 `doc` 声明的 [`doc_path`]。
-///
-/// **`None` 有两种成因，本函数不区分、调用方 MUST 自行分流**：`doc` 未声明（真无载体，
-/// `api = none` 的合法态）与 `doc` 已声明而形态越根（[`doc_path`] 拒绝，声明在案却指不到
-/// 盘）。两者在判据面上分属不同值（`docMissing` vs `docNotFound`）、不同档位与不同纳管
-/// 结论，故把「派生不出路径」一律读成「未声明」就等于把「写错了」降级成「还没写」。
-pub fn carrier_path(root: &Path, element: &ArchiElement) -> Option<PathBuf> {
-    match element.api {
-        ApiStatus::Declared => contract_path(root, &element.fqn),
-        ApiStatus::None => element.doc.as_deref().and_then(|doc| doc_path(root, doc)),
-    }
-}
-
-/// schema 生成物路径：与契约同目录的 `<FQN>.schema.json`（形态判据同
-/// [`contract_path`]）。
+/// 接口（资产②）路径：与文档同目录的 `<FQN>.schema.json`（形态判据同
+/// [`contract_path`]）。**它是手写真相，不是生成物**。
 pub fn schema_path(root: &Path, fqn: &str) -> Option<PathBuf> {
     if !is_fqn(fqn) {
         return None;
     }
     Some(dir_of(root, fqn).join(format!("{fqn}.schema.json")))
+}
+
+/// 文件名 → 元素 FQN 的**唯一**反查（`<FQN>.schema.json` 去后缀；非该后缀 / 主干为空
+/// → `None`）。
+///
+/// 消费面两处：写闸（`write` / `edit` 落盘前从路径反查 FQN）与
+/// [`super::reexport_target`]（跨元素 `$ref` 的文件主干反查目标元素）。MUST NOT 出现
+/// 第二份后缀切分。
+pub fn schema_fqn(file_name: &str) -> Option<&str> {
+    let stem = file_name.strip_suffix(SCHEMA_FILE_SUFFIX)?;
+    (!stem.is_empty()).then_some(stem)
 }
 
 /// 元素生成物路径：`<入口目录>/<入口主干>.i.rs` / `.i.ts`（与**入口**同级）。
@@ -551,7 +533,7 @@ fn dir_of(root: &Path, fqn: &str) -> PathBuf {
 /// 路径形态判据 + 归一（[`entry_candidates`] / [`generated_path`] / [`entry_state`]
 /// 的共同前置）：
 /// [`normalize_root`] 后为空或形态非法 → `None`。
-fn checked_root(raw: &str) -> Option<String> {
+pub(crate) fn checked_root(raw: &str) -> Option<String> {
     let root = normalize_root(raw);
     if !is_repo_relative(&root) {
         return None;
@@ -579,10 +561,10 @@ pub(crate) fn is_repo_relative(relative: &str) -> bool {
         .any(|segment| segment.is_empty() || segment == "." || segment == "..")
 }
 
-/// FQN 形态判据：FQN 同时充当契约文件名与分层目录段的取段源，故 MUST 是「点分段
+/// FQN 形态判据：FQN 同时充当资产文件名与分层目录段的取段源，故 MUST 是「点分段
 /// 标识符」——非空、不含路径分隔符（`/` 与反斜杠）、不含盘符前缀、无空段
 /// （`Backend..X` / `Backend.` 一类会让目录段退化成空串或 `.`，即目录穿越面）。
-fn is_fqn(fqn: &str) -> bool {
+pub fn is_fqn(fqn: &str) -> bool {
     if fqn.is_empty() || fqn.contains('/') || fqn.contains('\\') {
         return false;
     }

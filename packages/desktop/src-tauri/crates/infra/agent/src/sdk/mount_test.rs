@@ -1192,10 +1192,11 @@ fn archi_api三档恒放行() {
     }
 }
 
-/// 正向（AC-5 / AC-15 / D13）：`archi_api` 的入参 schema 形态——`action` 为封闭二值
-/// （`check` / `bootstrap`）、`element` 可选字符串、`required == ["action"]`；描述含
-/// bootstrap 指路（`第一步`）、四类生成物点名（`.schema.json` / `INDEX.toml` / `.i.rs` /
-/// `.i.ts`）与冷启动口径（`enabled` + `findings`），既有「MUST NOT 手改生成物」三针仍绿。
+/// 正向（AC-5 / AC-9）：`archi_api` 的入参 schema 形态——`action` 为封闭三值
+/// （`check` / `bootstrap` / `link`）、`element` / `from` / `to` / `name` 均可选字符串、
+/// `required == ["action"]`；描述含 bootstrap 指路（`第一步`）、三类生成物点名
+/// （`INDEX.toml` / `.i.rs` / `.i.ts`）、手写真相（`.schema.json` 不是生成物）与冷启动
+/// 口径（`enabled` + `findings`）。
 #[test]
 fn archi_api入参schema形态() {
     let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
@@ -1203,9 +1204,15 @@ fn archi_api入参schema形态() {
     assert_eq!(parameters["type"], "object", "对象形态");
     assert_eq!(
         parameters["properties"]["action"]["enum"],
-        serde_json::json!(["check", "bootstrap"]),
-        "action 为封闭二值"
+        serde_json::json!(["check", "bootstrap", "link"]),
+        "action 为封闭三值"
     );
+    for key in ["from", "to", "name"] {
+        assert_eq!(
+            parameters["properties"][key]["type"], "string",
+            "link 形态的参数 `{key}` 为字符串（可选）"
+        );
+    }
     assert_eq!(
         parameters["properties"]["element"]["type"], "string",
         "element 为字符串（可选）"
@@ -1255,13 +1262,18 @@ fn archi_api冷启动口径同句() {
     );
 }
 
-/// 正向（AC-5）：首句语义对齐「自检与草稿」，旧单义括号形态 `（自检）` 零残留。
+/// 正向（AC-9）：首句语义对齐「两轴事实 + 起草与引用」，旧单义括号形态 `（自检）` 零残留。
 #[test]
 fn archi_api首句自检与草稿() {
     let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
     assert!(
-        definition.description.contains("自检与草稿"),
+        definition.description.contains("两轴事实"),
         "首句取两轴口径：{}",
+        definition.description
+    );
+    assert!(
+        definition.description.contains("起草与引用"),
+        "首句点明起草与引用两件算数：{}",
         definition.description
     );
     assert!(
@@ -1277,7 +1289,7 @@ fn archi_api首句自检与草稿() {
 fn archi_api描述落位与尾句() {
     let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
     let description = &definition.description;
-    let positions: Vec<usize> = ["bootstrap", "第一步", ".schema.json", "enabled"]
+    let positions: Vec<usize> = ["两轴事实", "bootstrap", "第一步", "生成物三类", "enabled"]
         .iter()
         .map(|needle| {
             description
@@ -1287,7 +1299,7 @@ fn archi_api描述落位与尾句() {
         .collect();
     assert!(
         positions.windows(2).all(|pair| pair[0] < pair[1]),
-        "下标单调（bootstrap / 第一步 / .schema.json / enabled），实际 {positions:?}"
+        "下标单调（两轴事实 → bootstrap → 第一步 → 生成物三类 → enabled），实际 {positions:?}"
     );
     assert!(
         description.trim_end().ends_with("（先修模型）"),
@@ -1611,15 +1623,21 @@ fn mount描述零旧关联面词汇() {
     }
 }
 
-/// 正向：`archi_module` 描述仍点名入口文档单值 `doc` 的两半（留白可写 / `declared` 走
-/// `api.contractPath`），且与 `archi_search` 的「入口文档路径」表述同源。
+/// 正向：`archi_module` / `archi_search` 的描述点名三资产分工——`doc` 单值、
+/// `.schema.json` 是接口的唯一凭据（手写真相）、检索语料是两条固定派生规则。
 #[test]
 fn mount描述含doc纪律两半() {
     let source = include_str!("mount.rs");
-    for piece in ["单值 doc", "api = none", "api.contractPath", "入口文档路径"] {
+    for piece in [
+        "单值 doc",
+        "入口文档单值 doc",
+        "api.schemaPath",
+        "手写真相",
+        "派生 <FQN>.md 与 <FQN>.schema.json 两条固定规则",
+    ] {
         assert!(
             source.contains(piece),
-            "`mount.rs` 内 doc 纪律片段在案：{piece}"
+            "`mount.rs` 内三资产分工片段在案：{piece}"
         );
     }
 }
@@ -2073,7 +2091,7 @@ fn archi_scaffold定义kind词表派生() {
 
 /// 正向（表驱动）：`archi_module` 描述改述后的三句 + 第四句——`hasPath` 判缺 `path`、
 /// 入口解析结果随响应给出（显式 / 约定默认 / 不可用成因）、新元素字段形态用
-/// `archi_scaffold`，以及 `schemaPath` / `generatedPath` 两条生成物路径的指路。
+/// `archi_scaffold`，以及三条路径各自独立出线的指路。
 #[test]
 fn archi_module描述补三句指路() {
     let definition = lookup(ARCHI_MODULE_TOOL).expect("定义在案");
@@ -2085,7 +2103,7 @@ fn archi_module描述补三句指路() {
         "schemaPath",
         "generatedPath",
         "contractPath",
-        "另两条生成物路径",
+        "三条路径各自独立出线",
     ] {
         assert!(
             description.contains(piece),
@@ -2450,4 +2468,31 @@ fn 未知名查空且零重复() {
     unique.sort();
     unique.dedup();
     assert_eq!(unique.len(), all.len(), "十八项零重复登记：{all:?}");
+}
+
+/// 正向（AC-6 / C12）：`archi_module` 描述面的三资产三句在场——① 三份资产一次给全且三段
+/// `present` 各自独立（缺一份不影响另两份）；② 接口文件是**唯一凭据**、键名即定义、不必
+/// 整读；③ 文档无结构 ⇒ 正文 `MUST 用 read 整读`、`MUST NOT` 用 `grep` / `offset` 拼凑。
+#[test]
+fn 描述随三资产改写() {
+    let definition = lookup(ARCHI_MODULE_TOOL).expect("定义在案");
+    let description = &definition.description;
+
+    assert!(
+        description.contains("三份资产") && description.contains("三段各自 present"),
+        "三份资产一次给全且 present 各自独立：{description}"
+    );
+    assert!(
+        description.contains("缺一份不影响另两份"),
+        "present 互不牵连的判读在描述面：{description}"
+    );
+    assert!(
+        description.contains("唯一凭据") && description.contains("不必整读"),
+        "接口是唯一凭据且不必整读：{description}"
+    );
+    assert!(
+        description.contains("用 read 整读")
+            && description.contains("MUST NOT 用 grep / offset 拼凑"),
+        "文档正文整读纪律（禁分段拼凑）：{description}"
+    );
 }

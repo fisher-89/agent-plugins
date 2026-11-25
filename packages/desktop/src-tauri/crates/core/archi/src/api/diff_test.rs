@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
-use crate::api::mod_test::declare_ancestors;
+use crate::api::mod_test::{declare_ancestors, mirrored_schema_text};
 use crate::api::paths;
 
 use super::diff::{compare, ArtifactDiff};
@@ -63,9 +63,15 @@ impl TempDir {
         );
     }
 
-    fn write_contract(&self, fqn: &str, content: &str) {
-        let path = paths::contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
-        self.write_absolute(&path, content);
+    /// 落两资产：文档（只为「在盘」这一事实）+ 手写接口定义原文。
+    ///
+    /// 比对面的应生成集由接口定义驱动（`workspace_render` → `load_contracts`），故夹具必须
+    /// 两资产齐备；文档正文本身零参与生成。
+    fn write_contract(&self, fqn: &str, schema: &str) {
+        let doc = paths::contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
+        self.write_absolute(&doc, &crate::api::mod_test::doc_of(fqn));
+        let schema_path = paths::schema_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
+        self.write_absolute(&schema_path, schema);
     }
 
     /// 全量字节 + mtime 快照（零写盘对拍）。
@@ -107,10 +113,7 @@ impl Drop for TempDir {
 // ---------------------------------------------------------------------------
 
 fn typed_contract(fqn: &str) -> String {
-    format!(
-        "# {fqn}\n\n## 职能\n\n比对单点语料。\n\n## 类型\n\n```json api-types\n\
-         {{\"Item\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
-    )
+    mirrored_schema_text(fqn, r#""Item": {"type": "object", "properties": {}}"#, "")
 }
 
 /// 双语言语料（crate 形态 + 前端目录形态），返回 `(core, frontend)` 两个 FQN。
@@ -164,41 +167,52 @@ fn assert_clean(diff: &ArtifactDiff, context: &str) {
 // 正向：三类差异各自成列
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-3 / AC-4 / spec「检查命令契约」）：应生成物在盘但内容改写 → `mismatched`
-/// 恰含该份 repo 相对串；`missing` / `orphaned` 不含它。
 #[test]
 fn compare内容不符计入mismatched() {
     let temp = TempDir::new("compare-mismatched");
-    let (core, _) = write_two_language_corpus(&temp);
+    write_two_language_corpus(&temp);
     let expected = materialize(&temp);
-    let schema = paths::schema_path(temp.root(), &core).expect("合法 FQN");
-    temp.write_absolute(&schema, "{\"tampered\": true}\n");
+    let generated = paths::generated_path(
+        temp.root(),
+        "crates/core/archi/src/lib.rs",
+        paths::GeneratedKind::Rust,
+    )
+    .expect("Rust 生成物路径");
+    temp.write_absolute(&generated, "// 手改过的生成物\n");
 
     let diff = compare(temp.root()).expect("比对应成功");
     assert_eq!(
         diff.mismatched,
-        vec![rel(&temp, &schema)],
+        vec![rel(&temp, &generated)],
         "mismatched 恰含被改写的一份"
     );
     assert!(diff.missing.is_empty(), "missing 不含它");
     assert!(diff.orphaned.is_empty(), "orphaned 不含它");
     assert!(
-        expected.iter().any(|(path, _)| path == &schema),
+        expected.iter().any(|(path, _)| path == &generated),
         "该份确在应生成集内（前提断言）"
     );
 }
 
-/// 正向（AC-3 / AC-4）：删掉一份应生成物 → `missing` 恰含该串；其余两列不含它。
 #[test]
 fn compare应生成未生成计入missing() {
     let temp = TempDir::new("compare-missing");
-    let (_, frontend) = write_two_language_corpus(&temp);
+    write_two_language_corpus(&temp);
     materialize(&temp);
-    let schema = paths::schema_path(temp.root(), &frontend).expect("合法 FQN");
-    fs::remove_file(&schema).expect("删文件失败");
+    let generated = paths::generated_path(
+        temp.root(),
+        "views/welcome-view.tsx",
+        paths::GeneratedKind::TypeScript,
+    )
+    .expect("TS 生成物路径");
+    fs::remove_file(&generated).expect("删文件失败");
 
     let diff = compare(temp.root()).expect("比对应成功");
-    assert_eq!(diff.missing, vec![rel(&temp, &schema)], "missing 恰含一份");
+    assert_eq!(
+        diff.missing,
+        vec![rel(&temp, &generated)],
+        "missing 恰含一份"
+    );
     assert!(diff.mismatched.is_empty(), "mismatched 不含它");
     assert!(diff.orphaned.is_empty(), "orphaned 不含它");
 }
@@ -218,18 +232,13 @@ fn compare孤儿生成物计入orphaned() {
     assert!(diff.missing.is_empty(), "missing 不含它");
 }
 
-/// 组合迭代（AC-3 / D4）：同一 tempdir 同时造「两份不符 + 两份缺 + 两份孤儿」→ 三列各恰两条、
-/// 互不交叠；`mismatched` / `missing` 序 = `workspace_render` 输出序，`orphaned` 按路径字节序。
+/// 组合迭代（AC-2）：同一 tempdir 同时造「两份不符 + 两份孤儿」→ 两列各恰两条、互不交叠；
+/// `mismatched` 序 = 应生成集输出序，`orphaned` 按路径字节序。
 #[test]
 fn compare三类差异同场互不混淆() {
     let temp = TempDir::new("compare-three-kinds");
-    let (core, frontend) = write_two_language_corpus(&temp);
+    write_two_language_corpus(&temp);
     materialize(&temp);
-
-    let schema_core = paths::schema_path(temp.root(), &core).expect("合法 FQN");
-    let schema_frontend = paths::schema_path(temp.root(), &frontend).expect("合法 FQN");
-    temp.write_absolute(&schema_core, "{\"broken\": 1}\n");
-    temp.write_absolute(&schema_frontend, "{\"broken\": 2}\n");
 
     let rust_generated = paths::generated_path(
         temp.root(),
@@ -243,8 +252,11 @@ fn compare三类差异同场互不混淆() {
         paths::GeneratedKind::TypeScript,
     )
     .expect("TS 生成物路径");
-    fs::remove_file(&rust_generated).expect("删文件失败");
-    fs::remove_file(&ts_generated).expect("删文件失败");
+    temp.write_absolute(&rust_generated, "// 手改一\n");
+    temp.write_absolute(&ts_generated, "// 手改二\n");
+
+    // 第三列与「不符」正交：删索引制造缺失
+    fs::remove_file(paths::index_path(temp.root())).expect("索引缺失侧");
 
     temp.write("src/zzz.i.ts", "// 孤儿 z\n");
     temp.write("src/aaa.i.rs", "// 孤儿 a\n");
@@ -252,18 +264,18 @@ fn compare三类差异同场互不混淆() {
     let diff = compare(temp.root()).expect("比对应成功");
     assert_eq!(
         diff.mismatched,
-        vec![rel(&temp, &schema_core), rel(&temp, &schema_frontend)],
-        "mismatched 序 = 契约 FQN 序"
-    );
-    assert_eq!(
-        diff.missing,
         vec![rel(&temp, &rust_generated), rel(&temp, &ts_generated)],
-        "missing 序 = 元素序（.i.rs 先于 .i.ts）"
+        "mismatched 序 = 应生成集输出序"
     );
     assert_eq!(
         diff.orphaned,
         vec!["src/aaa.i.rs".to_owned(), "src/zzz.i.ts".to_owned()],
         "orphaned 按路径字节序"
+    );
+    assert_eq!(
+        diff.missing,
+        vec![rel(&temp, &paths::index_path(temp.root()))],
+        "missing 恰为被删的索引"
     );
 
     let mut triples = diff
@@ -286,7 +298,19 @@ fn compare零差异三列全空() {
     let temp = TempDir::new("compare-clean");
     write_two_language_corpus(&temp);
     let written = materialize(&temp);
-    assert_eq!(written.len(), 5, "基线五份生成物");
+    assert_eq!(
+        written.len(),
+        3,
+        "基线三类产物（`.i.rs` + `.i.ts` + `INDEX.toml`）"
+    );
+    assert!(
+        !written.iter().any(|(path, _)| path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".schema.json"))),
+        "手写接口文件不在应生成集：{:?}",
+        written.iter().map(|(path, _)| path).collect::<Vec<_>>()
+    );
 
     let diff = compare(temp.root()).expect("比对应成功");
     assert_clean(&diff, "零差异");
@@ -399,32 +423,32 @@ fn compare_gitignore命中项不扫() {
     );
 }
 
-/// 正向（AC-4 / D3 有界枚举）：契约目录内多落 `App/Ghost.schema.json` 与内容不符的
-/// `INDEX.toml` → 前者入 `orphaned`、后者入 `mismatched`；契约目录**外**同名的
-/// `App/Ghost.schema.json` 不入 `orphaned`（schema 判据只在契约目录内成立）。
+/// 正向（AC-2 / R1 收面）：`<archi_models_dir>/**` 的 `.schema.json`（含与任何元素无关的一份）
+/// **不进** `orphaned`；索引侧枚举面只剩 `<archi_graph_dir>/**/INDEX.toml`——内容不符即入
+/// `mismatched`（只改一半的症状是全红）。
 #[test]
 fn compare契约目录的schema与索引孤儿() {
     let temp = TempDir::new("compare-api-dir-artifacts");
     write_two_language_corpus(&temp);
     materialize(&temp);
 
+    // 手写接口文件（含与任何元素无关的一份）MUST NOT 进孤儿（进即「全红」症状）
     let api_dir = paths::directory(temp.root());
     let ghost = api_dir.join("App").join("Ghost.schema.json");
     temp.write_absolute(&ghost, "{\"$defs\": {}}\n");
     let index = paths::index_path(temp.root());
     temp.write_absolute(&index, "# 旧索引（内容不符）\n");
-    temp.write("src/App/Ghost.schema.json", "{\"$defs\": {}}\n");
 
     let diff = compare(temp.root()).expect("比对应成功");
-    assert_eq!(
-        diff.orphaned,
-        vec![rel(&temp, &ghost)],
-        "契约目录内的 schema 孤儿入列，目录外的同名文件不入"
+    assert!(
+        diff.orphaned.is_empty(),
+        "`.schema.json` 不进孤儿枚举：{:?}",
+        diff.orphaned
     );
     assert_eq!(
         diff.mismatched,
         vec![rel(&temp, &index)],
-        "内容不符的 INDEX.toml 入 mismatched"
+        "内容不符的 INDEX.toml 入 mismatched（索引侧唯一枚举面）"
     );
     assert!(diff.missing.is_empty(), "零缺失");
 }
@@ -438,25 +462,17 @@ fn compare契约目录有界枚举的深度上限() {
     write_two_language_corpus(&temp);
     materialize(&temp);
 
-    let api_dir = paths::directory(temp.root());
-    let shallow = api_dir.join("Ghost2.schema.json");
-    let at_limit = nested(&api_dir, super::MAX_API_WALK_DEPTH).join("Deep.schema.json");
-    let beyond = nested(&api_dir, super::MAX_API_WALK_DEPTH + 2).join("Ghost.schema.json");
-    temp.write_absolute(
-        &shallow, "{}
-",
-    );
-    temp.write_absolute(
-        &at_limit, "{}
-",
-    );
-    temp.write_absolute(
-        &beyond, "{}
-",
-    );
+    // 索引侧唯一枚举面：`INDEX.toml`（命名即身份），深度上限只防环、不是布局判据
+    let graph_dir = foundation::layout::archi_graph_dir(temp.root());
+    let shallow = graph_dir.join(paths::INDEX_FILE_NAME);
+    let at_limit = nested(&graph_dir, super::MAX_API_WALK_DEPTH).join(paths::INDEX_FILE_NAME);
+    let beyond = nested(&graph_dir, super::MAX_API_WALK_DEPTH + 2).join(paths::INDEX_FILE_NAME);
+    temp.write_absolute(&shallow, "# 与应生成内容不符\n");
+    temp.write_absolute(&at_limit, "# 深层索引\n");
+    temp.write_absolute(&beyond, "# 越界索引\n");
 
     let diff = compare(temp.root()).expect("比对应成功");
-    assert!(diff.orphaned.contains(&rel(&temp, &shallow)), "浅层入列");
+    assert!(diff.mismatched.contains(&rel(&temp, &shallow)), "浅层入列");
     assert!(
         diff.orphaned.contains(&rel(&temp, &at_limit)),
         "等于上限（depth {}）仍在扫面",
@@ -878,12 +894,10 @@ fn compare两处派生共用同一份递归() {
     let source = include_str!("diff.rs");
     assert_eq!(
         source.matches("collect_artifacts(").count(),
-        4,
-        "一份递归：定义 1 + 递归 1 + 两处顶层派生 2（零第二份手写递归）"
+        3,
+        "一份递归：定义 1 + 递归 1 + 顶层派生 1（索引侧唯一枚举面，零第二份手写递归）"
     );
     for needle in [
-        "super::paths::directory(root)",
-        "super::SCHEMA_FILE_SUFFIX",
         "foundation::layout::archi_graph_dir(root)",
         "super::paths::INDEX_FILE_NAME",
     ] {

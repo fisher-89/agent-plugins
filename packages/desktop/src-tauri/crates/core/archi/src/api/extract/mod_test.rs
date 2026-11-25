@@ -17,11 +17,11 @@ use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
 
 use serde_json::{json, Value};
 
-use crate::api::contract::parse;
+use crate::api::contract::Contract;
 use crate::api::emit::{self, EmitTarget};
 use crate::api::meta;
+use crate::api::mod_test::mirrored_schema_text;
 use crate::api::paths::{EntryForm, GeneratedKind};
-use crate::api::schema::build_schema;
 
 use super::{
     extract, extract_element, normalize_signature, nullable_breakdown, schema_type, signature_of,
@@ -616,34 +616,46 @@ fn extract_element与bootstrap同源() {
         "取数器如实抽名（构造器不过滤，D11）：{names:?}"
     );
 
-    let text = crate::api::bootstrap(temp.root(), fqn).expect("起草应成功");
-    let expected_ops: Vec<&str> = symbols
-        .iter()
-        .filter(|symbol| symbol.kind == ApiSymbolKind::Function)
-        .filter(|symbol| !crate::api::contract::is_constructor(&symbol.name))
-        .map(|symbol| symbol.name.as_str())
-        .collect();
-    assert_eq!(expected_ops, vec!["alpha"], "草稿的 op 集排除构造器");
-
-    for op in &expected_ops {
-        assert!(
-            text.contains(&format!("### {op}")),
-            "草稿逐个列出取数面的 op `{op}`：\n{text}"
-        );
-    }
+    let drafts = crate::api::bootstrap(temp.root(), fqn).expect("起草应成功");
     assert!(
-        !text.contains("### new"),
-        "构造器不进草稿（由生成器产出）：\n{text}"
+        drafts.doc.starts_with(&format!("# {fqn}")),
+        "文档骨架只有 H1：\n{}",
+        drafts.doc
     );
+
+    // 接口骨架 = 双表：`properties` 带 `x-function` 的键是 op 集、`$defs` 键是类型集
+    let schema: serde_json::Value =
+        serde_json::from_str(&drafts.schema).expect("接口骨架必须是合法 JSON");
+    let properties = schema["properties"]
+        .as_object()
+        .expect("properties 恒为对象");
+    let ops: Vec<&str> = properties
+        .iter()
+        .filter(|(_, property)| property.get("x-function").is_some())
+        .map(|(name, _)| name.as_str())
+        .collect();
+    assert_eq!(ops, vec!["alpha"], "骨架 op 集排除构造器：{ops:?}");
+    assert!(
+        !properties.contains_key("new"),
+        "构造器不进骨架（由生成器产出）"
+    );
+
+    let defs = schema["$defs"].as_object().expect("$defs 恒为对象");
     let expected_types: Vec<&str> = symbols
         .iter()
         .filter(|symbol| symbol.kind != ApiSymbolKind::Function)
         .map(|symbol| symbol.name.as_str())
         .collect();
+    let mut drafted: Vec<&str> = defs.keys().map(String::as_str).collect();
+    drafted.sort_unstable();
+    let mut expected: Vec<&str> = expected_types.clone();
+    expected.sort_unstable();
+    assert_eq!(drafted, expected, "`$defs` 键集 = 取数面的类型集");
     for name in &expected_types {
-        assert!(
-            text.contains(&format!("\"{name}\"")),
-            "草稿的 api-types 含取数面的类型 `{name}`：\n{text}"
+        assert_eq!(
+            properties.get(*name),
+            Some(&serde_json::json!({ "$ref": format!("#/$defs/{name}") })),
+            "类型条目在 `properties` 有镜像 `$ref`"
         );
     }
 }
@@ -1516,24 +1528,31 @@ fn widget_source(fragment: &Value, required: bool) -> String {
     } else {
         ""
     };
-    format!(
-        "# {CONTRACT_FQN}\n\n```json api-types\n{{\"Widget\": {{\"type\": \"object\", \
-         \"properties\": {{\"f\": {fragment}}}{required}}}}}\n```\n"
+    mirrored_schema_text(
+        CONTRACT_FQN,
+        &format!(r#""Widget": {{"type": "object", "properties": {{"f": {fragment}}}{required}}}"#),
+        "",
     )
 }
 
 /// 双字段源文（同一片段落在必填位 `a` 与可选位 `b` 上）。
 fn two_field_source(fragment: &Value) -> String {
-    format!(
-        "# {CONTRACT_FQN}\n\n```json api-types\n{{\"Widget\": {{\"type\": \"object\", \
-         \"properties\": {{\"a\": {fragment}, \"b\": {fragment}}}, \"required\": [\"a\"]}}}}\n```\n"
+    mirrored_schema_text(
+        CONTRACT_FQN,
+        &format!(
+            r#""Widget": {{"type": "object", "properties": {{"a": {fragment}, "b": {fragment}}}, "required": ["a"]}}"#
+        ),
+        "",
     )
 }
 
-/// 两侧渲染文本（真实 `contract::parse` + `schema::build_schema` + `emit::{ts,rust}::render`）。
+/// 两侧渲染文本（真实 `Contract::from_schema` 投影 + `emit::{ts,rust}::render`）。
+///
+/// `source` 为手写接口定义 JSON 原文，由 `emit::mod_test` 的夹具投影转成 `Contract`——
+/// 产品读面只认 `.schema.json`，此处的投影仅存在于测试。
 fn render_both(source: &str) -> (String, String) {
-    let contract = parse(source, CONTRACT_FQN, CONTRACT_FILE).expect("契约应解析成功");
-    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
+    let (contract, schema): (Contract, Value) =
+        crate::api::mod_test::prepare(source, CONTRACT_FQN, CONTRACT_FILE);
     let target = |kind: GeneratedKind| EmitTarget {
         kind,
         form: EntryForm::SubdirModule,

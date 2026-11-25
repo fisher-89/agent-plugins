@@ -791,6 +791,40 @@ describe('抽屉契约段', () => {
     expect(callsOf('read_file')).toHaveLength(0);
   });
 
+  it('应在三路径各自独立出线时照渲判据段（零 crash、零路径行）', async () => {
+    // 三路径各按自身在盘事实：只有接口 / 只有文档 / 三者都在 / 三者全缺席
+    const cases = [
+      {
+        status: 'declared',
+        contractPath: null,
+        schemaPath: 'models/a.schema.json',
+        generatedPath: null,
+      },
+      {
+        status: 'none',
+        contractPath: 'models/a.md',
+        schemaPath: null,
+        generatedPath: null,
+      },
+      DECLARED_API,
+      { status: 'declared', contractPath: null, schemaPath: null, generatedPath: null },
+    ];
+    for (const api of cases) {
+      cleanup();
+      invokeMock.mockReset();
+      renderWith([finding({ element: 'App.Auth', kind: 'apiMissing', message: '实现缺失' })], api);
+      await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
+      const drawer = screen.getByTestId('archi-drawer');
+      await waitFor(() => expect(drawer.textContent).toContain('实现缺失'));
+      expect(screen.queryAllByTestId('archi-contract-path')).toHaveLength(0);
+      for (const path of [api.contractPath, api.schemaPath, api.generatedPath]) {
+        if (path !== null) {
+          expect(drawer.textContent).not.toContain(path);
+        }
+      }
+    }
+  });
+
   it('应只列本元素判据（element === fqn 严格过滤）', async () => {
     renderWith(
       [

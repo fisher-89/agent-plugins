@@ -1,8 +1,8 @@
-//! `archi_knowledge` / `archi-knowledge.md` 的单元测试：知识面收窄后的四段结构（职责 /
-//! 工具面 / 留给判断 + 手改出口一句）、零语法教学（零示例围栏 / 零键形示例 / 零字段
-//! 值域行 / 零 `metadata` 示例）、零结构诊断可执行词、双门限体量冻结（骨架 ≤ 1500 B /
-//! 全文 ≤ 1700 B）、两处派生目录仍在行程、指路只指向真实工具、旧立场零残留，以及拼装 /
-//! 降级语义零回归。
+//! `archi_knowledge` / `archi-knowledge.md` 的单元测试：知识面收窄后的五段结构（三资产
+//! 分工 / 设计顺序 / 三条不可越界 / 工具面 / 留给判断 + 兼容一句）、零语法教学（零示例
+//! 围栏 / 零键形示例 / 零字段值域行 / 零 `metadata` 示例）、零结构诊断可执行词、双门限
+//! 体量冻结（骨架 ≤ 1800 B / 全文 ≤ 2000 B）、两处派生目录仍在行程、指路只指向真实工具、
+//! 旧立场零残留，以及拼装 / 降级语义零回归。
 //!
 //! 零 mock：`include_str!("archi-knowledge.md")` 取编译期内嵌的同一份字节（禁测试内
 //! 复制副本）；`knowledge()` 走真实 `build` + 真实 `foundation::layout` 派生；
@@ -40,17 +40,29 @@ fn stale_stances() -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------
-// 四段结构与手改出口
+// 五段结构与手改出口
 // ---------------------------------------------------------------------------
 
-/// 正向（矩阵 4 组锚）：四段小节标题在场；手改出口一句含四要素（「工具表达不了的」/
-/// 「手改」/ `archi_module` 自查 / `file:line`）；职责段三句在场；工具面含五只读名 +
-/// 两写工具名。
+/// 正向（矩阵 5 组锚）：五段小节标题在场；三资产分工三句在场；手改出口一句含三要素
+/// （「工具表达不了的」/「手改」/ `archi_module` 自查 / `file:line`）；工具面含五只读名 +
+/// 两写工具名 + `archi_api` 三动作。
 #[test]
-fn 四段与手改出口逐句在场() {
+fn 五段逐句在场() {
     let source = skeleton();
-    for heading in ["# 架构模型须知", "## 职责", "## 工具面", "## 留给判断"] {
+    for heading in [
+        "# 架构模型须知",
+        "## 三资产分工",
+        "## 设计顺序",
+        "## 三条不可越界",
+        "## 工具面",
+        "## 留给判断",
+    ] {
         assert!(source.contains(heading), "小节标题 `{heading}` 在场");
+    }
+
+    // 三资产分工三句：TOML 拓扑 / schema 接触面（唯一凭据）/ md 理由（无结构）
+    for piece in ["TOML 答拓扑", "schema（唯一凭据）答接触面", "md 答理由"] {
+        assert!(source.contains(piece), "三资产分工 `{piece}` 在场");
     }
 
     let exit_line = source
@@ -59,10 +71,6 @@ fn 四段与手改出口逐句在场() {
         .expect("手改出口一句在场");
     for piece in ["手改", "archi_module", "file:line"] {
         assert!(exit_line.contains(piece), "出口句含 `{piece}`：{exit_line}");
-    }
-
-    for piece in ["只改架构目录内文件", "不会自动更新", "续接历史会话"] {
-        assert!(source.contains(piece), "职责段 `{piece}` 在场");
     }
 
     for tool in [
@@ -127,28 +135,30 @@ fn 零结构诊断可执行词() {
 // 体量门限
 // ---------------------------------------------------------------------------
 
-/// 边界（矩阵 2 数）：骨架 1458 B ≤ 1500 B、全文 1601 B ≤ 1700 B，两值同批冻结
+/// 边界（矩阵 2 数）：骨架 1777 B ≤ 1800 B、全文 1960 B ≤ 2000 B，两值同批冻结
 /// （内容变更须同批更新，MUST NOT 抬锚）。
 #[test]
 fn 骨架与全文双门限冻结() {
     let skeleton_bytes = lf_bytes(skeleton().trim_end());
     assert_eq!(
-        skeleton_bytes, 1458,
-        "骨架体量实测 1458 B（LF 归一）已冻结；内容变更须同批更新本值与全文锚"
+        skeleton_bytes, 1777,
+        "骨架体量实测 1777 B（LF 归一，五段骨架 + 三资产分工）已冻结；内容变更须同批更新\
+         本值与全文锚"
     );
     assert!(
-        skeleton_bytes <= 1500,
-        "骨架体量 {skeleton_bytes} B 超过门限 1500 B"
+        skeleton_bytes <= 1800,
+        "骨架体量 {skeleton_bytes} B 超过门限 1800 B"
     );
 
     let full_bytes = lf_bytes(&text());
     assert_eq!(
-        full_bytes, 1601,
-        "全文体量实测 1601 B（LF 归一）已冻结；内容变更须同批更新本值与骨架锚"
+        full_bytes, 1960,
+        "全文体量实测 1960 B（LF 归一，派生段含两条资产路径）已冻结；内容变更须同批更新\
+         本值与骨架锚"
     );
     assert!(
-        full_bytes <= 1700,
-        "全文体量 {full_bytes} B 超过门限 1700 B"
+        full_bytes <= 2000,
+        "全文体量 {full_bytes} B 超过门限 2000 B"
     );
 }
 
@@ -215,38 +225,39 @@ fn 指路不指向不存在工具() {
     );
 }
 
-/// 表驱动（收窄后的行集）：九处指路面逐一在场——`path` / `entry` / `api` / 字段序
-/// （`kind`）/ 覆盖（`composite`）/ 两轴（`archi_api`）/ `config.json` / 结构诊断
-/// （`file:line`）/ 生成物（`MUST NOT 手改`）；`orphanHierarchy` 行离场。
+/// 表驱动（收窄后的行集）：骨架只留不可脚本化的判断，字段形态归工具面——`api` /
+/// `kind` / `path` / `composite` / `archi_api` / `config.json` / `file:line` /
+/// `MUST NOT 手改` / 空 schema 形态 / `x-` 面封闭逐条在场；`entry` / `doc` / 字段序 /
+/// `orphanHierarchy` 一律离场（工具面字段清单持有）。
 #[test]
 fn 指令表收窄且新行集可判() {
     let source = skeleton();
     for needle in [
         "`api`",
-        "`entry`",
-        "`doc`",
         "`kind`",
-        "composite",
-        "archi_api",
-        "config.json",
-        "file:line",
-        "MUST NOT 手改",
         "`path`",
+        "`composite`",
+        "`archi_api`",
+        "`config.json`",
+        "`file:line`",
+        "MUST NOT 手改",
+        "`$defs {}`",
+        "`x-function`",
     ] {
         assert!(source.contains(needle), "收窄后的行集含 `{needle}`");
     }
-    assert!(
-        !source.contains("orphanHierarchy"),
-        "旧结构诊断行离场（对应断言同批删除，零恒真空）"
-    );
+    for retired in ["orphanHierarchy", "`entry`", "`doc`", "字段序"] {
+        assert!(
+            !source.contains(retired),
+            "旧指令行离场（`{retired}` 归工具面字段清单，骨架不列）"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
 // 旧立场零残留
 // ---------------------------------------------------------------------------
 
-/// 异常（矩阵 4 串）：旧立场句式零命中——三条「专用写工具」绝对命题与「写盘仍用
-/// write / edit」旧句（短语由片段拼接，见 [`stale_stances`]）。
 #[test]
 fn 知识面零旧立场() {
     let source = skeleton();
@@ -257,8 +268,12 @@ fn 知识面零旧立场() {
         );
     }
     assert!(
-        source.contains("写：`archi_element`") && source.contains("`archi_relation`"),
+        source.contains("写两件：`archi_element` / `archi_relation`"),
         "知识面以两写工具为写面表述"
+    );
+    assert!(
+        source.contains("`archi_api` 三动作：`bootstrap` 草稿 / `link` 算 `$ref` / `check` 两轴"),
+        "`archi_api` 三动作逐条在案"
     );
 }
 
@@ -279,12 +294,19 @@ fn 骨架零尖括号占位() {
 // 模块 doc 与拼装语义零回归
 // ---------------------------------------------------------------------------
 
-/// 正向：模块头 doc 段落描述随动——职责 / 工具面 / 留给判断 + 派生路径段逐段在场，
-/// 「六段」零命中。
+/// 正向：模块头 doc 段落描述随动——三资产分工 / 设计顺序 / 三条不可越界 / 工具面 /
+/// 留给判断 + 派生路径段逐段在场，「六段」零命中。
 #[test]
 fn 头注释段落随动() {
     let source = include_str!("archi_knowledge.rs");
-    for piece in ["职责", "工具面", "留给判断", "派生路径段"] {
+    for piece in [
+        "三资产分工",
+        "设计顺序",
+        "三条不可越界",
+        "工具面",
+        "留给判断",
+        "派生路径段",
+    ] {
         assert!(source.contains(piece), "模块 doc 含 `{piece}`");
     }
     assert!(!source.contains("六段"), "旧「六段」表述零命中");
@@ -332,4 +354,26 @@ fn 拼装前缀不变() {
         !skeleton().trim_end().ends_with(char::is_whitespace),
         "骨架尾部无残留空白"
     );
+}
+
+/// 异常（立场换面）：旧立场三句零命中（「契约 md 是唯一真相」/「四类生成物」/
+/// 「api-* fence」），新立场「schema 是唯一凭据」在场——真相持有者换面而纪律不变。
+#[test]
+fn 立场换面() {
+    let source = skeleton();
+    for stale in [
+        ["契约 md 是", "唯一真相"].concat(),
+        ["四类", "生成物"].concat(),
+        ["api-", "* fence"].concat(),
+    ] {
+        assert!(
+            !source.contains(stale.as_str()),
+            "知识面零旧立场句 `{stale}`"
+        );
+    }
+    assert!(
+        source.contains("schema（唯一凭据）"),
+        "新立场「schema 是唯一凭据」在场"
+    );
+    assert!(source.contains("md 答理由"), "文档侧表述为「答理由」");
 }

@@ -1,9 +1,8 @@
 //! 三类差异的比对单点：应生成集 vs 盘上实况。
 //!
 //! **纯读盘、零写盘**。仓库级遍历一律经 [`crate::scan::walk_source_files`]（gitignore
-//! 感知 + 剪构建产物树；MUST NOT 自建递归、MUST NOT 复制第二份遍历），契约资产目录与
-//! 契约索引目录为**两处同形的有界本地枚举**（同一递归，根与收面后缀两个实参不同，与
-//! [`super::enabled`] 的 `has_markdown` 同形，不构成仓库遍历）。
+//! 感知 + 剪构建产物树；MUST NOT 自建递归、MUST NOT 复制第二份遍历），索引目录为**一处
+//! 有界本地枚举**（深度上限防环、符号链接不跟随，不构成仓库遍历）。
 //! 路径串一律经 [`super::display`]（跨 crate 唯一归一单点）。
 
 use std::collections::BTreeSet;
@@ -62,13 +61,15 @@ fn is_generated_module_file(path: &Path) -> bool {
         .is_some_and(|name| name.ends_with(".i.rs") || name.ends_with(".i.ts"))
 }
 
-/// 盘上现有的四类生成物（`sorted` + `dedup` 前的原始集合）。
+/// 盘上现有的**三类**生成物（`sorted` + `dedup` 前的原始集合）。
 ///
 /// 生成物落**实现入口同级**，故可在仓库任意深度（`crates/infra/archi/src/lib.rs` →
 /// `crates/infra/archi/src/lib.i.rs`、`views/welcome-view.tsx` → `views/welcome-view.i.ts`），
-/// 枚举因而经 [`crate::scan::walk_source_files`]（与文件树同源，gitignore 感知）；
-/// 契约侧的 `.schema.json`（`<archi_models_dir>/**`）与索引（`<archi_graph_dir>/**`）
-/// 经 [`api_dir_artifacts`] 两处派生。
+/// 枚举因而经 [`crate::scan::walk_source_files`]（与文件树同源，gitignore 感知）；索引
+/// （`<archi_graph_dir>/INDEX.toml`）经 [`api_dir_artifacts`] 派生。
+///
+/// **`<FQN>.schema.json` 不在枚举面**：它是手写真相（第二份资产），进孤儿扫描就会让每份
+/// 手写接口文件全进 `orphaned`——症状是「全红」而不是「少一条」。
 fn generated_files_on_disk(root: &Path) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = crate::scan::walk_source_files(root)
         .into_iter()
@@ -80,21 +81,12 @@ fn generated_files_on_disk(root: &Path) -> Vec<PathBuf> {
     found
 }
 
-/// 契约侧的生成物（`<archi_models_dir>/**` 的 `*.schema.json` 与
-/// `<archi_graph_dir>/**` 的 `INDEX.toml`）：两处派生、同形有界枚举（深度上限复用
-/// [`super::MAX_API_WALK_DEPTH`]、符号链接不跟随），与 [`super::enabled`] 的
-/// `has_markdown` 同形。
+/// 索引侧的生成物（`<archi_graph_dir>/**` 的 `INDEX.toml`）：**只剩一个根**。
 ///
-/// 契约侧收面 = `*.schema.json`、索引侧收面 = `INDEX.toml`；两处的深度上限 / 符号链接
-/// 不跟随 / 文件判据逐条同形——MUST NOT 出现第二份手写递归。
+/// 资产目录（`<archi_models_dir>/**`）**退出枚举**——那里的 `*.schema.json` 与 `*.md` 都是
+/// 手写资产。口径与「`render_all` 只产三类」同一提交落地（只改一半的症状是全红）。
 fn api_dir_artifacts(root: &Path) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = Vec::new();
-    collect_artifacts(
-        &super::paths::directory(root),
-        super::SCHEMA_FILE_SUFFIX,
-        0,
-        &mut found,
-    );
     collect_artifacts(
         &foundation::layout::archi_graph_dir(root),
         super::paths::INDEX_FILE_NAME,

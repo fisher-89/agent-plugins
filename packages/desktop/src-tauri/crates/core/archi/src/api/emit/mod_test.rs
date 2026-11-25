@@ -3,19 +3,18 @@
 //! （两路头注释同源）、`x-class` 反向警告的落点（`properties` 全为函数却未标即一行
 //! stderr 警告，**每元素恰一次**、不双报、不进报告面、不改返回值）。
 //!
-//! 零 mock：真实 `emit::rust::render` / `emit::ts::render`（分派正确性即被测语义）+ 真实
-//! `contract::parse` / `schema::build_schema`；出 `String` 零写盘，故文件系统零依赖。
+//! 零 mock：真实 `emit::rust::render` / `emit::ts::render`（分派正确性即被测语义）+ 手写
+//! 接口定义 JSON 经 `Contract::from_schema` 投影；出 `String` 零写盘，故文件系统零依赖。
 //! stderr **不造替身、不捕获输出流**：沿「源码自证 + 返回集零影响」两向断言。
 
 use std::collections::BTreeMap;
 
-use serde_json::Value;
-
-use crate::api::contract::{parse, Contract};
+use crate::api::contract::Contract;
+use crate::api::mod_test::{empty_schema, mirrored_schema_text, prepare, reexport_def};
 
 use super::{render_target, EmitTarget, ModuleRef};
 use crate::api::paths::{EntryForm, GeneratedKind};
-use crate::api::schema::{build_schema, verify_defs};
+use crate::api::schema::verify_defs;
 use crate::api::{meta, ApiError, ApiMeta};
 
 /// 契约文件（repo 相对 POSIX）。
@@ -26,19 +25,15 @@ const FQN: &str = "App.Backend.Infra.ArchiRuntime";
 
 /// 试点形态源文（1 op + 1 零字段类型）。
 fn pilot_source() -> String {
-    format!(
-        "# {FQN}\n\n## 职能\n\n门禁执行体。\n\n## 操作\n\n### file_stem\n\n```json api-op\n\
-         {{\"params\": [{{\"name\": \"timestamp\", \"schema\": {{\"type\": \"string\"}}}}], \
-         \"returns\": {{\"type\": \"string\"}}}}\n```\n\n## 类型\n\n```json api-types\n\
-         {{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    mirrored_schema_text(
+        FQN,
+        r#""LocalArchiCheck": {"type": "object", "properties": {}}"#,
+        r#""file_stem": { "x-function": {"params": [{"name": "timestamp", "schema": {"type": "string"}}], "returns": {"type": "string"}} }"#,
     )
 }
 
-/// 解析 + 装配（失败即断言失败）。
-fn prepare(source: &str) -> (Contract, Value) {
-    let contract = parse(source, FQN, FILE).expect("契约应解析成功");
-    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
-    (contract, schema)
+fn prepare_local(source: &str) -> (Contract, serde_json::Value) {
+    prepare(source, FQN, FILE)
 }
 
 /// 渲染目标（`kind` + 落点 + 元素根 + 入口形态 + 透传查表）。
@@ -107,7 +102,7 @@ fn identifiers(text: &str) -> Vec<String> {
 /// 正向（AC-5）：`GeneratedKind::Rust` → 含 Rust 形态、不含 TS 语法。
 #[test]
 fn render_target的rust分派() {
-    let (contract, schema) = prepare(&pilot_source());
+    let (contract, schema) = prepare_local(&pilot_source());
     let text = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta())
         .expect("Rust 渲染应成功");
 
@@ -123,7 +118,7 @@ fn render_target的rust分派() {
 /// 正向（AC-5）：`GeneratedKind::TypeScript` → 含 `export interface`、不含 Rust 语法。
 #[test]
 fn render_target的ts分派() {
-    let (contract, schema) = prepare(&pilot_source());
+    let (contract, schema) = prepare_local(&pilot_source());
     let text = render_target(
         &target(GeneratedKind::TypeScript),
         &contract,
@@ -153,13 +148,12 @@ fn render_target的ts分派() {
 /// 文本序）。
 #[test]
 fn render_target两侧键集一致() {
-    let source = format!(
-        "# {FQN}\n\n### file_stem\n\n```json api-op\n{{\"params\": [], \"returns\": \
-         {{\"type\": \"string\"}}}}\n```\n\n```json api-types\n{{\"Alpha\": {{\"type\": \
-         \"object\", \"properties\": {{}}}}, \"Beta\": {{\"type\": \"object\", \"properties\": \
-         {{}}}}}}\n```\n"
+    let source = mirrored_schema_text(
+        FQN,
+        r#""Alpha": {"type": "object", "properties": {}}, "Beta": {"type": "object", "properties": {}}"#,
+        r#""file_stem": { "x-function": {"params": [], "returns": {"type": "string"}} }"#,
     );
-    let (contract, schema) = prepare(&source);
+    let (contract, schema) = prepare_local(&source);
 
     let rust = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta())
         .expect("Rust 渲染应成功");
@@ -198,18 +192,19 @@ fn render_target两侧键集一致() {
 /// TS specifier 只由 `form` 与 `ModuleRef.name` 决定（D58），不改类型段。
 #[test]
 fn render_target单契约粒度() {
-    let (contract, schema) = prepare(&pilot_source());
+    let (contract, schema) = prepare_local(&pilot_source());
     let text = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta())
         .expect("渲染应成功");
     assert!(!text.contains("[[entry]]"), "不产 INDEX 条目");
     assert!(!text.contains("\"$schema\""), "不产 schema.json");
 
     // 入口形态的两种取值：目录形态 `../`、单文件形态 `./`
-    let source = format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"AgentInput\": \"App.Frontend.Components.Agent.Input\"}}\n```\n\n\
-         ## 透传\n\n- AgentInput → App.Frontend.Components.Agent.Input\n"
+    let source = mirrored_schema_text(
+        FQN,
+        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        "",
     );
-    let (contract, schema) = prepare(&source);
+    let (contract, schema) = prepare_local(&source);
     // 形态由调用方给（D41）：两种 specifier 形态各对应一个显式形态值
     let mut directory_form = target(GeneratedKind::TypeScript);
     directory_form.form = EntryForm::SubdirModule;
@@ -248,8 +243,8 @@ fn render_target泛型零支持() {
             "{\"type\": \"object\", \"typeArguments\": [\"T\"]}",
         ),
     ] {
-        let source = format!("# {FQN}\n\n```json api-types\n{{\"{name}\": {definition}}}\n```\n");
-        let (contract, schema) = prepare(&source);
+        let source = mirrored_schema_text(FQN, &format!("\"{name}\": {definition}"), "");
+        let (contract, schema) = prepare_local(&source);
         for kind in [GeneratedKind::Rust, GeneratedKind::TypeScript] {
             let message = contract_error(render_target(&target(kind), &contract, &schema, &meta()));
             assert!(message.contains(name), "点名泛型类型：{message}");
@@ -258,10 +253,8 @@ fn render_target泛型零支持() {
     }
 
     // 类型名带尖括号：`$defs` 键即 `<T>` 形态
-    let source = format!(
-        "# {FQN}\n\n```json api-types\n{{\"Wrapper<T>\": {{\"type\": \"object\"}}}}\n```\n"
-    );
-    let (contract, schema) = prepare(&source);
+    let source = mirrored_schema_text(FQN, r#""Wrapper<T>": {"type": "object"}"#, "");
+    let (contract, schema) = prepare_local(&source);
     let message = contract_error(render_target(
         &target(GeneratedKind::Rust),
         &contract,
@@ -277,10 +270,8 @@ fn render_target泛型零支持() {
 /// 边界：`$defs` 值缺失 `type` 且无 `$ref` / `x-class` / `enum` → 渲染不 panic、形态可判。
 #[test]
 fn render_target无type值退化不panic() {
-    let source = format!(
-        "# {FQN}\n\n```json api-types\n{{\"Mystery\": {{\"description\": \"无 type 键\"}}}}\n```\n"
-    );
-    let (contract, schema) = prepare(&source);
+    let source = mirrored_schema_text(FQN, r#""Mystery": {"description": "无 type 键"}"#, "");
+    let (contract, schema) = prepare_local(&source);
     let rust = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta())
         .expect("Rust 侧退化不 panic");
     assert!(rust.contains("Mystery"), "类型名仍在案：\n{rust}");
@@ -303,8 +294,8 @@ fn render_target无type值退化不panic() {
 /// 不生成 `.i.*` 的判据在 `render_all` 侧）。
 #[test]
 fn render_target空契约() {
-    let source = format!("# {FQN}\n\n## 职能\n\n正文。\n");
-    let (contract, schema) = prepare(&source);
+    let source = empty_schema(FQN);
+    let (contract, schema) = prepare_local(&source);
 
     let rust = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta())
         .expect("空契约渲染应成功");
@@ -354,7 +345,7 @@ fn render_target零写盘源码自证() {
 /// 只有一个）。
 #[test]
 fn render_target载元单点() {
-    let (contract, schema) = prepare(&pilot_source());
+    let (contract, schema) = prepare_local(&pilot_source());
     let meta = meta();
     let rust = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta)
         .expect("Rust 渲染应成功");
@@ -403,9 +394,10 @@ fn render_target载元单点() {
 
 /// 单独一个「未标 `x-class` 但 properties 全为函数」的契约源文。
 fn missing_x_class_source() -> String {
-    format!(
-        "# {FQN}\n\n```json api-types\n{{\"Runner\": {{\"type\": \"object\", \"properties\": \
-         {{\"run\": {{\"x-function\": {{\"params\": [], \"returns\": {{\"type\": \"string\"}}}}}}}}}}}}\n```\n"
+    mirrored_schema_text(
+        FQN,
+        r#""Runner": {"type": "object", "properties": {"run": {"x-function": {"params": [], "returns": {"type": "string"}}}}}"#,
+        "",
     )
 }
 
@@ -413,7 +405,7 @@ fn missing_x_class_source() -> String {
 /// `Ok`（警告只走 stderr，不改返回码、不影响产物）。
 #[test]
 fn render_target的x_class警告不影响返回值() {
-    let (contract, schema) = prepare(&missing_x_class_source());
+    let (contract, schema) = prepare_local(&missing_x_class_source());
     let rust = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta())
         .expect("警告不改变返回码（Ok）");
     assert!(
@@ -448,15 +440,8 @@ fn render_target的x_class零警告形态() {
         ("Bare", r#"{"Bare": {"type": "object"}}"#, "pub struct Bare"),
     ];
     for (name, definition, expected) in cases {
-        let source = format!(
-            "# {FQN}
-
-```json api-types
-{definition}
-```
-"
-        );
-        let (contract, schema) = prepare(&source);
+        let source = mirrored_schema_text(FQN, definition, "");
+        let (contract, schema) = prepare_local(&source);
         let text = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta())
             .expect("零警告形态应渲染成功");
         assert!(
@@ -492,10 +477,11 @@ fn render_target的x_class警告单点() {
 /// 文本与无警告输入逐字相等（警告对生成物零影响）。
 #[test]
 fn render_target的x_class警告不进报告面() {
-    let (warning_contract, warning_schema) = prepare(&missing_x_class_source());
-    let (plain_contract, plain_schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-types\n{{\"Runner\": {{\"type\": \"object\", \"properties\": \
-         {{\"count\": {{\"type\": \"integer\"}}}}}}}}\n```\n"
+    let (warning_contract, warning_schema) = prepare_local(&missing_x_class_source());
+    let (plain_contract, plain_schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        r#""Runner": {"type": "object", "properties": {"count": {"type": "integer"}}}"#,
+        "",
     ));
 
     let with_warning = render_target(
@@ -526,11 +512,11 @@ fn render_target的x_class警告不进报告面() {
         "警告对头注释零影响"
     );
 
-    // `ArchiApiFindingKind` 仍十三值（`doc` 面三值进场，警告不是第十四 kind）
+    // 警告不是判据：`ArchiApiFindingKind` 十值（与本变更的词汇收缩同批）
     assert_eq!(
         crate::drift::report::ArchiApiFindingKind::ALL.len(),
-        13,
-        "判据词汇仍十三值（警告不是第十四 kind）"
+        10,
+        "警告不新增 kind（判据词汇仍是十值）"
     );
 }
 
@@ -538,12 +524,12 @@ fn render_target的x_class警告不进报告面() {
 /// `schema::verify_defs` 已判错（`render_target` 收不到该输入）；本文件不复制该判错。
 #[test]
 fn render_target不复制x_class错误判据() {
-    let invalid = format!(
-        "# {FQN}\n\n```json api-types\n{{\"Gate\": {{\"x-class\": true, \"properties\": \
-         {{\"count\": {{\"type\": \"integer\"}}}}}}}}\n```\n"
+    let invalid = mirrored_schema_text(
+        FQN,
+        r#""Gate": {"x-class": true, "properties": {"count": {"type": "integer"}}}"#,
+        "",
     );
-    let contract = parse(&invalid, FQN, FILE).expect("结构合法");
-    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
+    let (_contract, schema) = prepare(&invalid, FQN, FILE);
     // 错误侧在装载期（本测试直接调 verify_defs 复现拦截面）
     assert!(
         verify_defs(&schema).is_err(),
@@ -598,7 +584,7 @@ fn render_target的emit_target三字段面() {
     ] {
         let mut emit_target = target(GeneratedKind::TypeScript);
         emit_target.form = form;
-        let (contract, schema) = prepare(&pilot_source());
+        let (contract, schema) = prepare_local(&pilot_source());
         let text = render_target(&emit_target, &contract, &schema, &meta())
             .expect("三形态均可传入且渲染成功");
         assert!(
@@ -663,7 +649,7 @@ fn render_target的emit_target三字段面() {
 /// 的无关局部变量进来干扰计数——那是把「本模块的读取面」误扩成「全仓碰巧的字符串」。
 #[test]
 fn render_target删两字段零行为影响() {
-    let (contract, schema) = prepare(&pilot_source());
+    let (contract, schema) = prepare_local(&pilot_source());
     let emit_target = target(GeneratedKind::Rust);
     let first = render_target(&emit_target, &contract, &schema, &meta()).expect("首次渲染");
     let second = render_target(&emit_target, &contract, &schema, &meta()).expect("二次渲染");
@@ -707,11 +693,12 @@ fn render_target删两字段零行为影响() {
 /// `modules` 为空表 + 零透传条目 → 输出与非空时逐字相等（无透传即不参与）。
 #[test]
 fn render_target的modules查不到目标即退化() {
-    let source = format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"AgentInput\": \"App.Frontend.Components.Agent.Input\"}}\n```\n\n\
-         ## 透传\n\n- AgentInput → App.Frontend.Components.Agent.Input\n"
+    let source = mirrored_schema_text(
+        FQN,
+        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        "",
     );
-    let (contract, schema) = prepare(&source);
+    let (contract, schema) = prepare_local(&source);
 
     let mut without_target = target(GeneratedKind::Rust);
     without_target.modules = BTreeMap::new();
@@ -740,8 +727,10 @@ fn render_target的modules查不到目标即退化() {
     );
 
     // 零透传条目：modules 空表与查表在场逐字相等（无透传即不参与）
-    let plain = prepare(&format!(
-        "# {FQN}\n\n```json api-types\n{{\"Item\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    let plain = prepare_local(&mirrored_schema_text(
+        FQN,
+        r#""Item": {"type": "object", "properties": {}}"#,
+        "",
     ));
     let mut empty_modules = target(GeneratedKind::Rust);
     empty_modules.modules = BTreeMap::new();
@@ -861,9 +850,10 @@ fn render_target的形态由调用方决定() {
         );
     }
 
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"AgentInput\": \"App.Frontend.Components.Agent.Input\"}}\n```\n\n\
-         ## 透传\n\n- AgentInput → App.Frontend.Components.Agent.Input\n"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        "",
     ));
     let mut as_directory = target(GeneratedKind::TypeScript);
     as_directory.form = EntryForm::SubdirModule;
@@ -973,7 +963,7 @@ fn render_target是唯一分派入口且不与渲染器同序() {
     }
 
     // ④ 行为面：分派与直接调用逐字相等
-    let (contract, schema) = prepare(&pilot_source());
+    let (contract, schema) = prepare_local(&pilot_source());
     let rust_target = target(GeneratedKind::Rust);
     let dispatched = render_target(&rust_target, &contract, &schema, &meta()).expect("分派应成功");
     let direct = super::rust::render(&contract, &schema, &meta(), &rust_target);
@@ -1060,7 +1050,7 @@ fn 落点闸不落render_target() {
 /// 各一对照。
 #[test]
 fn render_target与render产出逐字相等() {
-    let (contract, schema) = prepare(&pilot_source());
+    let (contract, schema) = prepare_local(&pilot_source());
     let meta = meta();
 
     let rust_target = target(GeneratedKind::Rust);

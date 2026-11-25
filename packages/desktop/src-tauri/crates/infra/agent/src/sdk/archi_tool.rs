@@ -1,8 +1,8 @@
 //! 架构工具执行体：五只读 + 两写。
 //!
 //! 只读面：`archi_module`（定位：两形态——指定元素 / 省略元素薄概览）、`archi_search`（发现：
-//! 三 scope）、`archi_api`（契约面自检：`check` 两轴 / `bootstrap` 草稿）、`archi_drift`
-//! （漂移判据读数）与 `archi_scaffold`（字段词典草稿）。
+//! 三 scope）、`archi_api`（接口面三动作：`check` 两轴 / `bootstrap` 双草稿 / `link` 算
+//! `$ref`）、`archi_drift`（漂移判据读数）与 `archi_scaffold`（字段词典草稿）。
 //!
 //! 写面：`archi_element`（元素 upsert / delete，可内联出边）与 `archi_relation`（单条关系
 //! upsert / delete）。落盘链固定为「E1 入参解析与硬闸 → E2 结构诊断前置 → `plan_*`
@@ -52,7 +52,8 @@ impl ArchiContext {
     }
 
     /// 执行体：`archi_module`（有 / 无 `element` 两形态）、`archi_search`（`query` +
-    /// `scope`）、`archi_api`（`action` + 可选 `element`）、`archi_drift`、`archi_scaffold`、
+    /// `scope`）、`archi_api`（`action` + `element` / `from` / `to` / `name`）、`archi_drift`、
+    /// `archi_scaffold`、
     /// `archi_element`、`archi_relation`；未知名 `Err`。输出紧凑 JSON 后过 L1 收口。
     pub(crate) async fn execute(&self, name: &str, input: &Value) -> Result<String, String> {
         let payload = match name {
@@ -141,13 +142,17 @@ impl ArchiContext {
         Ok(serde_json::json!({ "draft": scaffold_draft(kind) }))
     }
 
-    /// `archi_api`：`action` 封闭二值（未知值 `Err` 并点名合法值）。
+    /// `archi_api`：`action` 封闭三值（未知值 `Err` 并点名三个合法值）。
     ///
     /// - `check`：元素表（`graph_view`，结构诊断 → `is_error`）→ 三类差异
-    ///   （`api::artifact_check`）→ 契约判据（`api::findings`，与漂移判定同源）；
+    ///   （`api::artifact_check`）→ 接口判据（`api::findings`，与漂移判定同源）；
     ///   响应 = `{ artifacts, findings: { total, byCategory, items } }`（摘要优先，
     ///   `cap_result` 截断时计数仍在）。
-    /// - `bootstrap`：`element` 必填，出契约 md 草稿（零写盘）。
+    /// - `bootstrap`：`element` 必填，出**双草稿** `{ schema, doc }`（schema 骨架可直接
+    ///   落盘并过写闸；doc 只有 H1 与一句指引），零写盘。
+    /// - `link`：算跨元素 `$ref` 串（`from` + `to` + `name`）或本文件 `$ref` 串
+    ///   （`element` + `name`），返回 `{ ref }`；**纯计算零读盘零写盘**——手拼 `../` 层数
+    ///   少一层会绕过 `apiRefMissing`、到编译期才炸。
     fn api_payload(&self, input: &Value) -> Result<Value, String> {
         let action = input
             .get("action")
@@ -155,7 +160,7 @@ impl ArchiContext {
             .map(str::trim)
             .filter(|action| !action.is_empty())
             .ok_or_else(|| {
-                "入参缺失或非字符串字段: action（合法值：check / bootstrap）".to_owned()
+                "入参缺失或非字符串字段: action（合法值：check / bootstrap / link）".to_owned()
             })?;
         match action {
             "check" => {
@@ -190,14 +195,81 @@ impl ArchiContext {
                     .ok_or_else(|| {
                         "入参缺失或非字符串字段: element（bootstrap 必填）".to_owned()
                     })?;
-                let draft =
+                let drafts =
                     archi::api::bootstrap(&self.root, element).map_err(|error| error.message())?;
-                Ok(serde_json::json!({ "draft": draft }))
+                Ok(serde_json::json!({
+                    "schema": drafts.schema,
+                    "doc": drafts.doc,
+                }))
             }
-            other => Err(format!("未知 action: {other}（合法值：check / bootstrap）")),
+            "link" => self.link_payload(input),
+            other => Err(format!(
+                "未知 action: {other}（合法值：check / bootstrap / link）"
+            )),
         }
     }
 
+    /// `link` 动作：算一条 `$ref` 串（两形态互斥，纯计算零 IO）。
+    ///
+    /// - 跨元素：`{ from, to, name }` → `<ref_relative(from, to)><to>.schema.json#/$defs/<name>`
+    /// - 本文件：`{ element, name }` → `#/$defs/<name>`
+    ///
+    /// 前缀取 [`archi::api::paths::ref_relative`]（MUST NOT 手算层数），文件名取
+    /// [`archi::api::paths::schema_path`] 的末段（MUST NOT 行内拼 `.schema.json`），
+    /// `from` / `to` / `element` 过 FQN 形态闸、`name` 过标识符闸——任一处不合法即 `Err`
+    /// 并点名。
+    fn link_payload(&self, input: &Value) -> Result<Value, String> {
+        let name = input
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| {
+                "入参缺失或非字符串字段: name（link 必填：导出名 / 类型名）".to_owned()
+            })?;
+        if !archi::is_identifier(name) {
+            return Err(format!(
+                "name `{name}` 不是 ASCII 标识符（`[A-Za-z_][A-Za-z0-9_]*`）——`$ref` 的末段是类型名，MUST NOT 含空格 / 连字符 / 点"
+            ));
+        }
+        let (from, to, element) = (
+            field(input, "from"),
+            field(input, "to"),
+            field(input, "element"),
+        );
+        if from.is_some() || to.is_some() {
+            let (Some(from), Some(to)) = (from, to) else {
+                return Err(
+                    "from / to 必须同时给出（跨元素形态）——只给一个无法定位目标文件".to_owned(),
+                );
+            };
+            if element.is_some() {
+                return Err(
+                    "`from` / `to` 与 `element` 是互斥两形态：跨元素用 from + to，本文件用 element"
+                        .to_owned(),
+                );
+            }
+            let (from, to) = (checked_fqn(&from, "from")?, checked_fqn(&to, "to")?);
+            let target = archi::api::paths::schema_path(&self.root, &to)
+                .and_then(|path| {
+                    path.file_name()
+                        .and_then(|file| file.to_str())
+                        .map(str::to_owned)
+                })
+                .ok_or_else(|| format!("目标元素 FQN `{to}` 形态非法，派生不出接口文件名"))?;
+            return Ok(serde_json::json!({
+                "ref": format!(
+                    "{}{target}#/$defs/{name}",
+                    archi::api::paths::ref_relative(&from, &to)
+                ),
+            }));
+        }
+        let element = element.ok_or_else(|| {
+            "入参缺失: 需要 from + to（跨元素）或 element（本文件）其一".to_owned()
+        })?;
+        checked_fqn(&element, "element")?;
+        Ok(serde_json::json!({ "ref": format!("#/$defs/{name}") }))
+    }
     /// `archi_element`：E1 入参解析与硬闸 → E2 诊断前置 → `plan_*`（零写盘）→ 保护闸 →
     /// 原子落盘 → 三通道响应装配。
     fn element_payload(&self, input: &Value) -> Result<Value, String> {
@@ -795,13 +867,32 @@ fn to_value<T: serde::Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|error| format!("架构工具结果序列化失败: {error}"))
 }
 
+/// 入参的可选非空字符串字段（`link` 的 `from` / `to` / `element` 三入口）。
+fn field(input: &Value, key: &str) -> Option<String> {
+    input
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+/// FQN 形态闸（`link` 的两侧入参）：形态非法即 `Err` 并点名字段。
+fn checked_fqn(raw: &str, field: &str) -> Result<String, String> {
+    if archi::is_fqn(raw) {
+        return Ok(raw.to_owned());
+    }
+    Err(format!(
+        "{field} `{raw}` 不是合法 FQN（点分段标识符，如 App.Auth）——`$ref` 的文件主干由目标 FQN 派生"
+    ))
+}
 /// 新元素 TOML 草稿（`__KIND__` 由调用方替换为实际 kind）。
 ///
 /// 形状受两条硬约束：元素部分只留一行实值（`kind`），其余字段**全部注释行**；关系
 /// 部分同样全注释——空的 `[[relation]]` 表会被解析成缺必填字段的关系，与「草稿过
 /// `TomlParser` 零诊断」冲突。FQN 用**单段**占位：多段 FQN 而祖先未声明会触发
 /// `orphanHierarchy`。
-const SCAFFOLD_TEMPLATE: &str = r#"# 新元素模板（只读草稿：写盘用 archi_element / archi_relation；工具表达不了的才手改 TOML）
+const SCAFFOLD_TEMPLATE: &str = r#"# 新元素模板（只读草稿：写盘用 archi_element / archi_relation；接口草稿用 archi_api 的 bootstrap；工具表达不了的才手改 TOML）
 # 单段占位 FQN：改成你的完整 FQN；多段 FQN（如 App.Auth）必须先声明祖先元素
 [element."NewElement"]
 
@@ -811,7 +902,7 @@ kind = "__KIND__"
 # gate：缺省 off（ratchet 逐块收紧），值 off / warn / strict
 # gate = "off"
 
-# api：缺省 declared（承诺有契约）；显式无 API 写 none
+# api：缺省 declared（承诺有接口定义文件）；显式无接口面写 none（schema 在盘即违约）
 # api = "none"
 
 # entry：单值，只在约定默认指不到时写（repo 相对 POSIX；单文件根 = 根文件自身 / 目录型根 = index.ts(x) / crate = src/lib.rs）
@@ -821,7 +912,7 @@ kind = "__KIND__"
 # path = ["./src-tauri/crates/core/example/src/"]
 # path = ["./src-tauri/crates/core/example/src/lib.rs"]
 
-# doc：单值指针，只有 api = none 的元素可写（declared 写了即 apiUnexpected）
+# doc：约定字段（零判据读者）：常规只有 api = none 的元素会写，写了不报、指不到不报
 # doc = "./openspec/specs/example/spec.md"
 
 # summary：一行摘要

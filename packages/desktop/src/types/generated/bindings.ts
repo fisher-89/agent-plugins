@@ -717,14 +717,14 @@ export type AgentRunStatus =
 "interrupted";
 
 /**
- *  契约状态指针（封闭二值；缺省 `Declared`）。
+ *  接口承诺开关（封闭二值；缺省 `Declared`）。
  * 
- *  语义：`declared` = 本模块承诺有公共 API 契约（缺省）、`none` = 显式声明本模块
+ *  语义：`declared` = 本模块承诺有公共接口面（缺省）、`none` = 显式声明本模块
  *  无 API。它是元素的**属性**而非协议正文——签名 / 符号 / 接口定义 MUST NOT 出现在
- *  模型里（契约权威在架构域 `models/<分层目录…>/` 的契约资产，本枚举只是状态指针）。
+ *  模型里（接口权威在同目录的 `<FQN>.schema.json`，本枚举只是状态指针）。
  */
 export type ApiStatus = 
-/**  承诺有契约（缺省） */
+/**  承诺有接口面（缺省） */
 "declared" | 
 /**  显式声明本模块无 API */
 "none";
@@ -743,13 +743,13 @@ export type AppEnvironment = {
 };
 
 /**
- *  契约生成物新鲜度的出线事实（`archi_api_check` 出参）。
+ *  生成物新鲜度的出线事实（`archi_api_check` 出参）。
  * 
  *  三类差异合起来恰是「点生成会写什么」的完整清单；三列元素为 repo 相对 POSIX
  *  串（经 `api::display` 单点产出，MUST NOT 在命令层或前端另归一）。
  */
 export type ArchiApiCheck = {
-	/**  契约面是否启用（`api::enabled` 单点判定） */
+	/**  接口面是否启用（`api::enabled` 单点判定） */
 	enabled: boolean,
 	/**  生成载元（`api::meta()` 投影） */
 	meta: ArchiApiMeta,
@@ -773,8 +773,8 @@ export type ArchiApiFinding = {
 	/**  判据种类 */
 	kind: ArchiApiFindingKind,
 	/**
-	 *  报告分组（开放值集：`entry` / `contract` / `signature` / `reexport` / `nesting` /
-	 *  `constructor`）
+	 *  报告分组（开放值集，**七值**：`entry` / `contract` / `signature` / `reexport` /
+	 *  `nesting` / `constructor` / `doc`——`doc` 只剩 `docMissing` 一个成员）
 	 */
 	category: string,
 	/**  归属元素 FQN */
@@ -788,7 +788,11 @@ export type ArchiApiFinding = {
 };
 
 /**
- *  契约判据种类（封闭十三值；线格式 camelCase）。
+ *  接口判据种类（封闭十值；线格式 camelCase）。
+ * 
+ *  **本变更由十三值收为十值**：散文透传列表对拍、文档在盘无 fence、`doc` 指不到盘三值的
+ *  事实源随真相搬移消失（md 无结构、`doc` 字段惰性化）——这是**词汇缩小**而非标准降低，
+ *  补位判据（`schemaMissing` / `schemaInvalid`）明属后续 change，MUST NOT 以别名预铺。
  * 
  *  **与 [`ArchiDriftKind`] 分立**（不并入的四值枚举）：① 事实源不同——`ArchiDriftKind`
  *  是「模型 relation 图 vs 代码」，本枚举是「契约文件 vs 代码」；② 定级语义不同——
@@ -804,7 +808,7 @@ export type ArchiApiFindingKind =
 "apiUndeclared" | 
 /**  契约签名与代码签名（归一后）不一致 */
 "apiSignatureMismatch" | 
-/**  留白与其反面矛盾（`api = none` 而契约文件存在） */
+/**  留白与其反面矛盾（**单形态**：`api = none` 而 `<FQN>.schema.json` 在盘） */
 "apiUnexpected" | 
 /**  父 `$defs` 与子元素 `$defs` 类型名交集非空 */
 "apiShadowing" | 
@@ -812,22 +816,13 @@ export type ArchiApiFindingKind =
 "apiRefMissing" | 
 /**  嵌套元素父子分属不同 crate */
 "apiNestedCrossCrate" | 
-/**  markdown 散文列表与 `api-reexport` fence 键集不等 */
-"apiReexportDrift" | 
 /**  契约 `### 操作` 声明了构造器（应由生成器产出） */
 "apiConstructorDeclared" | 
-/**  入口文档未就位（`declared`：派生契约 md 不在盘 / `none`：`doc` 未声明） */
-"docMissing" | 
 /**
- *  `doc` 声明指不到盘（仅 `api = none` 元素的声明类形态）
- * 
- *  **名字复用而非能力延续**：退役的文档警告单值读旧的多值字段、只报不拦（那组
- *  词汇已随三源文档关联删除）；本值读 `doc` 单值、`error` 档、纳管 `status`、参与
- *  `passed`。
+ *  文档未就位（单成因）：派生的 `<archi_models_dir>/<分层目录…>/<FQN>.md` 不在盘，
+ *  **与 `api` 状态、`doc` 字段都无关**
  */
-"docNotFound" | 
-/**  有文档无约定（派生契约 md 在盘但正文无 api fence 语言标） */
-"apiDocMissing";
+"docMissing";
 
 /**
  *  生成载元的出线形态（`ArchiApiCheck.meta`）。
@@ -844,23 +839,24 @@ export type ArchiApiMeta = {
 };
 
 /**
- *  契约状态的线面投影（并列字段，**投影只报文件在案事实**）：
+ *  接口状态与三条路径的线面投影（并列字段，**投影只报文件在案事实**）：
  * 
- *  - `status` = 契约文件是否在案（`declared` / `none`）；
- *  - `none` 时三个路径字段为 `null`；在案时三者为 repo 相对 POSIX 路径（`schema`
- *    与生成物即使尚未生成也给路径串）。
+ *  - `status` = **接口文件在案**（`declared` ⟺ `<FQN>.schema.json` 在盘；`none` 否则）；
+ *  - 三条路径**各自独立**：`contractPath` 是文档（`<FQN>.md`，理由）、`schemaPath` 是
+ *    接口（`<FQN>.schema.json`，手写真相）、`generatedPath` 是生成物（`.i.rs` /
+ *    `.i.ts`）——各自在盘才出串（生成物有可用入口即给串，即便尚未生成）。
  * 
  *  该字段 MUST NOT 回写模型字段（模型存的是意图，投影报的是事实——「`declared`
  *  而文件缺失」是迁移期主形态，不得被投影抹平），MUST NOT 承载协议正文。
- *  `declared` 元素的 `contract_path` 同时是它的**入口文档**路径（模型 `doc` 字段对它
- *  不可写）。
+ *  **字段名 `contract_path` 是文档路径**（历史命名）：名字不改以免动 IPC 形状，
+ *  语义以本 doc 为准，改名留清理轮。
  */
 export type ArchiApiRef = {
-	/**  契约状态（文件在案事实） */
+	/**  接口状态（接口文件在案事实） */
 	status: ApiStatus,
-	/**  契约文件（`<archi_models_dir>/<分层目录…>/<FQN>.md`）的 repo 相对路径 */
+	/**  **文档**（`<archi_models_dir>/<分层目录…>/<FQN>.md`）的 repo 相对路径 */
 	contractPath: string | null,
-	/**  schema 生成物（同目录 `<FQN>.schema.json`）的 repo 相对路径 */
+	/**  **接口**（同目录 `<FQN>.schema.json`，手写真相而非生成物）的 repo 相对路径 */
 	schemaPath: string | null,
 	/**
 	 *  元素生成物（实现入口同级的 `<入口主干>.i.rs` / `<入口主干>.i.ts`）的 repo 相对
@@ -880,6 +876,21 @@ export type ArchiApiWriteOutcome = {
 	written: string[],
 	/**  应生成且盘上已一致的生成物（repo 相对 POSIX 串） */
 	unchanged: string[],
+};
+
+/**
+ *  模块三份资产的结构面（`assets`）：三段各自 `present`，**MUST NOT 全或全无**。
+ * 
+ *  旧的三路径全或无投影把「三份资产各自的存在事实」压成一个开关；这里每段独立回答自己
+ *  在不在盘、有多大、该读什么。
+ */
+export type ArchiAssetSet = {
+	/**  拓扑（模型声明位置与出入度数；零额外读盘） */
+	topology: ArchiTopologyAsset,
+	/**  接口（`<FQN>.schema.json`；只给键名摘要，不给 content） */
+	interface: ArchiInterfaceAsset,
+	/**  文档（`<FQN>.md`；只给 `##` 段名与体量，不给正文） */
+	doc: ArchiDocAsset,
 };
 
 /**  模型结构 diff 摘要（归档确认面「架构变更」区块的数据源）。 */
@@ -974,6 +985,24 @@ export type ArchiDiagnosticKind =
 "unknownReference" | 
 /**  子元素已声明而祖先未声明 */
 "orphanHierarchy";
+
+/**
+ *  文档资产：`<FQN>.md` 的段名与体量（**零正文**）。
+ * 
+ *  文档无结构（段名任意），故只报段名让调用方判断「要不要整读」；正文一律用 `read` 取。
+ */
+export type ArchiDocAsset = {
+	/**  文档的 repo 相对路径（派生不出路径时为 `null`） */
+	path: string | null,
+	/**  文件是否在盘（`false` 时 `headings` 为空、`bytes` / `lines` 为 `0`） */
+	present: boolean,
+	/**  文件字节数（不在盘 ⇒ `0`） */
+	bytes: number,
+	/**  文件行数（不在盘 ⇒ `0`） */
+	lines: number,
+	/**  `## ` 级段名（不含 `#` 前缀，按文件序） */
+	headings: string[],
+};
 
 /**  漂移条目（`errors[]` / `warnings[]` / `model.warnings[]` 共用形状）。 */
 export type ArchiDriftEntry = {
@@ -1087,8 +1116,9 @@ export type ArchiDriftReport = {
 	/**  观察项（永不影响 `status` / `passed`） */
 	observations: ArchiDriftObservation[],
 	/**
-	 *  契约判据（并列槽位；空数组 = 无契约问题）。对 `status` **与** `passed` 的影响
-	 *  限于**入口文档承诺已成立**的纳管子集（纳管口径归 `desktop-archi-api-check`，
+	 *  接口判据（并列槽位；空数组 = 无接口问题）。对 `status` **与** `passed` 的影响
+	 *  限于**接口承诺已成立**（`api = declared` ∧ schema 在盘）的纳管子集（纳管口径归
+	 *  `desktop-archi-api-check`，
 	 *  筛选单点在 `api::gating_findings`）——严重度由判据级
 	 *  [`ArchiApiFindingKind::severity`] 决定
 	 */
@@ -1136,7 +1166,7 @@ export type ArchiElement = {
 	modelLine: number,
 	/**  节点标记（本期恒 `none`） */
 	mark: NodeMark,
-	/**  契约状态指针（模型字段的拷贝；协议正文不进模型） */
+	/**  接口承诺开关（模型字段的拷贝；协议正文不进模型） */
 	api: ApiStatus,
 	/**
 	 *  实现入口指针（模型字段的拷贝；线格式 `entry`，缺省 `null`，**显式字段不省略**
@@ -1212,6 +1242,29 @@ export type ArchiGraph = {
 	diagnostics: ArchiDiagnostic[],
 };
 
+/**
+ *  接口资产：`<FQN>.schema.json` 的键名摘要与一句话判读（**零 content**）。
+ * 
+ *  三个数组即定义：`ops` = 带 `x-function` 的 `properties` 键、`types` = `$defs` 本地定义
+ *  键、`reexports` = 纯 `$ref` alias 键。整读接口文件会灌爆上下文，且键名已够定位。
+ */
+export type ArchiInterfaceAsset = {
+	/**  接口定义文件的 repo 相对路径（派生不出路径时为 `null`） */
+	path: string | null,
+	/**  文件是否在盘（`false` 时三数组为空、`bytes = 0`） */
+	present: boolean,
+	/**  文件字节数（不在盘 ⇒ `0`） */
+	bytes: number,
+	/**  操作键（`properties` 里带 `x-function` 的键） */
+	ops: string[],
+	/**  本模块自有类型键（`$defs` 里非纯 `$ref` alias 者） */
+	types: string[],
+	/**  透传键（`$defs` 里的纯 `$ref` alias 者） */
+	reexports: string[],
+	/**  一句话判读（`abstract` 是 Rust 保留字，故字段名带后缀、线格式由 `rename` 出线） */
+	abstract: string,
+};
+
 /**  按元素聚合的归属结果（元素 FQN 字典序、`files` 路径字典序）。 */
 export type ArchiMatchedElement = {
 	/**  元素 FQN */
@@ -1231,11 +1284,12 @@ export type ArchiModuleDetail = {
 	/**  直接子元素 FQN（字典序） */
 	children: string[],
 	/**
-	 *  入口文档指针：单值、仅 `api = none` 元素有值；`declared` 恒 `null`，其入口文档
-	 *  走 `api.contractPath`
+	 *  模型 `doc` 字段的原样投影（**约定字段，零判据读者**：约定只有 `api = none` 的
+	 *  元素会写，`declared` 写了也照原样出线）；呈现规则（只在 `api = none` 渲染
+	 *  「入口文档」段）不在投影层
 	 */
 	doc: string | null,
-	/**  契约状态与三路径的并列字段 */
+	/**  接口状态与三条路径的并列字段（文档 / 接口 / 生成物各自独立） */
 	api: ArchiApiRef,
 	/**  入口解析结果（显式命中 / 约定默认命中 / 不可用成因） */
 	resolvedEntry: ArchiResolvedEntry,
@@ -1247,6 +1301,10 @@ export type ArchiModuleDetail = {
 	 *  MUST NOT 承担「模型是否被改动」的判定（那是 `assets_hash` 的用途）。
 	 */
 	fileHash: string,
+	/**  三份资产的结构面（拓扑 / 接口 / 文档，三段各自 `present`） */
+	assets: ArchiAssetSet,
+	/**  一句话读法指引（静态文本，零变量插值） */
+	reading: string,
 };
 
 /**
@@ -1356,6 +1414,21 @@ export type ArchiSuppressVia =
 "config" | 
 /**  内联注释豁免 */
 "inline";
+
+/**
+ *  拓扑资产：元素在模型里的声明位置与度数（键名 `in` 是 Rust 关键字，故字段名带后缀、
+ *  线格式由 `rename` 出线）。
+ */
+export type ArchiTopologyAsset = {
+	/**  元素声明所在文件（repo 相对 POSIX，即 `element.modelFile`） */
+	file: string,
+	/**  元素声明所在行（1 起始，即 `element.modelLine`） */
+	line: number,
+	/**  出边数（该元素依赖别人几条） */
+	out: number,
+	/**  入边数（别人依赖它几条） */
+	in: number,
+};
 
 /**  不可判定的文件 / 导入（留痕，MUST NOT 冒充违例）。 */
 export type ArchiUnresolvedFile = {

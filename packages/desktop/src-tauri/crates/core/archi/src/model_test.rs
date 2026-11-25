@@ -669,12 +669,47 @@ fn element_api不被metadata同名键改变() {
 }
 
 // ===========================================================================
-// `Element.doc`（单值入口文档指针）
+// `Element.api` / `Element.doc`（接口承诺开关 / 零判据读者的约定）
 //
-// 字段面只承载原文：形态判据（repo 相对 / 越根拒绝）归 `api::paths::doc_path`，
-// 模型层零归一、零校验、零交叉判定。`api` 是「入口文档载体的开关」——`declared` 的
-// 入口文档恒为派生的 `contract_path`，`doc` 只服务 `api = none`；矛盾不在本层拒绝。
+// 字段面只承载原文：形态判据（repo 相对 / 越根拒绝）归 `api::paths`，模型层零归一、
+// 零校验、零交叉判定。`api` 是**接口承诺开关**（`declared` = 断言应有一份
+// `<FQN>.schema.json`，`none` = 显式无接口面），它**不再兼任入口文档载体的开关**——
+// 文档的落点恒为派生的 `<FQN>.md`。`doc` 是约定（只有 `api = none` 会写）且**零判据读者**，
+// 矛盾不在本层拒绝。
 // ===========================================================================
+
+/// 正向（AC-9 / C9）：两字段的文档注释换面——`api` 含「接口承诺」且显式否认旧「入口文档
+/// 载体的开关」语义；`doc` 含「约定」与「零判据读者」且保留「单值、repo 相对 POSIX」的形态
+/// 口径。注释只改述语义，零新增判据。
+#[test]
+fn element字段注释语义随三资产改写() {
+    let source = include_str!("model.rs");
+    assert!(
+        source.contains("接口承诺开关"),
+        "`api` 字段 = 接口承诺开关（不再是文档载体开关）"
+    );
+    assert!(
+        source.contains("不再兼任入口文档载体"),
+        "显式否认旧的兼任语义：{source}"
+    );
+    assert!(
+        !source.contains("`api` 是「入口文档载体"),
+        "旧的肯定式断言零残留"
+    );
+    assert!(
+        source.contains("约定，非机械判据"),
+        "`doc` 字段 = 约定（非机械判据）"
+    );
+    assert!(source.contains("零判据读者"), "`doc` 的读者面为零");
+    assert!(
+        source.contains("单值、repo 相对 POSIX"),
+        "`doc` 的形态口径（单值 / repo 相对 POSIX）保留"
+    );
+    assert!(
+        source.contains("`declared` = 断言本模块应有一份"),
+        "`api` 的两值语义照原样写在字段文档里"
+    );
+}
 
 /// 正向：缺省构造 `doc: None`；显式 `Some("./src/auth/README.md")` 逐字保留（前导 `./`
 /// 不剥离，归一归 `api::paths`）。

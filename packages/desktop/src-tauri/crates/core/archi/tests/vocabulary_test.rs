@@ -658,8 +658,7 @@ fn api_status缺省与线形封闭() {
 
 /// 异常（封闭性 / `entry` 的开放值域）：`entry` 的值域是**开放集**（任意 repo 相对
 /// 路径），故它不派生任何词表——四面 `ALL` 的线词集合里零 `entry` 字样，且
-/// `DiagnosticKind` 仍九值、`ArchiApiFindingKind` 为十三值（入口四条判据同报一个 kind，
-/// `doc` 面另有三值）。
+/// `DiagnosticKind` 仍九值、`ArchiApiFindingKind` 收缩为十值（入口四条判据同报一个 kind）。
 #[test]
 fn entry不派生词表且四面封闭() {
     assert_eq!(
@@ -675,8 +674,8 @@ fn entry不派生词表且四面封闭() {
     );
     assert_eq!(
         archi::drift::report::ArchiApiFindingKind::ALL.len(),
-        13,
-        "契约判据十三值（四条入口理由同报 `apiEntryMissing`）"
+        10,
+        "契约判据十值（四条入口理由同报 `apiEntryMissing`）"
     );
 
     let words: Vec<&str> = archi::dto::ElementKind::ALL
@@ -705,21 +704,21 @@ fn entry不派生词表且四面封闭() {
 // ===========================================================================
 // `doc` 面词汇三面（枚举 / `ALL` / 线格式词）与退役词汇组
 //
-// `ArchiApiFindingKind` 十值 → 十三值、`ApiFindingSeverity` 二值 → 三值：线格式词与
-// `ALL` 逐值对拍（金样与 IPC 面都只认这一份词表）；文档种类 / 文档来源 / 警告种类三组
-// 词汇随文档关联能力退役，零引用零定义。
+// `ArchiApiFindingKind` 十值、`ApiFindingSeverity` 三值：线格式词与 `ALL` 逐值对拍
+// （金样与 IPC 面都只认这一份词表）；文档种类 / 文档来源 / 警告种类三组词汇随文档关联
+// 能力退役，零引用零定义。
 // ===========================================================================
 
-/// 正向：`ArchiApiFindingKind` 十三值——`ALL` 逐值 `as_str` 两两不等，序列化值与 `as_str`
-/// 逐值相等（三新词在案，旧十词零漂移）。
+/// 正向：`ArchiApiFindingKind` 十值——`ALL` 逐值 `as_str` 两两不等，序列化值与 `as_str`
+/// 逐值相等（`doc` 组只剩 `docMissing` 一词）。
 #[test]
-fn 契约判据十三值三面对拍() {
+fn 契约判据十值三面对拍() {
     use archi::drift::report::ArchiApiFindingKind;
 
     assert_eq!(
         ArchiApiFindingKind::ALL.len(),
-        13,
-        "十三值清单（旧断言十值已随 `doc` 面扩面）"
+        10,
+        "十值清单（`doc` 组只剩 `docMissing`）"
     );
     let mut words = Vec::new();
     for kind in ArchiApiFindingKind::ALL {
@@ -734,16 +733,20 @@ fn 契约判据十三值三面对拍() {
         assert_eq!(back, kind, "{word} 往返逐值相等");
         words.push(word);
     }
-    for expected in ["docMissing", "docNotFound", "apiDocMissing"] {
+    assert!(
+        words.contains(&"docMissing"),
+        "`docMissing` 在案：{words:?}"
+    );
+    for retired in ["docNotFound", "apiDocMissing", "apiReexportDrift"] {
         assert!(
-            words.contains(&expected),
-            "新词在案：{expected} / {words:?}"
+            !words.contains(&retired),
+            "退役词零残留：{retired} / {words:?}"
         );
     }
     let mut unique = words.clone();
     unique.sort_unstable();
     unique.dedup();
-    assert_eq!(unique.len(), 13, "十三词两两不等：{words:?}");
+    assert_eq!(unique.len(), 10, "十词两两不等：{words:?}");
     assert_eq!(
         ArchiApiFindingKind::ALL[0],
         ArchiApiFindingKind::ApiEntryMissing,
@@ -752,7 +755,7 @@ fn 契约判据十三值三面对拍() {
 }
 
 /// 正向 / 异常：`ApiFindingSeverity` 三值——`ALL` 逐值线词 `off` / `warn` / `error`，
-/// `severity()` 的返回值 ∈ `ALL`（十三值逐值验证），零第四档残留。
+/// `severity()` 的返回值 ∈ `ALL`（十值逐值验证），零第四档残留。
 #[test]
 fn 档位三值封闭且severity落在其上() {
     use archi::drift::report::{ApiFindingSeverity, ArchiApiFindingKind};

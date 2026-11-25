@@ -83,19 +83,47 @@ impl Drop for TempDir {
 // 夹具：模型 + 入口 + 契约
 // ---------------------------------------------------------------------------
 
+/// stdout 捕获的环境变量名：子进程臂以它取回父用例的 tempdir 根。
+const CHILD_ENV: &str = "ARCHI_API_GEN_STDOUT_CHILD_ROOT";
+
 /// 后端 crate 形态元素的 FQN（试点）。
 const CRATE_FQN: &str = "Backend.Core.Archi";
 
 /// 前端单文件形态元素的 FQN。
 const TS_FQN: &str = "Desktop.Views.Welcome";
 
-/// 契约 md 内容（1 op + 1 类型；H1 = `fqn`）。
-fn contract_markdown(fqn: &str) -> String {
+/// 试点元素的生成物（`.i.rs`，落实现入口同级）。
+const GENERATED_RS: &str = "crates/core/archi/src/lib.i.rs";
+
+/// 试点元素的手写接口定义（`<FQN>.schema.json`，生成输入面）。
+const SCHEMA_REL: &str =
+    ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json";
+
+/// 接口定义内容（1 op `file_stem` + 1 类型 `LocalArchiCheck`）。
+///
+/// `generate` / `check` 的输入面是**手写的** `.schema.json`（唯一凭据）；文档 `<FQN>.md`
+/// 不参与生成，只在判据面作独立事实。
+fn contract_schema(fqn: &str) -> String {
     format!(
-        "# {fqn}\n\n## 职能\n\n正文。\n\n## 操作\n\n### file_stem\n\n```json api-op\n\
-         {{\"params\": [{{\"name\": \"timestamp\", \"schema\": {{\"type\": \"string\"}}}}], \
-         \"returns\": {{\"type\": \"string\"}}}}\n```\n\n## 类型\n\n```json api-types\n\
-         {{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+        r##"{{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "{fqn}.schema.json",
+  "title": "{fqn}",
+  "$comment": "手写接口真相：本文件是接口的唯一凭据，不是生成物",
+  "$defs": {{
+    "LocalArchiCheck": {{ "type": "object", "properties": {{}} }}
+  }},
+  "properties": {{
+    "file_stem": {{
+      "x-function": {{
+        "params": [{{ "name": "timestamp", "schema": {{ "type": "string" }} }}],
+        "returns": {{ "type": "string" }}
+      }}
+    }},
+    "LocalArchiCheck": {{ "$ref": "#/$defs/LocalArchiCheck" }}
+  }}
+}}
+"##
     )
 }
 
@@ -118,8 +146,8 @@ fn stage_crate(temp: &TempDir) {
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
     );
     temp.write(
-        ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.md",
-        &contract_markdown(CRATE_FQN),
+        ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json",
+        &contract_schema(CRATE_FQN),
     );
 }
 
@@ -141,8 +169,8 @@ fn stage_ts(temp: &TempDir) {
         "export function view(): string { return ''; }\n",
     );
     temp.write(
-        ".dev-team/architecture/models/Desktop/Views/Desktop.Views.Welcome.md",
-        &contract_markdown(TS_FQN),
+        ".dev-team/architecture/models/Desktop/Views/Desktop.Views.Welcome.schema.json",
+        &contract_schema(TS_FQN),
     );
 }
 
@@ -207,10 +235,10 @@ fn usage分支退出码二() {
 // Generate
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-12）：后端 crate 元素 → 磁盘出现 `<FQN>.schema.json` / `INDEX.toml` /
-/// `<root>.i.rs` 三件；内容含契约类型名；返回 0。
+/// 正向（AC-2）：后端 crate 元素 → 磁盘出现 `INDEX.toml` / `<入口主干>.i.rs` 两类产物
+/// （`.schema.json` 是**手写输入**，不在应生成集——生成器让位后手写文件零改）；返回 0。
 #[test]
-fn generate落四类生成物() {
+fn generate落三类生成物() {
     let temp = TempDir::new("generate-crate");
     stage_crate(&temp);
     assert_eq!(
@@ -219,11 +247,11 @@ fn generate落四类生成物() {
         "成功退出码 0"
     );
 
-    let schema = temp
-        .read(".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json")
-        .expect("schema 生成物在盘");
-    assert!(schema.contains("\"LocalArchiCheck\""), "schema 含类型定义");
-    assert!(schema.contains("\"file_stem\""), "schema 含 op 键");
+    let schema = temp.read(SCHEMA_REL).expect("手写接口定义仍在盘");
+    assert!(
+        schema.contains("\"$comment\""),
+        "手写接口定义未被生成覆盖（`$comment` 写者纪律注仍在）"
+    );
 
     let index = temp
         .read(".dev-team/architecture/graph/INDEX.toml")
@@ -288,21 +316,21 @@ fn generate幂等且check随后通过() {
     assert_eq!(temp.snapshot(), first, "--check 零写入");
 }
 
-/// 边界（AC-1 / AC-2）：目录创建经 `foundation::layout` 派生——清空契约 md（只摘
-/// `*.md`，模型文件保留）后元素转 absent，索引目录须由 `archi_graph_dir` 派生重建；
+/// 边界（AC-1 / AC-2）：目录创建经 `foundation::layout` 派生——清空接口定义（只摘
+/// `*.schema.json`，模型文件保留）后元素转 absent，索引目录须由 `archi_graph_dir` 派生重建；
 /// 来源文件内零路径字面量。
 #[test]
 fn generate目录创建经layout派生() {
     let temp = TempDir::new("generate-dirs");
     stage_crate(&temp);
     let contracts = foundation::layout::archi_models_dir(temp.root());
-    assert!(contracts.exists(), "夹具已在契约目录下落地 md");
-    assert_eq!(remove_contract_md(&contracts), 1, "夹具仅一份契约 md");
+    assert!(contracts.exists(), "夹具已在接口目录下落地 `.schema.json`");
+    assert_eq!(remove_contract_schema(&contracts), 1, "夹具仅一份接口定义");
     assert!(
         foundation::layout::archi_graph_model_dir(temp.root())
             .join("01-test.toml")
             .exists(),
-        "清空只摘 md：模型声明仍在（不是启用证据也不被误删）"
+        "清空只摘 `.schema.json`：模型声明仍在（不被误删）"
     );
     let graph = foundation::layout::archi_graph_dir(temp.root());
     fs::remove_dir_all(&graph).ok();
@@ -339,35 +367,41 @@ fn generate目录创建经layout派生() {
     );
 }
 
-/// 递归摘除目录下的 `*.md`（保留其余文件），返回摘除份数。
-fn remove_contract_md(directory: &Path) -> usize {
-    let Ok(reader) = fs::read_dir(directory) else {
-        return 0;
-    };
+/// 递归摘除接口定义（`*.schema.json`），返回摘除份数（文档与模型文件不动）。
+fn remove_contract_schema(dir: &std::path::Path) -> usize {
     let mut removed = 0;
-    for entry in reader.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            removed += remove_contract_md(&path);
+    let mut frontier: Vec<std::path::PathBuf> = vec![dir.to_path_buf()];
+    while let Some(current) = frontier.pop() {
+        let Ok(read) = fs::read_dir(&current) else {
             continue;
-        }
-        if path.extension().and_then(|ext| ext.to_str()) == Some("md")
-            && fs::remove_file(&path).is_ok()
-        {
-            removed += 1;
+        };
+        for entry in read.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                frontier.push(path);
+                continue;
+            }
+            let is_schema = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".schema.json"));
+            if is_schema && fs::remove_file(&path).is_ok() {
+                removed += 1;
+            }
         }
     }
     removed
 }
 
-/// 异常（D20）：契约 H1 与文件名不一致 → `Err(String)`、**零写入**（失败前不留半成品）。
+/// 异常（D20）：接口定义 `$id` 与文件名不一致 → `Err(String)`、**零写入**（失败前不留
+/// 半成品）。
 #[test]
 fn generate契约错误零写入() {
     let temp = TempDir::new("generate-bad-contract");
     stage_crate(&temp);
     temp.write(
-        ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.md",
-        "# Backend.Core.Other\n\n## 职能\n\n正文。\n",
+        SCHEMA_REL,
+        "{\"$id\": \"Backend.Core.Other.schema.json\", \"title\": \"Backend.Core.Archi\", \"$defs\": {}, \"properties\": {}}\n",
     );
     let before = temp.snapshot();
     let error = run(Command::Generate, temp.root()).expect_err("坏契约应 Err");
@@ -440,15 +474,14 @@ fn check内容不符() {
     stage_crate(&temp);
     run(Command::Generate, temp.root()).expect("生成应成功");
 
-    let relative = ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json";
-    let original = temp.read(relative).expect("schema 在盘");
-    let broken = original.replace("\"title\"", "\"titleX\"");
+    let original = temp.read(GENERATED_RS).expect("生成物在盘");
+    let broken = original.replace("pub struct", "pub struct Renamed");
     assert_ne!(broken, original, "夹具应确实改到一处");
-    temp.write(relative, &broken);
+    temp.write(GENERATED_RS, &broken);
 
     assert_eq!(run(Command::Check, temp.root()).expect("check 不报错"), 1);
     assert_eq!(
-        temp.read(relative).as_deref(),
+        temp.read(GENERATED_RS).as_deref(),
         Some(broken.as_str()),
         "改坏的字节未被修复（零写入）"
     );
@@ -497,9 +530,8 @@ fn check零写盘总断言() {
     let _ = run(Command::Check, temp.root()).expect("check 不报错");
     assert_eq!(temp.snapshot(), before, "无差异形态零写入");
 
-    // 形态二：内容不符
-    let relative = ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json";
-    temp.write(relative, "{}");
+    // 形态二：内容不符（改生成物，不是接口定义——后者是手写输入，坏了直接 Err）
+    temp.write(GENERATED_RS, "// 手改\n");
     let before = temp.snapshot();
     let _ = run(Command::Check, temp.root()).expect("check 不报错");
     assert_eq!(temp.snapshot(), before, "内容不符形态零写入");
@@ -604,11 +636,12 @@ fn check不受x_class警告影响() {
     let temp = TempDir::new("check-x-class-warning");
     stage_crate(&temp);
     temp.write(
-        ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.md",
+        SCHEMA_REL,
         &format!(
-            "# {CRATE_FQN}\n\n```json api-types\n{{\"Hooks\": {{\"type\": \"object\", \
-             \"properties\": {{\"run\": {{\"x-function\": {{\"params\": [], \"returns\": \
-             {{\"type\": \"string\"}}}}}}}}}}}}\n```\n"
+            "{{\"$id\": \"{CRATE_FQN}.schema.json\", \"title\": \"{CRATE_FQN}\", \"$defs\": \
+             {{\"Hooks\": {{\"type\": \"object\", \"properties\": {{\"run\": {{\"x-function\": \
+             {{\"params\": [], \"returns\": {{\"type\": \"string\"}}}}}}}}}}}}, \"properties\": \
+             {{\"Hooks\": {{\"$ref\": \"#/$defs/Hooks\"}}}}}}\n"
         ),
     );
     assert_eq!(
@@ -636,11 +669,7 @@ fn generate产物为格式化器不动点() {
     stage_crate(&temp);
     run(Command::Generate, temp.root()).expect("生成应成功");
 
-    for relative in [
-        "crates/core/archi/src/lib.i.rs",
-        ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json",
-        ".dev-team/architecture/graph/INDEX.toml",
-    ] {
+    for relative in [GENERATED_RS, ".dev-team/architecture/graph/INDEX.toml"] {
         let text = temp
             .read(relative)
             .unwrap_or_else(|| panic!("{relative} 应在盘"));
@@ -806,25 +835,90 @@ fn repository_root保持私有() {
 // Bootstrap
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-12）：`Bootstrap(<试点元素>)` → 返回 0、输出含 H1 与 `api-op` fence；
-/// 调用前后 tempdir 快照相等（零写盘）。
+/// 正向（AC-12 / P7）：`Bootstrap(<试点元素>)` → 返回 0、stdout 打**单行 JSON**
+/// `{ "schema": …, "doc": … }`（与 agent 工具同源同形）；调用前后 tempdir 快照相等
+/// （零写盘）。
+///
+/// stdout 是真实输出流，进程内无法旁路读取（`println!` 落到全局句柄）：本用例以
+/// **同一二进制重入**取回真实 stdout——子进程按 `--exact` 只跑本用例，命中 `CHILD_ENV`
+/// 时走 `run` 的真实打印臂、由父进程读回合并输出。产品代码零子进程，spawn 只在本
+/// 测试装置内出现。
 #[test]
 fn bootstrap只出stdout() {
     let temp = TempDir::new("bootstrap");
     stage_crate(&temp);
     let before = temp.snapshot();
-    assert_eq!(
-        run(Command::Bootstrap(CRATE_FQN.to_owned()), temp.root()).expect("起草应成功"),
-        0
-    );
-    assert_eq!(temp.snapshot(), before, "Bootstrap 零写盘");
 
-    // 文本内容面由 api::bootstrap 保证（此处仅断言命令不退化为写盘）
-    let source = include_str!("main.rs");
+    if let Some(root) = std::env::var_os(CHILD_ENV) {
+        // 子进程臂：真实 `println!` 落真实 stdout（`--nocapture` 放行），父用例读回
+        let code =
+            run(Command::Bootstrap(CRATE_FQN.to_owned()), Path::new(&root)).expect("起草应成功");
+        assert_eq!(code, 0, "子进程臂退出码 0");
+        return;
+    }
+
+    let output = std::process::Command::new(std::env::current_exe().expect("测试二进制路径"))
+        .args([
+            "--exact",
+            "main_test::bootstrap只出stdout",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(CHILD_ENV, temp.root())
+        .output()
+        .expect("重入测试二进制应成功");
     assert!(
-        source.contains("println!(\"{text}\")"),
-        "Bootstrap 只打 stdout"
+        output.status.success(),
+        "子进程臂退出码非零：{}",
+        String::from_utf8_lossy(&output.stderr)
     );
+    let stdout = String::from_utf8(output.stdout).expect("stdout 为 UTF-8 文本");
+
+    // stdout 里恰一份可解析的 JSON（其余是测试框架的运行行），键序 `schema` → `doc`
+    assert_eq!(
+        stdout.matches("{\"schema\":").count(),
+        1,
+        "stdout 恰一份 `{{\"schema\":…,\"doc\":…}}` 载荷：{stdout}"
+    );
+    let start = stdout.find("{\"schema\":").expect("载荷起点");
+    let mut stream =
+        serde_json::Deserializer::from_str(&stdout[start..]).into_iter::<serde_json::Value>();
+    let value: serde_json::Value = stream
+        .next()
+        .expect("载荷应可回读")
+        .expect("载荷为合法 JSON");
+    let end = start + stream.byte_offset();
+    let stamped = &stdout[start..end];
+    assert!(
+        stamped.starts_with("{\"schema\":") && stamped.contains("\"doc\":"),
+        "两键键序 schema → doc：{stamped}"
+    );
+    let object = value.as_object().expect("载荷为对象");
+    assert_eq!(object.len(), 2, "载荷恰两键：{value}");
+    for key in ["schema", "doc"] {
+        let text = object
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| panic!("`{key}` 缺席或非字符串：{value}"));
+        assert!(!text.is_empty(), "`{key}` 非空草稿：{value}");
+    }
+
+    // 两出口单源：stdout 的两段文本与 `archi::api::bootstrap` 的草稿逐字相等
+    let drafts = archi::api::bootstrap(temp.root(), CRATE_FQN).expect("起草应成功");
+    assert_eq!(
+        object["schema"].as_str(),
+        Some(drafts.schema.as_str()),
+        "schema 骨架与工具出口逐字同源"
+    );
+    assert_eq!(
+        object["doc"].as_str(),
+        Some(drafts.doc.as_str()),
+        "doc 骨架与工具出口逐字同源"
+    );
+    // 草稿即过闸：stdout 里的 schema 骨架可直接回读并经写闸校验
+    archi::validate_schema(CRATE_FQN, drafts.schema.as_str()).expect("草稿骨架应过写闸");
+
+    assert_eq!(temp.snapshot(), before, "Bootstrap 零写盘");
 }
 
 /// 边界（**D39**）：`main.rs` 内 `knip` **零命中**、零子进程（`Command::new` 零命中）；
@@ -847,12 +941,15 @@ fn bootstrap不读knip() {
 
     let temp = TempDir::new("bootstrap-no-knip");
     stage_crate(&temp);
-    // 行为面：草稿文本零 `unused` 词（生产面不可达）
-    let draft = archi::api::bootstrap(temp.root(), CRATE_FQN).expect("起草应成功");
+    // 行为面：两段草稿内零 `unused` 词（生产面不可达）
+    let drafts = archi::api::bootstrap(temp.root(), CRATE_FQN).expect("起草应成功");
     assert!(
-        !draft.contains("unused"),
+        !drafts.schema.contains("unused") && !drafts.doc.contains("unused"),
         "草稿内零 `unused` 词（Unused 生产面不可达）：
-{draft}"
+schema={}
+doc={}",
+        drafts.schema,
+        drafts.doc
     );
 
     // `--check` 的退出码与 knip 无关：先 Generate 再 Check → 恒 0
@@ -1004,9 +1101,11 @@ fn check差异清单三数组独立且键名固定() {
     let mismatched = TempDir::new("diff-三数组-mismatched");
     stage_crate(&mismatched);
     run(Command::Generate, mismatched.root()).expect("生成应成功");
-    let relative = ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json";
-    let original = mismatched.read(relative).expect("schema 在盘");
-    mismatched.write(relative, &original.replace("\"title\"", "\"titleX\""));
+    let original = mismatched.read(GENERATED_RS).expect("生成物在盘");
+    mismatched.write(
+        GENERATED_RS,
+        &original.replace("pub struct", "pub struct Renamed"),
+    );
     assert_eq!(
         run(Command::Check, mismatched.root()).expect("check 不 Err"),
         1,
@@ -1035,9 +1134,11 @@ fn check差异清单三数组独立且键名固定() {
     let all = TempDir::new("diff-三数组-并存");
     stage_crate(&all);
     run(Command::Generate, all.root()).expect("生成应成功");
-    let schema_rel = ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json";
-    let schema_text = all.read(schema_rel).expect("schema 在盘");
-    all.write(schema_rel, &schema_text.replace("\"title\"", "\"titleX\""));
+    let generated_text = all.read(GENERATED_RS).expect("生成物在盘");
+    all.write(
+        GENERATED_RS,
+        &generated_text.replace("pub struct", "pub struct Renamed"),
+    );
     all.write(
         "stray.i.rs",
         "// 孤儿
@@ -1259,17 +1360,23 @@ fn check差异清单逐数组点名该文件() {
     let mismatched = TempDir::new("check-report-mismatched");
     stage_crate(&mismatched);
     run(Command::Generate, mismatched.root()).expect("生成应成功");
-    let schema_rel = ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json";
-    let original = mismatched.read(schema_rel).expect("schema 在盘");
-    mismatched.write(schema_rel, &original.replace("\"title\"", "\"titleX\""));
+    let original = mismatched.read(GENERATED_RS).expect("生成物在盘");
+    mismatched.write(
+        GENERATED_RS,
+        &original.replace("pub struct", "pub struct Renamed"),
+    );
     let report = archi::compare(mismatched.root()).expect("比对应成功");
-    assert_eq!(report.mismatched, vec![schema_rel.to_owned()], "点名该文件");
+    assert_eq!(
+        report.mismatched,
+        vec![GENERATED_RS.to_owned()],
+        "点名该文件"
+    );
     assert!(report.orphaned.is_empty() && report.missing.is_empty());
     let json: serde_json::Value =
         serde_json::from_str(&super::diff_json(&report)).expect("单行 JSON");
     assert_eq!(
         json["mismatched"],
-        serde_json::json!([schema_rel]),
+        serde_json::json!([GENERATED_RS]),
         "mismatched 数组含该文件（repo 相对 POSIX 串）"
     );
 
@@ -1291,9 +1398,16 @@ fn check差异清单逐数组点名该文件() {
     stage_crate(&missing);
     let report = archi::compare(missing.root()).expect("比对应成功");
     assert!(
-        report.missing.iter().any(|path| path
-            == ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json"),
-        "missing 点名未生成的 schema：{:?}",
+        report.missing.iter().any(|path| path == GENERATED_RS),
+        "missing 点名未生成的 `.i.rs`：{:?}",
+        report.missing
+    );
+    assert!(
+        !report
+            .missing
+            .iter()
+            .any(|path| path.ends_with(".schema.json")),
+        "手写接口定义不进应生成集：{:?}",
         report.missing
     );
     assert!(report.mismatched.is_empty() && report.orphaned.is_empty());
@@ -1337,16 +1451,18 @@ fn 差异清单路径串与跨crate单点同源() {
     let temp = TempDir::new("display-single-point");
     stage_crate(&temp);
     run(Command::Generate, temp.root()).expect("生成应成功");
-    let schema_rel = ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json";
-    let absolute = temp.root().join(schema_rel);
+    let absolute = temp.root().join(GENERATED_RS);
     assert_eq!(
         archi::display(temp.root(), &absolute),
-        schema_rel,
+        GENERATED_RS,
         "跨 crate 单点的输出即差异清单的串形态"
     );
 
-    let original = temp.read(schema_rel).expect("schema 在盘");
-    temp.write(schema_rel, &original.replace("\"title\"", "\"titleX\""));
+    let original = temp.read(GENERATED_RS).expect("生成物在盘");
+    temp.write(
+        GENERATED_RS,
+        &original.replace("pub struct", "pub struct Renamed"),
+    );
     let report = archi::compare(temp.root()).expect("比对应成功");
     assert_eq!(
         report.mismatched,
@@ -1431,9 +1547,11 @@ fn check单行json与compare三列同源() {
     let temp = TempDir::new("check-json-same-source");
     stage_crate(&temp);
     assert_eq!(run(Command::Generate, temp.root()).expect("生成应成功"), 0);
-    let schema_rel = ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json";
-    let original = temp.read(schema_rel).expect("schema 在盘");
-    temp.write(schema_rel, &original.replace("\"title\"", "\"titleY\""));
+    let original = temp.read(GENERATED_RS).expect("生成物在盘");
+    temp.write(
+        GENERATED_RS,
+        &original.replace("pub struct", "pub struct Renamed"),
+    );
     temp.write("crates/core/stale.i.rs", "// 孤儿\n");
     fs::remove_file(temp.root().join("crates/core/archi/src/lib.i.rs")).expect("移除应生成物");
 

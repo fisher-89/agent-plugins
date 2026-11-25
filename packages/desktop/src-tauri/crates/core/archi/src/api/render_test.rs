@@ -1,5 +1,6 @@
-//! `api::render`（应生成物渲染单点）的单元测试：四类生成物齐备（schema / `.i.rs` /
-//! `.i.ts` / `INDEX.toml`）、输出序确定与幂等、结构诊断 fail-closed（`ApiError::Element`
+//! `api::render`（应生成物渲染单点）的单元测试：三类生成物齐备（`.i.rs` / `.i.ts` /
+//! `INDEX.toml`；`.schema.json` 是手写真相、不进应生成集）、输出序确定与幂等、结构诊断
+//! fail-closed（`ApiError::Element`
 //! 且零部分产出）、坏模型零写盘、空模型 / 零契约的冷启动应生成集、`root` 形态边界、
 //! 超大语料规模与零 spawn 自证。
 //!
@@ -12,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
-use crate::api::mod_test::declare_ancestors;
+use crate::api::mod_test::{declare_ancestors, mirrored_schema_text};
 use crate::api::paths;
 
 use super::render::workspace_render;
@@ -66,12 +67,15 @@ impl TempDir {
         );
     }
 
-    fn write_contract(&self, fqn: &str, content: &str) {
-        let path = paths::contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
-        if let Some(parent) = path.parent() {
+    /// 落两资产：文档（只为「在盘」这一事实）+ 手写接口定义原文（渲染的输入面）。
+    fn write_contract(&self, fqn: &str, schema: &str) {
+        let doc = paths::contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
+        if let Some(parent) = doc.parent() {
             fs::create_dir_all(parent).expect("创建契约目录失败");
         }
-        fs::write(&path, content).expect("写契约失败");
+        fs::write(&doc, crate::api::mod_test::doc_of(fqn)).expect("写契约失败");
+        let schema_path = paths::schema_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
+        fs::write(&schema_path, schema).expect("写接口定义失败");
     }
 
     /// 全量字节 + mtime 快照（零写盘对拍）。
@@ -114,10 +118,7 @@ impl Drop for TempDir {
 
 /// 只含 `api-types` 一 fence 的最小合法契约（H1 = `fqn`）。
 fn typed_contract(fqn: &str) -> String {
-    format!(
-        "# {fqn}\n\n## 职能\n\n渲染单点语料。\n\n## 类型\n\n```json api-types\n\
-         {{\"Item\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
-    )
+    mirrored_schema_text(fqn, r#""Item": {"type": "object", "properties": {}}"#, "")
 }
 
 /// 双元素语料：crate 形态（`src/lib.rs` 入口）+ 前端文件型根（根文件自身即入口）。
@@ -149,8 +150,8 @@ fn write_two_language_corpus(temp: &TempDir) -> (String, String) {
 // 正向：四类生成物 / 输出序 / 幂等
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-4 / D1）：目录型元素根 + 前端文件型元素根 + 在案契约 → 四个生成物落点齐备，
-/// 每份落 `root` 之下、内容非空。
+/// 正向（AC-2 / R1）：目录型元素根 + 前端文件型元素根 + 在案接口定义 → 三类产物落点齐备
+/// （两份 `.i.*` + `INDEX.toml`），手写 `.schema.json` 零生成；每份落 `root` 之下、内容非空。
 #[test]
 fn workspace_render四类生成物齐备() {
     let temp = TempDir::new("render-four-kinds");
@@ -159,8 +160,6 @@ fn workspace_render四类生成物齐备() {
     let files = workspace_render(temp.root()).expect("渲染应成功");
     let paths_of: Vec<&Path> = files.iter().map(|file| file.path.as_path()).collect();
 
-    let schema_core = paths::schema_path(temp.root(), &core).expect("合法 FQN");
-    let schema_frontend = paths::schema_path(temp.root(), &frontend).expect("合法 FQN");
     let rust_generated = paths::generated_path(
         temp.root(),
         "crates/core/archi/src/lib.rs",
@@ -175,19 +174,20 @@ fn workspace_render四类生成物齐备() {
     .expect("TS 生成物路径");
     let index = paths::index_path(temp.root());
 
-    for expected in [
-        &schema_core,
-        &schema_frontend,
-        &rust_generated,
-        &ts_generated,
-        &index,
-    ] {
+    for expected in [&rust_generated, &ts_generated, &index] {
         assert!(
             paths_of.contains(&expected.as_path()),
             "生成物落点齐备：{expected:?}（实际：{paths_of:?}）"
         );
     }
-    assert_eq!(files.len(), 5, "两份 schema + 两份 .i.* + 一份索引");
+    assert_eq!(files.len(), 3, "两份 `.i.*` + 一份索引");
+    for fqn in [&core, &frontend] {
+        let schema = paths::schema_path(temp.root(), fqn).expect("合法 FQN");
+        assert!(
+            !paths_of.contains(&schema.as_path()),
+            "`<FQN>.schema.json` 是手写真相，MUST NOT 出现在应生成集：{schema:?}"
+        );
+    }
 
     for file in &files {
         assert!(
@@ -211,11 +211,10 @@ fn workspace_render输出序确定且幂等() {
     assert_eq!(first, second, "同语料两次渲染逐字段相等（幂等）");
 
     let ordered: Vec<PathBuf> = first.iter().map(|file| file.path.clone()).collect();
+    let (_, _) = (core, frontend);
     assert_eq!(
         ordered,
         vec![
-            paths::schema_path(temp.root(), &core).expect("合法 FQN"),
-            paths::schema_path(temp.root(), &frontend).expect("合法 FQN"),
             paths::generated_path(
                 temp.root(),
                 "crates/core/archi/src/lib.rs",
@@ -230,7 +229,7 @@ fn workspace_render输出序确定且幂等() {
             .expect("TS 生成物路径"),
             paths::index_path(temp.root()),
         ],
-        "序为契约 FQN 序（App.Core.Archi < App.Frontend.Welcome）→ 元素序 .i.* → 索引末位"
+        "序为元素序（`.i.rs` 先于 `.i.ts`）→ 索引末位"
     );
 }
 
@@ -412,8 +411,8 @@ fn workspace_render_root形态边界() {
     }
 }
 
-/// 边界（边界 / list 映射）：合成 60 元素各带契约且无实现入口（⇒ 零 `.i.*`）→ 返回集
-/// 规模 = 60 份 schema + 1 份索引；两次调用逐字段相等；不抛错。
+/// 边界（边界 / list 映射）：合成 60 元素各带接口定义且无实现入口（⇒ 零 `.i.*`）→ 返回集
+/// 规模 = 1 份索引（接口文件不是生成物）；两次调用逐字段相等；不抛错。
 #[test]
 fn workspace_render超大语料() {
     let temp = TempDir::new("render-large-corpus");
@@ -434,11 +433,7 @@ fn workspace_render超大语料() {
     let first = workspace_render(temp.root()).expect("大语料不抛错");
     let second = workspace_render(temp.root()).expect("大语料不抛错");
     assert_eq!(first, second, "两次渲染逐字段相等");
-    assert_eq!(
-        first.len(),
-        61,
-        "60 份 schema + 1 份索引（无入口 ⇒ 零 .i.*）"
-    );
+    assert_eq!(first.len(), 1, "零 `.i.*`（无入口）⇒ 只剩索引一份产物");
     assert_eq!(
         first.last().map(|file| file.path.clone()),
         Some(paths::index_path(temp.root())),

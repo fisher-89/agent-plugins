@@ -33,12 +33,15 @@ pub mod scan;
 pub mod search;
 pub mod tree;
 
+pub use api::contract::is_identifier;
 pub use api::diff::{compare, ArtifactDiff};
+pub use api::paths::{is_fqn, schema_fqn};
 pub use api::render::workspace_render;
+pub use api::schema::validate_schema;
 pub use api::{
     api_ref, api_ref_of, artifact_check, bootstrap, check as api_check, enabled as api_enabled,
     findings, gating_findings, load_contracts, meta, render_all, ApiCheckInput, ApiError, ApiMeta,
-    ApiSnapshot, GeneratedFile,
+    ApiSnapshot, BootstrapDrafts, GeneratedFile,
 };
 // 跨 crate 单点出口：工具 crate 的唯一调用面（AC-32 的判据锚这一行形态）。
 pub use api::display;

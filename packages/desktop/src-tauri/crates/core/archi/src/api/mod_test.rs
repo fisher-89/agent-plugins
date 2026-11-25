@@ -1,15 +1,15 @@
-//! `api`（装配层）的单元测试：契约面启用判定（递归扫 `*.md`、深度上限、符号链接不跟随）、
-//! `load_contracts` 全链（解析 → 装配 → 双向 gate → `$defs` 规则 → 取数）、
-//! `render_all` 四类生成物 / 幂等 / `INDEX` 覆盖与 `categories` 形状分布、`check` 的未启用
-//! 短路与稳定排序、`bootstrap` 的草稿形态与零写盘、`api_ref` 的双层投影口径、`ApiError`
-//! 三值文案。
+//! `api`（装配层）的单元测试：接口面启用判定（`declared` ∧ `path` 非空 ∧
+//! `<FQN>.schema.json` 在盘）、`load_contracts` 全链（schema 校验 → `Contract` 投影 →
+//! 三表装配）、`render_all` 三类生成物 / 幂等 / `INDEX` 覆盖与 `categories` 形状分布、
+//! `check` 的未启用短路与稳定排序、`bootstrap` 的双草稿形态与零写盘、`api_ref` 的三路径
+//! 独立投影、`ApiError` 三值文案。
 //!
 //! 零 mock：自建 `TempDir` RAII + `AtomicU64`（本 crate 无 dev-dependency）、真实
-//! `foundation::layout` 派生、真实解析 / 装配 / 判据 / 渲染 / 取数组合——编排语义即被测
+//! `foundation::layout` 派生、真实校验 / 投影 / 装配 / 判据 / 渲染 / 取数组合——编排语义即被测
 //! 对象，替身会引入第二事实源。
 //!
-//! IO 错误面以「非法 UTF-8 字节的契约文件」注入，不改权限；「缺 md」不进任何清单
-//! （缺口由判据 ② 从模型意图与 `contracts` 的差集直接得出）。
+//! IO 错误面以「非法 UTF-8 字节的接口文件」注入，不改权限；「接口未写」（schema 不在盘）
+//! 不进任何清单（判据面零对象）。
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -19,8 +19,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use foundation::layout::archi_models_dir;
 use serde_json::Value;
 
-use crate::api::contract::parse;
-use crate::api::extract::{self, Visibility};
+use crate::api::contract::Contract;
+use crate::api::extract;
 use crate::api::paths;
 use crate::drift::report::{ArchiApiFinding, ArchiApiFindingKind};
 use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
@@ -88,6 +88,31 @@ impl TempDir {
             fs::create_dir_all(parent).expect("创建契约目录失败");
         }
         fs::write(&path, content).expect("写契约失败");
+    }
+
+    /// 落接口定义（`<archi_models_dir>/<分层目录…>/<FQN>.schema.json`）。
+    fn write_schema(&self, fqn: &str, content: &str) {
+        let path = paths::schema_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("创建接口目录");
+        }
+        fs::write(&path, content).expect("写接口定义失败");
+    }
+
+    /// 落**两资产**（接口 + 文档）：文档只为「在盘」这一独立事实（`docMissing` 的反面），
+    /// 接口取试点形态的手写 schema 文本。
+    ///
+    /// 渲染 / 判据用例的输入面是接口定义，同时需要「文档在盘」这一独立事实，故两资产成对
+    /// 落盘；两者互不派生（读面只认 schema，文档正文零回落）。
+    fn write_pair(&self, fqn: &str) {
+        self.write_contract(fqn, &doc_of(fqn));
+        self.write_schema(fqn, &pilot_schema(fqn));
+    }
+
+    /// 落两资产，接口面换成给定 schema 文本（文档仍取 [`doc_of`]）。
+    fn write_pair_schema(&self, fqn: &str, schema: &str) {
+        self.write_contract(fqn, &doc_of(fqn));
+        self.write_schema(fqn, schema);
     }
 
     /// 全量字节快照（零写盘对拍）。
@@ -168,6 +193,130 @@ pub(crate) fn declare_ancestors(model: &str) -> String {
     output
 }
 
+// ---------------------------------------------------------------------------
+// 手写接口定义夹具（兄弟 / 后代测试模块共用）
+// ---------------------------------------------------------------------------
+
+/// 接口定义文本构造器：`$defs` / `properties` 两表**片段直传**（`{` `}` 由本函数补），
+/// 身份三键（`$schema` / `$id` / `title`）按 FQN 补齐——九闸用例只替换一表，其余闸保持绿
+/// （各反例因此**单点**归因）。
+pub(crate) fn schema_text(fqn: &str, defs: impl AsRef<str>, properties: impl AsRef<str>) -> String {
+    let (defs, properties) = (defs.as_ref(), properties.as_ref());
+    serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": format!("{fqn}.schema.json"),
+        "title": fqn,
+        "$defs": Value::Object(fragment(defs)),
+        "properties": Value::Object(fragment(properties)),
+    })
+    .to_string()
+}
+
+/// 两表片段 → JSON 对象（空片段即空对象；片段带外层大括号时按整对象解析）。
+fn fragment(text: &str) -> serde_json::Map<String, Value> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return serde_json::Map::new();
+    }
+    let parsed = serde_json::from_str::<Value>(&format!("{{{trimmed}}}"))
+        .or_else(|_| serde_json::from_str::<Value>(trimmed))
+        .expect("夹具 schema 片段必须是合法 JSON");
+    parsed
+        .as_object()
+        .cloned()
+        .expect("夹具 schema 片段必须是对象")
+}
+
+/// 同 [`schema_text`]，另为 `$defs` 每条在 `properties` 侧补 `#/$defs/<名>` 镜像 `$ref`
+/// （写闸 ⑥ 的合法形态）——两资产夹具与渲染 / 判据用例的输入面。
+pub(crate) fn mirrored_schema_text(
+    fqn: &str,
+    defs: impl AsRef<str>,
+    properties: impl AsRef<str>,
+) -> String {
+    let (defs, properties) = (defs.as_ref(), properties.as_ref());
+    let defs_value = fragment(defs);
+    let mut properties_value = fragment(properties);
+    for name in defs_value.keys() {
+        properties_value
+            .entry(name.clone())
+            .or_insert_with(|| serde_json::json!({ "$ref": format!("#/$defs/{name}") }));
+    }
+    serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": format!("{fqn}.schema.json"),
+        "title": fqn,
+        "$defs": Value::Object(defs_value),
+        "properties": Value::Object(properties_value),
+    })
+    .to_string()
+}
+
+/// 零 op / 零类型的空接口定义（`api = none` 留白元素的合法形态）。
+pub(crate) fn empty_schema(fqn: &str) -> String {
+    mirrored_schema_text(fqn, "", "")
+}
+
+/// 单 op 接口定义（`x-function` 原文直传，零 `$defs`）。
+pub(crate) fn op_schema(fqn: &str, op: impl AsRef<str>, signature: impl AsRef<str>) -> String {
+    let (op, signature) = (op.as_ref(), signature.as_ref());
+    mirrored_schema_text(
+        fqn,
+        "",
+        &format!("\"{op}\": {{ \"x-function\": {signature} }}"),
+    )
+}
+
+/// 跨元素透传 alias 的 `$defs` 片段：`$ref` 前缀经 [`paths::ref_relative`] 单点求出
+/// （夹具 MUST NOT 手算 `../` 层数）。
+pub(crate) fn reexport_def(fqn: &str, name: impl AsRef<str>, target: impl AsRef<str>) -> String {
+    let (name, target) = (name.as_ref(), target.as_ref());
+    format!(
+        "\"{name}\": {{ \"$ref\": \"{}{target}.schema.json#/$defs/{name}\" }}",
+        paths::ref_relative(fqn, target)
+    )
+}
+
+/// 解析 + 投影（失败即断言失败）：手写接口定义文本 → `(Contract, schema 值)`。
+pub(crate) fn prepare(schema: &str, fqn: &str, file: &str) -> (Contract, Value) {
+    let value: Value = serde_json::from_str(schema).expect("夹具接口定义必须是合法 JSON");
+    let contract = Contract::from_schema(fqn, file, &value);
+    (contract, value)
+}
+
+/// `Contract` → 供判据面取数的 schema（`$defs` / `properties` 两表重建：`apiMissing` /
+/// `apiUndeclared` / `apiRefMissing` / `apiShadowing` 的读取面）。
+pub(crate) fn schema_of(contract: &Contract) -> Value {
+    let mut defs = serde_json::Map::new();
+    for (name, definition) in &contract.types {
+        defs.insert(name.clone(), definition.clone());
+    }
+    for name in contract.reexports.keys() {
+        defs.insert(
+            name.clone(),
+            serde_json::json!({ "$ref": format!("{name}.schema.json#/$defs/{name}") }),
+        );
+    }
+    let mut properties = serde_json::Map::new();
+    for op in &contract.ops {
+        properties.insert(
+            op.id.clone(),
+            serde_json::json!({ "x-function": op.signature }),
+        );
+    }
+    for name in defs.keys() {
+        properties
+            .entry(name.clone())
+            .or_insert_with(|| serde_json::json!({ "$ref": format!("#/$defs/{name}") }));
+    }
+    serde_json::json!({
+        "$id": format!("{}.schema.json", contract.fqn),
+        "title": contract.fqn,
+        "$defs": defs,
+        "properties": properties,
+    })
+}
+
 /// 元素构造器（`path` 原文直传）。
 fn element(fqn: &str, paths: &[&str]) -> ArchiElement {
     ArchiElement {
@@ -186,14 +335,39 @@ fn element(fqn: &str, paths: &[&str]) -> ArchiElement {
     }
 }
 
-/// 试点形态契约源文（H1 = `fqn`，1 op `file_stem`，1 类型 `LocalArchiCheck`）。
-fn pilot_markdown(fqn: &str) -> String {
+/// 派生 `<FQN>.md`（理由面）：只为「文档在盘」这一独立事实，零 fence（历史 `api-*`
+/// 形态已退场——读面不读文档正文）。
+pub(crate) fn doc_of(fqn: &str) -> String {
+    format!("# {fqn}\n\n## 职能\n\n门禁执行体。\n")
+}
+
+/// 历史形态文档（含 `api-op` fence）：只用于「零 md 回落」用例证明读面不解析正文。
+fn legacy_doc_with_fences(fqn: &str) -> String {
+    op_schema(fqn, "file_stem", "{}")
+}
+
+/// 试点形态接口定义（H1 = 文件名主干 = FQN，1 op `file_stem`，1 类型
+/// `LocalArchiCheck`）：可直接过 `validate_schema` 的九道闸。
+fn pilot_schema(fqn: &str) -> String {
     format!(
-        "# {fqn}\n\n## 职能\n\n门禁执行体。\n\n## 不变量\n\n写盘失败不阻断结论。\n\n\
-         ## 操作\n\n### file_stem\n\n```json api-op\n{{\"owner\": \"LocalArchiCheck\", \
-         \"params\": [{{\"name\": \"timestamp\", \"schema\": {{\"type\": \"string\"}}}}], \
-         \"returns\": {{\"type\": \"string\"}}}}\n```\n\n## 类型\n\n```json api-types\n\
-         {{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+        r##"{{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "{fqn}.schema.json",
+  "title": "{fqn}",
+  "$defs": {{ "LocalArchiCheck": {{ "type": "object", "properties": {{}} }} }},
+  "properties": {{
+    "file_stem": {{
+      "x-function": {{
+        "description": "",
+        "owner": "LocalArchiCheck",
+        "params": [{{ "name": "timestamp", "schema": {{ "type": "string" }} }}],
+        "returns": {{ "type": "string" }}
+      }}
+    }},
+    "LocalArchiCheck": {{ "$ref": "#/$defs/LocalArchiCheck" }}
+  }}
+}}
+"##
     )
 }
 
@@ -203,39 +377,58 @@ fn empty_snapshot() -> ApiSnapshot {
         contracts: Vec::new(),
         schemas: BTreeMap::new(),
         symbols: BTreeMap::new(),
-        doc_facts: BTreeMap::new(),
+        doc_present: BTreeMap::new(),
     }
 }
 
 // ---------------------------------------------------------------------------
-// enabled：载体在盘且含 api fence
+// enabled：declared ∧ path 非空 ∧ schema 在盘
 // ---------------------------------------------------------------------------
 
-/// 正向：`api = declared` 元素的派生契约 md 在盘且正文含 `api-op` fence → `true`；
-/// 同一份 md 去掉 fence → `false`（有文档无约定不构成启用证据）。
+/// 正向（D-5）：启用判据五形态——`declared` ∧ `path` 非空 ∧ `<FQN>.schema.json` 在盘 ⇒
+/// `true`；同条件 schema 缺席（文档在盘）⇒ `false`；`api = none` ∧ schema 在盘 ⇒ `false`
+/// （越界契约不是启用证据）；`path = []` ∧ schema 在盘 ⇒ `false`；空元素表 ⇒ `false`。
 #[test]
-fn enabled按载体fence判定() {
-    let temp = TempDir::new("enabled-fence");
+fn 启用只认declared且schema在盘() {
     let fqn = "App.Infra.Rt";
-    let with_fence = element(fqn, &["src/rt/"]);
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+
+    let live = TempDir::new("enabled-schema");
+    live.write_schema(fqn, &pilot_schema(fqn));
     assert!(
-        enabled(temp.root(), std::slice::from_ref(&with_fence)),
-        "载体在盘且含 api fence → 启用"
+        enabled(live.root(), &[element(fqn, &["src/rt/"])]),
+        "declared + path 非空 + schema 在盘 → 启用"
     );
 
-    let no_fence = TempDir::new("enabled-no-fence");
-    no_fence.write_contract(fqn, &format!("# {fqn}\n\n## 职能\n\n正文。\n"));
+    // 同一份内容落在文档位：接口事实只认 schema，文档在盘零启用证据
+    let doc_only = TempDir::new("enabled-doc-only");
+    doc_only.write_contract(fqn, &doc_of(fqn));
     assert!(
-        !enabled(no_fence.root(), &[element(fqn, &["src/rt/"])]),
-        "载体在盘但无 fence → 未启用"
+        !enabled(doc_only.root(), &[element(fqn, &["src/rt/"])]),
+        "只有文档（即便带历史 fence）→ 未启用"
     );
+
+    let blank = TempDir::new("enabled-none");
+    blank.write_schema(fqn, &pilot_schema(fqn));
+    let mut undeclared = element(fqn, &["src/rt/"]);
+    undeclared.api = ApiStatus::None;
+    assert!(
+        !enabled(blank.root(), &[undeclared]),
+        "`api = none` 的越界 schema → 未启用"
+    );
+
+    let container = TempDir::new("enabled-container");
+    container.write_schema(fqn, &pilot_schema(fqn));
+    assert!(
+        !enabled(container.root(), &[element(fqn, &[])]),
+        "`path = []` 元素零参与"
+    );
+    assert!(!enabled(container.root(), &[]), "空元素表 → 未启用");
 }
 
-/// 边界：目录缺席 / 空目录 / 非载体 md 均不构成启用证据——`models/` 一级的笔记与
-/// `Backend/notes.md` 都不是任何元素的载体。
+/// 异常（D-5）：散落文件不构成启用证据——目录缺席 / 空目录 / `<archi_models_dir>` 一级的
+/// 笔记 / 与任何元素无关的 `<FQN>.schema.json`，以及元素 `doc` 字段指向的在盘文档，一律不算。
 #[test]
-fn enabled杂项md不误启用() {
+fn 散落文件不构成启用证据() {
     let bare = TempDir::new("enabled-bare");
     assert!(
         !enabled(bare.root(), &[element("App.X", &["src/x/"])]),
@@ -249,49 +442,36 @@ fn enabled杂项md不误启用() {
         "空契约目录 → false"
     );
 
-    let notes = TempDir::new("enabled-notes");
-    notes.write(
+    let stray = TempDir::new("enabled-stray");
+    stray.write(
         ".dev-team/architecture/models/notes.md",
-        "```json api-op\n{\"params\": [], \"returns\": {\"type\": \"string\"}}\n```\n",
+        &doc_of("App.Notes"),
     );
-    notes.write(
-        ".dev-team/architecture/models/Backend/notes.md",
-        "# 笔记\n\n```json api-op\n{}\n```\n",
+    stray.write(
+        ".dev-team/architecture/models/Other.schema.json",
+        &pilot_schema("App.Other"),
     );
     assert!(
-        !enabled(notes.root(), &[element("App.X", &["src/x/"])]),
-        "非任何元素的载体 → 未启用（MUST NOT 退化为递归任意 *.md）"
-    );
-}
-
-/// 边界：`api = none` 元素以 `doc` 声明载体——在盘且含 fence 即启用（同一 `doc_facts`
-/// 事实、零 `api` 分支）；`doc` 形态越界（绝对路径 / `..`）→ 零载体 → 未启用。
-#[test]
-fn enabled留白元素doc载体与形态边界() {
-    let temp = TempDir::new("enabled-none-doc");
-    temp.write("guides/auth.md", "```json api-types\n{\"A\": {}}\n```\n");
-    let mut blank = element("App.Auth", &["src/auth/"]);
-    blank.api = ApiStatus::None;
-    blank.doc = Some("guides/auth.md".to_owned());
-    assert!(
-        enabled(temp.root(), &[blank.clone()]),
-        "doc 载体的 fence 同源"
+        !enabled(stray.root(), &[element("App.X", &["src/x/"])]),
+        "与元素无关的文件（含 schema）→ 未启用（MUST NOT 退化为递归任意 *.schema.json）"
     );
 
-    blank.doc = Some("/etc/passwd".to_owned());
+    // `doc` 字段零参与：即便指向一份在盘的文档，也不构成启用证据（D-23 的零判据读者）
+    let doc_field = TempDir::new("enabled-doc-field");
+    doc_field.write("guides/auth.md", &doc_of("App.Auth"));
+    let mut with_doc = element("App.Auth", &["src/auth/"]);
+    with_doc.doc = Some("guides/auth.md".to_owned());
     assert!(
-        !enabled(temp.root(), &[blank.clone()]),
-        "绝对路径 → 零载体（越根拦截）"
+        !enabled(doc_field.root(), &[with_doc]),
+        "`doc` 是约定字段，零启用证据"
     );
-    blank.doc = Some("../outside.md".to_owned());
-    assert!(!enabled(temp.root(), &[blank]), "`..` 段 → 零载体");
 }
 
 /// 边界：`path` 空元素零参与——即便其 `doc` 指向一份带 fence 的文件，也不构成启用证据。
 #[test]
 fn enabled容器元素零参与() {
     let temp = TempDir::new("enabled-container");
-    temp.write("README.md", "```json api-op\n{}\n```\n");
+    temp.write("README.md", &legacy_doc_with_fences("README.md"));
     let mut container = element("App", &[]);
     container.api = ApiStatus::None;
     container.doc = Some("README.md".to_owned());
@@ -305,13 +485,14 @@ fn enabled容器元素零参与() {
 // load_contracts：全链 / 缺 md / 跳过 / 路径空 / 异常面
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-1 + AC-9）：单元素 `path` 非空 + md 在案 → `Ok`，`contracts` / `schemas` /
-/// `symbols` 各就位，双向 gate 与 `$defs` 规则全过。
+/// 正向（AC-1 + AC-9）：单元素 `path` 非空 + 同目录 `<FQN>.schema.json`（1 op + 1 类型、
+/// 零文档）→ `Ok`；签名即 `x-function` 解包值、`file` 覆写为 repo 相对 schema 路径、三表
+/// 与文档事实各就位。
 #[test]
 fn load_contracts全链() {
     let temp = TempDir::new("load-chain");
     let fqn = "App.Backend.Infra.ArchiRuntime";
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_schema(fqn, &pilot_schema(fqn));
     temp.write(
         "crates/infra/archi/src/lib.rs",
         "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
@@ -324,6 +505,25 @@ fn load_contracts全链() {
     assert_eq!(snapshot.contracts[0].fqn, fqn);
     assert_eq!(snapshot.contracts[0].ops.len(), 1, "一个 op");
     assert_eq!(snapshot.contracts[0].ops[0].id, "file_stem");
+    assert_eq!(
+        snapshot.contracts[0].ops[0].line, 0,
+        "schema 无行号 ⇒ line 恒 0"
+    );
+    let mut expected = snapshot.schemas[fqn]["properties"]["file_stem"]["x-function"].clone();
+    expected
+        .as_object_mut()
+        .expect("x-function 是对象")
+        .remove("description");
+    assert_eq!(
+        snapshot.contracts[0].ops[0].signature, expected,
+        "签名即 `x-function` 解包值（`description` 丢弃）"
+    );
+    assert_eq!(
+        snapshot.contracts[0].file,
+        ".dev-team/architecture/models/App/Backend/Infra/App.Backend.Infra.ArchiRuntime.schema.json",
+        "`file` 覆写为 repo 相对 schema 路径"
+    );
+    assert_eq!(snapshot.contracts[0].types.len(), 1, "一个自有类型");
     assert!(snapshot.schemas.contains_key(fqn), "schema 装配在案");
     assert!(snapshot.symbols.contains_key(fqn), "符号集 key = FQN");
     assert!(
@@ -331,26 +531,39 @@ fn load_contracts全链() {
         "取数器从入口抽到符号：{:?}",
         snapshot.symbols[fqn]
     );
-
-    let schema = &snapshot.schemas[fqn];
-    for key in ["$schema", "$id", "title", "$comment", "$defs", "properties"] {
-        assert!(schema.get(key).is_some(), "schema 六字段齐备（缺 {key}）");
-    }
+    assert_eq!(
+        snapshot.doc_present.get(fqn),
+        Some(&false),
+        "文档事实与装载同批产出（零文档 ⇒ false）"
+    );
 }
 
-/// 边界（AC-7）：`api = declared` 元素无 md → `Ok` 且两元素都不进 `contracts` /
-/// `schemas`（缺口交 `apiMissing` 判据，装载器不另记清单）。
+/// 异常（AC-1 / Q4）：**零 md 回落**——只有派生 `<FQN>.md`（含历史 `api-op` fence）而 schema
+/// 缺席 ⇒ 该元素零装载且 `schemas` 无该键；两者都不在 ⇒ 同样零条目。
 #[test]
 fn load_contracts缺md零装载() {
     let temp = TempDir::new("load-missing-md");
+    let fqn = "App.Backend.Core.Agent";
+    // 历史形态文档（fence 完整）：读面只认 schema，故零装载
+    temp.write_contract(fqn, &doc_of(fqn));
+    temp.write_contract(
+        "App.Frontend.Shell",
+        &legacy_doc_with_fences("App.Frontend.Shell"),
+    );
     let elements = [
-        element("App.Backend.Core.Agent", &["crates/core/agent/"]),
+        element(fqn, &["crates/core/agent/"]),
         element("App.Frontend.Shell", &["src/shell/"]),
+        element("App.Frontend.Empty", &["src/empty/"]),
     ];
-    let snapshot = load_contracts(temp.root(), &elements).expect("缺 md 不报错");
-    assert!(snapshot.contracts.is_empty(), "零契约");
+    let snapshot = load_contracts(temp.root(), &elements).expect("接口未写不报错");
+    assert!(snapshot.contracts.is_empty(), "零契约（零 md 回落）");
     assert!(snapshot.schemas.is_empty(), "零 schema");
-    assert!(snapshot.symbols.is_empty(), "缺 md 的元素不进取数面");
+    assert!(snapshot.symbols.is_empty(), "接口未写的元素不进取数面");
+    assert_eq!(
+        snapshot.doc_present.get(fqn),
+        Some(&true),
+        "文档事实照实报（与接口装载分立）"
+    );
 }
 
 /// 边界（D36）：缺少 md 的元素**不记任何清单**——`ApiSnapshot` / `ApiCheckInput` 上没有
@@ -397,8 +610,8 @@ fn 快照无缺契约清单字段() {
     );
 }
 
-/// 边界（D16 ⑤）：`api = none` 且 md 不存在 → 不进 `contracts`；`api = none`
-/// 且 md 存在 → 本函数仍跳过该元素（不解析），留 `apiUnexpected` 判据。
+/// 边界（D16 ⑤）：`api = none` 元素即便 `<FQN>.schema.json` 在盘也不装载（越界事实由
+/// `apiUnexpected` 判据报，装载器不替它建契约）。
 #[test]
 fn load_contracts跳过api_none() {
     let temp = TempDir::new("load-none");
@@ -410,9 +623,9 @@ fn load_contracts跳过api_none() {
     assert!(snapshot.contracts.is_empty());
     assert!(snapshot.schemas.is_empty(), "api=none 不装配 schema");
 
-    // md 存在时本函数仍跳过（坏契约也不报错——判据面自会点出 apiUnexpected）
-    temp.write_contract("App.Backend.Core.Agent", "# 与文件名不一致的标题\n");
-    let snapshot = load_contracts(temp.root(), &[skipped]).expect("api=none 不解析 md");
+    // schema 存在时本函数仍跳过（坏接口也不报错——判据面自会点出 apiUnexpected）
+    temp.write_schema("App.Backend.Core.Agent", "{ 不是 JSON }");
+    let snapshot = load_contracts(temp.root(), &[skipped]).expect("api=none 不读接口文件");
     assert!(snapshot.contracts.is_empty(), "api=none 不装载契约");
     assert!(snapshot.schemas.is_empty(), "api=none 不装配 schema");
 }
@@ -430,134 +643,136 @@ fn load_contracts路径空元素零参与() {
     assert!(snapshot.schemas.is_empty() && snapshot.symbols.is_empty());
 }
 
-/// 异常（AC-1）：坏契约即 `Err(ApiError::Contract(..))`，文案含 `file` 定位；四形态
-/// （H1 与文件名不一致 / `### <op-id>` 后缺 `api-op` fence / fence 内 JSON 语法错 /
-/// 第二个 `api-types` fence）各报错；**MUST NOT** 返回部分快照。
-///
-/// 设计 `:95` 的「`api-types` 键未在 `$defs` 出现」一形态经本函数**结构上不可达**——
-/// `build_schema` 恒把 `contract.types` 的每个键落进 `$defs`，故 gate (b) 的 ⊆ 关系自动
-/// 成立；该形态以「手写 `$defs` 反例」在 `contract_test` 的 gate (b) 用例覆盖。本用例
-/// 改以同源可达的 `$defs` 规则违例（`x-class` 带 `required`）补齐第四条。
+/// 异常（AC-1 / AC-5）：坏接口文件三形态（JSON 语法错 / `$id` 与文件名不符 / op 名与类型名
+/// 撞名）各一条 `Err(ApiError::Contract(..))`，文案含文件名与期望值；**MUST NOT** 返回半真
+/// 快照——`findings` 与 `artifact_check` 同源返回 `Err`。
 #[test]
 fn load_contracts坏契约即报错() {
-    let temp = TempDir::new("load-broken");
     let fqn = "App.Backend.Infra.ArchiRuntime";
-
-    let cases: [(&str, String); 4] = [
+    let cases: [(&str, String, &str); 3] = [
         (
-            "H1 与文件名不一致",
-            "# App.Backend.Infra.Other\n\n## 职能\n\n正文。\n".to_owned(),
-        ),
-        (
-            "op heading 后缺 api-op fence",
-            format!("# {fqn}\n\n## 操作\n\n### file_stem\n\n正文而已。\n"),
-        ),
-        (
-            "fence 内 JSON 语法错",
-            format!("# {fqn}\n\n```json api-types\n{{\"A\": {{\"type\": \"object\"}}\n```\n"),
-        ),
-        (
-            "第二个 api-types fence",
+            "JSON 语法错",
             format!(
-                "# {fqn}\n\n```json api-types\n{{\"A\": {{\"type\": \"object\"}}}}\n```\n\n\
-                 ```json api-types\n{{\"B\": {{\"type\": \"object\"}}}}\n```\n"
+                "{{\n  \"$id\": \"{fqn}.schema.json\"\n  \"title\": \"{fqn}\",\n  \"$defs\": \
+                 {{}},\n  \"properties\": {{}}\n}}\n"
             ),
+            "不是合法 JSON",
+        ),
+        (
+            "`$id` 与文件名不符",
+            format!(
+                "{{\"$schema\": \"https://json-schema.org/draft/2020-12/schema\", \"$id\":                  \"App.Backend.Infra.Other.schema.json\", \"title\": \"{fqn}\", \"$defs\":                  {{}}, \"properties\": {{}}}}
+"
+            ),
+            "App.Backend.Infra.Other.schema.json",
+        ),
+        (
+            "op 键与 `$defs` 键撞名",
+            schema_text(
+                fqn,
+                "\"run\": { \"type\": \"object\", \"properties\": {} }",
+                "\"run\": { \"x-function\": { \"params\": [], \"returns\": { \"type\": \"string\" } } }",
+            ),
+            "两个键空间必须互斥",
         ),
     ];
 
-    for (label, source) in cases {
-        temp.write_contract(fqn, &source);
-        let error = match load_contracts(temp.root(), &[element(fqn, &["crates/infra/archi/"])]) {
-            Ok(snapshot) => panic!("坏契约（{label}）MUST NOT 返回 Ok：{snapshot:?}"),
+    for (label, source, expected) in cases {
+        let temp = TempDir::new("load-broken");
+        temp.write_schema(fqn, &source);
+        let element = element(fqn, &["crates/infra/archi/"]);
+        let error = match load_contracts(temp.root(), std::slice::from_ref(&element)) {
+            Ok(snapshot) => panic!("坏接口（{label}）MUST NOT 返回 Ok：{snapshot:?}"),
             Err(error) => error,
         };
         match &error {
             ApiError::Contract(message) => {
-                assert!(message.contains(fqn), "{label} 的文案含文件定位：{message}");
                 assert!(
-                    message.contains(':'),
-                    "{label} 的文案带 `file:line` 形态：{message}"
+                    message.contains(&format!("{fqn}.schema.json")),
+                    "{label} 的文案含文件名：{message}"
+                );
+                assert!(
+                    message.contains(expected),
+                    "{label} 的文案点名期望值 `{expected}`：{message}"
                 );
             }
             other => panic!("{label} 期望 ApiError::Contract，实际：{other:?}"),
         }
-    }
 
-    // 同源可达的 `$defs` 规则违例：`x-class` 带 `required`（D27 错误侧，拦在装载期）
-    temp.write_contract(
-        fqn,
-        &format!(
-            "# {fqn}\n\n```json api-types\n{{\"Hooks\": {{\"x-class\": true, \"required\": [\"a\"], \
-             \"properties\": {{}}}}}}\n```\n"
-        ),
-    );
-    let error = load_contracts(temp.root(), &[element(fqn, &["crates/infra/archi/"])])
-        .expect_err("`x-class` 带 `required` 应报契约错误");
-    assert!(
-        matches!(error, ApiError::Contract(_)),
-        "`$defs` 规则违例归 Contract：{error:?}"
-    );
-    assert!(
-        error.message().contains("Hooks"),
-        "点名违规类型：{}",
-        error.message()
-    );
+        // 无半真报告：判据装配与生成预览同源停摆
+        assert!(
+            findings(temp.root(), std::slice::from_ref(&element)).is_err(),
+            "{label}：`findings` MUST 同源停摆"
+        );
+        temp.write_model(&format!(
+            "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"crates/infra/archi/\"]\n"
+        ));
+        assert!(
+            super::artifact_check(temp.root()).is_err(),
+            "{label}：`artifact_check` MUST 同源停摆"
+        );
+    }
 }
 
-/// 异常（AC-1 / AC-23 / D45）：闸一违例（**七族**任一族非 ASCII 标识符）在
-/// `contract::verify` 期即中止——`load_contracts` 是本仓装载期唯一中止点，五形态各
-/// `Err(ApiError::Contract(..))` 并点名各自族别，文案含 `file:line`；**MUST NOT** 返回
-/// 部分快照。
+/// 异常（AC-1 / D45）：名字闸违例（**七族**任一族非 ASCII 标识符）在 `validate_schema`
+/// 期即中止——`load_contracts` 是本仓装载期唯一中止点，五形态各
+/// `Err(ApiError::Contract(..))` 并点名各自族别，文案含接口文件名；**MUST NOT** 返回部分
+/// 快照。
 #[test]
 fn load_contracts闸一违例即中止() {
     let fqn = "App.Backend.Infra.ArchiRuntime";
+    let mirror = "\"LocalArchiCheck\": { \"$ref\": \"#/$defs/LocalArchiCheck\" }";
     let cases: [(&str, &str, String); 5] = [
         (
             "op id 族",
             "op id",
-            format!(
-                "# {fqn}\n\n### 带-连字符\n\n```json api-op\n{{\"params\": [], \"returns\": \
-                 {{\"type\": \"string\"}}}}\n```\n"
+            schema_text(
+                fqn,
+                "",
+                "\"带-连字符\": { \"x-function\": { \"params\": [], \"returns\": { \"type\": \"string\" } } }",
             ),
         ),
         (
             "参数名族",
             "参数名",
-            format!(
-                "# {fqn}\n\n### run\n\n```json api-op\n{{\"params\": [{{\"name\": \"in-put\", \
-                 \"schema\": {{\"type\": \"string\"}}}}], \"returns\": {{\"type\": \"string\"}}}}\n```\n"
+            schema_text(
+                fqn,
+                "",
+                "\"run\": { \"x-function\": { \"params\": [{ \"name\": \"in-put\", \"schema\": { \"type\": \"string\" } }], \"returns\": { \"type\": \"string\" } } }",
             ),
         ),
         (
             "properties 数据字段族",
             "properties 数据字段键",
-            format!(
-                "# {fqn}\n\n```json api-types\n{{\"LocalArchiCheck\": {{\"type\": \"object\", \
-                 \"properties\": {{\"a-b\": {{\"type\": \"integer\"}}}}}}}}\n```\n"
+            schema_text(
+                fqn,
+                "\"LocalArchiCheck\": { \"type\": \"object\", \"properties\": { \"a-b\": { \"type\": \"integer\" } } }",
+                mirror,
             ),
         ),
         (
             "owner 族",
             "owner 键",
-            format!(
-                "# {fqn}\n\n### file_stem\n\n```json api-op\n{{\"owner\": \"带-连字符\", \
-                 \"params\": [], \"returns\": {{\"type\": \"string\"}}}}\n```\n"
+            schema_text(
+                fqn,
+                "",
+                "\"file_stem\": { \"x-function\": { \"owner\": \"带-连字符\", \"params\": [], \"returns\": { \"type\": \"string\" } } }",
             ),
         ),
         (
             "$ref 末段族",
             "$ref 末段名",
-            format!(
-                "# {fqn}\n\n### file_stem\n\n```json api-op\n{{\"params\": [{{\"name\": \"input\", \
-                 \"schema\": {{\"$ref\": \"#/$defs/带 空格\"}}}}], \"returns\": \
-                 {{\"type\": \"string\"}}}}\n```\n"
+            schema_text(
+                fqn,
+                "",
+                "\"file_stem\": { \"x-function\": { \"params\": [{ \"name\": \"input\", \"schema\": { \"$ref\": \"#/$defs/带 空格\" } }], \"returns\": { \"type\": \"string\" } } }",
             ),
         ),
     ];
 
     for (label, family, source) in cases {
         let temp = TempDir::new("load-gate1");
-        temp.write_contract(fqn, &source);
+        temp.write_schema(fqn, &source);
         let error = match load_contracts(temp.root(), &[element(fqn, &["crates/infra/archi/"])]) {
             Ok(snapshot) => panic!("闸一违例（{label}）MUST NOT 返回部分快照：{snapshot:?}"),
             Err(error) => error,
@@ -573,8 +788,8 @@ fn load_contracts闸一违例即中止() {
                     "{label} 点明判据：{message}"
                 );
                 assert!(
-                    message.contains(fqn) && message.contains(':'),
-                    "{label} 的文案带 `file:line` 定位：{message}"
+                    message.contains(&format!("{fqn}.schema.json")),
+                    "{label} 的文案带文件名定位：{message}"
                 );
             }
             other => panic!("{label} 期望 ApiError::Contract，实际：{other:?}"),
@@ -582,56 +797,63 @@ fn load_contracts闸一违例即中止() {
     }
 }
 
-/// 异常（AC-1 / **AC-25** / D47）：**落点闸违例在装载期即中止**——`x-function` 写在四种
-/// 越界位置（`$defs.T.properties.call.items` / `additionalProperties` / `oneOf` 分支 /
-/// `$defs.T` 自身顶层）各 `Err(ApiError::Contract(..))` 并点名 **JSON pointer**，
-/// **MUST NOT 走到渲染期**（否则深层 `params[].name` 会沿 `value_type` →
-/// `function_type` / `method_signature` 裸插，而闸一 ④ 族从未判过它）；MUST NOT 返回
-/// 部分快照。`load_contracts` 是本仓装载期唯一中止点。
+/// 异常（AC-1 / D47）：**落点闸违例在装载期即中止**——`x-function` 写在四种越界位置
+/// （`$defs.T.properties.call.items` / `additionalProperties` / `oneOf` 分支 / `$defs.T`
+/// 自身顶层）各 `Err(ApiError::Contract(..))` 并点名 **JSON pointer**，**MUST NOT** 走到
+/// 渲染期；MUST NOT 返回部分快照。
 #[test]
 fn load_contracts落点闸违例即中止() {
     let fqn = "App.Backend.Infra.ArchiRuntime";
+    let mirror = "\"T\": { \"$ref\": \"#/$defs/T\" }";
+    let function = "{ \"params\": [], \"returns\": { \"type\": \"string\" } }";
     let cases: [(&str, &str, String); 4] = [
         (
             "properties 的 items",
             "$defs.T.properties.call.items",
-            format!(
-                "# {fqn}\n\n```json api-types\n{{\"T\": {{\"type\": \"object\", \"properties\": \
-                 {{\"call\": {{\"type\": \"array\", \"items\": {{\"x-function\": {{\"params\": [], \
-                 \"returns\": {{\"type\": \"string\"}}}}}}}}}}}}}}\n```\n"
+            schema_text(
+                fqn,
+                &format!(
+                    "\"T\": {{ \"type\": \"object\", \"properties\": {{ \"call\": {{ \"type\": \"array\", \"items\": {{ \"x-function\": {function} }} }} }} }}"
+                ),
+                mirror,
             ),
         ),
         (
             "additionalProperties",
             "$defs.T.additionalProperties",
-            format!(
-                "# {fqn}\n\n```json api-types\n{{\"T\": {{\"type\": \"object\", \
-                 \"additionalProperties\": {{\"x-function\": {{\"params\": [], \"returns\": \
-                 {{\"type\": \"string\"}}}}}}}}}}\n```\n"
+            schema_text(
+                fqn,
+                &format!(
+                    "\"T\": {{ \"type\": \"object\", \"additionalProperties\": {{ \"x-function\": {function} }} }}"
+                ),
+                mirror,
             ),
         ),
         (
             "oneOf 分支",
             "$defs.T.oneOf[1]",
-            format!(
-                "# {fqn}\n\n```json api-types\n{{\"T\": {{\"oneOf\": [{{\"type\": \"string\"}}, \
-                 {{\"x-function\": {{\"params\": [], \"returns\": {{\"type\": \
-                 \"string\"}}}}}}]}}}}\n```\n"
+            schema_text(
+                fqn,
+                &format!(
+                    "\"T\": {{ \"oneOf\": [{{ \"type\": \"string\" }}, {{ \"x-function\": {function} }}] }}"
+                ),
+                mirror,
             ),
         ),
         (
             "$defs 条目自身顶层",
             "$defs.T",
-            format!(
-                "# {fqn}\n\n```json api-types\n{{\"T\": {{\"x-function\": {{\"params\": [], \
-                 \"returns\": {{\"type\": \"string\"}}}}}}}}\n```\n"
+            schema_text(
+                fqn,
+                &format!("\"T\": {{ \"x-function\": {function} }}"),
+                mirror,
             ),
         ),
     ];
 
     for (label, pointer, source) in cases {
         let temp = TempDir::new("load-position");
-        temp.write_contract(fqn, &source);
+        temp.write_schema(fqn, &source);
         let error = match load_contracts(temp.root(), &[element(fqn, &["crates/infra/archi/"])]) {
             Ok(snapshot) => {
                 panic!("落点闸违例（{label}）MUST NOT 返回部分快照：{snapshot:?}")
@@ -649,35 +871,35 @@ fn load_contracts落点闸违例即中止() {
                     "{label} 的文案点名 JSON pointer `{pointer}`：{message}"
                 );
                 assert!(
-                    message.contains(fqn) && message.contains(':'),
-                    "{label} 的文案带 `file:line` 定位：{message}"
+                    message.contains(&format!("{fqn}.schema.json")),
+                    "{label} 的文案带文件名定位：{message}"
                 );
             }
             other => panic!("{label} 期望 ApiError::Contract，实际：{other:?}"),
         }
     }
 
-    // 合法二处不受影响：试点形态（`api-op` 顶层签名 + 零字段 `properties`）仍 `Ok`
+    // 合法二处不受影响：试点形态（`properties.x-function` + `$defs` 零字段类型）仍 `Ok`
     let temp = TempDir::new("load-position-legal");
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_schema(fqn, &pilot_schema(fqn));
     let snapshot = load_contracts(temp.root(), &[element(fqn, &["crates/infra/archi/"])])
-        .expect("试点契约仍 Ok");
+        .expect("试点接口仍 Ok");
     assert_eq!(snapshot.contracts.len(), 1, "合法落点不被误拦");
 }
 
-/// 异常（D20）：md 文件在案但不可解码（非法 UTF-8 字节）→ `Err(ApiError::Io(..))`，
+/// 异常（D20）：接口文件在案但不可解码（非法 UTF-8 字节）→ `Err(ApiError::Io(..))`，
 /// `message()` 非空且含路径线索。目录占位形态走「文件不在案」分支（`is_file()` 为假），
 /// 故 IO 面以「文件在案但读取失败」表达。
 #[test]
 fn load_contracts的io错误面() {
     let temp = TempDir::new("load-io");
     let fqn = "App.Backend.Infra.ArchiRuntime";
-    let path = paths::contract_path(temp.root(), fqn).expect("测试 FQN 恒为合法形态");
-    fs::create_dir_all(path.parent().expect("父目录")).expect("建契约目录");
+    let path = paths::schema_path(temp.root(), fqn).expect("测试 FQN 恒为合法形态");
+    fs::create_dir_all(path.parent().expect("父目录")).expect("建接口目录");
     fs::write(&path, [0xff_u8, 0xfe, 0x00, 0x01]).expect("写非法 UTF-8 字节");
 
     let error = match load_contracts(temp.root(), &[element(fqn, &["crates/infra/archi/"])]) {
-        Ok(snapshot) => panic!("不可解码的契约应报 IO 错误：{snapshot:?}"),
+        Ok(snapshot) => panic!("不可解码的接口文件应报 IO 错误：{snapshot:?}"),
         Err(error) => error,
     };
     assert!(
@@ -687,13 +909,13 @@ fn load_contracts的io错误面() {
     let message = error.message();
     assert!(!message.is_empty(), "文案非空");
     assert!(
-        message.contains("ArchiRuntime") || message.contains("契约"),
+        message.contains("ArchiRuntime") || message.contains("接口定义"),
         "文案含路径线索：{message}"
     );
 }
 
-/// 边界：300 元素（其中 100 有 md）→ `Ok`，`contracts.len() == 100`（其余 200 个不进
-/// 契约面，缺口由判据 ② 报）。
+/// 边界：300 元素（其中 100 有接口文件）→ `Ok`，`contracts.len() == 100`（其余 200 个
+/// 「接口未写」，判据面零对象）；1000 键 `$defs` 规模零截断；同输入两次调用逐字段相等。
 #[test]
 fn load_contracts规模边界() {
     let temp = TempDir::new("load-scale");
@@ -702,11 +924,11 @@ fn load_contracts规模边界() {
         let fqn = format!("App.Core.E{index:03}");
         elements.push(element(&fqn, &[&format!("src/e{index:03}/")]));
         if index < 100 {
-            temp.write_contract(&fqn, &pilot_markdown(&fqn));
+            temp.write_schema(&fqn, &pilot_schema(&fqn));
         }
     }
     let snapshot = load_contracts(temp.root(), &elements).expect("规模输入应成功");
-    assert_eq!(snapshot.contracts.len(), 100, "100 份契约");
+    assert_eq!(snapshot.contracts.len(), 100, "100 份接口");
     assert_eq!(snapshot.schemas.len(), 100, "100 份 schema");
     assert_eq!(snapshot.symbols.len(), 100, "100 个元素的取数面");
     assert!(
@@ -716,38 +938,45 @@ fn load_contracts规模边界() {
             .all(|window| window[0].fqn <= window[1].fqn),
         "契约按 FQN 字典序"
     );
-    // 第二规模：1000 键 `$defs` 的契约 → 装配成功、键数逐项相等、零 panic
+    let again = load_contracts(temp.root(), &elements).expect("二次装载应成功");
+    assert_eq!(snapshot, again, "同输入幂等（零随机序）");
+
+    // 第二规模：1000 键 `$defs` 的接口 → 装配成功、键数逐项相等、零 panic
     let big = TempDir::new("load-scale-defs");
     let big_fqn = "App.Core.Big";
     let mut defs = String::new();
+    let mut properties = String::new();
     for index in 0..1000 {
         if index > 0 {
             defs.push_str(", ");
+            properties.push_str(", ");
         }
         defs.push_str(&format!("\"T{index:04}\": {{\"type\": \"object\"}}"));
+        properties.push_str(&format!(
+            "\"T{index:04}\": {{\"$ref\": \"#/$defs/T{index:04}\"}}"
+        ));
     }
-    big.write_contract(
-        big_fqn,
-        &format!("# {big_fqn}\n\n```json api-types\n{{{defs}}}\n```\n"),
-    );
+    big.write_schema(big_fqn, &schema_text(big_fqn, &defs, &properties));
     let snapshot = load_contracts(big.root(), &[element(big_fqn, &["src/big/"])])
-        .expect("1000 键契约应装配成功");
+        .expect("1000 键接口应装配成功");
     let schema = snapshot.schemas.get(big_fqn).expect("schema 在案");
     assert_eq!(
         schema["$defs"].as_object().map(|defs| defs.len()),
         Some(1000),
         "1000 个 `$defs` 键逐项落位（零截断、零 panic）"
     );
+    assert_eq!(snapshot.contracts[0].types.len(), 1000, "投影逐项落位");
 }
 
 // ---------------------------------------------------------------------------
-// render_all：四类生成物 / 幂等 / INDEX 覆盖 / categories
+// render_all：三类生成物 / 幂等 / INDEX 覆盖 / categories
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-12）：试点形态 → 文件集含 `<FQN>.schema.json`、`INDEX.toml`、`<root>.i.rs`；
-/// `.i.ts` 按元素语言缺席；每份 `path` 与 `paths` 单点产出值逐字相等。
+/// 正向（AC-12 / D-13）：试点形态 → 文件集含 `INDEX.toml` 与 `<root>.i.rs`，且**不含**
+/// `<FQN>.schema.json`（手写真相不进应生成集）；`.i.ts` 按元素语言缺席；每份 `path` 与
+/// `paths` 单点产出值逐字相等。
 #[test]
-fn render_all四类生成物齐备() {
+fn render_all三类生成物齐备() {
     let temp = TempDir::new("render-all");
     temp.write_model(
         "[element.\"App.Backend.Infra.ArchiRuntime\"]
@@ -757,7 +986,7 @@ path = [\"crates/infra/archi/\"]
 ",
     );
     let fqn = "App.Backend.Infra.ArchiRuntime";
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write(
         "crates/infra/archi/src/lib.rs",
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
@@ -769,12 +998,12 @@ path = [\"crates/infra/archi/\"]
 
     let paths_set: Vec<&Path> = files.iter().map(|file| file.path.as_path()).collect();
     assert!(
-        paths_set.contains(
+        !paths_set.contains(
             &paths::schema_path(temp.root(), fqn)
                 .expect("合法 FQN")
                 .as_path()
         ),
-        "schema 生成物落点 = paths::schema_path"
+        "`<FQN>.schema.json` 是手写真相，MUST NOT 出现在应生成集"
     );
     assert!(
         paths_set.contains(&paths::index_path(temp.root()).as_path()),
@@ -800,15 +1029,7 @@ path = [\"crates/infra/archi/\"]
     for file in &files {
         assert!(!file.content.is_empty(), "生成物内容非空：{:?}", file.path);
     }
-    let schema_file = files
-        .iter()
-        .find(|file| file.path == paths::schema_path(temp.root(), fqn).expect("合法 FQN"))
-        .expect("schema 生成物在案");
-    assert!(schema_file.content.ends_with('\n'), "schema 末尾有换行");
-    assert!(
-        schema_file.content.contains("\"LocalArchiCheck\""),
-        "schema 含类型定义"
-    );
+    assert_eq!(files.len(), 2, "一份 `.i.rs` + 一份 `INDEX.toml`");
 }
 
 /// 正向（D40 / D41）：`render_all` 建 `EmitTarget` 的两次求值——A（crate 形态，入口命中
@@ -846,24 +1067,9 @@ path = [\"crates/core/no-entry/\"]
     ));
 
     // A：crate 形态入口（`<dir>/src/lib.rs`），透传目标为 B
-    temp.write_contract(
+    temp.write_pair_schema(
         backend,
-        &format!(
-            "# {backend}
-
-## 职能
-
-正文。
-
-```json api-reexport
-{{\"AgentView\": \"{frontend}\"}}
-```
-
-## 透传
-
-- AgentView → {frontend}
-"
-        ),
+        &mirrored_schema_text(backend, &reexport_def(backend, "AgentView", frontend), ""),
     );
     temp.write(
         "crates/infra/archi/src/lib.rs",
@@ -872,27 +1078,16 @@ path = [\"crates/core/no-entry/\"]
     );
 
     // B：文件型根（根文件自身即入口 ⇒ SingleFile），透传目标为 A
-    temp.write_contract(
+    temp.write_pair_schema(
         frontend,
-        &format!(
-            "# {frontend}
-
-## 职能
-
-正文。
-
-```json api-reexport
-{{\"Accept\": \"{backend}\"}}
-```
-
-## 透传
-
-- Accept → {backend}
-
-```json api-types
-{{\"Item\": {{\"type\": \"object\", \"properties\": {{}}}}}}
-```
-"
+        &mirrored_schema_text(
+            frontend,
+            &format!(
+                "{}, {}",
+                reexport_def(frontend, "Accept", backend),
+                r#""Item": {"type": "object", "properties": {}}"#
+            ),
+            "",
         ),
     );
     temp.write(
@@ -902,19 +1097,12 @@ path = [\"crates/core/no-entry/\"]
     );
 
     // 无入口元素：`path` 非空但四条约定候选全不落盘（D41：无可用入口 ⇒ 不产 `.i.*`）
-    temp.write_contract(
+    temp.write_pair_schema(
         no_entry,
-        &format!(
-            "# {no_entry}
-
-## 职能
-
-正文。
-
-```json api-types
-{{\"Ghost\": {{\"type\": \"object\", \"properties\": {{}}}}}}
-```
-"
+        &mirrored_schema_text(
+            no_entry,
+            r#""Ghost": {"type": "object", "properties": {}}"#,
+            "",
         ),
     );
 
@@ -1034,19 +1222,12 @@ path = []
 ",
     );
     let container = "App.Core.Container";
-    temp.write_contract(
+    temp.write_pair_schema(
         container,
-        &format!(
-            "# {container}
-
-## 职能
-
-正文。
-
-```json api-types
-{{\"Boxed\": {{\"type\": \"object\", \"properties\": {{}}}}}}
-```
-"
+        &mirrored_schema_text(
+            container,
+            r#""Boxed": {"type": "object", "properties": {}}"#,
+            "",
         ),
     );
 
@@ -1087,7 +1268,7 @@ path = [\"crates/core/agent/\"]
 ",
     );
     let fqn = "App.Backend.Core.Agent";
-    temp.write_contract(fqn, &format!("# {fqn}\n\n## 职能\n\n正文。\n"));
+    temp.write_pair_schema(fqn, &empty_schema(fqn));
     temp.write("crates/core/agent/src/lib.rs", "pub fn run() {}\n");
 
     let elements = [element(fqn, &["crates/core/agent/"])];
@@ -1134,8 +1315,8 @@ entry = \"crates/core/gone/src/lib.rs\"
 path = [\"crates/core/gone/\"]
 "
     ));
-    temp.write_contract(absent, &pilot_markdown(absent));
-    temp.write_contract(not_on_disk, &pilot_markdown(not_on_disk));
+    temp.write_pair(absent);
+    temp.write_pair(not_on_disk);
     // 盘上既有生成物（旧落点与新落点各一份）都 MUST NOT 充当入口证据
     temp.write("crates/core/gone.i.rs", "// 旧落点生成物\n");
     temp.write("crates/core/gone/src/lib.i.rs", "// 既有生成物\n");
@@ -1184,7 +1365,7 @@ fn render_all的index落点逐字等于入口同级派生() {
     temp.write_model(&format!(
         "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"crates/infra/archi/\"]\n"
     ));
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write(
         "crates/infra/archi/src/lib.rs",
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
@@ -1220,7 +1401,7 @@ fn render_all的目录型根落点() {
     temp.write_model(&format!(
         "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/mod/\"]\n"
     ));
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write(
         "src/mod/mod.rs",
         "pub fn run() -> String { String::new() }\n",
@@ -1268,7 +1449,7 @@ fn render_all多文件根取首条为入口() {
         "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\n\
          path = [\"app.tsx\", \"app.css\", \"main.ts\"]\n"
     ));
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write("app.tsx", "export function view(): string { return ''; }\n");
 
     let elements = [element(fqn, &paths_declared)];
@@ -1361,7 +1542,7 @@ path = [\"crates/infra/archi/\"]
 ",
     );
     let fqn = "App.Backend.Infra.ArchiRuntime";
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write(
         "crates/infra/archi/src/lib.rs",
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
@@ -1401,7 +1582,7 @@ gate = \"off\"
 ",
     );
     // 契约文件名必须与 FQN 逐字一致，故契约落在 Present 元素上
-    temp.write_contract("App.Core.Present", &pilot_markdown("App.Core.Present"));
+    temp.write_pair("App.Core.Present");
     temp.write(
         "src/alpha/lib.rs",
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
@@ -1467,10 +1648,16 @@ fn render_all的index_categories() {
         "[element.\"App.Core.Alpha\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n\n         [element.\"App.Core.Missing\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/missing/\"]\n",
     );
     let fqn = "App.Core.Alpha";
-    temp.write_contract(
+    temp.write_pair_schema(
         fqn,
-        &format!(
-            "# {fqn}\n\n```json api-types\n{{\"Alpha\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n\n             ```json api-reexport\n{{\"AgentInput\": \"App.Core.Beta\"}}\n```\n\n             ## 透传\n\n- AgentInput → App.Core.Beta\n"
+        &mirrored_schema_text(
+            fqn,
+            &format!(
+                "{}, {}",
+                r#""Alpha": {"type": "object", "properties": {}}"#,
+                reexport_def(fqn, "AgentInput", "App.Core.Beta")
+            ),
+            "",
         ),
     );
     temp.write("src/alpha/lib.rs", "pub fn f() {}\n");
@@ -1513,13 +1700,9 @@ fn render_all的index_categories() {
         index.content
     );
     // 单形状（五个 object）→ `object = 5` 且 `types = 5`（同一推导路径的第二形态）
-    temp.write_contract(
+    temp.write_pair_schema(
         fqn,
-        &format!(
-            "# {fqn}\n\n```json api-types\n{{\"A\": {{\"type\": \"object\"}}, \
-             \"B\": {{\"type\": \"object\"}}, \"C\": {{\"type\": \"object\"}}, \
-             \"D\": {{\"type\": \"object\"}}, \"E\": {{\"type\": \"object\"}}}}\n```\n"
-        ),
+        &mirrored_schema_text(fqn, r#""A": {"type": "object"}, "B": {"type": "object"}, "C": {"type": "object"}, "D": {"type": "object"}, "E": {"type": "object"}"#, ""),
     );
     let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
     let files = render_all(temp.root(), &snapshot).expect("渲染应成功");
@@ -1552,20 +1735,9 @@ path = [\"src/shapes/\"]
 ",
     );
     let fqn = "App.Core.Shapes";
-    temp.write_contract(
+    temp.write_pair_schema(
         fqn,
-        &format!(
-            "# {fqn}\n\n```json api-types\n{{\
-             \"Reexport\": {{\"$ref\": \"#/$defs/Alpha\"}}, \
-             \"Class\": {{\"x-class\": true}}, \
-             \"Variant\": {{\"oneOf\": [{{\"$ref\": \"#/$defs/Alpha\"}}]}}, \
-             \"Choice\": {{\"enum\": [\"a\", \"b\"]}}, \
-             \"Scalar\": {{\"type\": \"integer\"}}, \
-             \"Object\": {{\"type\": \"object\", \"properties\": {{}}}}, \
-             \"Both\": {{\"x-class\": true, \"oneOf\": [{{\"$ref\": \"#/$defs/Alpha\"}}]}}, \
-             \"Alpha\": {{\"type\": \"object\", \"properties\": {{}}}}\
-             }}\n```\n"
-        ),
+        &mirrored_schema_text(fqn, r##""Reexport": {"$ref": "#/$defs/Alpha"}, "Class": {"x-class": true}, "Variant": {"oneOf": [{"$ref": "#/$defs/Alpha"}]}, "Choice": {"enum": ["a", "b"]}, "Scalar": {"type": "integer"}, "Object": {"type": "object", "properties": {}}, "Both": {"x-class": true, "oneOf": [{"$ref": "#/$defs/Alpha"}]}, "Alpha": {"type": "object", "properties": {}}"##, ""),
     );
     temp.write("src/shapes/lib.rs", "pub fn f() {}\n");
 
@@ -1619,14 +1791,9 @@ path = [\"src/marked/\"]
     );
     let fqn = "App.Core.Marked";
     // 两条带词表取值 `x-common.degraded` 的定义 + 一条不带（计数只数带标记者）
-    temp.write_contract(
+    temp.write_pair_schema(
         fqn,
-        &format!(
-            "# {fqn}\n\n```json api-types\n{{\"Degraded\": {{\"type\": \"object\", \
-             \"x-common\": {{\"degraded\": \"noElement\"}}}}, \
-             \"Rejected\": {{\"type\": \"object\", \"x-common\": {{\"degraded\": \"crossLanguage\"}}}}, \
-             \"Plain\": {{\"type\": \"object\"}}}}\n```\n"
-        ),
+        &mirrored_schema_text(fqn, r#""Degraded": {"type": "object", "x-common": {"degraded": "noElement"}}, "Rejected": {"type": "object", "x-common": {"degraded": "crossLanguage"}}, "Plain": {"type": "object"}"#, ""),
     );
     temp.write("src/marked/lib.rs", "pub fn f() {}\n");
 
@@ -1649,12 +1816,9 @@ path = [\"src/marked/\"]
     );
 
     // 第二形态：同一契约去掉两条标记 → degraded = 0（键仍输出 0，不省略）
-    temp.write_contract(
+    temp.write_pair_schema(
         fqn,
-        &format!(
-            "# {fqn}\n\n```json api-types\n{{\"Degraded\": {{\"type\": \"object\"}}, \
-             \"Rejected\": {{\"type\": \"object\"}}, \"Plain\": {{\"type\": \"object\"}}}}\n```\n"
-        ),
+        &mirrored_schema_text(fqn, r#""Degraded": {"type": "object"}, "Rejected": {"type": "object"}, "Plain": {"type": "object"}"#, ""),
     );
     let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
     let files = render_all(temp.root(), &snapshot).expect("渲染应成功");
@@ -1681,7 +1845,7 @@ path = [\"src/alpha/\"]
 ",
     );
     let fqn = "App.Core.Alpha";
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write(
         "src/alpha/lib.rs",
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
@@ -1704,7 +1868,7 @@ path = [\"src/alpha/\"]
         contracts: &snapshot.contracts,
         schemas: &snapshot.schemas,
         symbols: &snapshot.symbols,
-        doc_facts: &snapshot.doc_facts,
+        doc_present: &snapshot.doc_present,
         enabled: true,
     };
     let _ = check(extra);
@@ -1765,7 +1929,7 @@ fn 结构诊断下render_all与bootstrap拒绝生成() {
              path = [\"crates/infra/archi/\"]\n"
         ),
     );
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write(
         "crates/infra/archi/src/lib.rs",
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
@@ -1800,7 +1964,7 @@ fn 结构诊断下render_all与bootstrap拒绝生成() {
 fn check未启用短路() {
     let temp = TempDir::new("check-disabled");
     let fqn = "App.Core.Alpha";
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     let elements = [element(fqn, &["src/alpha/"])];
     let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
 
@@ -1810,7 +1974,7 @@ fn check未启用短路() {
         contracts: &snapshot.contracts,
         schemas: &snapshot.schemas,
         symbols: &snapshot.symbols,
-        doc_facts: &snapshot.doc_facts,
+        doc_present: &snapshot.doc_present,
         enabled: false,
     });
     assert!(findings.is_empty(), "未启用即空集，不因数据存在而产出");
@@ -1825,17 +1989,12 @@ fn check稳定排序() {
     let temp = TempDir::new("check-sorted");
     // ① 契约声明构造器（入口可解析 ⇒ 走到一致性面）
     let constructor_fqn = "App.Core.Constructor";
-    temp.write_contract(
+    temp.write_pair_schema(
         constructor_fqn,
-        &format!(
-            "# {constructor_fqn}
-
-### new
-
-```json api-op
-{{\"params\": [], \"returns\":              {{\"type\": \"object\"}}}}
-```
-"
+        &op_schema(
+            constructor_fqn,
+            "new",
+            r#"{"params": [], "returns":              {"type": "object"}}"#,
         ),
     );
     temp.write(
@@ -1845,17 +2004,12 @@ fn check稳定排序() {
     );
     // ② 有约定无兑现：契约声明 `ghost`，代码里没有
     let missing_fqn = "App.Core.Missing";
-    temp.write_contract(
+    temp.write_pair_schema(
         missing_fqn,
-        &format!(
-            "# {missing_fqn}
-
-### ghost
-
-```json api-op
-{{\"params\": [], \"returns\":              {{\"type\": \"string\"}}}}
-```
-"
+        &op_schema(
+            missing_fqn,
+            "ghost",
+            r#"{"params": [], "returns":              {"type": "string"}}"#,
         ),
     );
     temp.write(
@@ -1865,7 +2019,7 @@ fn check稳定排序() {
     );
     // ③ 载体在盘但入口不可解析
     let entry_fqn = "App.Core.NoEntry";
-    temp.write_contract(entry_fqn, &pilot_markdown(entry_fqn));
+    temp.write_pair(entry_fqn);
     // ④ 留白之外的两份无载体元素（`docMissing`）
     temp.write(
         "src/plain/src/lib.rs",
@@ -1900,7 +2054,7 @@ fn check稳定排序() {
         contracts: &snapshot.contracts,
         schemas: &snapshot.schemas,
         symbols: &snapshot.symbols,
-        doc_facts: &snapshot.doc_facts,
+        doc_present: &snapshot.doc_present,
         enabled: true,
     };
 
@@ -1976,7 +2130,7 @@ fn check委托单点() {
         contracts: &snapshot.contracts,
         schemas: &snapshot.schemas,
         symbols: &snapshot.symbols,
-        doc_facts: &snapshot.doc_facts,
+        doc_present: &snapshot.doc_present,
         enabled: true,
     };
     let outer = check(build());
@@ -1995,419 +2149,6 @@ fn check委托单点() {
 // ---------------------------------------------------------------------------
 // bootstrap：草稿形态 / 零写盘 / 异常面
 // ---------------------------------------------------------------------------
-
-/// 正向（AC-1 / AC-12）：入口含 `pub fn a(&str) -> String` + `pub struct T` → 骨架文本
-/// H1 = FQN、六段（职能 / 不变量 / 操作 / 类型 / 边界 / 承载理由）齐在且段序单调、
-/// `### a` + `api-op` fence、一个 `api-types` fence 且键含 `T`。
-#[test]
-fn bootstrap草稿形态() {
-    let temp = TempDir::new("bootstrap-draft");
-    let fqn = "App.Core.Alpha";
-    temp.write_model(&format!(
-        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
-    ));
-    temp.write(
-        "src/alpha/src/lib.rs",
-        "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n",
-    );
-
-    let text = bootstrap(temp.root(), fqn).expect("起草应成功");
-    assert!(text.starts_with(&format!("# {fqn}")), "H1 = FQN：\n{text}");
-    assert!(text.contains("## 职能"), "含职能段：\n{text}");
-    assert!(text.contains("## 不变量"), "含不变量段：\n{text}");
-    assert!(text.contains("### a"), "含 op heading：\n{text}");
-    assert!(text.contains("```json api-op"), "含 api-op fence：\n{text}");
-    assert!(
-        text.contains("```json api-types"),
-        "含 api-types fence：\n{text}"
-    );
-    assert!(text.contains("\"T\""), "api-types 键含 T：\n{text}");
-    assert!(
-        text.contains("external") || text.contains("crateOnly") || text.contains("testOnly"),
-        "每符号附 visibility 注释：\n{text}"
-    );
-
-    // 六段骨架：新增两枚 needle + 段序单调（旧的 `## 职能` / `## 不变量` 两条仍在上方）
-    for piece in ["## 边界", "## 承载理由"] {
-        assert!(text.contains(piece), "含六段之一 `{piece}`：\n{text}");
-    }
-    let order = [
-        "## 职能",
-        "## 不变量",
-        "## 操作",
-        "## 类型",
-        "## 边界",
-        "## 承载理由",
-    ]
-    .map(|heading| {
-        text.find(heading)
-            .unwrap_or_else(|| panic!("六段缺 `{heading}`：\n{text}"))
-    });
-    assert!(
-        order.windows(2).all(|pair| pair[0] < pair[1]),
-        "段序为 职能 / 不变量 / 操作 / 类型 / 边界 / 承载理由，实际下标 {order:?}：\n{text}"
-    );
-}
-
-/// 正向（AC-1 / AC-3 组合：`api::bootstrap` → `contract::parse`）：同一夹具的草稿直喂
-/// `parse` 零错误，`sections` 的 heading 序列逐字逐序恰六段；`ops` 恰 1 条、`types` 非空、
-/// `reexports` 空（草稿 MUST NOT 自动生成 `api-reexport` fence）。
-#[test]
-fn bootstrap草稿过parse段序恰六段() {
-    let temp = TempDir::new("bootstrap-draft-parse");
-    let fqn = "App.Core.Alpha";
-    temp.write_model(&format!(
-        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
-    ));
-    temp.write(
-        "src/alpha/src/lib.rs",
-        "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n",
-    );
-
-    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
-    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("草稿应零错误装载");
-
-    let headings: Vec<&str> = contract
-        .sections
-        .iter()
-        .map(|section| section.heading.as_str())
-        .collect();
-    assert_eq!(
-        headings,
-        vec!["职能", "不变量", "操作", "类型", "边界", "承载理由"],
-        "段序逐字逐序恰六段：\n{draft}"
-    );
-    assert_eq!(contract.ops.len(), 1, "op 恰 1 条：{:#?}", contract.ops);
-    assert!(
-        !contract.types.is_empty(),
-        "`api-types` 非空（含取数面类型 `T`）"
-    );
-    assert!(
-        contract.reexports.is_empty(),
-        "草稿 MUST NOT 自动生成 `api-reexport` fence"
-    );
-}
-
-/// 正向（AC-2 / AC-3 组合：`api::bootstrap` → `contract::parse`）：说明块对解析器惰性——
-/// `reexport_prose` 空，且六段 `body` 逐个不含「作者注」与「三类 fence」（fence 内容不入
-/// 散文区，矩阵迭代 6 段）。
-#[test]
-fn bootstrap作者注不进任何散文段() {
-    let temp = TempDir::new("bootstrap-note-quarantine");
-    let fqn = "App.Core.Alpha";
-    temp.write_model(&format!(
-        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
-    ));
-    temp.write(
-        "src/alpha/src/lib.rs",
-        "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n",
-    );
-
-    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
-    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("草稿应零错误装载");
-    assert_eq!(contract.sections.len(), 6, "矩阵迭代六段");
-    assert!(
-        contract.reexport_prose.is_empty(),
-        "说明块里的透传措辞不进散文透传列表：{:?}",
-        contract.reexport_prose
-    );
-    for section in &contract.sections {
-        assert!(
-            !section.body.contains("作者注"),
-            "段 `{}` 的 body 不含作者注：{}",
-            section.heading,
-            section.body
-        );
-        assert!(
-            !section.body.contains("三类 fence"),
-            "段 `{}` 的 body 不含三类 fence 教学：{}",
-            section.heading,
-            section.body
-        );
-    }
-}
-
-/// 正向（AC-2）：作者注在文件末尾的非 `api-*` fenced 块内——末行是收尾围栏、` ```text `
-/// 恰一处且落在 `## 承载理由` 之后；块体含 `api-reexport` 形态与四要点关键词。
-#[test]
-fn bootstrap作者注在末尾非api块内() {
-    let temp = TempDir::new("bootstrap-note-position");
-    let fqn = "App.Core.Alpha";
-    temp.write_model(&format!(
-        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
-    ));
-    temp.write(
-        "src/alpha/src/lib.rs",
-        "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n",
-    );
-
-    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
-    let trimmed = draft.trim_end();
-    assert!(trimmed.ends_with("```"), "末块以收尾围栏结束：\n{draft}");
-    assert_eq!(
-        trimmed.matches("```text").count(),
-        1,
-        "语言标 `text` 的说明块恰一处（非 `api-*` 语言标）：\n{draft}"
-    );
-    let note_start = trimmed
-        .rfind("```text")
-        .unwrap_or_else(|| panic!("缺说明块：\n{draft}"));
-    let carrier = trimmed
-        .rfind("## 承载理由")
-        .unwrap_or_else(|| panic!("缺承载理由段：\n{draft}"));
-    assert!(
-        note_start > carrier,
-        "说明块落在 `## 承载理由` 之后（文件末尾）：{note_start} vs {carrier}"
-    );
-
-    let note = &trimmed[note_start..];
-    for piece in [
-        "api-op",
-        "api-types",
-        "api-reexport",
-        "{ \"导出名\": \"直接子元素 FQN\" }",
-    ] {
-        assert!(note.contains(piece), "说明块含要点 `{piece}`：\n{note}");
-    }
-    let enabled = note
-        .find("enabled")
-        .unwrap_or_else(|| panic!("说明块缺冷启动口径：\n{note}"));
-    assert!(
-        note[enabled..].contains("findings"),
-        "`enabled` 与 `findings` 同段：\n{note}"
-    );
-}
-
-/// 边界（AC-1，矩阵迭代 6 段）：六段 `body.trim()` 逐字等于占位句；逐段首字符非
-/// `-` / `*` / `|`、含 CJK、零行首 `### ` 与零 `- ` 起手（占位句不进两个抽取面）。
-#[test]
-fn bootstrap六段占位句形态() {
-    let temp = TempDir::new("bootstrap-placeholders");
-    let fqn = "App.Core.Alpha";
-    temp.write_model(&format!(
-        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
-    ));
-    temp.write(
-        "src/alpha/src/lib.rs",
-        "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n",
-    );
-
-    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
-    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("草稿应零错误装载");
-    let expected = [
-        ("职能", "（待补：一句职能）"),
-        ("不变量", "（待补）"),
-        (
-            "操作",
-            "（待补：每个操作一个三级标题 + 紧随一个 api-op fence）",
-        ),
-        (
-            "类型",
-            "（待补：本模块自有 $defs，一个 api-types fence，同文件唯一）",
-        ),
-        ("边界", "（待补：本模块**不**负责什么）"),
-        ("承载理由", "（待补：为什么它是独立元素）"),
-    ];
-    assert_eq!(contract.sections.len(), expected.len(), "矩阵迭代六段");
-    for (section, (heading, placeholder)) in contract.sections.iter().zip(expected) {
-        assert_eq!(section.heading, heading, "段序与段名逐字");
-        let body = section.body.trim();
-        assert_eq!(
-            body, placeholder,
-            "段 `{heading}` 占位句逐字：{}",
-            section.body
-        );
-        let first = body
-            .chars()
-            .next()
-            .unwrap_or_else(|| panic!("段 `{heading}` body 非空"));
-        assert!(
-            !matches!(first, '-' | '*' | '|'),
-            "段 `{heading}` 首字符不进列表 / 表格抽取面：{first:?}"
-        );
-        assert!(
-            body.chars()
-                .any(|character| ('\u{4e00}'..='\u{9fff}').contains(&character)),
-            "段 `{heading}` 占位句含 CJK：{body}"
-        );
-        assert!(
-            !section.body.contains("### "),
-            "段 `{heading}` body 零三级标题：{}",
-            section.body
-        );
-        assert!(
-            !section
-                .body
-                .lines()
-                .any(|line| line.trim_start().starts_with("- ")),
-            "段 `{heading}` body 零 `- ` 起手行：{}",
-            section.body
-        );
-    }
-}
-
-/// 边界（AC-4 组合：`api::bootstrap` → `contract::parse`）：零导出入口 → 零行首 `### `
-/// 锚点、`api-types` 为 `{}`，仍零错误装载且六段齐在（`ops` / `types` / `reexport_prose` 空）。
-#[test]
-fn bootstrap无符号元素仍六段且过parse() {
-    let temp = TempDir::new("bootstrap-empty-six-sections");
-    let fqn = "App.Frontend.Components.Agent";
-    temp.write_model(&format!(
-        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/\"]\n"
-    ));
-    temp.write("views/agent/src/lib.rs", "// 零导出\n");
-
-    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
-    assert!(
-        !draft.lines().any(|line| line.starts_with("### ")),
-        "零符号 ⇒ 零行首 op 锚点：\n{draft}"
-    );
-    assert!(
-        draft.contains("```json api-types\n{}\n```"),
-        "零符号 ⇒ api-types 为 `{{}}`：\n{draft}"
-    );
-
-    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("无符号草稿仍应零错误装载");
-    assert_eq!(contract.sections.len(), 6, "无符号场景仍六段：\n{draft}");
-    assert!(contract.ops.is_empty(), "零 op");
-    assert!(contract.types.is_empty(), "零类型");
-    assert!(contract.reexport_prose.is_empty(), "零散文透传");
-}
-
-/// 边界（两判据分叉的钉子）：有符号草稿的裸 `contains("### ")` 为真（命中说明块内的
-/// `` `### <op-id>` ``），而行首扫描只数真 op 锚点——「只有行首 `### ` 才是 op 锚点」
-/// 钉成可读锚，MUST NOT 把该断言改回 `contains`。
-#[test]
-fn bootstrap作者注含字面三级标题但非op锚点() {
-    let temp = TempDir::new("bootstrap-note-heading");
-    let fqn = "App.Core.Alpha";
-    temp.write_model(&format!(
-        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
-    ));
-    temp.write(
-        "src/alpha/src/lib.rs",
-        "pub fn a(input: &str) -> String { String::new() }\n",
-    );
-
-    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
-    assert!(
-        draft.contains("### "),
-        "说明块内的字面三级标题命中裸 contains：\n{draft}"
-    );
-    assert!(
-        draft.contains("`### <op-id>`"),
-        "命中源即说明块里的形态示例：\n{draft}"
-    );
-    assert_eq!(
-        draft
-            .lines()
-            .filter(|line| line.starts_with("### "))
-            .count(),
-        1,
-        "行首扫描只数真 op 锚点：\n{draft}"
-    );
-}
-
-/// 边界（AC-1 / AC-3，超大符号列表）：40 个 `pub fn` → 行首 op 锚点 40 条，占位段不被
-/// 挤掉（`sections.len()` 仍 6），说明块恰一个，草稿仍零错误装载。
-#[test]
-fn bootstrap四十op段数恒定() {
-    let temp = TempDir::new("bootstrap-forty-ops");
-    let fqn = "App.Core.ManyOps";
-    temp.write_model(&format!(
-        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/many/\"]\n"
-    ));
-    let source: String = (0..40)
-        .map(|index| format!("pub fn op_{index:02}(input: &str) -> String {{ String::new() }}\n"))
-        .collect();
-    temp.write("src/many/src/lib.rs", &source);
-
-    let draft = bootstrap(temp.root(), fqn).expect("起草应成功");
-    assert_eq!(
-        draft
-            .lines()
-            .filter(|line| line.starts_with("### "))
-            .count(),
-        40,
-        "四十个 op 各一条行首锚点：\n{draft}"
-    );
-    assert_eq!(
-        draft.matches("作者注（本块不参与契约解析）").count(),
-        1,
-        "说明块恰一个（不被 op 段复制）：\n{draft}"
-    );
-
-    let contract = parse(&draft, fqn, &format!("{fqn}.md")).expect("四十 op 草稿仍应零错误装载");
-    assert_eq!(contract.sections.len(), 6, "占位段不被 op 段挤掉");
-    assert_eq!(contract.ops.len(), 40, "op 数随符号数");
-}
-
-/// 正向（AC-1 / D41）：草稿的 `@ <entry>:<line>` 注记用 `Resolved.entry`——crate 形态
-/// （`<dir>/src/lib.rs`）与单文件形态（根文件自身）各一，两者都**不是**元素根串（旧
-/// `<root>:line` 形态会让注记指向目录，读不到符号位置）。
-#[test]
-fn bootstrap注记行取解析链入口() {
-    let temp = TempDir::new("bootstrap-entry-annotation");
-    let backend = "App.Backend.Infra.ArchiRuntime";
-    let frontend = "App.Frontend.Views.Welcome";
-    temp.write_model(&format!(
-        "[element.\"{backend}\"]
-kind = \"module\"
-gate = \"warn\"
-path = [\"crates/infra/archi/\"]
-
-         [element.\"{frontend}\"]
-kind = \"module\"
-gate = \"warn\"
-path = [\"views/welcome-view.tsx\"]
-"
-    ));
-    temp.write(
-        "crates/infra/archi/src/lib.rs",
-        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
-    );
-    temp.write(
-        "views/welcome-view.tsx",
-        "export function view(): string { return ''; }\n",
-    );
-
-    for (fqn, root, entry) in [
-        (
-            backend,
-            "crates/infra/archi/",
-            "crates/infra/archi/src/lib.rs",
-        ),
-        (frontend, "views/welcome-view.tsx", "views/welcome-view.tsx"),
-    ] {
-        let elements = [element(fqn, &[root])];
-        assert_eq!(
-            paths::entry_state(temp.root(), &elements, &elements[0]),
-            paths::EntryState::Resolved {
-                form: if root.ends_with('/') {
-                    paths::EntryForm::Crate
-                } else {
-                    paths::EntryForm::SingleFile
-                },
-                entry: entry.to_owned(),
-            },
-            "解析链结论（注记的真值源）：{fqn}"
-        );
-        let text = bootstrap(temp.root(), fqn).expect("起草应成功");
-        assert!(
-            text.contains(&format!(" @ {entry}:1")),
-            "注记行用 `Resolved.entry`（{entry}），不是元素根 `{root}`：
-{text}"
-        );
-        // 根与入口不同的形态（crate）才可分辨：回落成元素根串会让注记指向目录
-        if root != entry {
-            assert!(
-                !text.contains(&format!(" @ {root}:")),
-                "注记行 MUST NOT 回落到元素根串（`{root}`）：
-{text}"
-            );
-        }
-    }
-}
 
 /// 边界（AC-12）：调用前后 tempdir 全量字节快照相等（零写盘）；入口解析链全不命中 →
 /// `Err(ApiError::Element(..))` 且文案含 FQN。
@@ -2443,99 +2184,141 @@ fn bootstrap只出字符串() {
     );
 }
 
-/// 边界（D19-b 留白 / S-10）：骨架文本中每符号的注记行只含 `visibility @ <entry>:<line>`
-/// 形态，**零 `used_by` / 「引用方」字段**（本期留白，补齐需 import 反向图）；且草稿的
-/// 候选符号集与 `extract_element` 的输出符号集逐项相等（共用取数面，零第二套抽取）。
+/// 正向（AC-7 / D-14）：`bootstrap` 返回 `BootstrapDrafts { schema, doc }` 双草稿——schema
+/// 可直接过写闸（每 op 一项 `x-function`、`description` 为空串、`$comment` 为写者纪律注、
+/// `$id` 与文件名同形）；doc 只有 H1 + 一句，零 `##` 段名、零 fence。
 #[test]
-fn bootstrap不产used_by() {
-    let temp = TempDir::new("bootstrap-no-used-by");
+fn 双草稿可直接落盘() {
+    let temp = TempDir::new("bootstrap-drafts");
     let fqn = "App.Core.Alpha";
     temp.write_model(&format!(
         "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
     ));
     temp.write(
         "src/alpha/src/lib.rs",
-        "pub struct Thing;\npub fn alpha(input: &str) -> String {\n    String::new()\n}\n",
+        "pub fn run(input: &str) -> String { String::new() }\npub struct Config;\n",
     );
 
-    let text = bootstrap(temp.root(), fqn).expect("起草应成功");
+    let drafts = bootstrap(temp.root(), fqn).expect("起草应成功");
 
-    // 否定断言：`used_by` / 「引用方」本期留白（S-10）
+    // schema：与写闸同一入口校验即可通过（草稿即过闸）
+    let contract =
+        crate::api::schema::validate_schema(fqn, &drafts.schema).expect("草稿 MUST 直接过写闸");
+    assert_eq!(contract.fqn, fqn, "草稿的 FQN = 入参");
     assert!(
-        !text.contains("used_by"),
-        "骨架 MUST NOT 产出 `used_by`（D19-b 留白）：\n{text}"
+        contract.ops.iter().any(|op| op.id == "run"),
+        "函数符号落 properties：{:?}",
+        contract
+            .ops
+            .iter()
+            .map(|op| op.id.as_str())
+            .collect::<Vec<_>>()
     );
     assert!(
-        !text.contains("引用方"),
-        "骨架 MUST NOT 产出「引用方」字段：\n{text}"
+        contract.types.contains_key("Config"),
+        "类型符号落 `$defs`：{:?}",
+        contract.types.keys().collect::<Vec<_>>()
     );
+
+    let value: Value = serde_json::from_str(&drafts.schema).expect("草稿是合法 JSON");
+    for key in ["$schema", "$id", "title", "$comment", "$defs", "properties"] {
+        assert!(value.get(key).is_some(), "骨架六顶层键齐备（缺 {key}）");
+    }
+    assert_eq!(
+        value["$comment"].as_str(),
+        Some(super::SCHEMA_WRITER_NOTICE),
+        "`$comment` 取写者纪律注（与 `GENERATED_NOTICE` 分家）"
+    );
+    assert_eq!(
+        value["properties"]["run"]["x-function"]["description"].as_str(),
+        Some(""),
+        "`description` 落空串（零「待补」提示语）"
+    );
+
+    // doc：H1 + 一句，零段名零 fence
     assert!(
-        !text.contains("usedBy"),
-        "骨架 MUST NOT 产出 `usedBy`（camelCase 变体同禁）：\n{text}"
+        drafts.doc.starts_with(&format!("# {fqn}\n")),
+        "doc 骨架以 H1 起头：{:?}",
+        drafts.doc
+    );
+    assert_eq!(
+        drafts
+            .doc
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count(),
+        2,
+        "doc 骨架只有 H1 与一句指引：{:?}",
+        drafts.doc
+    );
+    assert!(!drafts.doc.contains("## "), "零段名：{:?}", drafts.doc);
+    assert!(!drafts.doc.contains("```"), "零 fence：{:?}", drafts.doc);
+}
+
+/// 边界（AC-7）：元素无可抽取符号 ⇒ `$defs {}` + `properties {}` 两空对象且仍过写闸；
+/// doc 仍两行形态（零段名）。
+#[test]
+fn 留白写空schema() {
+    let temp = TempDir::new("bootstrap-empty");
+    let fqn = "App.Core.Empty";
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/empty/\"]\n"
+    ));
+    temp.write("src/empty/src/lib.rs", "fn private() {}\n");
+
+    let drafts = bootstrap(temp.root(), fqn).expect("零符号仍可起草");
+    let contract =
+        crate::api::schema::validate_schema(fqn, &drafts.schema).expect("空骨架仍过写闸");
+    assert!(contract.ops.is_empty(), "零 op");
+    assert!(contract.types.is_empty(), "零类型");
+    assert!(contract.reexports.is_empty(), "零透传");
+
+    let value: Value = serde_json::from_str(&drafts.schema).expect("合法 JSON");
+    assert_eq!(value["$defs"], serde_json::json!({}), "`$defs` 空对象");
+    assert_eq!(
+        value["properties"],
+        serde_json::json!({}),
+        "`properties` 空对象"
+    );
+    assert_eq!(
+        drafts
+            .doc
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count(),
+        2,
+        "留白形态的 doc 仍只两行"
+    );
+}
+
+/// 边界（AC-6 类型面）：`BootstrapDrafts` 两字段声明序 `schema` → `doc`；`ApiSnapshot` 的
+/// 文档事实收成单布尔 `doc_present: BTreeMap<String, bool>`，`DocFact` / `doc_facts` 零残留。
+#[test]
+fn 载体事实收成单布尔() {
+    let source = include_str!("mod.rs");
+    let drafts = source
+        .split_once("pub struct BootstrapDrafts {")
+        .expect("`BootstrapDrafts` 在案")
+        .1
+        .split_once("\n}\n")
+        .expect("结构体收口")
+        .0;
+    let schema_pos = drafts.find("pub schema: String").expect("`schema` 字段");
+    let doc_pos = drafts.find("pub doc: String").expect("`doc` 字段");
+    assert!(
+        schema_pos < doc_pos,
+        "字段声明序 `schema` → `doc`：{drafts}"
     );
 
-    // 正例：注记行只含 `visibility @ <entry>:<line>` 形态，visibility 取自封闭词表
-    let annotations: Vec<&str> = text
-        .lines()
-        .filter(|line| line.trim_start().starts_with("<!--"))
-        .collect();
-    assert!(!annotations.is_empty(), "每 op 附一条注记行：\n{text}");
-    for annotation in &annotations {
-        assert!(
-            annotation.contains(" @ "),
-            "注记行形态为 `visibility @ file:line`：{annotation}"
-        );
-        assert!(
-            Visibility::ALL
-                .iter()
-                .any(|value| annotation.contains(value.as_str())),
-            "注记行的 visibility 取自封闭四值词表：{annotation}"
-        );
-    }
-    let type_notes: Vec<&str> = text
-        .lines()
-        .filter(|line| line.contains("待剪枝："))
-        .collect();
-    assert!(!type_notes.is_empty(), "类型条目附位置注记：\n{text}");
-    for note in &type_notes {
-        assert!(
-            note.contains(" @ ") && note.contains(':'),
-            "类型注记含 `@ file:line` 位置线索：{note}"
-        );
-        assert!(
-            Visibility::ALL
-                .iter()
-                .any(|value| note.contains(value.as_str())),
-            "类型注记的 visibility 取自封闭四值词表：{note}"
-        );
-    }
-
-    // 两向对拍：草稿候选符号集 ≡ extract_element 的符号集
-    let elements = [element(fqn, &["src/alpha/"])];
-    let symbols =
-        extract::extract_element(temp.root(), &elements, &elements[0], "src/alpha/src/lib.rs");
-    let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
-    assert_eq!(names, vec!["Thing", "alpha"], "取数面符号集：{names:?}");
-    let ops: Vec<&str> = symbols
-        .iter()
-        .filter(|symbol| symbol.kind == extract::ApiSymbolKind::Function)
-        .filter(|symbol| !crate::api::contract::is_constructor(&symbol.name))
-        .map(|symbol| symbol.name.as_str())
-        .collect();
-    for op in &ops {
-        assert!(
-            text.contains(&format!("### {op}")),
-            "草稿含 op `{op}`：\n{text}"
-        );
-    }
-    for symbol in symbols
-        .iter()
-        .filter(|symbol| symbol.kind != extract::ApiSymbolKind::Function)
-    {
-        assert!(
-            text.contains(&format!("\"{}\"", symbol.name)),
-            "草稿 api-types 含取数面类型 `{}`：\n{text}",
-            symbol.name
+    assert!(
+        source.contains("pub doc_present: BTreeMap<String, bool>"),
+        "`ApiSnapshot` 的文档事实是单布尔表"
+    );
+    for retired in ["DocFact", "doc_facts"] {
+        assert_eq!(
+            source.matches(retired).count(),
+            0,
+            "`{retired}` 已随载体事实收面退役"
         );
     }
 }
@@ -2598,8 +2381,8 @@ path = []
                 "Absent 文案点明未声明：{message}"
             );
             assert!(
-                message.contains("无法起草契约"),
-                "文案收口到「无法起草契约」：{message}"
+                message.contains("无法起草接口定义"),
+                "文案收口到「无法起草接口定义」：{message}"
             );
         }
         other => panic!("{dir_root} 应报 Element 错误，实际：{other:?}"),
@@ -2697,13 +2480,13 @@ path = [\"src/gamma/\"]
 // api_ref：双层投影口径
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-10 / D22）：md 在案 → `status == Declared`；三路径均为 repo 相对 POSIX 串，
-/// 且分别以 `.md` / `.schema.json` / `.i.rs` 结尾；`schema` / `.i` 尚未生成时仍给路径串。
+/// 正向（D-11）：三路径**各自按自身在盘事实**出线——文档与接口都在盘 ⇒ 两条路径都出，
+/// 生成物路径是入口的函数（即便 `.i.rs` 尚未生成也给路径串）；`status` 只认接口文件。
 #[test]
 fn api_ref_declared三路径() {
     let temp = TempDir::new("api-ref-declared");
     let fqn = "App.Backend.Infra.ArchiRuntime";
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write_model(&format!(
         "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"crates/infra/archi/\"]\n"
     ));
@@ -2711,12 +2494,16 @@ fn api_ref_declared三路径() {
     temp.write("crates/infra/archi/src/lib.rs", "pub fn f() {}\n");
 
     let reference = api_ref(temp.root(), fqn);
-    assert_eq!(reference.status, ApiStatus::Declared, "md 在案 → declared");
+    assert_eq!(
+        reference.status,
+        ApiStatus::Declared,
+        "schema 在盘 → declared"
+    );
 
-    let contract_path = reference.contract_path.expect("契约路径应有");
+    let contract_path = reference.contract_path.expect("文档路径应有");
     assert!(
         contract_path.ends_with(".md"),
-        "契约路径以 .md 结尾：{contract_path}"
+        "文档路径以 .md 结尾：{contract_path}"
     );
     assert!(
         !contract_path.starts_with("./"),
@@ -2724,10 +2511,10 @@ fn api_ref_declared三路径() {
     );
     assert!(!contract_path.contains('\\'), "POSIX 分隔：{contract_path}");
 
-    let schema_path = reference.schema_path.expect("schema 路径应有");
+    let schema_path = reference.schema_path.expect("接口路径应有");
     assert!(
         schema_path.ends_with(".schema.json"),
-        "schema 路径形态：{schema_path}"
+        "接口路径形态：{schema_path}"
     );
 
     let generated_path = reference.generated_path.expect("生成物路径应有");
@@ -2736,14 +2523,13 @@ fn api_ref_declared三路径() {
         "Rust 元素的生成物以 .i.rs 结尾：{generated_path}"
     );
 
-    // `schema` 与 `.i` 尚未生成时仍给路径串（记录应生成物）
     assert!(
-        !temp.root().join(&schema_path).exists(),
-        "schema 尚未生成但路径已给"
+        temp.root().join(&schema_path).is_file(),
+        "接口路径对应盘上文件（在盘才出线）"
     );
     assert!(
         !temp.root().join(&generated_path).exists(),
-        "生成物尚未生成但路径已给"
+        "生成物尚未生成但路径已给（记录应生成物）"
     );
 }
 
@@ -2754,7 +2540,7 @@ fn api_ref_declared三路径() {
 fn api_ref两形态同源() {
     let temp = TempDir::new("api-ref-two-forms");
     let fqn = "App.Backend.Infra.ArchiRuntime";
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write_model(&format!(
         "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"./crates/infra/archi/\"]\n"
     ));
@@ -2767,7 +2553,7 @@ fn api_ref两形态同源() {
 
     // 容器元素（`path` 空）但 md 在案
     let container_fqn = "App.Backend.Infra";
-    temp.write_contract(container_fqn, &pilot_markdown(container_fqn));
+    temp.write_pair(container_fqn);
     let container_element = element(container_fqn, &[]);
     let container = super::api_ref_of(
         temp.root(),
@@ -2797,8 +2583,8 @@ fn api_ref元素缺席仍报契约事实() {
         "src/alpha/src/lib.rs",
         "pub fn a() -> String { String::new() }\n",
     );
-    temp.write_contract(absent_fqn, &pilot_markdown(absent_fqn));
-    temp.write_contract(declared_fqn, &pilot_markdown(declared_fqn));
+    temp.write_pair(absent_fqn);
+    temp.write_pair(declared_fqn);
 
     let absent = api_ref(temp.root(), absent_fqn);
     assert_eq!(
@@ -2833,7 +2619,7 @@ fn api_ref元素缺席仍报契约事实() {
         "src/ghost/src/lib.rs",
         "pub fn ghost() -> String { String::new() }\n",
     );
-    broken.write_contract(absent_fqn, &pilot_markdown(absent_fqn));
+    broken.write_pair(absent_fqn);
 
     let stopped = api_ref(broken.root(), absent_fqn);
     assert_eq!(
@@ -2883,7 +2669,7 @@ fn api_ref为none时三路径全空() {
 fn api_ref_of元素形态边界() {
     let temp = TempDir::new("api-ref-of-edges");
     let fqn = "App.Backend.Infra.ArchiRuntime";
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write("crates/infra/archi/src/lib.rs", "pub fn f() {}\n");
     temp.write("crates/core/other/src/lib.rs", "pub fn g() {}\n");
 
@@ -2942,7 +2728,7 @@ fn api_ref_of入口缺席与非法均无生成物路径() {
     let malformed_fqn = "App.Core.Malformed";
     let not_on_disk_fqn = "App.Core.Missing";
     for fqn in [absent_fqn, malformed_fqn, not_on_disk_fqn] {
-        temp.write_contract(fqn, &pilot_markdown(fqn));
+        temp.write_pair(fqn);
     }
     // `Absent` 侧：`src/absent/` 下四个约定候选全不落盘；`Invalid` 侧：同目录 `src/lib.rs`
     // 在盘，但两条 `Invalid` 都不受它影响
@@ -3005,8 +2791,8 @@ fn api_ref_of元素与表不同源互不污染() {
     let temp = TempDir::new("api-ref-of-foreign-element");
     let ghost_fqn = "App.Core.Ghost";
     let shared_fqn = "App.Backend.Infra.ArchiRuntime";
-    temp.write_contract(ghost_fqn, &pilot_markdown(ghost_fqn));
-    temp.write_contract(shared_fqn, &pilot_markdown(shared_fqn));
+    temp.write_pair(ghost_fqn);
+    temp.write_pair(shared_fqn);
     temp.write(
         "src/ghost/src/lib.rs",
         "pub fn g() -> String { String::new() }\n",
@@ -3090,7 +2876,7 @@ path = [\"crates/infra/archi/\"]
 ",
     );
     let fqn = "App.Backend.Infra.ArchiRuntime";
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write(
         "crates/infra/archi/src/lib.rs",
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
@@ -3176,10 +2962,6 @@ fn meta三常量形态() {
     );
 }
 
-/// 边界（D12 幂等）：连续两次 `meta()` 逐字段相等（同载元即同生成物，`api:check` 零
-/// diff 的前提）；`schema` / `emit` / `INDEX` 三处产出物都从**同一份载元**派生——`schema`
-/// 的 `$comment` 逐字等于 `meta.generated_notice`、`emit` 与 `INDEX` 的工具版本行与摘要
-/// 短串**逐字相同**（零第二份载元来源）。
 #[test]
 fn meta幂等且三处产出物载元一致() {
     let first = meta();
@@ -3195,7 +2977,7 @@ fn meta幂等且三处产出物载元一致() {
         "[element.\"App.Backend.Infra.ArchiRuntime\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"crates/infra/archi/\"]\n",
     );
     let fqn = "App.Backend.Infra.ArchiRuntime";
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write(
         "crates/infra/archi/src/lib.rs",
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
@@ -3210,16 +2992,12 @@ fn meta幂等且三处产出物载元一致() {
     let (algorithm, hex) = digest.split_once(':').expect("摘要含算法前缀");
     let short = format!("{algorithm}:{}", &hex[..12]);
 
-    let schema_file = files
-        .iter()
-        .find(|file| file.path == paths::schema_path(temp.root(), fqn).expect("合法 FQN"))
-        .expect("schema 在案");
+    // 接口文件是**手写真相**，不在应生成集（让它进来等于每次 generate 覆写手写内容）
     assert!(
-        schema_file
-            .content
-            .contains(&format!("\"$comment\": \"{}\"", meta().generated_notice)),
-        "schema 的 $comment 逐字取同一份载元的 generated_notice：\n{}",
-        schema_file.content
+        !files
+            .iter()
+            .any(|file| file.path == paths::schema_path(temp.root(), fqn).expect("合法 FQN")),
+        "`.schema.json` 零生成（三类产物之外）"
     );
 
     let index_file = files
@@ -3250,6 +3028,11 @@ fn meta幂等且三处产出物载元一致() {
             "{label} 含同一摘要短串 `{short}`：\n{text}"
         );
     }
+    assert!(
+        module_file.content.contains(meta().generated_notice),
+        "`.i.rs` 头注释逐字取同一份载元的 generated_notice：\n{}",
+        module_file.content
+    );
 }
 
 /// 异常（AC-12）：`meta()` 纯计算零 IO 零 spawn——调用前后 tempdir 全量字节快照相等；
@@ -3263,7 +3046,7 @@ fn meta零io零spawn() {
         "# 模型占位\n",
     );
     temp.write(".dev-team/architecture/graph/INDEX.toml", "# 索引占位\n");
-    temp.write_contract("App.Core.Alpha", &pilot_markdown("App.Core.Alpha"));
+    temp.write_pair("App.Core.Alpha");
 
     let before = temp.snapshot();
     let meta = meta();
@@ -3374,13 +3157,22 @@ fn reexport_target只认外部文件引用() {
         );
     }
 
-    // 源码自证：后缀常量单点持有（`SCHEMA_FILE_SUFFIX` 与 `paths::schema_path` 同源）
+    // 源码自证：后缀剥法单点在 `paths::schema_fqn`（`mod.rs` 只委托，零第二份切分）
+    let paths_source = include_str!("paths.rs");
+    assert_eq!(
+        paths_source
+            .matches("strip_suffix(SCHEMA_FILE_SUFFIX)")
+            .count(),
+        1,
+        "后缀剥法单点（`paths::schema_fqn`）"
+    );
     let source = include_str!("mod.rs");
     assert_eq!(
-        source.matches("strip_suffix(SCHEMA_FILE_SUFFIX)").count(),
+        source.matches("paths::schema_fqn(").count(),
         1,
-        "后缀剥法单点"
+        "`mod.rs` 经 `paths::schema_fqn` 反查（零自写后缀切分）"
     );
+    assert!(!source.contains("strip_suffix("), "`mod.rs` 内零后缀切分");
     for (file, text) in [
         ("check.rs", include_str!("check.rs")),
         ("emit/rust.rs", include_str!("emit/rust.rs")),
@@ -3562,24 +3354,31 @@ fn display跨crate单点面() {
     );
 }
 
-/// 边界：`parse` + `build_schema` + `verify` + `verify_defs` 的整链在试点形态上通过（跨模块
-/// 组合用例挂靠本节）。
+/// 边界：`validate_schema` 的整链（九道闸 + 投影）在试点形态上通过（跨模块组合用例挂靠
+/// 本节）；同一份文本经 `validate_schema` 后 `Contract` 的四段与 `$id` 逐字可读。
 #[test]
 fn 整链路装配通过() {
-    let meta = meta();
-    let contract = parse(
-        &pilot_markdown(FQN_PILOT),
-        FQN_PILOT,
-        &format!("Infra/{FQN_PILOT}.md"),
-    )
-    .expect("解析应成功");
-    let schema: Value = super::schema::build_schema(&contract, &meta).expect("装配应成功");
-    super::contract::verify(&contract, &schema).expect("双向 gate 应通过");
-    super::schema::verify_defs(&schema).expect("$defs 规则应通过");
+    let contract =
+        super::schema::validate_schema(FQN_PILOT, &pilot_schema(FQN_PILOT)).expect("校验应成功");
+    assert_eq!(contract.fqn, FQN_PILOT);
+    assert_eq!(contract.title, FQN_PILOT);
     assert_eq!(
-        schema["$id"],
-        serde_json::json!(format!("{FQN_PILOT}.schema.json"))
+        contract.file,
+        format!("{FQN_PILOT}.schema.json"),
+        "`Contract.file` 缺省取文件名（装载期再覆写为 repo 相对路径）"
     );
+    assert_eq!(contract.ops.len(), 1, "一个操作（`file_stem`）");
+    assert_eq!(contract.ops[0].id, "file_stem");
+    assert_eq!(
+        contract.ops[0].line, 0,
+        "接口定义无条目级行号（位置未知口径）"
+    );
+    assert!(
+        contract.ops[0].signature.get("description").is_none(),
+        "投影丢弃 `description`"
+    );
+    assert_eq!(contract.types.len(), 1, "一个本地类型（`LocalArchiCheck`）");
+    assert!(contract.reexports.is_empty(), "零透传");
 }
 
 /// 试点 FQN（整链用例）。
@@ -3650,14 +3449,17 @@ fn render_all拒绝关键字末段的rust透传目标() {
          [element.\"{valid_target}\"]\nkind = \"module\"\ngate = \"warn\"\n\
          path = [\"crates/core/foundation/\"]\n"
     ));
-    temp.write_contract(
+    temp.write_pair_schema(
         consumer,
-        &format!(
-            "# {consumer}\n\n## 职能\n\n正文。\n\n\
-             ```json api-reexport\n{{\"Loop\": \"{keyword_target}\", \
-             \"Base\": \"{valid_target}\"}}\n```\n\n\
-             ## 透传\n\n- Loop → {keyword_target}\n- Base → {valid_target}\n\n\
-             ```json api-types\n{{\"Thing\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+        &mirrored_schema_text(
+            consumer,
+            &format!(
+                "{}, {}, {}",
+                reexport_def(consumer, "Loop", keyword_target),
+                reexport_def(consumer, "Base", valid_target),
+                r#""Thing": {"type": "object", "properties": {}}"#
+            ),
+            "",
         ),
     );
     temp.write(
@@ -3771,7 +3573,7 @@ fn render_all的emit_target三值构造() {
         "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\n\
          path = [\"crates/infra/archi/\"]\n"
     ));
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write(
         "crates/infra/archi/src/lib.rs",
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
@@ -3805,27 +3607,16 @@ gate = \"warn\"
 "
     );
     temp.write_model(&model);
-    temp.write_contract(
+    temp.write_pair_schema(
         consumer,
-        &format!(
-            "# {consumer}
-
-## 职能
-
-正文。
-
-             ```json api-reexport
-{{\"AgentInput\": \"{target}\"}}
-```
-
-             ## 透传
-
-- AgentInput → {target}
-
-             ```json api-types
-{{\"Thing\": {{\"type\": \"object\", \"properties\": {{}}}}}}
-```
-"
+        &mirrored_schema_text(
+            consumer,
+            &format!(
+                "{}, {}",
+                reexport_def(consumer, "AgentInput", target),
+                r#""Thing": {"type": "object", "properties": {}}"#
+            ),
+            "",
         ),
     );
     temp.write(
@@ -3888,27 +3679,16 @@ gate = \"warn\"
          path = [\"views/consumer.tsx\"]
 "
     ));
-    bare_temp.write_contract(
+    bare_temp.write_pair_schema(
         consumer,
-        &format!(
-            "# {consumer}
-
-## 职能
-
-正文。
-
-             ```json api-reexport
-{{\"AgentInput\": \"{target}\"}}
-```
-
-             ## 透传
-
-- AgentInput → {target}
-
-             ```json api-types
-{{\"Thing\": {{\"type\": \"object\", \"properties\": {{}}}}}}
-```
-"
+        &mirrored_schema_text(
+            consumer,
+            &format!(
+                "{}, {}",
+                reexport_def(consumer, "AgentInput", target),
+                r#""Thing": {"type": "object", "properties": {}}"#
+            ),
+            "",
         ),
     );
     bare_temp.write(
@@ -4008,44 +3788,6 @@ fn api出口面归零且判据可判红() {
     assert!(
         lib.contains("pub use api::display"),
         "跨 crate 单点仍由 crate 根出口（D55）"
-    );
-}
-
-/// 边界（**D39 / D52**）：`bootstrap` 不读 knip、不产 `unused`——源码自证 `api/mod.rs` 内
-/// `knip` **零命中**、只经 `extract_element` 取数（`extract::extract(` 零调用）；行为面：
-/// 草稿文本内零 `unused` 词（`Visibility::Unused` 生产面不可达）。
-#[test]
-fn bootstrap不读knip且不产unused() {
-    let source = include_str!("mod.rs");
-    assert_eq!(
-        source.matches("knip").count(),
-        0,
-        "`api/mod.rs` 内零 `knip`（降级接口本期未接线，D39）"
-    );
-    assert_eq!(
-        source.matches("extract::extract(").count(),
-        0,
-        "`api/mod.rs` 内零 `extract::extract(` 调用（唯一取数面是 `extract_element`）"
-    );
-    assert!(
-        source.contains("extract::extract_element("),
-        "取数面经 `extract_element`（判据与草稿同源）"
-    );
-
-    // 行为面：草稿文本零 `unused` 词
-    let temp = TempDir::new("bootstrap-no-unused");
-    let fqn = "App.Core.Alpha";
-    temp.write_model(&format!(
-        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
-    ));
-    temp.write(
-        "src/alpha/src/lib.rs",
-        "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n",
-    );
-    let text = bootstrap(temp.root(), fqn).expect("起草应成功");
-    assert!(
-        !text.contains("unused"),
-        "草稿文本零 `unused`（`Visibility::Unused` 生产面不可达）：\n{text}"
     );
 }
 
@@ -4176,13 +3918,11 @@ fn load_contracts的资产复核与解析点共用一函数() {
 
 /// 纳管语料契约源文：1 op `count_all`（**返回位声明为 `integer`**，与代码的 `String` 不符）
 /// + 1 类型。用于驱动一条 `apiSignatureMismatch`（纳管子集的语料前提）。
-fn mismatch_markdown(fqn: &str) -> String {
-    format!(
-        "# {fqn}\n\n## 职能\n\n纳管语料。\n\n## 不变量\n\n写盘不阻断结论。\n\n## 操作\n\n\
-         ### count_all\n\n```json api-op\n{{\"owner\": \"LocalCheck\", \
-         \"params\": [{{\"name\": \"input\", \"schema\": {{\"type\": \"string\"}}}}], \
-         \"returns\": {{\"type\": \"integer\"}}}}\n```\n\n## 类型\n\n```json api-types\n\
-         {{\"LocalCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+fn mismatch_schema(fqn: &str) -> String {
+    mirrored_schema_text(
+        fqn,
+        r#""LocalCheck": {"type": "object", "properties": {}}"#,
+        r#""count_all": { "x-function": {"owner": "LocalCheck", "params": [{"name": "input", "schema": {"type": "string"}}], "returns": {"type": "integer"}} }"#,
     )
 }
 
@@ -4203,8 +3943,6 @@ fn api_finding(element: Option<&str>, kind: ArchiApiFindingKind) -> ArchiApiFind
     }
 }
 
-/// 正向（AC-3 / D5）：一份「不符 + 缺 + 孤儿」语料 → `artifact_check` 的三列与
-/// `diff::compare` 逐列相等；`enabled == api::enabled(root)`。
 #[test]
 fn artifact_check三列与compare逐列相等() {
     let temp = TempDir::new("artifact-check-eq");
@@ -4213,7 +3951,7 @@ fn artifact_check三列与compare逐列相等() {
         "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\n\
          path = [\"crates/infra/archi/\"]\n"
     ));
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write(
         "crates/infra/archi/src/lib.rs",
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
@@ -4222,8 +3960,14 @@ fn artifact_check三列与compare逐列相等() {
     for file in &expected {
         temp.write_absolute(&file.path, &file.content);
     }
-    let schema = paths::schema_path(temp.root(), fqn).expect("合法 FQN");
-    temp.write_absolute(&schema, "{\"tampered\": 1}\n");
+    // 制造三列：改一份 `.i.rs`（不符）/ 删索引（缺失）/ 散落一份孤儿 `.i.rs`
+    let generated = paths::generated_path(
+        temp.root(),
+        "crates/infra/archi/src/lib.rs",
+        paths::GeneratedKind::Rust,
+    )
+    .expect("Rust 生成物路径");
+    temp.write_absolute(&generated, "// 被手改的生成物\n");
     let index = paths::index_path(temp.root());
     std::fs::remove_file(&index).expect("删索引制造缺失");
     temp.write("src/loose.i.rs", "// 孤儿\n");
@@ -4240,6 +3984,20 @@ fn artifact_check三列与compare逐列相等() {
         "enabled 同源"
     );
     assert_eq!(dto.orphaned, vec!["src/loose.i.rs".to_owned()], "孤儿一条");
+    // 手写接口文件不在孤儿枚举面（进枚举即「全红」）
+    let schema_rel = super::display(
+        temp.root(),
+        &paths::schema_path(temp.root(), fqn).expect("合法 FQN"),
+    );
+    assert!(
+        !dto.orphaned.contains(&schema_rel) && !dto.mismatched.contains(&schema_rel),
+        "`<FQN>.schema.json` 不进三列：{dto:?}"
+    );
+    assert_eq!(
+        dto.mismatched,
+        vec![super::display(temp.root(), &generated)],
+        "mismatched 恰是被手改的生成物"
+    );
 }
 
 /// 正向（AC-3 / D5 / spec「DTO 形状」）：`meta` 投影——`toolVersion` 取 crate 版本、
@@ -4349,7 +4107,7 @@ fn artifact_check零差异的成功态() {
         "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\n\
          path = [\"crates/infra/archi/\"]\n"
     ));
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
     temp.write(
         "crates/infra/archi/src/lib.rs",
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
@@ -4370,7 +4128,7 @@ fn artifact_check零差异的成功态() {
 fn gating_findings契约在案的declared元素判据入选() {
     let temp = TempDir::new("gating-hit");
     let fqn = "App.Core.Alpha";
-    temp.write_contract(fqn, "# App.Core.Alpha\n");
+    temp.write_pair_schema(fqn, &empty_schema(fqn));
     let elements = [element(fqn, &["src/alpha/"])];
     let findings = vec![
         api_finding(Some(fqn), ArchiApiFindingKind::ApiMissing),
@@ -4396,7 +4154,7 @@ fn gating_findings无契约文件落选() {
         "契约 md 缺席 ⇒ 落选"
     );
 
-    temp.write_contract(fqn, "# App.Core.Alpha\n");
+    temp.write_pair_schema(fqn, &empty_schema(fqn));
     assert_eq!(
         super::gating_findings(temp.root(), &elements, &findings).len(),
         1,
@@ -4404,28 +4162,29 @@ fn gating_findings无契约文件落选() {
     );
 }
 
-/// 正向（纳管口径两支）：`api = none` 元素以 `doc` 声明为承诺——声明在案即纳管
-/// （`docNotFound` 判的正是「声明指不到盘」），未声明则 `docMissing` 永不纳管。
+/// 正向（纳管口径单支）：`api = declared` ∧ schema 在盘 ⇒ 承诺已成立 ⇒ 纳管；
+/// `api = none` 元素即便 schema 在盘也不纳管（留白违约是判据面的债，不是承诺未兑现）。
 #[test]
-fn gating_findings留白元素声明即承诺() {
-    let temp = TempDir::new("gating-none-declared");
+fn gating_findings留白元素不纳管() {
+    let temp = TempDir::new("gating-none-no-gate");
     let fqn = "App.Core.Blank";
-    temp.write_contract(fqn, &format!("# {fqn}\n"));
-    let mut declared_doc = element(fqn, &["src/x/"]);
-    declared_doc.api = ApiStatus::None;
-    declared_doc.doc = Some("guides/nowhere.md".to_owned());
-    let findings = vec![api_finding(Some(fqn), ArchiApiFindingKind::DocNotFound)];
-    assert_eq!(
-        super::gating_findings(temp.root(), std::slice::from_ref(&declared_doc), &findings).len(),
-        1,
-        "留白元素声明了 doc ⇒ 承诺已成立（即便指不到盘）⇒ 纳管"
+    temp.write_schema(fqn, &pilot_schema(fqn));
+    let mut blank = element(fqn, &["src/x/"]);
+    blank.api = ApiStatus::None;
+    blank.doc = Some("guides/nowhere.md".to_owned());
+    let findings = vec![api_finding(Some(fqn), ArchiApiFindingKind::ApiUnexpected)];
+    assert!(
+        super::gating_findings(temp.root(), std::slice::from_ref(&blank), &findings).is_empty(),
+        "`api = none` 带 schema 不纳管（`apiUnexpected` 是留白违约，warn 且不进 status）"
     );
 
-    let mut undeclared = element(fqn, &["src/x/"]);
-    undeclared.api = ApiStatus::None;
-    assert!(
-        super::gating_findings(temp.root(), &[undeclared], &findings).is_empty(),
-        "留白元素未声明 doc ⇒ 无承诺 ⇒ docMissing 落选"
+    let mut declared = element(fqn, &["src/x/"]);
+    declared.api = ApiStatus::Declared;
+    declared.doc = None;
+    assert_eq!(
+        super::gating_findings(temp.root(), std::slice::from_ref(&declared), &findings).len(),
+        1,
+        "改 `declared` 后同一判据入选（接口文件已在盘）"
     );
 }
 
@@ -4435,7 +4194,7 @@ fn gating_findings留白元素声明即承诺() {
 fn gating_findings元素归属为none落选() {
     let temp = TempDir::new("gating-none-element");
     let fqn = "App.Core.Alpha";
-    temp.write_contract(fqn, "# App.Core.Alpha\n");
+    temp.write_pair_schema(fqn, &empty_schema(fqn));
     let elements = [element(fqn, &["src/alpha/"])];
     let findings = vec![
         api_finding(None, ArchiApiFindingKind::ApiMissing),
@@ -4476,7 +4235,7 @@ fn gating_findings超大列表与去重稳定() {
     let temp = TempDir::new("gating-large");
     let hit = "App.Core.Hit";
     let miss = "App.Core.Miss";
-    temp.write_contract(hit, "# App.Core.Hit\n");
+    temp.write_pair_schema(hit, &empty_schema(hit));
     let elements = [element(hit, &["src/hit/"]), element(miss, &["src/miss/"])];
     let findings: Vec<ArchiApiFinding> = (0..1000)
         .map(|index| {
@@ -4506,7 +4265,7 @@ fn findings正常装配产出判据() {
     temp.write_model(&format!(
         "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
     ));
-    temp.write_contract(fqn, &mismatch_markdown(fqn));
+    temp.write_pair_schema(fqn, &mismatch_schema(fqn));
     // 入口形态取 `<element_root>/src/lib.rs`（`entry_form` 的 crate 分支）：缺入口会被
     // ① 结构前提抢先判成 `apiEntryMissing`，签名判据就无从产出
     temp.write("src/alpha/src/lib.rs", MISMATCH_SOURCE);
@@ -4529,7 +4288,7 @@ fn findings正常装配产出判据() {
         contracts: &snapshot.contracts,
         schemas: &snapshot.schemas,
         symbols: &snapshot.symbols,
-        doc_facts: &snapshot.doc_facts,
+        doc_present: &snapshot.doc_present,
         enabled: true,
     });
     assert_eq!(findings, direct, "与判据单点逐字段相等");
@@ -4560,14 +4319,10 @@ fn findings未启用短路() {
         .split_once("\n}\n")
         .expect("函数体收口")
         .0;
-    assert!(
-        !body.contains("enabled(root"),
-        "零独立启用判定（`enabled` 由快照事实派生）：\n{body}"
-    );
     assert_eq!(
-        body.matches("facts_enabled(&snapshot.doc_facts)").count(),
+        body.matches("enabled(root, elements)").count(),
         1,
-        "启用判据经唯一本体（同一份 `doc_facts`）：\n{body}"
+        "启用判据经唯一本体 `enabled`（零第二份判定）：\n{body}"
     );
     assert_eq!(
         body.matches("load_contracts(root, elements)?").count(),
@@ -4576,44 +4331,26 @@ fn findings未启用短路() {
     );
 }
 
-/// 异常（AC-6 / D7 错误映射）：非法 JSON fence / 缺 H1 标题 / 非法 UTF-8 字节任一 → `Err`
-/// （MUST NOT 静默跳过坏契约）。
 #[test]
 fn findings契约非法即err() {
-    let cases: [(&str, &str); 2] = [
-        (
-            "非法 fence",
-            "# App.Core.Alpha\n\n## 类型\n\n```json api-types\n{不是 JSON}\n```\n",
-        ),
-        (
-            "缺 H1 标题",
-            "## 类型\n\n```json api-types\n{\"Item\": {\"type\": \"object\"}}\n```\n",
-        ),
-    ];
-    for (tag, markdown) in cases {
-        let temp = TempDir::new("findings-broken-contract");
-        let fqn = "App.Core.Alpha";
-        temp.write_contract(fqn, markdown);
-        let elements = [element(fqn, &["src/alpha/"])];
-        let error = super::findings(temp.root(), &elements).expect_err(&format!("{tag}：应 Err"));
-        assert!(
-            matches!(
-                error,
-                ApiError::Contract(_) | ApiError::Io(_) | ApiError::Element(_)
-            ),
-            "{tag}：错误面在封闭三值内，实际：{error:?}"
-        );
-        assert!(!error.message().is_empty(), "{tag}：文案非空");
-    }
-
-    let temp = TempDir::new("findings-bad-utf8");
+    let temp = TempDir::new("findings-bad-json");
     let fqn = "App.Core.Alpha";
-    let contract = paths::contract_path(temp.root(), fqn).expect("合法 FQN");
-    fs::create_dir_all(contract.parent().expect("父目录")).expect("建契约目录");
-    fs::write(&contract, [0xff, 0xfe, 0xfd]).expect("写非法字节");
-    let error = super::findings(temp.root(), &[element(fqn, &["src/alpha/"])])
-        .expect_err("非法 UTF-8 ⇒ Err");
-    assert!(matches!(error, ApiError::Io(_)), "读盘错误面：{error:?}");
+    temp.write_schema(fqn, "{\n  \"$id\": \"App.Core.Alpha.schema.json\"\n}\n");
+    temp.write(
+        "src/alpha/src/lib.rs",
+        "pub fn a() -> String { String::new() }\n",
+    );
+    let error =
+        findings(temp.root(), &[element(fqn, &["src/alpha/"])]).expect_err("非法接口文件：应 Err");
+    assert!(
+        matches!(error, ApiError::Contract(_)),
+        "非法接口归 Contract：{error:?}"
+    );
+    assert!(
+        error.message().contains("App.Core.Alpha.schema.json"),
+        "文案点名文件：{}",
+        error.message()
+    );
 }
 
 /// 异常（AC-6 / D7）：`mod.rs` 自证装配单点——三新函数各恰一处、`is_file` 只出现在
@@ -4645,13 +4382,13 @@ fn findings装配单点与子模块声明序() {
         .expect("函数体收口")
         .0;
     assert!(
-        gating.contains("is_file()"),
-        "契约文件在案的判据在 gating_findings 内"
+        gating.contains("schema_on_disk("),
+        "接口文件在案的判据经 `schema_on_disk`（`gating_findings` 内）"
     );
     assert_eq!(
-        gating.matches("is_file()").count(),
+        gating.matches("schema_on_disk(").count(),
         1,
-        "筛单点内只有一处契约文件在案判据"
+        "筛单点内只有一处接口文件在案判据"
     );
 
     let contract = source.find("pub mod contract;").expect("contract 声明");
@@ -4741,11 +4478,9 @@ fn rehearsal_types() -> &'static str {
 }"##
 }
 
-/// 演练草案形态的契约源文（H1 = `fqn`，类型段取 [`rehearsal_types`]）。
-fn rehearsal_markdown(fqn: &str) -> String {
-    format!("# {fqn}\n\n## 职能\n\nagent 会话组件的统一出口。\n\n## 类型\n\n```json api-types\n")
-        + rehearsal_types()
-        + "\n```\n"
+/// 演练草案形态的接口定义（`$defs` 取 [`rehearsal_types`]，零 op）。
+fn rehearsal_schema(fqn: &str) -> String {
+    mirrored_schema_text(fqn, rehearsal_types(), "")
 }
 
 /// 落一个 Rust 元素（模型 + 实现入口 + 可选契约），返回其元素投影。
@@ -4754,7 +4489,7 @@ fn write_element(temp: &TempDir, fqn: &str, root: &str, contract: Option<&str>) 
         "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"{root}\"]\n"
     ));
     if let Some(content) = contract {
-        temp.write_contract(fqn, content);
+        temp.write_pair_schema(fqn, content);
     }
     temp.write(&format!("{root}src/lib.rs"), "pub fn f() {}\n");
     element(fqn, &[root])
@@ -4781,7 +4516,7 @@ fn index_degraded计全深度标记出现次数() {
         &temp,
         fqn,
         "src/agent/",
-        Some(&rehearsal_markdown(fqn)),
+        Some(&rehearsal_schema(fqn)),
     )];
 
     let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
@@ -4807,9 +4542,10 @@ fn load_contracts拒收非法degraded取值() {
     for (label, value) in [("词表外值", "\"typo\""), ("非字符串值", "true")] {
         let temp = TempDir::new("load-illegal-degraded");
         let fqn = "App.Core.Marked";
-        let contract = format!(
-            "# {fqn}\n\n```json api-types\n{{\"W\": {{\"type\": \"object\", \
-             \"x-common\": {{\"degraded\": {value}}}}}}}\n```\n"
+        let contract = mirrored_schema_text(
+            fqn,
+            &format!(r#""W": {{"type": "object", "x-common": {{"degraded": {value}}}}}"#),
+            "",
         );
         let elements = [write_element(&temp, fqn, "src/marked/", Some(&contract))];
 
@@ -4847,7 +4583,7 @@ fn index_degraded零标记与仅note() {
     for (label, types) in cases {
         let temp = TempDir::new("index-degraded-zero");
         let fqn = "App.Core.Plain";
-        let contract = format!("# {fqn}\n\n```json api-types\n{types}\n```\n");
+        let contract = mirrored_schema_text(fqn, types, "");
         let elements = [write_element(&temp, fqn, "src/plain/", Some(&contract))];
 
         let snapshot = load_contracts(temp.root(), &elements)
@@ -4866,14 +4602,10 @@ fn index_degraded零标记与仅note() {
 fn index_degraded累加且渲染幂等() {
     let temp = TempDir::new("index-degraded-sum");
     let fqn = "App.Core.Deep";
-    let contract = format!(
-        "# {fqn}\n\n```json api-types\n{{\"W\": {{\"type\": \"object\", \
-         \"x-common\": {{\"degraded\": \"noElement\"}}, \
-         \"properties\": {{\
-         \"deep\": {{\"type\": \"object\", \"x-common\": {{\"degraded\": \"foreignElement\"}}}}, \
-         \"send\": {{\"x-function\": {{\"params\": [{{\"name\": \"input\", \"schema\": \
-         {{\"x-common\": {{\"degraded\": \"crossLanguage\"}}}}}}], \"returns\": \
-         {{\"type\": \"boolean\"}}}}}}}}}}}}\n```\n"
+    let contract = mirrored_schema_text(
+        fqn,
+        r#""W": {"type": "object", "x-common": {"degraded": "noElement"}, "properties": {"deep": {"type": "object", "x-common": {"degraded": "foreignElement"}}, "send": {"x-function": {"params": [{"name": "input", "schema": {"x-common": {"degraded": "crossLanguage"}}}], "returns": {"type": "boolean"}}}}}"#,
+        "",
     );
     let elements = [write_element(&temp, fqn, "src/deep/", Some(&contract))];
 
@@ -4934,7 +4666,7 @@ fn index与生成物对现网契约零回归() {
         &temp,
         fqn,
         "crates/infra/archi/",
-        Some(&pilot_markdown(fqn)),
+        Some(&pilot_schema(fqn)),
     )];
 
     let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
@@ -4951,17 +4683,17 @@ fn index与生成物对现网契约零回归() {
         );
     }
 
-    let schema = files
-        .iter()
-        .find(|file| file.path == paths::schema_path(temp.root(), fqn).expect("合法 FQN"))
-        .expect("schema 生成物在案");
-    for forbidden in ["\"null\"", "anyOf", "oneOf"] {
-        assert!(
-            !schema.content.contains(forbidden),
-            "现网 schema 零 nullable 形态（`{forbidden}` 零命中）：\n{}",
-            schema.content
-        );
-    }
+    // 手写接口文件不进应生成集：三类生成物之外零 `.schema.json`
+    assert!(
+        !files.iter().any(|file| {
+            file.path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".schema.json"))
+        }),
+        "运行期零 `.schema.json` 产出：{:?}",
+        files.iter().map(|file| &file.path).collect::<Vec<_>>()
+    );
 
     let generated = files
         .iter()
@@ -5077,157 +4809,15 @@ fn closure_elements() -> Vec<ArchiElement> {
 
 /// 合成 barrel 的契约源文：2 个 op + 2 个 `$defs` 类型（均在闭包符号集内）。
 fn closure_contract(fqn: &str) -> String {
-    format!(
-        "# {fqn}\n\n## 职能\n\n合成语料。\n\n## 不变量\n\n无。\n\n## 操作\n\n\
-         ### useAgentInput\n\n```json api-op\n\
-         {{\"params\": [], \"returns\": {{\"type\": \"boolean\"}}}}\n```\n\n\
-         ### useSession\n\n```json api-op\n\
-         {{\"params\": [], \"returns\": {{\"type\": \"boolean\"}}}}\n```\n\n\
-         ## 类型\n\n```json api-types\n\
-         {{\"AgentInputProps\": {{\"type\": \"object\", \"properties\": {{}}}},\
-         \"MessageList\": {{\"type\": \"array\", \"items\": {{\"type\": \"string\"}}}}}}\n```\n"
+    mirrored_schema_text(
+        fqn,
+        r#""AgentInputProps": {"type": "object", "properties": {}},"MessageList": {"type": "array", "items": {"type": "string"}}"#,
+        &format!(
+            "{}, {}",
+            r#""useAgentInput": { "x-function": {"params": [], "returns": {"type": "boolean"}} }"#,
+            r#""useSession": { "x-function": {"params": [], "returns": {"type": "boolean"}} }"#
+        ),
     )
-}
-
-/// 正向（AC-5）：TS 元素（文件型 `path`，入口 barrel 一跳）⇒ 注记 `@ <目标文件>:<line>`；
-/// MUST NOT 出现 `@ <入口 index.ts>:<line>` 形态。
-#[test]
-fn bootstrap注记ts一跳指向定义文件() {
-    let temp = TempDir::new("bootstrap-ts-hop");
-    let fqn = "App.Frontend.Components.Agent";
-    temp.write_model(&format!(
-        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/\"]\n"
-    ));
-    temp.write(
-        "views/agent/index.ts",
-        "export { useAgentInput } from './input/agent-input';\n",
-    );
-    temp.write(
-        "views/agent/input/agent-input.ts",
-        "// 头部注释\nexport function useAgentInput(): boolean { return true; }\n",
-    );
-
-    let text = bootstrap(temp.root(), fqn).expect("起草应成功");
-    assert!(
-        text.contains("<!-- external @ views/agent/input/agent-input.ts:2 -->"),
-        "注记指向闭包一跳后的定义文件与行：\n{text}"
-    );
-    assert!(
-        !text.contains(" @ views/agent/index.ts:"),
-        "注记 MUST NOT 回落成入口串（入口不是定义处）：\n{text}"
-    );
-}
-
-/// 正向（AC-5）：Rust 元素子模块内的 `pub fn` ⇒ 注记指向**子模块文件**（不再是入口串，
-/// 病灶三的反向判据）。
-#[test]
-fn bootstrap注记rust子模块指向子模块文件() {
-    let temp = TempDir::new("bootstrap-rust-submodule");
-    let fqn = "App.Core.X";
-    temp.write_model(&format!(
-        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"crates/x/\"]\n"
-    ));
-    temp.write("crates/x/src/lib.rs", "mod op;\npub use op::run;\n");
-    temp.write(
-        "crates/x/src/op.rs",
-        "pub fn run(input: &str) -> String {\n    String::new()\n}\n",
-    );
-
-    let text = bootstrap(temp.root(), fqn).expect("起草应成功");
-    assert!(
-        text.contains("<!-- external @ crates/x/src/op.rs:1 -->"),
-        "注记指向子模块文件（`ApiSymbol.file` 是真值源）：\n{text}"
-    );
-    assert!(
-        !text.contains(" @ crates/x/src/lib.rs:"),
-        "注记 MUST NOT 写成入口串（子模块实现不在入口文件里）：\n{text}"
-    );
-}
-
-/// 正向（AC-1 / AC-5）：合成 barrel（父元素 + 4 子元素 + 6 条有效 re-export，含同目标
-/// 两语句形态，另加 1 条跨元素被拒）⇒ 草稿的 `### <op>` 集与 `api-types` 键集 == 闭包
-/// 符号集（3 op + 4 类型 = 7 名），未导出的 `*Props` 零命中，类型注记同样取 `symbol.file`。
-#[test]
-fn bootstrap组合闭包草稿名单() {
-    let temp = TempDir::new("bootstrap-closure");
-    write_closure_barrel(&temp);
-
-    let elements = closure_elements();
-    let symbols =
-        extract::extract_element(temp.root(), &elements, &elements[0], "views/agent/index.ts");
-    let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
-    assert_eq!(
-        names,
-        vec![
-            "useAgentInput",
-            "AgentInputProps",
-            "useSession",
-            "SessionPanelState",
-            "SessionPanelActions",
-            "AgentMessages",
-            "MessageList"
-        ],
-        "闭包符号集 = 3 op + 4 类型：{symbols:?}"
-    );
-    assert!(
-        !names
-            .iter()
-            .any(|name| name.ends_with("Props") && *name != "AgentInputProps"),
-        "未导出的 `*Props` 零命中：{names:?}"
-    );
-
-    let text = bootstrap(temp.root(), CLOSURE_AGENT).expect("起草应成功");
-    for op in ["useAgentInput", "useSession", "AgentMessages"] {
-        assert!(
-            text.contains(&format!("### {op}")),
-            "草稿含 op `{op}`：\n{text}"
-        );
-    }
-    assert_eq!(
-        text.lines().filter(|line| line.starts_with("### ")).count(),
-        3,
-        "草稿 op 集恰 3 条（行首锚点扫描，说明块里的 `### <op-id>` 不计）：\n{text}"
-    );
-    for absent in ["### Other", "### AgentInputExtraProps"] {
-        assert!(
-            !text.contains(absent),
-            "跨元素条目零命中：`{absent}`\n{text}"
-        );
-    }
-    for expected in [
-        "\"AgentInputProps\"",
-        "\"SessionPanelState\"",
-        "\"SessionPanelActions\"",
-        "\"MessageList\"",
-    ] {
-        assert!(
-            text.contains(expected),
-            "草稿 api-types 含闭包类型 `{expected}`：\n{text}"
-        );
-    }
-    assert!(
-        !text.contains("AgentInputExtraProps"),
-        "未在名单里的类型不进草稿：\n{text}"
-    );
-    assert_eq!(
-        text.matches("\"note\": \"待剪枝").count(),
-        4,
-        "类型条数 = 闭包类型数：\n{text}"
-    );
-
-    // 类型注记取 `symbol.file`（不是入口串）
-    assert!(
-        text.contains("待剪枝：类型 @ views/agent/input/agent-input.ts:2"),
-        "类型注记指向定义文件与行：\n{text}"
-    );
-    assert!(
-        text.contains("待剪枝：类型 @ views/agent/messages/agent-messages.ts:2"),
-        "同名符号的 `file:line` 与 op 注记同源：\n{text}"
-    );
-    assert!(
-        !text.contains("@ views/agent/index.ts:"),
-        "注记面 MUST NOT 出现入口串：\n{text}"
-    );
 }
 
 /// 正向（AC-5 / AC-8 组合链路）：对有契约文件的 TS barrel 元素跑 `load_contracts` ⇒
@@ -5237,7 +4827,7 @@ fn bootstrap组合闭包草稿名单() {
 fn load_contracts组合闭包取数面() {
     let temp = TempDir::new("load-closure-symbols");
     write_closure_barrel(&temp);
-    temp.write_contract(CLOSURE_AGENT, &closure_contract(CLOSURE_AGENT));
+    temp.write_pair_schema(CLOSURE_AGENT, &closure_contract(CLOSURE_AGENT));
 
     let elements = closure_elements();
     let snapshot = load_contracts(temp.root(), &elements).expect("全链应成功");
@@ -5259,7 +4849,7 @@ fn load_contracts组合闭包取数面() {
 fn findings组合闭包只减不增() {
     let temp = TempDir::new("findings-closure");
     write_closure_barrel(&temp);
-    temp.write_contract(CLOSURE_AGENT, &closure_contract(CLOSURE_AGENT));
+    temp.write_pair_schema(CLOSURE_AGENT, &closure_contract(CLOSURE_AGENT));
 
     let elements = closure_elements();
     let found = findings(temp.root(), &elements).expect("判据装配应成功");
@@ -5296,9 +4886,9 @@ fn findings组合闭包只减不增() {
     }
 }
 
-/// 边界（AC-5 注记面）：`api/mod.rs` 内 `@ {entry}` 与 `@ 入口` 零命中；`symbol.file`
-/// 写出点恰 2 处（op 注记 + 类型注记）；`bootstrap_text` 签名 `(fqn, symbols)`（无
-/// `entry` 形参）；`bootstrap` 公开签名逐字不变。
+/// 边界（AC-5 注记面）：`api/mod.rs` 内 `@ {entry}` 与 `@ 入口` 零命中；骨架由
+/// `schema_draft(fqn, symbols)` 与 `doc_draft(fqn)` 两段拼装（`bootstrap_text` / 段模板常量
+/// 已随双草稿退役）；`bootstrap` 公开签名改返回 [`BootstrapDrafts`]。
 #[test]
 fn 注记面entry退出源码自证() {
     let source = include_str!("mod.rs");
@@ -5308,24 +4898,31 @@ fn 注记面entry退出源码自证() {
             "注记面 MUST NOT 用入口串拼接：`{forbidden}`"
         );
     }
+    // 骨架由 `schema_draft` / `doc_draft` 两段拼装（`bootstrap_text` 已随双草稿退役）
     assert_eq!(
-        source.matches("symbol.file").count(),
-        2,
-        "`symbol.file` 写出点恰 2 处（op 注记 + 类型注记）"
+        source
+            .matches("fn schema_draft(fqn: &str, symbols: &[ApiSymbol]) -> String")
+            .count(),
+        1,
+        "`schema_draft` 形参为 `(fqn, symbols)`（`entry` 退出）"
+    );
+    assert_eq!(
+        source.matches("fn doc_draft(fqn: &str) -> String").count(),
+        1,
+        "`doc_draft` 只吃 FQN（文档无结构、零符号依赖）"
     );
     assert_eq!(
         source
-            .matches("fn bootstrap_text(fqn: &str, symbols: &[ApiSymbol])")
+            .matches(
+                "pub fn bootstrap(root: &Path, element: &str) -> Result<BootstrapDrafts, ApiError>"
+            )
             .count(),
         1,
-        "`bootstrap_text` 形参为 `(fqn, symbols)`（`entry` 退出）"
+        "`bootstrap` 返回双草稿"
     );
-    assert_eq!(
-        source
-            .matches("pub fn bootstrap(root: &Path, element: &str) -> Result<String, ApiError>")
-            .count(),
-        1,
-        "`bootstrap` 公开签名逐字不变"
+    assert!(
+        !source.contains("BootstrapNote") && !source.contains("BOOTSTRAP_NOTE"),
+        "段模板常量已退役"
     );
 }
 
@@ -5346,51 +4943,6 @@ fn bootstrap与element_symbols调用点机械锚() {
     assert!(
         source.contains("extract::extract_element(root, &elements, found, &entry)"),
         "`bootstrap` 传元素表与元素（逐字）"
-    );
-}
-
-/// 边界（空符号集草稿，逐值迭代 2 值）：入口零导出 / barrel 目标全被拒 ⇒ 零 `###`、
-/// `api-types` 为 `{}`（草稿形态回归，零 panic）。
-#[test]
-fn bootstrap空符号集草稿() {
-    let empty_entry = TempDir::new("bootstrap-empty-entry");
-    let fqn = "App.Frontend.Components.Agent";
-    empty_entry.write_model(&format!(
-        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/\"]\n"
-    ));
-    empty_entry.write("views/agent/src/lib.rs", "// 零导出\n");
-    let text = bootstrap(empty_entry.root(), fqn).expect("起草应成功");
-    assert!(
-        !text.lines().any(|line| line.starts_with("### ")),
-        "零符号 ⇒ 零行首 op 锚点（说明块里的 `### <op-id>` 不是锚点）：\n{text}"
-    );
-    assert!(
-        text.contains("```json api-types\n{}\n```"),
-        "零符号 ⇒ api-types 为 `{{}}`：\n{text}"
-    );
-
-    let rejected = TempDir::new("bootstrap-empty-closure");
-    rejected.write_model(&format!(
-        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/\"]\n\n\
-         [element.\"App.Frontend.Components.Sibling\"]\nkind = \"module\"\ngate = \"warn\"\n\
-         path = [\"views/sibling/\"]\n"
-    ));
-    rejected.write(
-        "views/agent/index.ts",
-        "export { siblingOp } from '../sibling/o';\n",
-    );
-    rejected.write(
-        "views/sibling/o.ts",
-        "export function siblingOp(): string { return ''; }\n",
-    );
-    let text = bootstrap(rejected.root(), fqn).expect("起草应成功");
-    assert!(
-        !text.lines().any(|line| line.starts_with("### ")),
-        "目标归属另一个元素 ⇒ 全拒、零行首 op 锚点：\n{text}"
-    );
-    assert!(
-        text.contains("```json api-types\n{}\n```"),
-        "全拒 ⇒ api-types 为 `{{}}`：\n{text}"
     );
 }
 
@@ -5448,7 +5000,7 @@ fn enabled模型与契约混居与冷启动态() {
         "[element.\"App\"]\nkind = \"package\"\n",
     );
     let fqn = "App.Backend.Infra.ArchiRuntime";
-    mixed.write_contract(fqn, &pilot_markdown(fqn));
+    mixed.write_pair(fqn);
     let carriers = [element(fqn, &["crates/infra/archi/"])];
     assert!(
         enabled(mixed.root(), &carriers),
@@ -5465,30 +5017,41 @@ fn enabled模型与契约混居与冷启动态() {
     );
 }
 
-/// 边界（AC-4 单点判定自证）：启用判据本体只在私有 `facts_enabled` 一处，`enabled`
-/// 与 `findings` 都调它（MUST NOT 各判一套）；载体装配只在 `doc_facts` 一处。
+/// 边界（D-5 单点判定自证）：启用判据本体只在 `enabled` 一处（`schema_path` + `is_file`，
+/// 零 `contract_path`）；`artifact_check` 与 `findings` 各恰一处调用它；旧 fence 面判据零残留。
 #[test]
 fn enabled判定单点自证() {
     let source = include_str!("mod.rs");
-    assert_eq!(
-        source.matches("fn facts_enabled(").count(),
-        1,
-        "启用判定本体恰一处"
-    );
-    assert_eq!(
-        source.matches("facts_enabled(&").count(),
-        2,
-        "`enabled` 与 `findings` 同经本体（两处调用，零第三处）"
-    );
-    assert_eq!(
-        source.matches("fn doc_facts(").count(),
-        1,
-        "载体事实装配恰一处"
+    let start = source.find("pub fn enabled(").expect("`enabled` 在案");
+    let rest = &source[start..];
+    let end = rest.find("\n}\n").expect("函数体收尾");
+    let body = &rest[..end];
+    assert!(
+        body.contains("schema_on_disk("),
+        "启用判据本体经 `schema_on_disk` 单点：{body}"
     );
     assert!(
-        !source.contains("has_markdown") && !source.contains("MARKDOWN_SUFFIX"),
-        "旧「递归任意 *.md」判据已整体退役"
+        !body.contains("contract_path("),
+        "文档在盘与否零参与（`docMissing` 永不纳管）：{body}"
     );
+    for retired in ["has_api_fence", "facts_enabled", "doc_facts"] {
+        assert_eq!(
+            source.matches(retired).count(),
+            0,
+            "旧判据 `{retired}` 已整体退役"
+        );
+    }
+    // 两处消费方各恰一处调用（生成预览 + 判据装配），零第三处
+    for caller in ["artifact_check", "findings"] {
+        let start = source.find(&format!("pub fn {caller}(")).expect("函数在案");
+        let rest = &source[start..];
+        let end = rest.find("\n}\n").expect("函数体收尾");
+        assert_eq!(
+            rest[..end].matches("enabled(root").count(),
+            1,
+            "`{caller}` 恰好经 `enabled` 一次"
+        );
+    }
 }
 
 /// 正向（AC-4 读数守恒）：契约 md 与模型 toml 同住 `models/`（md 在 `<分层目录…>/` 子目录）
@@ -5505,7 +5068,7 @@ fn load_contracts双身份混居仍出三表() {
         "crates/infra/archi/src/lib.rs",
         "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
     );
-    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write_pair(fqn);
 
     let elements = [element(fqn, &["crates/infra/archi/"])];
     assert!(
@@ -5540,11 +5103,12 @@ fn findings计数与模型文件混居无关() {
     // 含 `api-types` fence 且类型在代码在案：声明集已兑现 ⇒ 该元素零判据，同时把契约面
     // 置为启用（否则 `enabled == false` 一律空集）。
     temp.write("src/alpha/src/lib.rs", "pub struct LocalCheck;\n");
-    temp.write_contract(
+    temp.write_pair_schema(
         with_contract,
-        &format!(
-            "# {with_contract}\n\n## 职能\n\n口径示例。\n\n## 类型\n\n```json api-types\n\
-             {{\"LocalCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+        &mirrored_schema_text(
+            with_contract,
+            r#""LocalCheck": {"type": "object", "properties": {}}"#,
+            "",
         ),
     );
 
@@ -5619,11 +5183,12 @@ fn findings离线可推读数四十四减二减一() {
     }
     let in_place = "App.Core.E00";
     temp.write("src/e00/src/lib.rs", "pub struct LocalCheck;\n");
-    temp.write_contract(
+    temp.write_pair_schema(
         in_place,
-        &format!(
-            "# {in_place}\n\n## 职能\n\n口径示例。\n\n## 类型\n\n```json api-types\n\
-             {{\"LocalCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+        &mirrored_schema_text(
+            in_place,
+            r#""LocalCheck": {"type": "object", "properties": {}}"#,
+            "",
         ),
     );
 
@@ -5701,355 +5266,45 @@ fn findings离线可推读数四十四减二减一() {
 }
 
 // ===========================================================================
-// 载体事实三态（`DocFact`）与启用判据的 fence 精度
-//
-// `doc_facts` 是「入口文档载体在盘 / 含不含 api fence」的唯一装配点：启用判据与
-// `docMissing` / `docNotFound` / `apiDocMissing` 三条判据都只读这张表。
+// 启用判据：`<FQN>.schema.json` 在盘
 // ===========================================================================
 
-use super::{doc_facts, DocFact};
-
-/// 正向：三态互斥且穷尽——留白未声明 → `Absent`；载体不在盘 → `Missing`；在盘含
-/// `api-op` / `api-types` → `Present { true }`；在盘零 fence → `Present { false }`。
-#[test]
-fn doc_facts三态装配互斥且穷尽() {
-    let temp = TempDir::new("doc-facts-three-states");
-
-    let mut absent = element("App.Core.Absent", &["src/a/"]);
-    absent.api = ApiStatus::None;
-
-    let missing_declared = element("App.Core.MissingDeclared", &["src/m/"]);
-    let mut missing_none = element("App.Core.MissingNone", &["src/n/"]);
-    missing_none.api = ApiStatus::None;
-    missing_none.doc = Some("guides/nowhere.md".to_owned());
-
-    let with_op = element("App.Core.WithOp", &["src/op/"]);
-    temp.write_contract(
-        "App.Core.WithOp",
-        "# App.Core.WithOp\n\n```json api-op\n{\"params\": [], \"returns\": {\"type\": \"string\"}}\n```\n",
-    );
-    let with_types = element("App.Core.WithTypes", &["src/types/"]);
-    temp.write_contract(
-        "App.Core.WithTypes",
-        "# App.Core.WithTypes\n\n```json api-types\n{\"T\": {\"type\": \"object\"}}\n```\n",
-    );
-    let no_fence = element("App.Core.NoFence", &["src/plain/"]);
-    temp.write_contract(
-        "App.Core.NoFence",
-        "# App.Core.NoFence\n\n## 职能\n\n正文。\n",
-    );
-
-    let elements = vec![
-        absent,
-        missing_declared,
-        missing_none,
-        with_op,
-        with_types,
-        no_fence,
-    ];
-    let facts = doc_facts(temp.root(), &elements);
-
-    assert_eq!(facts.len(), elements.len(), "每个 path 非空元素一档事实");
-    assert_eq!(
-        facts.get("App.Core.Absent"),
-        Some(&DocFact::Absent),
-        "留白未声明 ⇒ Absent"
-    );
-    assert_eq!(
-        facts.get("App.Core.MissingDeclared"),
-        Some(&DocFact::Missing),
-        "declared 载体不在盘 ⇒ Missing（已派生，不是 Absent）"
-    );
-    assert_eq!(
-        facts.get("App.Core.MissingNone"),
-        Some(&DocFact::Missing),
-        "none 已声明但指不到盘 ⇒ Missing"
-    );
-    assert_eq!(
-        facts.get("App.Core.WithOp"),
-        Some(&DocFact::Present {
-            has_api_fence: true
-        }),
-        "在盘含 api-op ⇒ Present(true)"
-    );
-    assert_eq!(
-        facts.get("App.Core.WithTypes"),
-        Some(&DocFact::Present {
-            has_api_fence: true
-        }),
-        "在盘含 api-types ⇒ Present(true)"
-    );
-    assert_eq!(
-        facts.get("App.Core.NoFence"),
-        Some(&DocFact::Present {
-            has_api_fence: false
-        }),
-        "在盘零 fence ⇒ Present(false)"
-    );
-}
-
-/// 异常：载体存在但不可读（非法 UTF-8 / 目录占位）**不打成 `Err`**——启用判定是探针。
-#[test]
-fn doc_facts不可读载体不打成err() {
-    let temp = TempDir::new("doc-facts-unreadable");
-    let fqn = "App.Core.Binary";
-    let carrier = paths::contract_path(temp.root(), fqn).expect("FQN 恒合法");
-    fs::create_dir_all(carrier.parent().expect("契约目录")).expect("建契约目录");
-    fs::write(&carrier, [0xff_u8, 0xfe, 0xfd]).expect("写非法 UTF-8 契约");
-
-    let facts = doc_facts(temp.root(), &[element(fqn, &["src/b/"])]);
-    assert_eq!(
-        facts.get(fqn),
-        Some(&DocFact::Present {
-            has_api_fence: false
-        }),
-        "读失败按「无 fence」处置（不得整条 Err）"
-    );
-
-    // 目录占位同名路径：不是文件 ⇒ Missing（`is_file` 判据），同样不打成 Err
-    let dir_temp = TempDir::new("doc-facts-dir");
-    let dir_fqn = "App.Core.Dir";
-    let dir_carrier = paths::contract_path(dir_temp.root(), dir_fqn).expect("FQN 恒合法");
-    fs::create_dir_all(&dir_carrier).expect("建同名目录");
-    let dir_facts = doc_facts(dir_temp.root(), &[element(dir_fqn, &["src/d/"])]);
-    assert_eq!(
-        dir_facts.get(dir_fqn),
-        Some(&DocFact::Missing),
-        "同名目录不是载体文件"
-    );
-}
-
-/// 边界：零元素 / `path` 空元素不装配；重复元素以 FQN 为键幂等；`declared` 支即便
-/// 投影带了 `doc` 也按派生 `contract_path` 装配（`doc` 在该支不参与）。
-#[test]
-fn doc_facts边界_空表与path空与键幂等与declared支不读doc() {
-    let temp = TempDir::new("doc-facts-boundary");
-    assert!(
-        doc_facts(temp.root(), &[]).is_empty(),
-        "零元素 ⇒ 空表（零读盘、零 panic）"
-    );
-
-    let mut container = element("App", &[]);
-    container.api = ApiStatus::None;
-    container.doc = Some("guides/entry.md".to_owned());
-    assert!(
-        doc_facts(temp.root(), &[container]).is_empty(),
-        "path 空元素不入载体装配"
-    );
-
-    let fqn = "App.Core.Dup";
-    temp.write_contract(fqn, "# App.Core.Dup\n");
-    let facts = doc_facts(
-        temp.root(),
-        &[element(fqn, &["src/x/"]), element(fqn, &["src/y/"])],
-    );
-    assert_eq!(facts.len(), 1, "同一 FQN 重复出现 ⇒ 单键（BTreeMap 幂等）");
-
-    // declared 支：投影里的 `doc` 指着一份带 fence 的真实文件，但载体仍是派生契约落点
-    let mut declared = element("App.Core.DocIgnored", &["src/di/"]);
-    temp.write("guides/declared-doc.md", "```json api-op\n{}\n```\n");
-    declared.doc = Some("guides/declared-doc.md".to_owned());
-    let declared_facts = doc_facts(temp.root(), &[declared]);
-    assert_eq!(
-        declared_facts.get("App.Core.DocIgnored"),
-        Some(&DocFact::Missing),
-        "declared 支只认派生契约落点（`doc` 不参与装配）"
-    );
-}
-/// 边界：fence 判据精度——info string 按空白 / 逗号切 token；散文提及、大写变体、
-/// `~~~` 围栏都不构成启用证据。
-#[test]
-fn doc_facts边界_fence判据精度() {
-    let cases = [
-        ("json api-op", true, "```json api-op"),
-        ("api-op", true, "```api-op"),
-        ("api-types,api-op", true, "逗号分隔同判"),
-        ("API-OP", false, "大小写不构成语言标"),
-        ("json", false, "普通代码块不是 api fence"),
-    ];
-    for (index, (info, expected, note)) in cases.into_iter().enumerate() {
-        let temp = TempDir::new(&format!("doc-facts-fence-{index}"));
-        let fqn = "App.Core.Fence";
-        temp.write(
-            "guides/entry.md",
-            &format!("# 入口文档\n\n```{info}\n{{}}\n```\n"),
-        );
-        let mut subject = element(fqn, &["src/f/"]);
-        subject.api = ApiStatus::None;
-        subject.doc = Some("guides/entry.md".to_owned());
-        let facts = doc_facts(temp.root(), &[subject]);
-        assert_eq!(
-            facts.get(fqn),
-            Some(&DocFact::Present {
-                has_api_fence: expected
-            }),
-            "{note}（info string: {info:?}）"
-        );
-    }
-
-    // 散文里提及 `api-op` 不算；`~~~` 围栏不认
-    let prose = TempDir::new("doc-facts-prose");
-    prose.write(
-        "guides/entry.md",
-        "本文提到 api-op 语言标，但不是 fence。\n",
-    );
-    let tilde = TempDir::new("doc-facts-tilde");
-    tilde.write("guides/entry.md", "~~~json api-op\n{}\n~~~\n");
-    for (temp, note) in [(&prose, "散文提及"), (&tilde, "`~~~` 围栏")] {
-        let mut subject = element("App.Core.Fence", &["src/f/"]);
-        subject.api = ApiStatus::None;
-        subject.doc = Some("guides/entry.md".to_owned());
-        assert_eq!(
-            doc_facts(temp.root(), &[subject]).get("App.Core.Fence"),
-            Some(&DocFact::Present {
-                has_api_fence: false
-            }),
-            "{note}不构成 api fence"
-        );
-    }
-}
-
-/// 边界（声明在案 vs 未声明）：`api = none` 且 `doc` 已声明但**形态越根**（绝对路径 /
-/// 盘符 / `~` / `..` / 空段 / 空串）⇒ `Missing`，MUST NOT 归 `Absent`——「派生不出路径」
-/// 有两种成因，判据面对它们分属 `docMissing`（warn、不纳管）与 `docNotFound`（error、
-/// 纳管），把「写错了」并进「还没写」就是那条消红后门。同时反向核对：真未声明 ⇒ `Absent`。
-#[test]
-fn doc_facts越根doc归missing() {
-    let malformed = [
-        "/etc/passwd",
-        "C:/win.md",
-        "~/home.md",
-        "../outside.md",
-        "",
-        "a//b.md",
-    ];
-    for (index, doc) in malformed.into_iter().enumerate() {
-        let temp = TempDir::new(&format!("doc-facts-malformed-{index}"));
-        let fqn = "App.Core.Malformed";
-        let mut subject = element(fqn, &["src/m/"]);
-        subject.api = ApiStatus::None;
-        subject.doc = Some(doc.to_owned());
-        assert_eq!(
-            doc_facts(temp.root(), std::slice::from_ref(&subject)).get(fqn),
-            Some(&DocFact::Missing),
-            "声明 `{doc}` 越根 ⇒ Missing（声明在案、指不到盘）"
-        );
-
-        let mut undeclared = element(fqn, &["src/m/"]);
-        undeclared.api = ApiStatus::None;
-        assert_eq!(
-            doc_facts(temp.root(), &[undeclared]).get(fqn),
-            Some(&DocFact::Absent),
-            "未声明 `doc` ⇒ Absent"
-        );
-    }
-}
-
-/// 正向（判据面接力）：`api = none` + `doc` 越根的元素经装载期事实在判据面**恰报一条
-/// `docNotFound`**（error 档、纳管），零 `docMissing`；同一 root 里真未声明的留白元素
-/// 仍报 `docMissing`（warn、不纳管）。启用由另一份带 fence 的契约载体给出，故本用例
-/// 走完整 `findings` 链路（装载 → 事实 → 判据），而非只读 `doc_facts`。
-#[test]
-fn 判据面越根doc报docnotfound并纳管() {
-    let temp = TempDir::new("findings-doc-not-found");
-    let enabled_by = "App.Core.Fenced";
-    temp.write_contract(enabled_by, &pilot_markdown(enabled_by));
-
-    let malformed = "App.Core.Malformed";
-    let mut bad = element(malformed, &["src/m/"]);
-    bad.api = ApiStatus::None;
-    bad.doc = Some("/etc/passwd".to_owned());
-
-    let blank = "App.Core.Blank";
-    let mut undeclared = element(blank, &["src/b/"]);
-    undeclared.api = ApiStatus::None;
-
-    let elements = [element(enabled_by, &["src/f/"]), bad, undeclared];
-    let found = super::findings(temp.root(), &elements).expect("判据装配应成功");
-    let of = |fqn: &str, kind: ArchiApiFindingKind| -> Vec<&ArchiApiFinding> {
-        found
-            .iter()
-            .filter(|finding| finding.element.as_deref() == Some(fqn) && finding.kind == kind)
-            .collect()
-    };
-
-    assert_eq!(
-        of(malformed, ArchiApiFindingKind::DocNotFound).len(),
-        1,
-        "越根 `doc` ⇒ 恰一条 docNotFound：{found:?}"
-    );
-    assert_eq!(
-        of(malformed, ArchiApiFindingKind::DocMissing).len(),
-        0,
-        "声明在案 MUST NOT 降级为 docMissing"
-    );
-    assert_eq!(
-        of(blank, ArchiApiFindingKind::DocMissing).len(),
-        1,
-        "真未声明 ⇒ docMissing"
-    );
-    assert_eq!(
-        of(blank, ArchiApiFindingKind::DocNotFound).len(),
-        0,
-        "未声明不产生 docNotFound"
-    );
-
-    let gated = super::gating_findings(temp.root(), &elements, &found);
-    assert!(
-        gated.iter().any(|finding| {
-            finding.element.as_deref() == Some(malformed)
-                && finding.kind == ArchiApiFindingKind::DocNotFound
-        }),
-        "docNotFound 纳管（声明本身即承诺）：{gated:?}"
-    );
-    assert!(
-        !gated
-            .iter()
-            .any(|finding| finding.kind == ArchiApiFindingKind::DocMissing),
-        "docMissing 永不纳管：{gated:?}"
-    );
-}
-
-/// 正向：两份载体其一含 fence 即启用；fence 位于文件第 2 行 / 文末同样命中。
+/// 正向：两份元素其一 `<FQN>.schema.json` 在盘即启用；元素顺序与 `path` 段数无关。
 #[test]
 fn enabled任一份载体含fence即启用() {
     let temp = TempDir::new("enabled-any-carrier");
-    let fenced = "App.Core.Fenced";
-    let plain = "App.Core.Plain";
-    temp.write_contract(fenced, &pilot_markdown(fenced));
-    temp.write_contract(plain, "# App.Core.Plain\n\n正文。\n");
-    let elements = [element(fenced, &["src/f/"]), element(plain, &["src/p/"])];
+    let live = "App.Core.Live";
+    let dark = "App.Core.Dark";
+    temp.write_schema(live, &pilot_schema(live));
+    let elements = [element(live, &["src/live/"]), element(dark, &["src/dark/"])];
     assert!(
         enabled(temp.root(), &elements),
-        "两份载体其一含 fence 即启用"
+        "两份元素其一 schema 在盘即启用"
     );
 
-    for (index, source) in [
-        ("第二行", "# X\n\n```api-op\n{}\n```\n"),
-        ("文末", "# X\n\n正文。\n\n```api-op\n{}\n```"),
-    ] {
-        let temp = TempDir::new(&format!("enabled-fence-position-{index}"));
-        let fqn = "App.Core.Pos";
-        temp.write_contract(fqn, source);
+    // 深度无关：任意分层深度的 `<FQN>.schema.json` 都按 FQN 派生落点判定
+    for index in ["App.Core.Deep", "App.Backend.Infra.Agent.Session"] {
+        let temp = TempDir::new(&format!("enabled-depth-{index}"));
+        temp.write_schema(index, &pilot_schema(index));
         assert!(
-            enabled(temp.root(), &[element(fqn, &["src/pos/"])]),
-            "fence 位于{index}仍命中"
+            enabled(temp.root(), &[element(index, &["src/pos/"])]),
+            "{index} 的 schema 在盘仍命中"
         );
     }
 }
 
-/// 异常（AC-7 反向判据）：旧「递归任意 `*.md`」形态一律**不**构成启用证据——笔记、
-/// 普通代码块、`models/` 仅 `*.toml`、`models/` 缺席、`models/README.md`。
+/// 异常（AC-7 反向判据）：旧「递归任意 `*.md` / 任意 `*.schema.json`」形态一律**不**构成
+/// 启用证据——文档位的历史 fence、`models/README.md`、`models/` 仅 `*.toml`、目录缺席。
 #[test]
 fn enabled旧判据残留形态一律不启用() {
     let fqn = "App.Core.Candidate";
 
-    // ① 载体位置但正文只有普通代码块
-    let plain_block = TempDir::new("enabled-plain-block");
-    plain_block.write_contract(fqn, "# App.Core.Candidate\n\n```rust\nfn f() {}\n```\n");
+    // ① 文档位（历史形态：正文含 `api-op` fence）不是启用证据
+    let doc_block = TempDir::new("enabled-plain-block");
+    doc_block.write_contract(fqn, &legacy_doc_with_fences(fqn));
     assert!(
-        !enabled(plain_block.root(), &[element(fqn, &["src/b/"])]),
-        "普通代码块不是 api fence"
+        !enabled(doc_block.root(), &[element(fqn, &["src/b/"])]),
+        "文档位的 fence 不是接口事实"
     );
 
     // ② `models/README.md`（旧判据的「任意 md」形态）
@@ -6057,7 +5312,7 @@ fn enabled旧判据残留形态一律不启用() {
     readme.write(".dev-team/architecture/models/README.md", "# 说明\n");
     assert!(
         !enabled(readme.root(), &[element(fqn, &["src/b/"])]),
-        "README.md 不是任何元素的载体"
+        "README.md 不是任何元素的接口文件"
     );
 
     // ③ `graph/model/` 仅 `*.toml`（模型声明不是启用证据）
@@ -6079,100 +5334,40 @@ fn enabled旧判据残留形态一律不启用() {
     );
     assert!(!enabled(bare.root(), &[]), "零元素 ⇒ 未启用（零读盘）");
 }
-/// 正向：快照的 `doc_facts` 覆盖全部 `path` 非空元素；`api = none` 的 `doc` 即便带
-/// fence 也不进 `contracts`（三表零增删）。
-#[test]
-fn load_contracts快照带载体事实且三表零增删() {
-    let temp = TempDir::new("load-contracts-doc-facts");
-    let declared = "App.Core.Declared";
-    temp.write_contract(declared, &pilot_markdown(declared));
-    temp.write("guides/blank.md", "```json api-op\n{}\n```\n");
-    let mut blank = element("App.Core.Blank", &["src/blank/"]);
-    blank.api = ApiStatus::None;
-    blank.doc = Some("guides/blank.md".to_owned());
-    let container = element("App.Core.Container", &[]);
 
-    let elements = [element(declared, &["src/d/"]), blank, container];
-    let snapshot = load_contracts(temp.root(), &elements).expect("健康语料零错误");
-
-    assert_eq!(
-        snapshot.doc_facts.len(),
-        2,
-        "只装配 path 非空元素（容器零参与）"
-    );
-    assert_eq!(
-        snapshot.doc_facts.get(declared),
-        Some(&DocFact::Present {
-            has_api_fence: true
-        }),
-        "declared 载体事实在案"
-    );
-    assert_eq!(
-        snapshot.doc_facts.get("App.Core.Blank"),
-        Some(&DocFact::Present {
-            has_api_fence: true
-        }),
-        "none 的 doc 载体事实在案"
-    );
-    assert_eq!(snapshot.contracts.len(), 1, "`api = none` 不进 contracts");
-    assert_eq!(
-        snapshot.contracts[0].fqn, declared,
-        "唯一契约恒为 declared 元素"
-    );
-    assert_eq!(snapshot.schemas.len(), 1, "schemas 与 contracts 同源");
-    assert_eq!(snapshot.symbols.len(), 1, "symbols 与 contracts 同源");
-}
-
-/// 边界：空元素表 → 三表 + `doc_facts` 全空；同一 root 两次调用逐键相等（零缓存但
-/// 确定性）；载体读取与契约解析各一处（源码自证）。
-#[test]
-fn load_contracts边界_空表与两次调用相等与读取单点() {
-    let temp = TempDir::new("load-contracts-empty");
-    let empty = load_contracts(temp.root(), &[]).expect("空表不是错误");
-    assert!(empty.contracts.is_empty(), "contracts 空");
-    assert!(empty.schemas.is_empty(), "schemas 空");
-    assert!(empty.symbols.is_empty(), "symbols 空");
-    assert!(empty.doc_facts.is_empty(), "doc_facts 空");
-
-    let fqn = "App.Core.Twice";
-    temp.write_contract(fqn, &pilot_markdown(fqn));
-    let elements = [element(fqn, &["src/t/"])];
-    let first = load_contracts(temp.root(), &elements).expect("第一次");
-    let second = load_contracts(temp.root(), &elements).expect("第二次");
-    assert_eq!(
-        first.doc_facts, second.doc_facts,
-        "两次调用逐键相等（零缓存但确定性）"
-    );
-
-    let source = include_str!("mod.rs");
-    assert_eq!(
-        source.matches("fs::read_to_string").count(),
-        2,
-        "两处读盘：载体装配 1 处 + 契约解析 1 处（双读是本变更的显式取舍）"
-    );
-}
-
-/// 边界：单份载体 + 未声明 `doc` 的留白元素 → `docMissing` 一条（warn 档，不是
-/// `Err`）；空元素表 → 空 `Vec`；两次调用逐条相等。
+/// 边界：启用后缺派生 `<FQN>.md` 的 declared 元素 ⇒ 恰一条 `docMissing`（warn 档，不是
+/// `Err`；单因单义，与接口文件在盘与否无关）；空元素表 → 空 `Vec`；两次调用逐条相等。
 #[test]
 fn findings边界_单条docmissing与去重稳定() {
     let temp = TempDir::new("findings-docmissing");
-    let mut blank = element("App.Core.NoDoc", &["src/n/"]);
-    blank.api = ApiStatus::None;
-    // 契约面启用需要至少一份含 fence 的载体：留白元素以 `doc` 声明它（本元素零判据）
-    let mut carrier = element("App.Core.Carrier", &["src/c/"]);
-    carrier.api = ApiStatus::None;
-    carrier.doc = Some("guides/carrier.md".to_owned());
+    // 启用证据：declared 元素的接口文件在盘
+    let live = "App.Core.Live";
+    temp.write_pair(live);
+    // live 的入口与代码面齐备（文档在盘 ⇒ 零判据）
     temp.write(
-        "guides/carrier.md",
-        "# 入口文档\n\n```json api-op\n{}\n```\n",
+        "src/live/src/lib.rs",
+        "pub struct LocalArchiCheck;
+impl LocalArchiCheck {
+    pub fn file_stem(timestamp: &str) -> String { String::new() }
+}
+",
     );
-    let elements = [blank, carrier];
+    // 未写文档的 declared 元素：派生 `<FQN>.md` 不在盘 ⇒ 恰一条 `docMissing`
+    let no_doc = "App.Core.NoDoc";
+    let elements = [
+        element(live, &["src/live/"]),
+        element(no_doc, &["src/nodoc/"]),
+    ];
 
-    let first = findings(temp.root(), &elements).expect("未声明 doc 不是错误");
+    let first = findings(temp.root(), &elements).expect("缺文档不是错误");
     assert_eq!(first.len(), 1, "一条 docMissing：{first:?}");
     assert_eq!(first[0].kind, ArchiApiFindingKind::DocMissing, "判据种类");
     assert_eq!(first[0].category, "doc", "分类 doc");
+    assert_eq!(
+        first[0].element.as_deref(),
+        Some(no_doc),
+        "判据归属缺文档的元素"
+    );
     let second = findings(temp.root(), &elements).expect("第二次");
     assert_eq!(first, second, "两次调用逐条相等（报告面可重复）");
 
@@ -6182,8 +5377,8 @@ fn findings边界_单条docmissing与去重稳定() {
     );
 }
 
-/// 异常：`findings` 体内零独立启用判定——`load_contracts(` 恰 1 次、载体事实经快照
-/// 派生、零 `enabled(root` 调用（同源即被测语义）。
+/// 异常（D-5）：`findings` 体内零独立启用判定——`load_contracts(` 与 `enabled(root, elements)`
+/// 各恰 1 次（两处同源单点），文档事实经快照读取，零直接 `is_file(` 判定。
 #[test]
 fn findings启用判据不独立装配() {
     let source = include_str!("mod.rs");
@@ -6197,17 +5392,17 @@ fn findings启用判据不独立装配() {
         "装载单点恰一处：{body}"
     );
     assert_eq!(
-        body.matches("facts_enabled(").count(),
+        body.matches("enabled(root, elements)").count(),
         1,
-        "启用由快照事实派生：{body}"
+        "启用判据经 `enabled` 单点（不自行判定）：{body}"
     );
     assert!(
-        !body.contains("enabled(root"),
-        "零独立启用判定（同源即被测语义）：{body}"
+        body.contains("doc_present: &snapshot.doc_present"),
+        "文档事实经快照读取（零第二份装配）：{body}"
     );
     assert!(
-        body.contains("snapshot.doc_facts"),
-        "载体事实经快照读取：{body}"
+        !body.contains("is_file("),
+        "`findings` 体内零直接读盘判定（存在性判定只在 `enabled` / `doc_presence`）：{body}"
     );
 }
 
@@ -6275,7 +5470,7 @@ fn artifact_check元素表取数单点() {
 fn gating_findings不在表内与两条docmissing均落选() {
     let temp = TempDir::new("gating-not-in-table");
     let fqn = "App.Core.Alpha";
-    temp.write_contract(fqn, "# App.Core.Alpha\n");
+    temp.write_pair_schema(fqn, &empty_schema(fqn));
     let elements = [element(fqn, &["src/alpha/"])];
     let stranger = vec![api_finding(
         Some("App.Core.Stranger"),
@@ -6306,7 +5501,7 @@ fn gating_findings不在表内与两条docmissing均落选() {
 fn gating_findings留白矛盾仍纳管且保序() {
     let temp = TempDir::new("gating-unexpected");
     let fqn = "App.Core.Alpha";
-    temp.write_contract(fqn, "# App.Core.Alpha\n");
+    temp.write_pair_schema(fqn, &empty_schema(fqn));
     let mut subject = element(fqn, &["src/alpha/"]);
     subject.doc = Some("guides/a.md".to_owned());
     let findings = vec![
@@ -6446,4 +5641,202 @@ fn entry_problem_reason与check文案关键片段一致() {
             "reason 侧文案含「{needle}」"
         );
     }
+}
+
+// ===========================================================================
+// 出口面（crate 根）：五名在册 / 退役名零出线 / 可达性（`lib.rs` 文件级被测面）
+// ===========================================================================
+
+/// 正向（AC-7 / AC-15 出口纪律）：`lib.rs` 的出口面按**既有形态**扩面——五名
+/// （`BootstrapDrafts` / `validate_schema` / `schema_fqn` / `is_fqn` / `is_identifier`）
+/// 在 crate 根 `pub use` 面各恰一次（分组块成员或 `pub use api::<模块>::…` 的既有逐名形态，
+/// 零通配、零重复）；`pub use api::display` 单行与 `pub use api::{…}` 分组块形态零改。
+#[test]
+fn 出口面按分组块扩面() {
+    /// 摘出文件内全部 `pub use …;` 声明（跨行，逐条一行）。
+    fn reexport_face(source: &str) -> String {
+        let mut face = String::new();
+        let mut rest = source;
+        while let Some(start) = rest.find("pub use ") {
+            let tail = &rest[start..];
+            let end = tail.find(';').expect("`pub use` 声明以 `;` 收口");
+            face.push_str(&tail[..end]);
+            face.push('\n');
+            rest = &tail[end..];
+        }
+        face
+    }
+
+    /// 标识符逐词匹配（避开 `is_fqn` 命中 `IsFqnHelper` 一类子串）。
+    fn token_count(face: &str, name: &str) -> usize {
+        face.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .filter(|token| *token == name)
+            .count()
+    }
+
+    let source = include_str!("../lib.rs");
+    let face = reexport_face(source);
+    for name in [
+        "BootstrapDrafts",
+        "validate_schema",
+        "schema_fqn",
+        "is_fqn",
+        "is_identifier",
+    ] {
+        assert_eq!(
+            token_count(&face, name),
+            1,
+            "`{name}` 在 crate 根 `pub use` 面恰一次：{face}"
+        );
+    }
+    assert_eq!(
+        source
+            .lines()
+            .filter(|line| *line == "pub use api::display;")
+            .count(),
+        1,
+        "跨 crate 单点 `pub use api::display` 单行恰一次"
+    );
+    assert!(
+        face.contains("pub use api::{"),
+        "`pub use api::{{…}}` 分组块形态保留"
+    );
+    assert!(!face.contains("pub use api::*"), "逐名出口纪律（零通配）");
+}
+
+/// 异常（退役名零出线）：`DocFact` / `carrier_path` / `doc_path` / `build_schema` /
+/// `ContractSection` 在 `lib.rs` 零命中（零 `pub use`、零分组块成员）。
+#[test]
+fn 退役名不出线() {
+    let source = include_str!("../lib.rs");
+    for retired in [
+        "DocFact",
+        "carrier_path",
+        "doc_path",
+        "build_schema",
+        "ContractSection",
+    ] {
+        assert_eq!(
+            source.matches(retired).count(),
+            0,
+            "退役名 `{retired}` 不出线（`lib.rs` 零命中）"
+        );
+    }
+}
+
+/// 正向（可达性，编译期即判）：五名可经 crate 根直接调用——零测试专用导出。
+#[test]
+fn 五名可经crate根调用() {
+    let drafts = crate::BootstrapDrafts {
+        schema: String::new(),
+        doc: String::new(),
+    };
+    assert!(drafts.schema.is_empty() && drafts.doc.is_empty());
+    let text = mirrored_schema_text("App.Core.Export", "", "");
+    crate::validate_schema("App.Core.Export", &text).expect("空壳应过九闸");
+    assert_eq!(
+        crate::schema_fqn("App.Core.Export.schema.json"),
+        Some("App.Core.Export")
+    );
+    assert!(crate::is_fqn("App.Core.Export"));
+    assert!(crate::is_identifier("file_stem"));
+}
+
+/// 边界（源码锚 · 三路径派生单点）：`ref_projection` 体内三条路径各取一次派生单点
+/// （`paths::contract_path(` / `schema_path(` / `generated_path(`），零手拼
+/// `format!("<FQN>.md")`；`api_ref` 与 `api_ref_of` 同源（两入口都委托
+/// `ref_projection`，装配面恰一处）。
+#[test]
+fn 三路径派生单点() {
+    /// 取某函数体（从签名所在行到首个 `\n}\n`）。
+    fn body_of<'a>(source: &'a str, signature: &str) -> &'a str {
+        let start = source
+            .find(signature)
+            .unwrap_or_else(|| panic!("缺少函数签名 `{signature}`"));
+        let rest = &source[start..];
+        let end = rest.find("\n}\n").map_or(rest.len(), |index| index + 1);
+        &rest[..end]
+    }
+
+    let source = include_str!("mod.rs");
+    let projection = body_of(source, "fn ref_projection(");
+    for derive in [
+        "paths::contract_path(",
+        "paths::schema_path(",
+        "paths::generated_path(",
+    ] {
+        assert_eq!(
+            projection.matches(derive).count(),
+            1,
+            "`{derive}` 在 `ref_projection` 内恰一处"
+        );
+    }
+    assert!(
+        !projection.contains(".md\"") && !projection.contains(".schema.json\""),
+        "零手拼落点名（落点派生单点在 `paths`）"
+    );
+
+    // 两入口同源：`api_ref` 委托 `api_ref_of`，后者与前者共用 `ref_projection`
+    assert!(
+        body_of(source, "pub fn api_ref(").contains("api_ref_of("),
+        "`api_ref` 委托 `api_ref_of`"
+    );
+    assert_eq!(
+        source.matches("ref_projection(").count(),
+        3,
+        "装配面单点：定义 1 + 调用 2（`api_ref` 的缺席臂 + `api_ref_of`）"
+    );
+}
+
+/// 异常（生成器让位）：即使 `snapshot.schemas` 有值（含坏形态的键），`render_all` 的输出集
+/// 零 `.schema.json`——手写真相永不进应生成集；源码锚：`render_all` 体内零
+/// `SCHEMA_FILE_SUFFIX` / `.schema.json` 字面。
+#[test]
+fn schema不再由生成器产出() {
+    fn body_of<'a>(source: &'a str, signature: &str) -> &'a str {
+        let start = source
+            .find(signature)
+            .unwrap_or_else(|| panic!("缺少函数签名 `{signature}`"));
+        let rest = &source[start..];
+        let end = rest.find("\n}\n").map_or(rest.len(), |index| index + 1);
+        &rest[..end]
+    }
+
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    let temp = TempDir::new("render-no-schema");
+    temp.write_model(&format!(
+        "[element.\"App\"]\nkind = \"package\"\n\n[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"crates/infra/archi/\"]\n"
+    ));
+    temp.write_pair(fqn);
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+
+    let elements = [element(fqn, &["crates/infra/archi/"])];
+    let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
+    assert!(
+        !snapshot.schemas.is_empty(),
+        "夹具的 schema 已装配在案（生成器仍不读它）"
+    );
+    let files = render_all(temp.root(), &snapshot).expect("渲染应成功");
+    assert!(!files.is_empty(), "三类生成物仍产出");
+    for file in &files {
+        let path = file.path.to_string_lossy().replace('\\', "/");
+        assert!(
+            !path.ends_with(".schema.json"),
+            "应生成集零 `.schema.json`：{path}"
+        );
+    }
+
+    let source = include_str!("mod.rs");
+    let render = body_of(source, "pub fn render_all(");
+    assert!(
+        !render.contains("SCHEMA_FILE_SUFFIX"),
+        "`render_all` 不读 `SCHEMA_FILE_SUFFIX`（手写真相不在生成面）"
+    );
+    assert!(
+        !render.contains(".schema.json"),
+        "`render_all` 内零 `.schema.json` 字面"
+    );
 }

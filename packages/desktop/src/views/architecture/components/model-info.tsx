@@ -151,7 +151,12 @@ function GateEditor({
   );
 }
 
-/** 契约段（概览与文档之间）：`api.status` + 三路径行 + 本元素判据。 */
+/**
+ * 契约段（概览与文档之间）：**本元素判据**（父级同一份 `apiFindings` 按 `element === fqn`
+ * 过滤后逐条列出，零命中时一句「本元素无漂移」）。
+ *
+ * 三路径不在这里渲：它们归右栏「文档」分段的页签，各自由非空事实决定。
+ */
 function ContractSection({
   element,
   findings,

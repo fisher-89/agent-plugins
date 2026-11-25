@@ -926,10 +926,11 @@ fn apply_knip_report零产品调用者() {
         "export function load(): string { return ''; }\n",
     )
     .expect("写源码");
-    let draft = crate::api::bootstrap(&temp, "App.Core.Ts").expect("起草应成功");
+    let drafts = crate::api::bootstrap(&temp, "App.Core.Ts").expect("起草应成功");
     assert!(
-        !draft.contains("unused"),
-        "`bootstrap` 草稿内零 `unused` 词（Unused 生产面不可达）：\n{draft}"
+        !drafts.schema.contains("unused") && !drafts.doc.contains("unused"),
+        "`bootstrap` 双草稿内零 `unused` 词（Unused 生产面不可达）：\n{}",
+        drafts.schema
     );
     let _ = std::fs::remove_dir_all(&temp);
 }

@@ -96,27 +96,39 @@ fn doc_hits(graph: &ModelGraph, root: &Path, query: &str) -> Vec<String> {
         .doc
 }
 
+/// 落一份派生文档（`<archi_models_dir>/<分层目录…>/<FQN>.md`）并返回其 repo 相对路径。
+fn write_doc(temp: &TempDir, fqn: &str) -> String {
+    let path = crate::api::paths::contract_path(temp.root(), fqn).expect("合法 FQN");
+    let rel = crate::api::display(temp.root(), &path);
+    temp.write(&rel, "# 文档\n\n正文。\n");
+    rel
+}
+
+/// 落一份接口定义（同目录 `<FQN>.schema.json`）并返回其 repo 相对路径。
+fn write_schema(temp: &TempDir, fqn: &str) -> String {
+    let path = crate::api::paths::schema_path(temp.root(), fqn).expect("合法 FQN");
+    let rel = crate::api::display(temp.root(), &path);
+    temp.write(&rel, "{\"$defs\": {}, \"properties\": {}}\n");
+    rel
+}
+
 // ---------------------------------------------------------------------------
 // 正向：命中面与稳定序
 // ---------------------------------------------------------------------------
 
-/// 正向：`query = "auth"`、`scope = All` → 命中 FQN 含 `auth` 的元素（薄条目由
-/// dto 面组装）+ 文件名含 `auth` 的入口文档（路径串）；元素按 FQN、文档按路径
-/// 字典序稳定序。
+/// 正向：`query = "auth"`、`scope = All` → 命中 FQN 含 `auth` 的元素 + 路径 / 文件主干含
+/// `auth` 的派生资产（`<FQN>.md` ∪ `<FQN>.schema.json`）；元素按 FQN、资产按路径字典序。
 ///
-/// 语料只收 `path` 非空元素的在盘载体（与判据面同一集合），故夹具给两元素各补
-/// 一条 `path`。
+/// 语料 = `path` 非空元素的在盘派生资产（与判据面同一集合），故夹具只落派生文件。
 #[test]
 fn 检索命中元素与文档并按稳定序返回() {
     let temp = TempDir::new("all-scope");
-    temp.write("src/auth/README.md", "# 认证\n");
-    temp.write("src/billing/README.md", "# 计费\n");
+    let auth_doc = write_doc(&temp, "App.Auth");
+    let billing_doc = write_doc(&temp, "App.Billing");
     let mut auth = element("App.Auth");
     auth.path = vec!["./src/auth/".to_owned()];
-    auth.doc = Some("./src/auth/README.md".to_owned());
     let mut billing = element("App.Billing");
     billing.path = vec!["./src/billing/".to_owned()];
-    billing.doc = Some("./src/billing/README.md".to_owned());
     let graph = graph_of(vec![billing, auth]);
 
     let outcome = search(&graph, temp.root(), "auth", SearchScope::All).expect("检索成功");
@@ -127,8 +139,8 @@ fn 检索命中元素与文档并按稳定序返回() {
     );
     assert_eq!(
         outcome.doc,
-        vec!["src/auth/README.md".to_owned()],
-        "只命中路径 / 文件名含 auth 的入口文档"
+        vec![auth_doc],
+        "只命中路径 / 文件主干含 auth 的派生文档（billing 的文档不命中：{billing_doc}）"
     );
 }
 
@@ -147,20 +159,20 @@ fn 驼峰分词与空格与大小写三形态等价() {
     }
 }
 
-/// 正向：匹配对象面——`summary` 命中、`metadata` **值**命中（键名不算）、入口文档
-/// `path` 段命中、文件名命中各一条。
+/// 正向：匹配对象面 = FQN / `summary` / `metadata` 值（元素侧）+ 派生资产路径与文件主干
+/// （文档 / 接口两侧）；`metadata` 键名不参与。
 #[test]
 fn 匹配对象面覆盖summary与metadata值与文档路径与文件名() {
-    let temp = TempDir::new("haystack");
-    temp.write("docs/rate-limit.md", "# 限流\n");
+    let temp = TempDir::new("match-surface");
+    let doc = write_doc(&temp, "App.Auth");
+    let schema = write_schema(&temp, "App.Auth");
     let mut target = element("App.Auth");
     target.path = vec!["./docs/".to_owned()];
-    target.summary = Some("令牌收口与限流".to_owned());
+    target.summary = Some("限流（rate limit）说明".to_owned());
     target.metadata = BTreeMap::from([
         ("owner".to_owned(), "billing-team".to_owned()),
         ("secretkey".to_owned(), "zzz".to_owned()),
     ]);
-    target.doc = Some("./docs/rate-limit.md".to_owned());
     let graph = graph_of(vec![target]);
 
     // summary
@@ -180,17 +192,17 @@ fn 匹配对象面覆盖summary与metadata值与文档路径与文件名() {
         hits(&graph, temp.root(), "secretkey", SearchScope::Elements).is_empty(),
         "键名不参与匹配"
     );
-    // 文档路径段
+    // 资产路径段（分层目录 `architecture/models` 参与匹配）
     assert_eq!(
-        doc_hits(&graph, temp.root(), "docs"),
-        vec!["docs/rate-limit.md"],
-        "文档 path 段参与匹配"
+        doc_hits(&graph, temp.root(), "models"),
+        vec![doc.clone(), schema.clone()],
+        "两份派生资产的路径段都参与匹配且按路径字典序：{doc} / {schema}"
     );
-    // 文档文件名（去扩展名）
+    // 文件主干（`App.Auth` 去扩展名后按分词命中）
     assert_eq!(
-        doc_hits(&graph, temp.root(), "rate limit"),
-        vec!["docs/rate-limit.md"],
-        "文件名分词参与匹配"
+        doc_hits(&graph, temp.root(), "app auth"),
+        vec![doc, schema],
+        "文件主干分词参与匹配（多词 AND）"
     );
 }
 
@@ -219,8 +231,8 @@ fn 仅正文含关键词不命中() {
     );
 }
 
-/// 异常：`openspec/specs/` 不参与——该目录内文件名与正文均含关键词，而元素与
-/// 其他文档亦命中 → 结果只来自元素与他人文档路径，`specs` 下路径零出现。
+/// 异常：`openspec/specs/` 与 `decisions/` 的 md 即便正文与文件名含关键词也不参与——
+/// 语料只有 `path` 非空元素的派生资产。
 #[test]
 fn 规约语料目录不参与检索() {
     let temp = TempDir::new("specs-excluded");
@@ -228,18 +240,20 @@ fn 规约语料目录不参与检索() {
         "openspec/specs/desktop-archi-model/spec.md",
         "# archi 能力规约\n\n涉及 App.Auth 与 auth 的说明。\n",
     );
-    temp.write("docs/auth.md", "# 认证\n");
+    temp.write("decisions/0001-auth.md", "# ADR：auth 的切法\n");
+    let doc = write_doc(&temp, "App.Auth");
     let mut target = element("App.Auth");
     target.path = vec!["./docs/".to_owned()];
-    target.doc = Some("./docs/auth.md".to_owned());
     let graph = graph_of(vec![target]);
 
     let docs_hit = doc_hits(&graph, temp.root(), "auth");
     assert!(
-        docs_hit.iter().all(|path| !path.contains("openspec/specs")),
-        "specs 下路径零出现: {docs_hit:?}"
+        docs_hit
+            .iter()
+            .all(|path| !path.contains("openspec/specs") && !path.contains("decisions/")),
+        "规约 / ADR 目录零出现: {docs_hit:?}"
     );
-    assert_eq!(docs_hit, vec!["docs/auth.md"], "只来自元素关联文档");
+    assert_eq!(docs_hit, vec![doc], "只来自元素的派生资产（零第二份语料）");
     assert_eq!(
         hits(&graph, temp.root(), "auth", SearchScope::All),
         vec!["App.Auth"],
@@ -275,15 +289,12 @@ fn 空query返回err且特殊字符query不panic() {
 // 边界：scope / 多词 / 分词 / 空结果 / 规模
 // ---------------------------------------------------------------------------
 
-/// 边界：scope 收窄——`Elements` 时 `doc` 恒空数组；`Doc` 时 `element_fqns` 恒空
-/// 数组；`All` 两数组均可非空。
 #[test]
 fn scope三值收窄语义() {
     let temp = TempDir::new("scope");
-    temp.write("docs/auth.md", "# 认证\n");
+    let doc = write_doc(&temp, "App.Auth");
     let mut target = element("App.Auth");
     target.path = vec!["./docs/".to_owned()];
-    target.doc = Some("./docs/auth.md".to_owned());
     let graph = graph_of(vec![target]);
 
     let elements_only = search(&graph, temp.root(), "auth", SearchScope::Elements).expect("成功");
@@ -295,7 +306,7 @@ fn scope三值收窄语义() {
         docs_only.element_fqns.is_empty(),
         "Doc 时 element_fqns 恒空"
     );
-    assert_eq!(docs_only.doc.len(), 1);
+    assert_eq!(docs_only.doc, vec![doc], "Doc 只回资产路径");
 
     let all = search(&graph, temp.root(), "auth", SearchScope::All).expect("成功");
     assert!(
@@ -370,20 +381,17 @@ fn 无命中与空模型返回空数组不报错() {
     assert!(outcome.element_fqns.is_empty() && outcome.doc.is_empty());
 }
 
-/// 边界：`str` / 规模面——超长 query（>1000 chars）正常返回；500 元素 / 200 入口
-/// 文档 → 结果序稳定、两次调用逐字相同。
+/// 边界：500 元素（200 有派生文档）→ 规模面稳定、两次调用逐字相同；超长 query 正常返回、
+/// 零命中；资产命中按路径字典序。
 #[test]
 fn 超长query与规模面结果稳定() {
-    let temp = TempDir::new("scale");
-    for index in 0..200 {
-        temp.write(&format!("docs/note{index:03}.md"), "# 文档\n");
-    }
-    let mut elements: Vec<Element> = Vec::new();
+    let temp = TempDir::new("long-query");
+    let mut elements = Vec::new();
     for index in 0..500 {
-        let mut item = element(&format!("App.Auth.Mod{index:03}"));
+        let mut item = element(&format!("App.Auth.M{index:03}"));
+        item.path = vec![format!("src/m{index:03}/")];
         if index < 200 {
-            item.path = vec![format!("./docs/note{index:03}/")];
-            item.doc = Some(format!("./docs/note{index:03}.md"));
+            write_doc(&temp, &item.fqn);
         }
         elements.push(item);
     }
@@ -394,53 +402,57 @@ fn 超长query与规模面结果稳定() {
     let outcome =
         search(&graph, temp.root(), &long, SearchScope::All).expect("超长 query 正常返回");
     assert!(outcome.element_fqns.is_empty(), "超长段无命中");
+    assert!(outcome.doc.is_empty(), "资产侧同样零命中");
 
     let first = search(&graph, temp.root(), "auth", SearchScope::All).expect("成功");
     let second = search(&graph, temp.root(), "auth", SearchScope::All).expect("成功");
     assert_eq!(first, second, "两次调用结果逐字相同");
     assert_eq!(first.element_fqns.len(), 500, "500 元素全部命中 auth");
-    assert!(first.doc.is_empty(), "无文档路径含 auth");
+    assert_eq!(first.doc.len(), 200, "200 份派生文档按路径命中 auth");
 
-    // 文档侧：文件名命中 200 条，序为路径字典序
-    let docs_hit = search(&graph, temp.root(), "note", SearchScope::All).expect("成功");
-    assert!(docs_hit.element_fqns.is_empty(), "元素 FQN 不含 note");
+    // 资产侧：同目录段（`architecture`）命中全部派生资产且元素侧零命中
+    let docs_hit = search(&graph, temp.root(), "architecture", SearchScope::All).expect("成功");
+    assert!(
+        docs_hit.element_fqns.is_empty(),
+        "元素 FQN 不含 architecture"
+    );
     let paths: Vec<&str> = docs_hit.doc.iter().map(String::as_str).collect();
-    assert_eq!(paths.len(), 200, "200 文档按文件名命中 note");
+    assert_eq!(paths.len(), 200, "200 份资产按目录段命中");
     let mut sorted = paths.clone();
     sorted.sort_unstable();
-    assert_eq!(paths, sorted, "文档命中按路径字典序");
+    assert_eq!(paths, sorted, "资产命中按路径字典序");
 }
 
-/// 边界：语料 = `path` 非空元素的在盘载体（与判据面同一集合——`path` 空的元素不入
-/// 语料，载体不在盘亦不入语料）。
+/// 边界：语料 = `path` 非空元素的**在盘**派生资产（文档 ∪ 接口）——`path` 空的元素不入
+/// 语料，资产不在盘亦不入语料。
 #[test]
 fn 检索文档语料为path非空元素的在盘载体() {
     let temp = TempDir::new("same-source");
-    temp.write("src/auth/README.md", "# 认证");
+    let doc = write_doc(&temp, "App.Auth");
+    let schema = write_schema(&temp, "App.Auth");
     let mut target = element("App.Auth");
     target.path = vec!["./src/auth/".to_owned()];
-    target.doc = Some("src/auth/README.md".to_owned());
-    // `path` 为空：同一条 doc 不入语料
-    let mut container = element("App");
-    container.doc = Some("src/auth/README.md".to_owned());
+    // `path` 为空：即便派生路径上有文件，也不入语料
+    let container = element("App");
+    write_doc(&temp, "App");
+    write_schema(&temp, "App");
     let graph = graph_of(vec![target, container]);
 
-    let outcome = search(&graph, temp.root(), "auth", SearchScope::Doc).expect("成功");
+    let outcome = search(&graph, temp.root(), "app", SearchScope::Doc).expect("成功");
     assert_eq!(
         outcome.doc,
-        vec!["src/auth/README.md".to_owned()],
-        "只取 `path` 非空元素的在盘载体"
+        vec![doc, schema],
+        "只取 `path` 非空元素的在盘资产（容器元素的派生文件不入语料）"
     );
 
-    // 载体不在盘：不入语料
+    // 资产不在盘：不入语料
     let missing = graph_of(vec![{
         let mut only = element("App.Missing");
         only.path = vec!["src/missing/".to_owned()];
-        only.doc = Some("src/missing/README.md".to_owned());
         only
     }]);
-    let outcome = search(&missing, temp.root(), "missing", SearchScope::Doc).expect("成功");
-    assert!(outcome.doc.is_empty(), "不在盘的载体不入语料");
+    let outcome = search(&missing, temp.root(), "app", SearchScope::Doc).expect("成功");
+    assert!(outcome.doc.is_empty(), "资产不在盘 ⇒ 零条目");
 }
 
 /// 边界（`entry` 零敏感面）：两元素仅 `entry` 不同 → 命中集与文档条目逐值相同（检索面
@@ -496,30 +508,39 @@ fn 检索面对entry零敏感() {
 // `doc` 语料的投影单点 / `file_stem` 形态 / ADR 退役
 // ===========================================================================
 
-/// 边界（事实校准 16）：语料的 `doc` 事实只经 `dto::to_element` 投影取数——`search.rs`
-/// 内 `dto::to_element(` 恰一处、`ArchiElement {` 字面量零命中（MUST NOT 另拼第二份元素
-/// 投影，否则判据面与检索面会各造一份 `doc` 归一）。
+/// 边界：语料派生的源码单点——零 `carrier_path` / `doc_path` 复活；`contract_path` 与
+/// `schema_path` 各恰一处；零手拼 `<FQN>.md`；`api` 状态与 `doc` 字段零参与。
 #[test]
 fn 语料投影走元素单点() {
     let source = include_str!("search.rs");
+    assert!(
+        !source.contains("carrier_path(") && !source.contains("doc_path("),
+        "零第二份载体派生（`carrier_path` / `doc_path` 已退役）"
+    );
     assert_eq!(
-        source.matches("crate::dto::to_element(").count(),
+        source.matches("contract_path(").count(),
         1,
-        "元素投影单点恰一处"
+        "文档落点经 `paths::contract_path` 恰一处"
+    );
+    assert_eq!(
+        source.matches("schema_path(").count(),
+        1,
+        "接口落点经 `paths::schema_path` 恰一处"
     );
     assert!(
-        !source.contains("ArchiElement {"),
-        "零第二份 `ArchiElement` 拼装"
+        !source.contains("format!(\"{}.md"),
+        "零手拼 `<FQN>.md`（落点派生单点）"
     );
-    assert_eq!(
-        source.matches("carrier_path(").count(),
-        1,
-        "载体派生单点（与判据面同一函数）"
+    assert!(
+        !source.contains("element.doc"),
+        "`doc` 字段零参与语料（约定字段，非资产路径）"
+    );
+    assert!(
+        !source.contains("element.api"),
+        "`api` 状态零参与语料（两条固定规则只由在盘事实决定）"
     );
 }
 
-/// 边界：`file_stem` 已从退役的文档关联实现迁入本文件（源码自证恰一处），且无扩展名与
-/// 多点文件名的语料仍按主干命中（形态不经归一、不丢文件名）。
 #[test]
 fn 文件名主干迁入本文件且形态不变() {
     let source = include_str!("search.rs");
@@ -529,36 +550,24 @@ fn 文件名主干迁入本文件且形态不变() {
         "`file_stem` 在检索面恰一处（迁移后零第二份）"
     );
 
+    // 多点 FQN（`App.A.B`）的派生名 `App.A.B.md`：主干取法不丢文件名（只剥一层扩展名）
     let temp = TempDir::new("stem-forms");
-    temp.write(
-        "docs/README",
-        "# 认证
-",
-    );
-    temp.write(
-        "docs/a.b.md",
-        "# 认证
-",
-    );
-    let mut plain = element("App.Plain");
-    plain.path = vec!["./docs/".to_owned()];
-    plain.doc = Some("docs/README".to_owned());
-    let mut dotted = element("App.Dotted");
-    dotted.path = vec!["./docs/".to_owned()];
-    dotted.doc = Some("docs/a.b.md".to_owned());
-    let graph = graph_of(vec![plain, dotted]);
+    let dotted = write_doc(&temp, "App.A.B");
+    let schema = write_schema(&temp, "App.A.B");
+    let mut target = element("App.A.B");
+    target.path = vec!["./docs/".to_owned()];
+    let graph = graph_of(vec![target]);
 
-    let hits = doc_hits(&graph, temp.root(), "a.b");
+    let hits = doc_hits(&graph, temp.root(), "a b");
     assert_eq!(
         hits,
-        vec!["docs/a.b.md".to_owned()],
-        "多点文件名按主干分词命中"
+        vec![dotted.clone(), schema.clone()],
+        "多点主干按分词命中（零归一、不丢文件名）"
     );
-    let hits = doc_hits(&graph, temp.root(), "readme");
-    assert_eq!(
-        hits,
-        vec!["docs/README".to_owned()],
-        "无扩展名文件仍按全名命中"
+    let hits = doc_hits(&graph, temp.root(), "b.md");
+    assert!(
+        hits.contains(&dotted) && !hits.contains(&schema),
+        "`md` 只出现在文档后缀（接口文件不被误当文档命中）：{hits:?}"
     );
 }
 
@@ -579,4 +588,106 @@ fn adr语料不参与检索() {
         doc_hits(&graph, temp.root(), "auth").is_empty(),
         "ADR 文件不入语料（`text` 源已退役）"
     );
+}
+
+// ===========================================================================
+// 语料面：命中只由在盘事实决定 / `doc` 字段零参与
+// ===========================================================================
+
+/// 正向（四态 × 两值 `api`，八格）：语料恰为「在盘 `<FQN>.md`」∪「在盘
+/// `<FQN>.schema.json`」——只有文档 / 只有接口 / 两者都在 / 都没有四态的命中集逐格固定，
+/// 且 `api = declared` 与 `api = none` 两臂逐值相等（`api` 状态零参与语料）。
+#[test]
+fn 命中只由在盘事实决定() {
+    let temp = TempDir::new("corpus-four-states");
+    let states = ["OnlyDoc", "OnlySchema", "Both", "Neither"];
+    let mut expected: Vec<String> = Vec::new();
+    let mut declared: Vec<Element> = Vec::new();
+    let mut none: Vec<Element> = Vec::new();
+    for state in states {
+        let fqn = format!("App.{state}.Cell");
+        let mut cell = element(&fqn);
+        cell.path = vec![format!("./src/{state}/")];
+        match state {
+            "OnlyDoc" => expected.push(write_doc(&temp, &fqn)),
+            "OnlySchema" => expected.push(write_schema(&temp, &fqn)),
+            "Both" => {
+                expected.push(write_doc(&temp, &fqn));
+                expected.push(write_schema(&temp, &fqn));
+            }
+            _ => {}
+        }
+        let mut without_api = cell.clone();
+        cell.api = ApiStatus::Declared;
+        without_api.api = ApiStatus::None;
+        declared.push(cell);
+        none.push(without_api);
+    }
+    expected.sort();
+
+    let declared_hits = doc_hits(&graph_of(declared), temp.root(), "app");
+    assert_eq!(
+        declared_hits, expected,
+        "四态逐格：只有文档 / 只有接口 / 两者都在 / 都没有"
+    );
+    let none_hits = doc_hits(&graph_of(none), temp.root(), "app");
+    assert_eq!(
+        none_hits, declared_hits,
+        "`api = none` 与 `declared` 两臂逐值相等（`api` 零参与语料）"
+    );
+}
+
+/// 边界（`doc` 字段退出语料，两形态）：同一批元素写 `doc` 值 / 不写 `doc` 值 ⇒ 命中集
+/// 逐元素相等；`doc` 指不到盘也不改变语料（`carrier_path` 已退役，零第二份载体派生）。
+#[test]
+fn doc字段退出语料() {
+    let temp = TempDir::new("doc-field-out");
+    let doc = write_doc(&temp, "App.Auth");
+    let schema = write_schema(&temp, "App.Auth");
+
+    let mut with_doc = element("App.Auth");
+    with_doc.path = vec!["./src/auth/".to_owned()];
+    with_doc.doc = Some("guides/nowhere-auth.md".to_owned());
+    let mut without_doc = with_doc.clone();
+    without_doc.doc = None;
+
+    let with_field = search(
+        &graph_of(vec![with_doc]),
+        temp.root(),
+        "auth",
+        SearchScope::All,
+    )
+    .expect("检索成功");
+    let without_field = search(
+        &graph_of(vec![without_doc]),
+        temp.root(),
+        "auth",
+        SearchScope::All,
+    )
+    .expect("检索成功");
+    assert_eq!(
+        with_field, without_field,
+        "写 / 不写 `doc` 值 ⇒ 命中集逐元素相等"
+    );
+    assert_eq!(
+        with_field.doc,
+        vec![doc, schema],
+        "语料仍只有在盘派生资产（`doc` 指不到盘亦不入语料）"
+    );
+
+    // `doc` 指向的既有文件也不入语料（散落 md 非派生资产）
+    temp.write("guides/nowhere-auth.md", "# auth 指南\n");
+    let again = search(
+        &graph_of(vec![{
+            let mut element = element("App.Auth");
+            element.path = vec!["./src/auth/".to_owned()];
+            element.doc = Some("guides/nowhere-auth.md".to_owned());
+            element
+        }]),
+        temp.root(),
+        "auth",
+        SearchScope::Doc,
+    )
+    .expect("检索成功");
+    assert_eq!(again.doc, with_field.doc, "`doc` 指向的 md 不入语料");
 }

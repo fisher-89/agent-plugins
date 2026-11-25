@@ -329,12 +329,14 @@ const DTO_TYPES: &[&str] = &[
     "ArchiApiCheck",
     "ArchiApiMeta",
     "ArchiApiWriteOutcome",
+    "ArchiAssetSet",
     "ArchiChangeSummary",
     "ArchiCheckStatus",
     "ArchiDependedBy",
     "ArchiDependsOn",
     "ArchiDiagnostic",
     "ArchiDiagnosticKind",
+    "ArchiDocAsset",
     "ArchiDriftEntry",
     "ArchiDriftKind",
     "ArchiDriftMode",
@@ -350,6 +352,7 @@ const DTO_TYPES: &[&str] = &[
     "ArchiGateChange",
     "ArchiGateCount",
     "ArchiGraph",
+    "ArchiInterfaceAsset",
     "ArchiMatchedElement",
     "ArchiModuleDetail",
     "ArchiObservationKind",
@@ -357,6 +360,7 @@ const DTO_TYPES: &[&str] = &[
     "ArchiRelationDetail",
     "ArchiScanReport",
     "ArchiSuppressVia",
+    "ArchiTopologyAsset",
     "ArchiUnresolvedFile",
     "EdgeMark",
     "ElementKind",
@@ -1331,8 +1335,8 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
 fn dto类型清单零补录_条目数与首尾锚持衡() {
     assert_eq!(
         DTO_TYPES.len(),
-        111,
-        "清单 110 → 111：本变更补录一类型（SessionPreambleInfo）"
+        115,
+        "清单 111 → 115：本变更补录四类型（三资产三件 + `ArchiAssetSet` 容器）"
     );
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(
@@ -1893,10 +1897,11 @@ const ARCHI_COMMANDS: [(&str, &str); 9] = [
 ];
 
 /// 架构域出线类型名（`Archi*` 投影 + 五组封闭词汇）。
-const ARCHI_DTO_TYPES: [&str; 22] = [
+const ARCHI_DTO_TYPES: [&str; 26] = [
     "ArchiApiCheck",
     "ArchiApiMeta",
     "ArchiApiWriteOutcome",
+    "ArchiAssetSet",
     "ArchiChangeSummary",
     "ArchiDependedBy",
     "ArchiDependsOn",
@@ -1904,12 +1909,15 @@ const ARCHI_DTO_TYPES: [&str; 22] = [
     "ArchiFileTree",
     "ArchiDiagnostic",
     "ArchiDiagnosticKind",
+    "ArchiDocAsset",
     "ArchiElement",
     "ArchiGateChange",
     "ArchiGraph",
+    "ArchiInterfaceAsset",
     "ArchiModuleDetail",
     "ArchiRelation",
     "ArchiRelationDetail",
+    "ArchiTopologyAsset",
     "EdgeMark",
     "ElementKind",
     "FileEntryKind",
@@ -2022,9 +2030,11 @@ fn archi出线类型逐名命中产物() {
             "doc",
             "api",
             "resolvedEntry",
-            "fileHash"
+            "fileHash",
+            "assets",
+            "reading"
         ],
-        "ArchiModuleDetail 字段面按声明序出线（八字段：`doc` 单值 + `resolvedEntry` + `fileHash` 末位），实际段:\n{detail}"
+        "ArchiModuleDetail 字段面按声明序出线（十字段：三资产 `assets` 与读法 `reading` 收尾），实际段:\n{detail}"
     );
     // 新字段为必填 `string`（`String` 非 `Option`）且带出线注释
     let file_hash_lines: Vec<&str> = detail
@@ -2093,6 +2103,124 @@ fn archi出线类型逐名命中产物() {
         Some("doc"),
         "`doc` 紧跟 `entry`：{element_fields:?}"
     );
+}
+
+/// 正向（AC-6 / AC-3）：三资产四类型逐名出线——`ArchiAssetSet` 三键容器、三件各自
+/// 键面（`in` / `abstract` 的出线名由 `serde(rename_all)` 决定），且四名都在两份清单
+/// 与产物三面自洽（清单在册 + 产物声明 + 字段面）。
+#[test]
+fn archi三资产四类型逐名出线() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    let archives = [
+        "ArchiAssetSet",
+        "ArchiTopologyAsset",
+        "ArchiInterfaceAsset",
+        "ArchiDocAsset",
+    ];
+    for name in archives {
+        assert!(DTO_TYPES.contains(&name), "总清单补录三资产类型：{name}");
+        assert!(
+            ARCHI_DTO_TYPES.contains(&name),
+            "架构域清单补录三资产类型：{name}"
+        );
+        assert!(
+            content.contains(&format!("export type {name} =")),
+            "产物缺三资产类型声明 {name}"
+        );
+    }
+
+    // 容器三键按声明序（topology → interface → doc）
+    let set = type_section(&content, "ArchiAssetSet");
+    assert_eq!(
+        field_names(&set),
+        vec!["topology", "interface", "doc"],
+        "ArchiAssetSet 三键按声明序出线，实际段:\n{set}"
+    );
+
+    // `in` 出线名（Rust `in_degree` → `in`）、`abstract` 出线名（`abstract_note`）
+    let topology = type_section(&content, "ArchiTopologyAsset");
+    assert_eq!(
+        field_names(&topology),
+        vec!["file", "line", "out", "in"],
+        "拓扑四键（`in_degree` 出线名 `in`）：\n{topology}"
+    );
+    let interface = type_section(&content, "ArchiInterfaceAsset");
+    assert_eq!(
+        field_names(&interface),
+        vec![
+            "path",
+            "present",
+            "bytes",
+            "ops",
+            "types",
+            "reexports",
+            "abstract"
+        ],
+        "接口面七键（`abstract_note` 出线名 `abstract`）：\n{interface}"
+    );
+    let doc = type_section(&content, "ArchiDocAsset");
+    assert_eq!(
+        field_names(&doc),
+        vec!["path", "present", "bytes", "lines", "headings"],
+        "文档面五键：\n{doc}"
+    );
+}
+
+/// 正向（AC-8 / AC-3）：`ArchiApiFindingKind` 联合出线恰十成员——三值随事实源消失而
+/// 离场，十词逐名在场；`bindings.zod.ts` 的 enum 同批收缩（两产物同源）。
+#[test]
+fn archi判据联合出线恰十成员且三值离场() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    let union = type_section(&content, "ArchiApiFindingKind");
+
+    let members = [
+        "apiEntryMissing",
+        "apiMissing",
+        "apiUndeclared",
+        "apiSignatureMismatch",
+        "apiUnexpected",
+        "apiShadowing",
+        "apiRefMissing",
+        "apiNestedCrossCrate",
+        "apiConstructorDeclared",
+        "docMissing",
+    ];
+    for member in members {
+        assert!(
+            union.contains(&format!("\"{member}\"")),
+            "联合缺成员 `{member}`：\n{union}"
+        );
+    }
+    // 成员计数：除末项外每项带 `|`，末项以 `;` 收尾
+    assert_eq!(
+        union.matches('|').count(),
+        members.len() - 1,
+        "联合恰十成员（九个分隔符）：\n{union}"
+    );
+    for retired in ["apiReexportDrift", "docNotFound", "apiDocMissing"] {
+        assert!(
+            !union.contains(&format!("\"{retired}\"")),
+            "退役值零出线：{retired}"
+        );
+    }
+
+    // 第二产物同批收缩：zod enum 十值逐名在场、三值零命中
+    let zod = String::from_utf8(zod_authoritative_snapshot()).expect("zod 产物为 UTF-8 文本");
+    for member in members {
+        assert!(
+            zod.contains(&format!("\"{member}\"")),
+            "zod enum 缺成员 `{member}`"
+        );
+    }
+    for retired in ["apiReexportDrift", "docNotFound", "apiDocMissing"] {
+        assert!(
+            !zod.contains(&format!("\"{retired}\"")),
+            "zod enum 退役值零出线：{retired}"
+        );
+    }
 }
 
 /// 边界：重导出幂等——连续两次 `export_bindings()` 产物逐字节一致（零 diff 门禁）；
@@ -4826,9 +4954,11 @@ fn zod_schema同字段为必填string() {
             "doc",
             "api",
             "resolvedEntry",
-            "fileHash"
+            "fileHash",
+            "assets",
+            "reading"
         ],
-        "zod schema 八键按声明序（fileHash 追加表尾），实际段:
+        "zod schema 十键按声明序（assets / reading 收尾），实际段:
 {schema}"
     );
 

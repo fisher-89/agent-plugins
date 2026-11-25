@@ -1,10 +1,10 @@
-//! `edit::warnings` 的单元测试：写面反馈面七条判据（`noPath` / `pathNotFound` /
-//! `docMissing` 两支 / `docNotFound` / `apiUnexpected` / 删除后孤儿契约）逐条红绿、
+//! `edit::warnings` 的单元测试：写面反馈面五条判据（`noPath` / `pathNotFound` /
+//! `docMissing` / `apiUnexpected` / 删除后孤儿接口）逐条红绿、
 //! `kind` 与 `severity` 逐值取自既有两个单点、降噪不变式（非诱发字段零 warning、
 //! `created` 视为全字段、两类归因互不串门）、`message` 形态，以及「零 `drift::check`
 //! 零写盘」的源码锚。
 //!
-//! 真值面：`api::paths::{contract_path, doc_path}` 与真实盘上文件——「契约 md 在 / 不在」
+//! 真值面：`api::paths::{contract_path, schema_path}` 与真实盘上文件——「派生 md 在 / 不在」
 //! 与「`path` 条目在 / 不在盘」正是被测判据，替身会把它抹掉；`Element` 由真实
 //! `TomlParser::parse` 解析合成源取得（不手搓残形）。临时根由 std 自建（本 crate 零
 //! dev-dependency），沿 `edit/mod_test.rs` 的 `TempDir` RAII + 计数器先例。
@@ -13,7 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::api::paths::{contract_path, doc_path};
+use crate::api::paths::{contract_path, schema_path};
 use crate::drift::report::{ApiFindingSeverity, ArchiApiFindingKind, ArchiDriftKind};
 use crate::model::Element;
 use crate::parse::{SourceParser, TomlParser};
@@ -66,14 +66,6 @@ const NONE_WITHOUT_DOC: &str = concat!(
     "api = \"none\"\n",
 );
 
-/// `api = none` + `doc` 指向盘上缺席的文件（第 5 条形态）。
-const NONE_DOC_ABSENT: &str = concat!(
-    "[element.\"App.Core\"]\n",
-    "kind = \"domain\"\n",
-    "api = \"none\"\n",
-    "doc = \"docs/core.md\"\n",
-);
-
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// 临时根（RAII 清理；本 crate 零 dev-dependency，故用 std 自建）。
@@ -102,13 +94,6 @@ impl TempDir {
         let path = contract_path(self.root(), fqn).expect("契约路径应可派生");
         fs::create_dir_all(path.parent().expect("契约 md 有父目录")).expect("建契约目录失败");
         fs::write(&path, "# 契约\n").expect("写契约 md 失败");
-    }
-
-    /// 落 `doc` 声明的入口文档（repo 相对串）。
-    fn doc(&self, doc: &str) {
-        let path = doc_path(self.root(), doc).expect("doc 路径应可派生");
-        fs::create_dir_all(path.parent().expect("doc 有父目录")).expect("建 doc 目录失败");
-        fs::write(&path, "# 入口文档\n").expect("写 doc 失败");
     }
 
     /// 落一个 `path` 条目（目录形态）。
@@ -262,18 +247,19 @@ fn path缺席逐条报pathNotFound() {
 }
 
 // ---------------------------------------------------------------------------
-// 第 3–6 条：契约面三判据
+// 第 3–4 条：接口面判据
 // ---------------------------------------------------------------------------
 
-/// 正向（矩阵 2 形态）：`api = declared` 且派生契约 md 缺席 ⇒ `docMissing` / `warn`
-/// 且尾句指向 `archi_api` 的 `bootstrap`；契约 md 在盘 ⇒ 零条。
 #[test]
 #[allow(non_snake_case)]
+/// 正向：`created` 且派生 `<FQN>.md` 缺席 ⇒ `docMissing` / `warn` 且尾句指向 `bootstrap`；
+/// 文档在盘 ⇒ 零条；非 `created` 的 upsert 恒零条（存量债不在写面复读）。
 fn declared缺契约报docMissing() {
     let temp = TempDir::new("declared-missing");
     let element = element_of(DECLARED_NO_CONTRACT, "App.Core");
 
-    let warnings = upsert_warnings(temp.root(), &element, &changed(&["api"]), false);
+    // `docMissing` 只由 `created` 诱发（派生 md 的存在性与字段值无关）
+    let warnings = upsert_warnings(temp.root(), &element, &changed(&["api"]), true);
     assert_eq!(warnings.len(), 1, "只此一条：{warnings:?}");
     assert_eq!(pair(&warnings[0]), ("docMissing", "warn"));
     assert!(
@@ -283,77 +269,15 @@ fn declared缺契约报docMissing() {
     );
 
     temp.contract("App.Core");
-    let warnings = upsert_warnings(temp.root(), &element, &changed(&["api"]), false);
-    assert!(warnings.is_empty(), "契约 md 在盘 ⇒ 零条：{warnings:?}");
-}
+    let warnings = upsert_warnings(temp.root(), &element, &changed(&["api"]), true);
+    assert!(warnings.is_empty(), "派生 md 在盘 ⇒ 零条：{warnings:?}");
 
-/// 异常（矩阵 2 形态）：`api = none` 且 `doc` 未声明 ⇒ `docMissing` / `warn`，
-/// 尾句指向经 `doc` 声明；`doc` 有值即在盘时该条零命中（转由第 5 条判）。
-#[test]
-#[allow(non_snake_case)]
-fn none未声明doc报docMissing() {
-    let temp = TempDir::new("none-no-doc");
-    let element = element_of(NONE_WITHOUT_DOC, "App.Core");
-
-    let warnings = upsert_warnings(temp.root(), &element, &changed(&["api"]), false);
-    assert_eq!(warnings.len(), 1, "只此一条：{warnings:?}");
-    assert_eq!(pair(&warnings[0]), ("docMissing", "warn"));
+    // 非 `created` 的 upsert 不复读存量文档债
+    let existing = upsert_warnings(temp.root(), &element, &changed(&["api"]), false);
     assert!(
-        warnings[0].message.contains("入口文档经 doc 声明"),
-        "尾句指向 doc 声明：{}",
-        warnings[0].message
+        existing.is_empty(),
+        "既有元素的 upsert 零文档债：{existing:?}"
     );
-
-    temp.doc("docs/core.md");
-    let element = element_of(NONE_DOC_ABSENT, "App.Core");
-    let warnings = upsert_warnings(temp.root(), &element, &changed(&["doc"]), false);
-    assert!(warnings.is_empty(), "doc 在盘 ⇒ 零条：{warnings:?}");
-}
-
-/// 异常（矩阵 2 形态）：`api = none` + `doc` 指不到盘 ⇒ `docNotFound` / **`error`**
-/// （七条中唯一 `error` 档）；`doc` 指到盘 ⇒ 零条。
-#[test]
-#[allow(non_snake_case)]
-fn doc指不到盘报docNotFound且档位为error() {
-    let temp = TempDir::new("doc-not-found");
-    let element = element_of(NONE_DOC_ABSENT, "App.Core");
-
-    let warnings = upsert_warnings(temp.root(), &element, &changed(&["doc"]), false);
-    assert_eq!(warnings.len(), 1, "只此一条：{warnings:?}");
-    assert_eq!(pair(&warnings[0]), ("docNotFound", "error"));
-    assert!(
-        warnings[0].message.contains("docs/core.md"),
-        "message 应含声明的 doc：{}",
-        warnings[0].message
-    );
-
-    temp.doc("docs/core.md");
-    let warnings = upsert_warnings(temp.root(), &element, &changed(&["doc"]), false);
-    assert!(warnings.is_empty(), "doc 指到盘 ⇒ 零条：{warnings:?}");
-}
-
-/// 异常（矩阵 2 形态）：`api = none` 且派生契约 md 在盘 ⇒ `apiUnexpected` / `warn`
-/// 且尾句给「删契约 md / 改 declared」两条出路；`api = declared` 且在盘 ⇒ 零条。
-#[test]
-#[allow(non_snake_case)]
-fn none有契约报apiUnexpected() {
-    let temp = TempDir::new("none-with-contract");
-    temp.contract("App.Core");
-    temp.doc("docs/core.md");
-    let element = element_of(NONE_DOC_ABSENT, "App.Core");
-
-    let warnings = upsert_warnings(temp.root(), &element, &changed(&["api"]), false);
-    assert_eq!(warnings.len(), 1, "只此一条：{warnings:?}");
-    assert_eq!(pair(&warnings[0]), ("apiUnexpected", "warn"));
-    assert!(
-        warnings[0].message.contains("删契约 md") && warnings[0].message.contains("declared"),
-        "两条出路齐备：{}",
-        warnings[0].message
-    );
-
-    let declared = element_of(DECLARED_NO_CONTRACT, "App.Core");
-    let warnings = upsert_warnings(temp.root(), &declared, &changed(&["api"]), false);
-    assert!(warnings.is_empty(), "declared + 在盘 ⇒ 零条：{warnings:?}");
 }
 
 // ---------------------------------------------------------------------------
@@ -398,8 +322,8 @@ fn created放行全集() {
     );
 }
 
-/// 边界（矩阵 2 形态）：只改 `path` ⇒ 契约三条零命中；只改 `doc` ⇒ `noPath` /
-/// `pathNotFound` 零命中（两类 warning 归因互不串门）。
+/// 边界（降噪不变式）：只改 `path` ⇒ 只走 path 面；`doc` / `summary` / `gate` /
+/// `metadata` 零诱发（`doc` 字段零读者，旧 `docNotFound` 已随判据值删除）。
 #[test]
 fn 两类warning归因互不串门() {
     let temp = TempDir::new("attribution");
@@ -408,24 +332,32 @@ fn 两类warning归因互不串门() {
     let path_only = upsert_warnings(temp.root(), &element, &changed(&["path"]), false);
     assert_eq!(kinds(&path_only), vec!["noPath"], "只走 path 面");
 
-    let api_only = upsert_warnings(temp.root(), &element, &changed(&["doc"]), false);
-    assert_eq!(kinds(&api_only), vec!["docMissing"], "只走契约面");
+    // `doc` 字段零读者：任何取值都不产 warning（旧 `docNotFound` 已随判据值删除）
+    let doc_only = upsert_warnings(temp.root(), &element, &changed(&["doc"]), false);
+    assert!(
+        doc_only.is_empty(),
+        "只改 `doc` ⇒ 零条（`doc` 是零判据读者）：{doc_only:?}"
+    );
+
+    // 其余非诱发字段同样零条
+    for field in ["summary", "gate", "metadata"] {
+        let warnings = upsert_warnings(temp.root(), &element, &changed(&[field]), false);
+        assert!(warnings.is_empty(), "只改 `{field}` ⇒ 零条：{warnings:?}");
+    }
 }
 
 // ---------------------------------------------------------------------------
 // 词汇 / 档位单点与 message 形态
 // ---------------------------------------------------------------------------
 
-/// 异常（穷举）：每条产出的 `kind` ∈ 两枚举 `as_str` 并集；`severity` 逐值取自既有
-/// 单点（`docNotFound` ⇒ `error`，`docMissing` / `apiUnexpected` ⇒ `warn`，drift 两值
-/// 恒 `warn`）。
+/// 异常（穷举）：每条产出的 `kind` ∈ 两枚举 `as_str` 并集；`severity` 逐值取自既有档位
+/// 单点（四个 upsert/删除判据全 `warn`）。
 #[test]
 fn kind与severity逐值取自既有单点() {
     let temp = TempDir::new("vocabulary");
-    temp.contract("App.Core");
     let mut produced: Vec<EditWarning> = Vec::new();
 
-    // 五个 upsert 判据逐条触发（`none` 支的 docNotFound 与 apiUnexpected 同批齐发）。
+    // 四个 upsert 判据逐条触发（`created` 面单独覆盖 docMissing）
     produced.extend(upsert_warnings(
         temp.root(),
         &element_of(PACKAGE_EMPTY_PATH, "App.Core"),
@@ -442,54 +374,48 @@ fn kind与severity逐值取自既有单点() {
         temp.root(),
         &element_of(DECLARED_NO_CONTRACT, "App.Core"),
         &changed(&["api"]),
-        false,
+        true,
     ));
+    // `api = none` + 接口文件在盘 ⇒ `apiUnexpected`
+    let temp_none = TempDir::new("vocabulary-none");
+    let schema = schema_path(temp_none.root(), "App.Core").expect("接口路径可派生");
+    fs::create_dir_all(schema.parent().expect("接口有父目录")).expect("建接口目录失败");
+    fs::write(&schema, "{\"$defs\": {}, \"properties\": {}}\n").expect("写接口失败");
     produced.extend(upsert_warnings(
-        temp.root(),
+        temp_none.root(),
         &element_of(NONE_WITHOUT_DOC, "App.Core"),
         &changed(&["api"]),
         false,
     ));
-    produced.extend(upsert_warnings(
-        temp.root(),
-        &element_of(NONE_DOC_ABSENT, "App.Core"),
-        &changed(&["doc"]),
-        false,
-    ));
-    // 第 7 条（删除后的孤儿契约）同批纳入词汇面。
-    produced.extend(delete_warnings(temp.root(), "App.Core"));
+    // 删除后的孤儿接口文件同批纳入词汇面
+    produced.extend(delete_warnings(temp_none.root(), "App.Core"));
 
     let vocabulary: Vec<&'static str> = ArchiDriftKind::ALL
         .iter()
         .map(|kind| kind.as_str())
         .chain(ArchiApiFindingKind::ALL.iter().map(|kind| kind.as_str()))
         .collect();
+    let produced_kinds: std::collections::BTreeSet<&str> =
+        produced.iter().map(|warning| warning.kind).collect();
     assert_eq!(
-        produced
-            .iter()
-            .map(|warning| warning.kind)
-            .collect::<std::collections::BTreeSet<_>>()
-            .len(),
-        5,
-        "五个判据词齐现（七条判据按元素形态取子集）：{produced:?}"
+        produced_kinds.len(),
+        4,
+        "四个判据词齐现（`noPath` / `pathNotFound` / `docMissing` / `apiUnexpected`）：{produced:?}"
     );
     for warning in &produced {
         assert!(
             vocabulary.contains(&warning.kind),
-            "{} 应取自既有枚举的 as_str",
+            "`kind` 取自既有单点词表（零新词）：{}",
             warning.kind
         );
-        let expected = match warning.kind {
-            "noPath" | "pathNotFound" => ApiFindingSeverity::Warn.as_str(),
-            "docMissing" => ArchiApiFindingKind::DocMissing.severity().as_str(),
-            "docNotFound" => ArchiApiFindingKind::DocNotFound.severity().as_str(),
-            "apiUnexpected" => ArchiApiFindingKind::ApiUnexpected.severity().as_str(),
-            other => panic!("未预期的判据词 {other}"),
-        };
-        assert_eq!(
-            warning.severity, expected,
-            "{} 的档位取自单点",
-            warning.kind
+        assert!(
+            [
+                ApiFindingSeverity::Warn.as_str(),
+                ApiFindingSeverity::Error.as_str()
+            ]
+            .contains(&warning.severity),
+            "`severity` 取自既有档位词：{}",
+            warning.severity
         );
     }
     assert_eq!(
@@ -501,25 +427,22 @@ fn kind与severity逐值取自既有单点() {
             ("noPath", "warn"),
             ("pathNotFound", "warn"),
             ("docMissing", "warn"),
-            ("docNotFound", "error"),
             ("apiUnexpected", "warn"),
         ]
         .into_iter()
         .collect::<std::collections::BTreeSet<_>>(),
-        "五档组合逐值对齐（docNotFound 唯一 error）"
+        "四档组合逐值对齐（全 warn：`docNotFound` 已退役）"
     );
 }
 
-/// 边界（矩阵 2 形态）：每条 message 非空、≤ 200 B、不含自身 kind 字面量、含判据句
-/// 与元素 FQN；同一元素上「判据命中数 == warnings 条数」（不重不漏）。
+/// 边界：每条 message 非空、≤ 200 B、不含自身 kind 字面量、含元素 FQN、单行。
 #[test]
 fn message只写判据句事实与下一步() {
     let temp = TempDir::new("message-shape");
-    temp.contract("App.Core");
     let cases: [(&str, &[&str], bool); 3] = [
         (PACKAGE_EMPTY_PATH, &["path"], false),
         (PATH_MISSING, &["path"], false),
-        (NONE_DOC_ABSENT, &["doc"], false),
+        (DECLARED_NO_CONTRACT, &["api"], true),
     ];
     for (source, fields, created) in cases {
         let element = element_of(source, "App.Core");
@@ -544,50 +467,27 @@ fn message只写判据句事实与下一步() {
                 "message 单行（判据句 + 事实 + 下一步）：{}",
                 warning.message
             );
+            assert!(
+                warning.message.contains(&element.fqn),
+                "message 含元素 FQN：{}",
+                warning.message
+            );
         }
-        assert!(
-            warnings
-                .iter()
-                .any(|warning| warning.message.contains("App.Core")),
-            "判据句以元素 FQN 起始（不重不漏的定位面）：{warnings:?}"
-        );
-        let unique: std::collections::BTreeSet<&str> = warnings
-            .iter()
-            .map(|warning| warning.message.as_str())
-            .collect();
-        assert_eq!(
-            unique.len(),
-            warnings.len(),
-            "逐条 message 互异（同判据的多条缺席项各自定位，不重不漏）：{warnings:?}"
-        );
     }
-
-    // 三判据齐发的形态：条数 == 命中判据数（缺席 `path` + `api = none` 无 `doc` + 契约在盘）。
-    let both = concat!(
-        "[element.\"App.Core\"]\n",
-        "kind = \"module\"\n",
-        "api = \"none\"\n",
-        "path = [\"src/absent\"]\n",
-    );
-    let element = element_of(both, "App.Core");
-    let warnings = upsert_warnings(temp.root(), &element, &changed(&["path", "api"]), false);
-    assert_eq!(
-        kinds(&warnings),
-        vec!["pathNotFound", "docMissing", "apiUnexpected"],
-        "三判据逐条各一条（`noPath` 与 `pathNotFound` 互斥：空 `path` 无缺席项）"
-    );
 }
 
 // ---------------------------------------------------------------------------
 // 删除面（第 7 条）与恒进场
 // ---------------------------------------------------------------------------
 
-/// 正向（矩阵 2 形态）：元素派生契约 md 在盘 ⇒ 恰一条 `apiUnexpected` / `warn` 且尾句
-/// 为「一并清理」；md 不在盘 ⇒ 零条。
+/// 正向：元素删除后派生 `<FQN>.schema.json` 仍在盘 ⇒ 恰一条 `apiUnexpected` / `warn` 且
+/// 尾句为「一并清理」；接口文件不在盘 ⇒ 零条（文档 `md` 不构成孤儿——它是理由资产）。
 #[test]
 fn 删除后孤儿契约报一条() {
     let temp = TempDir::new("delete-orphan");
-    temp.contract("App.Core");
+    let schema = schema_path(temp.root(), "App.Core").expect("接口路径可派生");
+    fs::create_dir_all(schema.parent().expect("接口有父目录")).expect("建接口目录失败");
+    fs::write(&schema, "{\"$defs\": {}, \"properties\": {}}\n").expect("写接口失败");
 
     let warnings = delete_warnings(temp.root(), "App.Core");
     assert_eq!(warnings.len(), 1, "只此一条：{warnings:?}");
@@ -601,7 +501,7 @@ fn 删除后孤儿契约报一条() {
     let empty = TempDir::new("delete-clean");
     assert!(
         delete_warnings(empty.root(), "App.Core").is_empty(),
-        "契约 md 不在盘 ⇒ 零条"
+        "接口文件不在盘 ⇒ 零条"
     );
 }
 
@@ -627,23 +527,21 @@ fn 不读模型恒可调用() {
     );
 }
 
-/// 边界（矩阵 2 形态）：删除动作只允许孤儿契约一条——同一 `root` 下同时具备空 `path` /
-/// 缺席 `doc` 等事实的元素被删 ⇒ 仍只出第 7 条；`api = none` + 契约 md 在盘 ⇒ 一条
-/// （不叠加第 6 条）。
 #[test]
 fn 删除动作只允许孤儿契约一条() {
     let temp = TempDir::new("delete-only-one");
-    temp.contract("App.Core");
+    let schema = schema_path(temp.root(), "App.Core").expect("接口路径可派生");
+    fs::create_dir_all(schema.parent().expect("接口有父目录")).expect("建接口目录失败");
+    fs::write(&schema, "{\"$defs\": {}, \"properties\": {}}\n").expect("写接口失败");
     let warnings = delete_warnings(temp.root(), "App.Core");
     assert_eq!(kinds(&warnings), vec!["apiUnexpected"], "只此一条");
 
-    let temp = TempDir::new("delete-only-one-none");
-    temp.contract("App.Legacy");
-    let warnings = delete_warnings(temp.root(), "App.Legacy");
-    assert_eq!(
-        kinds(&warnings),
-        vec!["apiUnexpected"],
-        "api = none 元素也不叠加第 6 条"
+    // 接口文件缺席而文档在盘 ⇒ 零条（删除面只解释接口文件这一条）
+    let doc_only = TempDir::new("delete-only-one-doc");
+    doc_only.contract("App.Legacy");
+    assert!(
+        delete_warnings(doc_only.root(), "App.Legacy").is_empty(),
+        "只剩文档 ⇒ 零条"
     );
 }
 
@@ -719,4 +617,157 @@ fn warnings零drift调用零写盘() {
         1,
         "删除面判据恰一处"
     );
+}
+
+// ---------------------------------------------------------------------------
+// `doc` 字段零诱发与 `docNotFound` 的零残留
+// ---------------------------------------------------------------------------
+
+/// `api = none` + `doc` 写值（第 4 条 `apiUnexpected` 的正向形态的前提夹具）。
+const NONE_WITH_DOC: &str = concat!(
+    "[element.\"App.Core\"]\n",
+    "kind = \"domain\"\n",
+    "api = \"none\"\n",
+    "doc = \"guides/alpha.md\"\n",
+);
+
+/// 边界（只改 `doc` 恒空，三形态）：写值 / 清键 / 指向不存在文件——事实面同时具备可触发
+/// `docMissing`（派生 md 缺）与 `apiUnexpected`（`api = none` ∧ schema 在盘）的条件，
+/// 但 `changed` 只含 `doc` ⇒ `warnings == []`（`doc` 是零判据读者）。
+#[test]
+fn 只改doc恒空() {
+    let temp = TempDir::new("doc-only");
+    // 接口文件在盘：若 `doc` 能诱发 api 面，这里必出 `apiUnexpected`
+    let schema = schema_path(temp.root(), "App.Core").expect("接口路径可派生");
+    fs::create_dir_all(schema.parent().expect("接口有父目录")).expect("建接口目录失败");
+    fs::write(&schema, "{\"$defs\": {}, \"properties\": {}}\n").expect("写接口失败");
+
+    // ① 写值（指向不存在的文件）
+    let written = upsert_warnings(
+        temp.root(),
+        &element_of(NONE_WITH_DOC, "App.Core"),
+        &changed(&["doc"]),
+        false,
+    );
+    assert!(
+        written.is_empty(),
+        "只写 `doc` 值 ⇒ 零条（写了不报）：{written:?}"
+    );
+
+    // ② 清键（`doc` 缺席）
+    let cleared = upsert_warnings(
+        temp.root(),
+        &element_of(NONE_WITHOUT_DOC, "App.Core"),
+        &changed(&["doc"]),
+        false,
+    );
+    assert!(
+        cleared.is_empty(),
+        "清 `doc` 键 ⇒ 零条（清键不报）：{cleared:?}"
+    );
+
+    // ③ 指向不存在文件（与 `summary` 同批改，仍零条）
+    let dangling = upsert_warnings(
+        temp.root(),
+        &element_of(NONE_WITH_DOC, "App.Core"),
+        &changed(&["doc", "summary"]),
+        false,
+    );
+    assert!(
+        dangling.is_empty(),
+        "`doc` 指不到盘 ⇒ 零条（指不到不报）：{dangling:?}"
+    );
+}
+
+/// 异常（写面不再有该值）：`api = none` + `doc` 指不到盘 + `changed ∋ doc` ⇒ 零条且
+/// `kind = "docNotFound"` 零命中；`warnings.rs` 内零 `DocNotFound`，两枚举 `ALL` 里也不再有它。
+#[test]
+fn 写面不再有该值() {
+    let temp = TempDir::new("doc-not-found-retired");
+    let warnings = upsert_warnings(
+        temp.root(),
+        &element_of(NONE_WITH_DOC, "App.Core"),
+        &changed(&["doc"]),
+        false,
+    );
+    assert_eq!(
+        warnings
+            .iter()
+            .filter(|warning| warning.kind == "docNotFound")
+            .count(),
+        0,
+        "写面零 `docNotFound`：{warnings:?}"
+    );
+
+    let source = include_str!("warnings.rs");
+    // 源码锚：该值不得在**代码面**持有（只在注释里作「已退役」的说明）
+    for line in source.lines() {
+        if line.contains("DocNotFound") || line.contains("docNotFound") {
+            assert!(
+                line.trim_start().starts_with("//"),
+                "`DocNotFound` / `docNotFound` 只出现在退役说明的注释里：{line}"
+            );
+        }
+    }
+    assert!(
+        !source.contains("\"docNotFound\""),
+        "`warnings.rs` 代码面零 `docNotFound` 字面（零新词表）"
+    );
+
+    let vocabulary: Vec<&str> = ArchiDriftKind::ALL
+        .iter()
+        .map(|kind| kind.as_str())
+        .chain(ArchiApiFindingKind::ALL.iter().map(|kind| kind.as_str()))
+        .collect();
+    assert!(
+        !vocabulary.contains(&"docNotFound"),
+        "两枚举词汇里零 `docNotFound`：{vocabulary:?}"
+    );
+}
+
+/// 正向（第 4 条 `apiUnexpected`，三形态）：`api = none` ∧ schema 在盘 + `changed ∋ api`
+/// ⇒ 一条 `apiUnexpected` / `warn`，尾句给「删 schema / 改 declared」两条出路；
+/// `declared` ∧ schema 在盘 ⇒ 零条；`none` ∧ schema 缺（md 在盘）⇒ 零条。
+#[test]
+fn 留白不该有接口文件() {
+    let fqn = "App.Core";
+    let with_schema = TempDir::new("api-unexpected-on");
+    let schema = schema_path(with_schema.root(), fqn).expect("接口路径可派生");
+    fs::create_dir_all(schema.parent().expect("接口有父目录")).expect("建接口目录失败");
+    fs::write(&schema, "{\"$defs\": {}, \"properties\": {}}\n").expect("写接口失败");
+    with_schema.contract(fqn);
+
+    let warnings = upsert_warnings(
+        with_schema.root(),
+        &element_of(NONE_WITHOUT_DOC, fqn),
+        &changed(&["api"]),
+        false,
+    );
+    assert_eq!(warnings.len(), 1, "只此一条：{warnings:?}");
+    assert_eq!(pair(&warnings[0]), ("apiUnexpected", "warn"));
+    assert!(
+        warnings[0].message.contains("删该 schema") && warnings[0].message.contains("改 declared"),
+        "尾句给两条出路：{}",
+        warnings[0].message
+    );
+
+    // `declared` ∧ schema 在盘 ⇒ 合法形态，零条
+    let declared = upsert_warnings(
+        with_schema.root(),
+        &element_of(DECLARED_NO_CONTRACT, fqn),
+        &changed(&["api"]),
+        false,
+    );
+    assert!(declared.is_empty(), "declared 有接口是常态：{declared:?}");
+
+    // `none` ∧ schema 缺（md 在盘）⇒ 零条
+    let clean = TempDir::new("api-unexpected-off");
+    clean.contract(fqn);
+    let quiet = upsert_warnings(
+        clean.root(),
+        &element_of(NONE_WITHOUT_DOC, fqn),
+        &changed(&["api"]),
+        false,
+    );
+    assert!(quiet.is_empty(), "留白且无接口 ⇒ 零条：{quiet:?}");
 }

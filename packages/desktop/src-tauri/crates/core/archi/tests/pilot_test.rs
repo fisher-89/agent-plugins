@@ -1,27 +1,28 @@
 //! 契约资产 ↔ 生成物 ↔ 手写实现的三方对拍（crate 级集成测试）。
 //!
-//! 单测里 `contract::parse` / `schema::build_schema` / `emit::*` 的夹具都是**手写源文**，
-//! 只能证明「给定源文时函数行为正确」；本文件补的是**在盘事实**：试点元素
-//! `Backend.Infra.ArchiRuntime` 的 `.md` / `.schema.json` / `.i.rs` / `INDEX.toml`
-//! 与手写 `impl` 是否逐项对齐（AC-13 / AC-2 / AC-10 / AC-17）。
+//! 单测里 `validate_schema` / `emit::*` 的夹具都是**手写源文**，只能证明「给定源文时
+//! 函数行为正确」；本文件补的是**在盘事实**：试点元素 `Backend.Infra.ArchiRuntime` 的
+//! `.md` / `.schema.json`（手写接口真相）/ `.i.rs`（生成物）/ `INDEX.toml`（生成物）与手写
+//! `impl` 是否逐项对齐（AC-13 / AC-2 / AC-10 / AC-17）。
 //!
-//! 零 mock：真实读盘（仓库内资产）+ 真实 `parse` / `build_schema` / `emit::rust::render`
-//! 重算——「生成物 = 派生物」只能由「重算后逐字节相等」表达，替身会让它不可见。
+//! 零 mock：真实读盘（仓库内资产）+ 真实 `validate_schema` / `emit::rust::render` 重算——
+//! 「生成物 = 派生物」只能由「重算后逐字节相等」表达，替身会让它不可见。
 //! 契约目录只读，零写盘。
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use archi::api::contract::{is_constructor, parse, verify, Contract};
+use archi::api::contract::{is_constructor, Contract};
 use archi::api::emit::rust::render;
 use archi::api::emit::{EmitTarget, ModuleRef};
 use archi::api::paths::{
     self, contract_path, directory, generated_path, index_path, EntryForm, GeneratedKind,
 };
-use archi::api::schema::{build_index, build_schema, ApiFormStatus, IndexEntry};
+use archi::api::schema::{build_index, ApiFormStatus, IndexEntry};
 use archi::api::{api_ref, api_ref_of, display, meta};
 use archi::dto::{ApiStatus, ArchiApiRef};
+use archi::validate_schema;
 use foundation::layout::archi_models_dir;
 use serde_json::Value;
 
@@ -88,22 +89,14 @@ fn read_repo(relative: &str) -> String {
 
 /// 解析试点契约（真实源文 + 真实解析器）。
 fn pilot_contract() -> Contract {
-    let source = read_repo(&contract_rel());
-    parse(&source, FQN, &contract_rel()).expect("试点契约应解析通过")
+    let source = read_repo(&schema_rel());
+    validate_schema(FQN, &source).expect("试点接口定义应通过校验")
 }
 
-/// 试点 schema（真实装配），并断言与盘上生成物逐字节相等（「纯派生」的事实判据）。
+/// 试点接口定义的 JSON 值（手写真相，读盘解析；零「重算比对」——schema 不再是生成物）。
 fn pilot_schema() -> Value {
-    let contract = pilot_contract();
-    let schema = build_schema(&contract, &meta()).expect("试点 schema 应装配成功");
-    let mut expected = serde_json::to_string_pretty(&schema).expect("schema 应可序列化");
-    expected.push('\n');
-    assert_eq!(
-        expected,
-        read_repo(&schema_rel()),
-        "真实源文重算的 schema 与盘上生成物逐字节相等（纯派生，MUST NOT 手改）"
-    );
-    schema
+    let source = read_repo(&schema_rel());
+    serde_json::from_str(&source).expect("试点接口定义应是合法 JSON")
 }
 
 /// 仓库 `.dev-team/architecture/models` 目录。
@@ -195,10 +188,11 @@ fn 旧契约目录已退役() {
     );
 }
 
-/// 正向（AC-2）：盘上 schema 的六字段与真实源文重算结果逐字节相等，逐字段给出 md 出处
-/// （`$schema` / `$id` / `title` / `$defs` / `properties` / `$comment`），头部带生成警示。
+/// 正向（AC-2）：盘上 `.schema.json` 是**手写接口真相**——六字段齐备（`$schema` / `$id` /
+/// `title` / `$defs` / `properties` / `$comment`），逐字段给出语义锚点（「纯派生」一侧的
+/// 重算比对已随真相方向倒置退役）。
 #[test]
-fn 盘上schema是真实源文的纯派生() {
+fn 盘上schema是手写接口真相() {
     let schema = pilot_schema();
     let object = schema.as_object().expect("schema 恒为 JSON 对象");
     let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
@@ -621,10 +615,14 @@ fn 投影对容器元素与未声明fqn可辨() {
         std::slice::from_ref(&undeclared_element),
         &undeclared_element,
     );
-    assert_eq!(undeclared.status, ApiStatus::None, "md 缺席即 none");
-    assert_eq!(undeclared.contract_path, None);
-    assert_eq!(undeclared.schema_path, None);
-    assert_eq!(undeclared.generated_path, None);
+    assert_eq!(undeclared.status, ApiStatus::None, "接口文件缺席即 none");
+    assert_eq!(undeclared.contract_path, None, "文档不在盘 ⇒ null");
+    assert_eq!(undeclared.schema_path, None, "接口不在盘 ⇒ null");
+    assert_eq!(
+        undeclared.generated_path.as_deref(),
+        Some(generated_rel().as_str()),
+        "生成物路径是入口的函数（有入口即给路径串，与资产在盘无关）"
+    );
 }
 
 /// 异常（AC-3 机械锚点）：试点测试内零旧名引用（旧 `#[path]` 真值源与旧入口形态函数），
@@ -659,8 +657,7 @@ fn 旧名零残留且等值源为生成物文件名() {
 // 自写第二份 `replace`），份数不钉死——由「非留白 / 留白两档各至少一份通过」兜住漂移。
 // ===========================================================================
 
-/// 递归收集目录下全部 `*.md`（真实 `fs::read_dir`，不注入文件清单；目录内坏路径即 panic）。
-fn walk_md(dir: &Path, out: &mut Vec<PathBuf>) {
+fn walk_schema(dir: &Path, out: &mut Vec<PathBuf>) {
     let mut entries: Vec<PathBuf> = fs::read_dir(dir)
         .unwrap_or_else(|error| panic!("应可读目录 {}：{error}", dir.display()))
         .map(|entry| entry.expect("目录项应可读").path())
@@ -668,26 +665,33 @@ fn walk_md(dir: &Path, out: &mut Vec<PathBuf>) {
     entries.sort();
     for path in entries {
         if path.is_dir() {
-            walk_md(&path, out);
-        } else if path.extension().and_then(|extension| extension.to_str()) == Some("md") {
+            walk_schema(&path, out);
+        } else if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".schema.json"))
+        {
             out.push(path);
         }
     }
 }
 
-/// 契约目录的在盘收面：`(repo 相对路径串, fqn)` 升序；fqn = 文件名去 `.md`。
+/// 接口定义目录的在盘收面：`(repo 相对路径串, fqn)` 升序；fqn = 文件名去 `.schema.json`。
 fn contract_files() -> Vec<(String, String)> {
     let root = repository_root();
     let mut paths: Vec<PathBuf> = Vec::new();
-    walk_md(&api_dir(), &mut paths);
+    walk_schema(&api_dir(), &mut paths);
     paths.sort();
     paths
         .into_iter()
         .map(|path| {
-            let fqn = path
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .expect("契约文件名应为合法 UTF-8")
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .expect("接口文件名应为合法 UTF-8");
+            let fqn = name
+                .strip_suffix(".schema.json")
+                .expect("收面只含 `<FQN>.schema.json`")
                 .to_owned();
             (display(&root, &path), fqn)
         })
@@ -705,12 +709,8 @@ struct LoadedContract {
 /// 逐份装载（`parse` → `build_schema` → `verify`）：失败即带 repo 相对路径串返回文案，供
 /// 调用方 `panic!`——循环内 MUST NOT `continue` 静默跳过（否则「零误伤」不可判）。
 fn load_contract(rel: &str, fqn: &str, source: &str) -> Result<bool, String> {
-    let contract = parse(source, fqn, rel)
-        .map_err(|error| format!("契约 `{rel}` 解析失败：{}", error.message()))?;
-    let schema = build_schema(&contract, &meta())
-        .map_err(|error| format!("契约 `{rel}` 装配 schema 失败：{}", error.message()))?;
-    verify(&contract, &schema)
-        .map_err(|error| format!("契约 `{rel}` 装载期校验失败：{}", error.message()))?;
+    let contract = validate_schema(fqn, source)
+        .map_err(|error| format!("接口定义 `{rel}` 校验失败：{}", error.message()))?;
     Ok(contract.ops.is_empty() && contract.types.is_empty() && contract.reexports.is_empty())
 }
 
@@ -752,8 +752,7 @@ fn 契约目录全量装载全线通过且两档各有通过项() {
 }
 
 /// 正向（组合链路 · 后端两份）：`Backend.Core.Foundation` /
-/// `Backend.Infra.ArchiRuntime` 落在通过集内，且各自散文零表格行 ⇒ 通过（AC-1 反向
-/// 判据：其散文列表项含留白 op 名，零抽取、不误伤）。
+/// `Backend.Infra.ArchiRuntime` 落在通过集内，且接口定义至少声明一个操作（非留白面）。
 #[test]
 fn 组合链路后端两份散文零表格行() {
     let loaded = load_all_contracts();
@@ -764,23 +763,24 @@ fn 组合链路后端两份散文零表格行() {
             .unwrap_or_else(|| panic!("`{fqn}` 应在全量装载的通过集内"));
         assert!(
             !item.blank,
-            "`{fqn}` 是第四闸的生效面（自有 op / 类型非空），实际判为留白"
+            "`{fqn}` 是非留白接口面（自有 op / 类型非空），实际判为留白"
         );
         let source = read_repo(&item.rel);
-        let rows: Vec<&str> = source
-            .lines()
-            .filter(|line| line.trim_start().starts_with('|'))
-            .collect();
+        let value: Value = serde_json::from_str(&source).expect("接口定义是合法 JSON");
+        let properties = value["properties"]
+            .as_object()
+            .expect("`properties` 是对象");
         assert!(
-            rows.is_empty(),
-            "`{fqn}` 散文零表格行（列表项形态零抽取、不误伤）：{rows:?}"
+            properties
+                .values()
+                .any(|property| property.get("x-function").is_some()),
+            "`{fqn}` 至少声明一个操作：{properties:?}"
         );
     }
 }
 
-/// 正向（组合链路 · 前端留白契约）：`Desktop/` 下的契约（`api-types` 全 `{}`、零 `api-op`、
-/// 零 `api-reexport`、散文多行表格）落在通过集内且全判留白 ⇒ 通过——AC-3 留白豁免的行为
-/// 证据：表格仍在盘而装载零错误，MUST NOT 把它们读成回归；份数不钉死，按在盘份数逐份断。
+/// 正向（组合链路 · 前端留白面）：`Desktop/` 下的接口定义全部落在通过集内且判留白——
+/// 空 `$defs {}` + 空 `properties {}` 是可落盘的合法留白形态（与「接口还没写」严格可分）。
 #[test]
 fn 组合链路前端留白契约全量通过() {
     let loaded = load_all_contracts();
@@ -791,19 +791,19 @@ fn 组合链路前端留白契约全量通过() {
                 .starts_with(".dev-team/architecture/models/Desktop/")
         })
         .collect();
-    assert!(!frontend.is_empty(), "前端组件契约应在收面内（当前 8 份）");
+    assert!(!frontend.is_empty(), "前端组件接口面应在收面内");
     for item in frontend {
         assert!(
             item.blank,
-            "`{}` 三项全空即留白契约（第四闸不生效），散文表格原样合法",
+            "`{}` 三项全空即留白接口面（合法：无可导出符号）",
             item.rel
         );
         let source = read_repo(&item.rel);
-        assert!(
-            source
-                .lines()
-                .any(|line| line.trim_start().starts_with('|')),
-            "`{}` 的散文表格仍在盘（豁免面的事实证据，而非被删除）",
+        let value: Value = serde_json::from_str(&source).expect("接口定义是合法 JSON");
+        assert_eq!(
+            value["$defs"].as_object().map(|defs| defs.len()),
+            Some(0),
+            "`{}` 的 `$defs` 为空对象（留白形态）",
             item.rel
         );
     }
@@ -813,39 +813,39 @@ fn 组合链路前端留白契约全量通过() {
 /// MUST NOT 落成「静默跳过」。
 #[test]
 fn 组合链路失败可见且不静默跳过() {
-    let rel = ".dev-team/architecture/models/Backend/Core/Backend.Demo.Broken.md";
-    let source = "# Backend.Demo.Broken\n\n## 公共面\n\n| `is_set` | 判定 |\n\n### is_set\n\n\
-                  ```json api-op\n{\"params\": []}\n```\n";
-    let message = load_contract(rel, "Backend.Demo.Broken", source)
-        .expect_err("非留白契约的散文表格复述契约名 ⇒ 应报装载期错误");
+    let rel = ".dev-team/architecture/models/Backend/Core/Backend.Demo.Broken.schema.json";
+    let broken_json = "{\n  \"$id\": \"Backend.Demo.Broken.schema.json\",\n";
+    let message = load_contract(rel, "Backend.Demo.Broken", broken_json)
+        .expect_err("截断的 JSON ⇒ 应报装载期错误");
     assert!(message.contains(rel), "消息含 repo 相对路径串：{message}");
     assert!(
-        message.contains("散文段以表格复述"),
-        "消息含第四闸的错误文案：{message}"
+        message.contains("不是合法 JSON"),
+        "消息含解析期错误文案：{message}"
     );
 
-    let broken_h1 = load_contract(
-        rel,
-        "Backend.Demo.Broken",
-        "# Backend.Demo.Other\n\n正文。\n",
-    )
-    .expect_err("H1 与文件名不一致 ⇒ 解析期错误");
+    let mismatched_id = concat!(
+        r#"{"$id": "Backend.Demo.Other.schema.json", "#,
+        r#""title": "Backend.Demo.Broken", "#,
+        r#""$defs": {}, "properties": {}}"#,
+        "\n",
+    );
+    let broken_id = load_contract(rel, "Backend.Demo.Broken", mismatched_id)
+        .expect_err("`$id` 与文件名不符 ⇒ 应报装载期错误");
     assert!(
-        broken_h1.contains(rel) && broken_h1.contains("解析失败"),
-        "解析期失败同样点名路径：{broken_h1}"
+        broken_id.contains(rel) && broken_id.contains("校验失败"),
+        "校验期失败同样点名路径：{broken_id}"
     );
 }
 
-/// 边界（组合链路 · 收面口径）：收面恰为 `<archi_models_dir>/**/*.md`——只认 `.md`、路径串
-/// 经 `archi::api::display` 归一、`graph/` 是兄弟目录不在收面、不递归第二根、不按文件名白名单
-/// 豁免。
+/// 边界（组合链路 · 收面口径）：收面恰为 `<archi_models_dir>/**/*.schema.json`——只认
+/// `.schema.json`、路径串经 `archi::api::display` 归一、`graph/` 是兄弟目录不在收面。
 #[test]
 fn 组合链路收面为契约目录下全部md() {
     let files = contract_files();
-    assert!(!files.is_empty(), "收面应至少一份 `*.md`");
+    assert!(!files.is_empty(), "收面应至少一份 `*.schema.json`");
 
     for (rel, fqn) in &files {
-        assert!(rel.ends_with(".md"), "只认 `*.md`：{rel}");
+        assert!(rel.ends_with(".schema.json"), "只认 `*.schema.json`：{rel}");
         assert!(
             rel.starts_with(".dev-team/architecture/models/"),
             "路径串经 `archi::api::display` 归一为 repo 相对 POSIX：{rel}"
@@ -853,16 +853,16 @@ fn 组合链路收面为契约目录下全部md() {
         assert!(!rel.contains('\\'), "路径串零反斜杠：{rel}");
         assert!(
             !rel.contains("graph/"),
-            "`graph/` 是兄弟目录，MUST NOT 进契约收面：{rel}"
+            "`graph/` 是兄弟目录，MUST NOT 进接口收面：{rel}"
         );
         assert!(
-            !fqn.is_empty() && !fqn.ends_with(".md"),
-            "fqn = 文件名去 `.md`：{fqn}"
+            !fqn.is_empty() && !fqn.ends_with(".schema.json"),
+            "fqn = 文件名去 `.schema.json`：{fqn}"
         );
     }
 
     let graph = repository_root().join(".dev-team/architecture/graph");
-    assert!(graph.is_dir(), "`graph/` 目录在盘（与契约目录分家）");
+    assert!(graph.is_dir(), "`graph/` 目录在盘（与接口目录分家）");
     assert!(
         !files.iter().any(|(rel, _)| rel.contains("/graph/")),
         "不递归第二根（`graph/model/*.toml` 天然不在收面）"

@@ -313,7 +313,12 @@ fn vocabulary(words: impl IntoIterator<Item = &'static str>) -> String {
     words.into_iter().collect::<Vec<&str>>().join(" / ")
 }
 
-/// `archi_module` 定义（定位：邻接 / 直接子元素 / 入口文档 / 声明位置）。
+/// `archi_module` 定义（定位：邻接 / 直接子元素 / **三份资产一次给全** / 声明位置）。
+///
+/// 五句描述各自针对一类误用：① 三资产一次给全（三个 `present` 各自独立）；② 接口文件是
+/// 唯一凭据、键名即定义；③ 文档无结构 ⇒ 正文用 `read` 整读；④ `resolvedEntry` +
+/// `fileHash` 是写工具的 `expect` 闭环；⑤ 三条路径各指什么（`contractPath` 是文档、
+/// `schemaPath` 是接口、`generatedPath` 是生成物），各自独立出线。
 fn archi_module_definition() -> ToolDefinition {
     ToolDefinition {
         name: ARCHI_MODULE_TOOL.to_owned(),
@@ -322,10 +327,12 @@ fn archi_module_definition() -> ToolDefinition {
              kind（{}）/ gate（{}）/ path / metadata、声明位置（modelFile + modelLine，可直接 edit 到该行）、\
              出边与入边（对端 FQN + 说明）、直接子元素与入口文档单值 doc（仅 api = none 元素有值；declared 走 api.contractPath，正文用 read 自取）；\
              省略 element 返回全部元素的薄概览，每条含 hasPath（缺 path 的元素一次判出）；\
+             单元素响应另给 assets 三份资产（拓扑 file/line 与出入度数、接口的键名摘要与一句话判读、文档的段名与体量），三段各自 present——缺一份不影响另两份；\
+             接口定义文件（.schema.json）是接口的唯一凭据：键名即定义，不必整读，细节按需 read 相关片段；文档（.md）无结构，正文 MUST 用 read 整读、MUST NOT 用 grep / offset 拼凑；\
              单元素响应另给 resolvedEntry（入口解析结果：显式命中 / 约定默认命中 / 不可用成因）；\
              单元素响应另给 fileHash（该元素声明文件的当前内容哈希）——可直接作 archi_element / archi_relation 的 expect；\
              新元素的字段形态用 archi_scaffold 取模板；\
-             `api.schemaPath` / `api.generatedPath` 给另两条生成物路径（`contractPath` 已指手写真相）。\
+             三条路径各自独立出线：api.contractPath = 文档（.md，理由，产品面内容）、api.schemaPath = 接口（.schema.json，手写真相，不是生成物）、api.generatedPath = 生成物（.i.rs / .i.ts）。\
              模型写坏时返回结构化诊断（先修模型）",
             vocabulary(ElementKind::ALL.map(ElementKind::as_str)),
             vocabulary(GateTier::ALL.map(GateTier::as_str)),
@@ -344,10 +351,10 @@ fn archi_module_definition() -> ToolDefinition {
 fn archi_search_definition() -> ToolDefinition {
     ToolDefinition {
         name: ARCHI_SEARCH_TOOL.to_owned(),
-        description: "在架构模型里按关键词检索元素与文档路径（发现：还不知道这功能归谁管时先搜）。\
-             匹配对象为元素 FQN / summary / metadata 值 / 文档路径与文件名（不搜文档正文——\
-             正文用 grep），大小写不敏感且支持驼峰分词（AuthToken → auth / token）。返回元素\
-             薄条目与入口文档路径"
+        description: "在架构模型里按关键词检索元素与资产路径（发现：还不知道这功能归谁管时先搜）。\
+             匹配对象为元素 FQN / summary / metadata 值 / 资产路径与文件名（派生 <FQN>.md 与 <FQN>.schema.json 两条固定规则；\
+             不搜文档正文——正文用 read 整读），大小写不敏感且支持驼峰分词（AuthToken → auth / token）。\
+             返回元素薄条目与命中的资产路径（文档 / 接口）"
             .to_owned(),
         parameters: serde_json::json!({
             "type": "object",
@@ -360,32 +367,42 @@ fn archi_search_definition() -> ToolDefinition {
     }
 }
 
-/// `archi_api` 定义（契约面自检与草稿：`check` 两轴 / `bootstrap` 草稿；零写盘）。
+/// `archi_api` 定义（接口面三动作：`check` 两轴 / `bootstrap` 双草稿 / `link` 算 `$ref`；
+/// 零写盘）。
+///
+/// 四句描述：① `bootstrap` 是新建 / 补接口的第一步（给两份草稿）；② `link` 算 `$ref` 串
+/// （勿手拼 `../` 层数）；③ **三类**生成物的点名 + 「MUST NOT 手改」；④ 冷启动口径
+/// （`artifacts.enabled = false` 不等于零问题）。`.schema.json` MUST NOT 被说成生成物。
 fn archi_api_definition() -> ToolDefinition {
     ToolDefinition {
         name: ARCHI_API_TOOL.to_owned(),
         description: concat!(
-            "查询模块 API 契约面的两轴事实（自检与草稿）。`check` 返回生成物新鲜度（三类差异：",
-            "内容不符 / 应删未删 / 应生成未生成）与契约判据摘要（按 category 计数 + 逐条 ",
-            "kind / element / message）；`bootstrap` 按元素 FQN 输出契约 md 草稿——",
-            "新建 / 补契约的第一步就取它（只出 stdout 语义、零写盘）。",
-            "生成物四类：契约 md 同目录的 `<FQN>.schema.json`、架构域 `INDEX.toml`、",
-            "入口同级 `.i.rs` / `.i.ts`——过期用既有生成命令重生成，MUST NOT 手改生成物。",
-            "`check` 的 `artifacts.enabled = false` 即契约面未启用（此时 `findings` 恒空，",
+            "查询接口面的两轴事实，并给起草与引用所需的两件算数。`check` 返回生成物新鲜度（三类差异：",
+            "内容不符 / 应删未删 / 应生成未生成——应生成集只有 INDEX.toml / .i.rs / .i.ts 三类，",
+            "手写的 `.schema.json` 与 `.md` 永不在其中）与接口判据摘要（按 category 计数 + 逐条 ",
+            "kind / element / message）；`bootstrap` 按元素 FQN 输出两份草稿——schema 骨架（可直接 ",
+            "write 落盘并过写闸）与文档骨架（只有 H1 与一句指引），新建 / 补接口的第一步就取它；",
+            "`link` 算一条 `$ref` 串（跨元素给 from + to + name、本文件给 element + name），",
+            "MUST NOT 手拼 `../` 层数。三个动作都零写盘。",
+            "生成物三类：架构域 `INDEX.toml`、入口同级 `.i.rs` / `.i.ts`——过期用既有生成命令重生成，",
+            "MUST NOT 手改生成物（`.schema.json` 是手写真相，不是生成物）。",
+            "`check` 的 `artifacts.enabled = false` 即接口面未启用（此时 `findings` 恒空，",
             "不等于零问题）。模型结构错时返回诊断清单（先修模型）"
         )
         .to_owned(),
         parameters: serde_json::json!({
             "type": "object",
             "properties": {
-                "action": { "type": "string", "enum": ["check", "bootstrap"], "description": "动作（封闭二值）：check 查两轴 / bootstrap 出草稿" },
-                "element": { "type": "string", "description": "元素 FQN（bootstrap 必填，如 App.Auth）" }
+                "action": { "type": "string", "enum": ["check", "bootstrap", "link"], "description": "动作（封闭三值）：check 查两轴 / bootstrap 出双草稿 / link 算 $ref 串" },
+                "element": { "type": "string", "description": "元素 FQN（bootstrap 必填；link 的本文件形态用它，如 App.Auth）" },
+                "from": { "type": "string", "description": "引用方元素 FQN（link 的跨元素形态，与 to 同时给）" },
+                "to": { "type": "string", "description": "被引用元素 FQN（link 的跨元素形态，与 from 同时给）" },
+                "name": { "type": "string", "description": "导出名 / 类型名（link 必填；ASCII 标识符）" }
             },
             "required": ["action"]
         }),
     }
 }
-
 /// `archi_drift` 定义（漂移判据读数：写完模型 / 改完代码后自查覆盖、归属与契约面）。
 ///
 /// 描述里的两句是**读数口径**而非免责声明：`gate` 全 `off` 的模型 `unmatchedFiles`
@@ -423,7 +440,8 @@ fn archi_scaffold_definition() -> ToolDefinition {
             "取新元素 TOML 草稿，同时是字段词典：模型元素字段面逐字段一行纪律与值域 + 关系四键模板，",
             "只读零写盘——模型写面是两个写工具 archi_element / archi_relation，本工具只出模板。",
             "kind 省略取 domain，值集见 enum。",
-            "草稿可直接抄改（单段占位 FQN，多段时先声明祖先），改完用 archi_drift 自查",
+            "草稿可直接抄改（单段占位 FQN，多段时先声明祖先），改完用 archi_drift 自查；",
+            "接口面的草稿（契约骨架 + 文档骨架）用 archi_api 的 bootstrap 取",
         )
         .to_owned(),
         parameters: serde_json::json!({

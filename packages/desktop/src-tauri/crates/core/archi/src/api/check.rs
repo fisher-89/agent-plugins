@@ -1,46 +1,47 @@
-//! 十三条契约判据的单点求值：`check(ApiCheckInput) -> Vec<ArchiApiFinding>`。
+//! 十契约判据的单点求值：`check(ApiCheckInput) -> Vec<ArchiApiFinding>`。
 //!
 //! **求值序固定：按 `api` 状态分两条互斥支链，支内首错短路**（一个元素至多一条元素
 //! 锚点；跨支不比较，同一元素只走一支）：
 //!
 //! ```text
-//! api = none 支（三步；不依赖入口）
-//!   ① apiUnexpected   派生契约路径在盘 ⇒ 留白被违反（与 doc 无关，必须先判）
-//!   ② docMissing      `doc` 未声明（无入口文档）
-//!   ③ docNotFound     `doc` 声明在案但指不到盘
+//! api = none 支（两步；不依赖入口）
+//!   ① apiUnexpected   `<FQN>.schema.json` 在盘 ⇒ 留白被违反（必须先判）
+//!   ② docMissing      派生 `<FQN>.md` 不在盘
 //!
-//! api = declared 支（六步）
-//!   ④ docMissing      派生契约 md 不在盘
-//!   ⑤ apiDocMissing   契约 md 在盘但正文无 api fence 语言标
-//!   ⑥ apiUnexpected   元素写了 `doc`（入口文档已由派生落点给出 ⇒ 两事实矛盾）
-//!   ⑦ apiEntryMissing entry_state = Absent / Invalid（code 面的结构前提）
-//!   ⑧ apiMissing      契约声明 op / `$defs` 类型而代码导出集里没有
-//!   ⑨ 一致性（首条命中即停）：apiSignatureMismatch → apiReexportDrift →
-//!                      apiConstructorDeclared
+//! api = declared 支（四步）
+//!   ③ docMissing      派生 `<FQN>.md` 不在盘（文档未就位；单成因）
+//!   ④ apiEntryMissing entry_state = Absent / Invalid（code 面的结构前提）
+//!   ⑤ apiMissing      schema 在盘时：接口声明 op / `$defs` 类型而代码导出集里没有
+//!   ⑥ 一致性（首条命中即停）：apiSignatureMismatch → apiConstructorDeclared
 //!
 //! pair 锚点（不进元素循环，与元素锚点并列、互不挤占）
 //!   ⓐ apiNestedCrossCrate → ⓑ apiRefMissing → ⓒ apiShadowing
 //! ```
 //!
-//! **分界不是排版而是依赖**：①–⑥ 只读模型 + 盘（载体存活性 / 契约路径存活性 / fence
-//! 有无），**零导出集依赖**——载体事实在装载期由 `api::doc_facts` 一次装配进
-//! `input.doc_facts`，本文件仍零内容读；⑦ 起经导出集需 `EntryState::Resolved`——入口非
-//! `Resolved` 时导出集为空，⑧⑨ 无对象可判，故短路的不是真问题而是**尚不存在的对象**。
+//! **分界不是排版而是依赖**：①–③ 只读模型 + 盘（文档派生路径与接口派生路径的存活性），
+//! **零导出集依赖**——文档存在性在装载期由 `api::doc_presence` 一次装配进
+//! `input.doc_present`，本文件仍零内容读；④ 起经导出集需 `EntryState::Resolved`——入口
+//! 非 `Resolved` 时导出集为空，⑤⑥ 无对象可判，故短路的不是真问题而是**尚不存在的
+//! 对象**。
 //!
-//! **`api = none` 支把 `apiUnexpected` 排第一**：该判据与 `doc` 无关（判的是「派生路径
-//! 上冒出了契约」），而 `docMissing` 是 `warn` 且不纳管——若让 `docMissing` 先短路，一条
-//! 没写 README 的 `api = none` 元素就能把它那份放错位置的契约遮住。
+//! **③ 判的是文档，不是接口**：`docMissing` 在本变更收成单因（派生 `<FQN>.md` 不在盘），
+//! 与 `api` 状态、模型 `doc` 字段都无关。**「接口未写」（schema 不在盘）不产任何判据**：
+//! 它在 ⑤⑥ 表现为「声明集不存在 ⇒ 零对象」（`schemaMissing` 归后续 change，MUST NOT
+//! 以别名预铺）。
 //!
-//! **`$defs` 只读 `schema.json`**（`input.schemas`），MUST NOT 并读 markdown：安全性由
-//! 前序门禁保证（`contract::verify` 保证 fence 与 `$defs` 一致、零 diff 门保证 schema
-//! 零手改自由度）。
+//! **`api = none` 支把 `apiUnexpected` 排第一**：该判据与文档无关（判的是「派生路径上
+//! 冒出了接口定义」），而 `docMissing` 是 `warn` 且不纳管——若让它先短路，一个没写文档的
+//! `api = none` 元素就能把它那份放错位置的接口遮住。
+//!
+//! **`$defs` 只读接口定义文件**（`input.schemas`），MUST NOT 并读文档正文：接口真相的
+//! 唯一持有者是 `.schema.json`，文档无结构。
 //!
 //! **类型词汇与归一单点**（D43）：逻辑类型词汇、位置词汇与短形写出点各只有一份，全在
-//! [`extract`] 内（本文件零位置表、零短形拼装）。契约侧签名经 [`extract::signature_of`]、
+//! [`extract`] 内（本文件零位置表、零短形拼装）。接口侧签名经 [`extract::signature_of`]、
 //! 代码侧经取数器的归一签名函数——两者同一短形词汇，本文件只调用不自建；「位置 × 语言 →
 //! 文本形」的映射只在 [`super::emit`]。
 //!
-//! **零第二份判定**：本文件是十三条判据的唯一实现，命令面（`archi_drift`）与门禁面
+//! **零第二份判定**：本文件是十条判据的唯一实现，命令面（`archi_drift`）与门禁面
 //! （`LocalArchiCheck`）都经 [`crate::api::check`] 抵达这里。
 //!
 //! 边界：纯读 `input`（零读盘、零写盘、零 spawn）。
@@ -57,103 +58,73 @@ use crate::dto::{ApiStatus, ArchiElement};
 use super::contract::{is_constructor, Contract};
 use super::extract::{self, ApiSymbol, ApiSymbolKind};
 use super::paths::{self, EntryProblem, EntryState};
-use super::{ApiCheckInput, DocFact};
+use super::ApiCheckInput;
 
 /// 开放分类的单点打标（七值）：新增分类只改本函数，不动枚举、不动 `ALL`、不动金样
 /// 词汇对拍。
+///
+/// **七个分组是本变更的判据集合最小值**：`doc` 只剩 `docMissing` 一个成员——分组集合
+/// 不变、成员随三值删除收缩（散文透传列表、文档在盘无 fence、`doc` 指不到盘三条事实源
+/// 已随真相搬移而离场）。MUST NOT 为「只剩一个成员的分组」做合并或改名。
 pub fn category_of(kind: ArchiApiFindingKind) -> &'static str {
     match kind {
         ArchiApiFindingKind::ApiEntryMissing | ArchiApiFindingKind::ApiUnexpected => "entry",
         ArchiApiFindingKind::ApiMissing | ArchiApiFindingKind::ApiUndeclared => "contract",
         ArchiApiFindingKind::ApiSignatureMismatch => "signature",
-        ArchiApiFindingKind::ApiReexportDrift
-        | ArchiApiFindingKind::ApiShadowing
-        | ArchiApiFindingKind::ApiRefMissing => "reexport",
+        ArchiApiFindingKind::ApiShadowing | ArchiApiFindingKind::ApiRefMissing => "reexport",
         ArchiApiFindingKind::ApiNestedCrossCrate => "nesting",
         ArchiApiFindingKind::ApiConstructorDeclared => "constructor",
-        ArchiApiFindingKind::DocMissing
-        | ArchiApiFindingKind::DocNotFound
-        | ArchiApiFindingKind::ApiDocMissing => "doc",
+        ArchiApiFindingKind::DocMissing => "doc",
     }
 }
 
-/// 十三条判据求值（单点实现；返回前不做排序——排序在 [`super::check`] 的对外入口）。
+/// 十判据求值（单点实现；返回前不做排序——排序在 [`super::check`] 的对外入口）。
 ///
-/// 元素锚点两支三段各自首错短路；三条 pair 锚点在元素循环之外，与元素锚点互不挤占。
+/// 元素锚点两支各自首错短路（`none` 支 2 步、`declared` 支 4 步）；三条 pair 锚点在元素
+/// 循环之外，与元素锚点互不挤占。
 pub fn check(input: ApiCheckInput<'_>) -> Vec<ArchiApiFinding> {
     let mut findings: Vec<ArchiApiFinding> = Vec::new();
     for element in input.elements {
         if element.path.is_empty() {
             continue;
         }
-        // 载体事实由装载期装配（`doc_facts` 以同一份元素表装配 ⇒ 本处缺表项不可达；
-        // 兜底取 `Absent` 只是零 panic 而非判据分流——「已声明而越根」那类成因在
-        // `doc_facts` 里已被归 `Missing`，MUST NOT 在此另写第二份分流）
-        let fact = input
-            .doc_facts
+        // 文档事实由装载期装配（`doc_presence` 以同一份元素表装配 ⇒ 本处缺表项不可达；
+        // 兜底 `false` 只是零 panic，判据语义仍是「派生 md 不在盘」）
+        let doc_present = input
+            .doc_present
             .get(&element.fqn)
             .copied()
-            .unwrap_or(DocFact::Absent);
+            .unwrap_or(false);
         match element.api {
             ApiStatus::None => {
-                // ① 留白被违反：派生契约路径上冒出契约（与 `doc` 无关，必须先判）
-                if paths::contract_path(input.root, &element.fqn).is_some_and(|path| path.is_file())
-                {
+                // ① 留白被违反：派生接口路径上冒出接口定义（与 `doc` 无关，必须先判）
+                if paths::schema_path(input.root, &element.fqn).is_some_and(|path| path.is_file()) {
                     findings.push(finding(
                         ArchiApiFindingKind::ApiUnexpected,
                         element,
                         None,
                         format!(
-                            "元素 {} 声明 `api = none`（本模块无 API），但派生契约路径上存在契约文件——要么删掉契约，要么把模型改成 `declared`",
-                            element.fqn
+                            "元素 {} 声明 `api = none`（本模块无接口面），但派生路径上存在接口定义文件——要么删掉 `{}.schema.json`，要么把模型改成 `declared`",
+                            element.fqn, element.fqn
                         ),
                         Vec::new(),
                     ));
                     continue;
                 }
-                match fact {
-                    // ② 未声明 `doc`：无入口文档（warn，永不纳管）
-                    DocFact::Absent => findings.push(doc_missing_none(element)),
-                    // ③ 声明在案但指不到盘（error，纳管）
-                    DocFact::Missing => findings.push(doc_not_found(element)),
-                    DocFact::Present { .. } => {}
+                // ② 派生文档不在盘（warn，永不纳管）
+                if !doc_present {
+                    findings.push(doc_missing(input.root, element));
                 }
                 continue;
             }
             ApiStatus::Declared => {}
         }
-        // ④ 派生契约 md 不在盘（原 `apiMissing` 形态①，改名不改事实）
-        match fact {
-            DocFact::Missing | DocFact::Absent => {
-                findings.push(doc_missing_declared(input.root, element));
-                continue;
-            }
-            // ⑤ 有文档无约定：契约 md 在盘但正文无 api fence 语言标
-            DocFact::Present {
-                has_api_fence: false,
-            } => {
-                findings.push(api_doc_missing(input.root, element));
-                continue;
-            }
-            DocFact::Present {
-                has_api_fence: true,
-            } => {}
-        }
-        // ⑥ 入口文档已由派生落点给出，`doc` 是第二个事实 ⇒ 矛盾（该值不参与其它判定）
-        if element.doc.is_some() {
-            findings.push(finding(
-                ArchiApiFindingKind::ApiUnexpected,
-                element,
-                None,
-                format!(
-                    "元素 {} 声明 `api = declared`（入口文档 = 派生契约 md），却又写了 `doc`——入口文档由派生落点给出，`doc` 是第二个事实（要么删掉 `doc`，要么改判 `api = none`）",
-                    element.fqn
-                ),
-                Vec::new(),
-            ));
+        // ③ 派生文档不在盘（单成因，与 `api` / `doc` 都无关）
+        if !doc_present {
+            findings.push(doc_missing(input.root, element));
             continue;
         }
-        // ⑦ code 面的结构前提：`entry_state` 非 `Resolved` ⇒ 导出集为空，⑧⑨ 无对象可判
+        // ④ code 面的结构前提：`entry_state` 非 `Resolved` ⇒ 导出集为空，⑤⑥ 无对象可判
         let state = paths::entry_state(input.root, input.elements, element);
         if !matches!(state, EntryState::Resolved { .. }) {
             findings.push(finding(
@@ -165,6 +136,8 @@ pub fn check(input: ApiCheckInput<'_>) -> Vec<ArchiApiFinding> {
             ));
             continue;
         }
+        // 声明集只来自接口定义文件：`contracts` / `schemas` 只在 schema 在盘时装配 ⇒
+        // 「接口未写」在这一步表现为「无对象」（零判据，MUST NOT 以别名预铺）
         let contract = input
             .contracts
             .iter()
@@ -175,21 +148,15 @@ pub fn check(input: ApiCheckInput<'_>) -> Vec<ArchiApiFinding> {
             .get(&element.fqn)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        // ⑧ 契约 → 代码缺失（只剩「有约定无兑现」形态）
+        // ⑤ 接口 → 代码缺失（只剩「有约定无兑现」形态）
         if let Some(found) = missing_contracts(element, contract, schema, symbols) {
             findings.push(found);
             continue;
         }
-        // ⑨ 一致性（首条命中即停）：签名 → 透传 → 构造器
+        // ⑥ 一致性（首条命中即停）：签名 → 构造器
         if let Some(found) = signature_mismatch(element, contract, symbols) {
             findings.push(found);
             continue;
-        }
-        if let (Some(contract), Some(schema)) = (contract, schema) {
-            if let Some(found) = reexport_drift(element, contract, schema) {
-                findings.push(found);
-                continue;
-            }
         }
         if let Some(found) = constructor_declared(element, contract) {
             findings.push(found);
@@ -210,22 +177,11 @@ pub fn check(input: ApiCheckInput<'_>) -> Vec<ArchiApiFinding> {
     findings
 }
 
-/// `api = none` 且未声明 `doc`（成因：入口文档未就位）。
-fn doc_missing_none(element: &ArchiElement) -> ArchiApiFinding {
-    finding(
-        ArchiApiFindingKind::DocMissing,
-        element,
-        None,
-        format!(
-            "元素 {} 声明 `api = none` 且未声明 `doc`——本模块没有入口文档（要给出入口文档，写 `doc = \"<repo 相对路径>\"`）",
-            element.fqn
-        ),
-        Vec::new(),
-    )
-}
-
-/// `api = declared` 而派生契约 md 不在盘（成因：入口文档未就位；文案点名派生路径）。
-fn doc_missing_declared(root: &std::path::Path, element: &ArchiElement) -> ArchiApiFinding {
+/// `docMissing` 的唯一文案（单因单义）：派生 `<FQN>.md` 不在盘，两支同义。
+///
+/// **不含「入口文档」一类指针措辞**——文档就是文档（产品面内容），与 `api` 状态、
+/// 模型 `doc` 字段无关；「接口未写」不归本值。
+fn doc_missing(root: &std::path::Path, element: &ArchiElement) -> ArchiApiFinding {
     let expected = paths::contract_path(root, &element.fqn)
         .map(|path| super::display(root, &path))
         .unwrap_or_else(|| format!("<无法派生：FQN `{}` 形态非法>", element.fqn));
@@ -234,39 +190,7 @@ fn doc_missing_declared(root: &std::path::Path, element: &ArchiElement) -> Archi
         element,
         None,
         format!(
-            "元素 {} 声明 `api = declared`（入口文档 = 派生契约 md）但该文件不在盘：{expected}",
-            element.fqn
-        ),
-        Vec::new(),
-    )
-}
-
-/// `api = none` 且 `doc` 指不到盘（成因：声明写错；文案点名声明值）。
-fn doc_not_found(element: &ArchiElement) -> ArchiApiFinding {
-    let declared = element.doc.clone().unwrap_or_default();
-    finding(
-        ArchiApiFindingKind::DocNotFound,
-        element,
-        None,
-        format!(
-            "元素 {} 的 `doc` 声明 `{declared}` 指不到盘上的文件——要么改对路径，要么删掉声明",
-            element.fqn
-        ),
-        Vec::new(),
-    )
-}
-
-/// 契约 md 在盘但正文无 api fence 语言标（成因：契约尚未展开）。
-fn api_doc_missing(root: &std::path::Path, element: &ArchiElement) -> ArchiApiFinding {
-    let carrier = paths::contract_path(root, &element.fqn)
-        .map(|path| super::display(root, &path))
-        .unwrap_or_else(|| format!("<无法派生：FQN `{}` 形态非法>", element.fqn));
-    finding(
-        ArchiApiFindingKind::ApiDocMissing,
-        element,
-        None,
-        format!(
-            "元素 {} 的派生契约 md 在盘（{carrier}）但正文无 `api-op` / `api-types` 语言标——契约尚未展开（补 fence 之前本元素无声明集可对拍）",
+            "元素 {} 的派生文档不在盘：{expected}——文档写理由（为什么这样切 / 有什么坑 / 什么不归它管），接口写同目录的 `.schema.json`",
             element.fqn
         ),
         Vec::new(),
@@ -314,7 +238,7 @@ fn entry_missing_message(element: &ArchiElement, state: &EntryState) -> String {
             element.fqn
         ),
         EntryState::Invalid(EntryProblem::NotOnDisk { entry }) => format!(
-            "元素 {} 声明的入口 `{entry}` 不在盘上——写契约之前先修入口或删掉声明",
+            "元素 {} 声明的入口 `{entry}` 不在盘上——写接口定义之前先修入口或删掉声明",
             element.fqn
         ),
         EntryState::Invalid(EntryProblem::Duplicated { entry, other_fqn }) => format!(
@@ -325,23 +249,22 @@ fn entry_missing_message(element: &ArchiElement, state: &EntryState) -> String {
     }
 }
 
-/// `apiMissing`：**② 只剩「有约定无兑现」**（契约声明了代码里没有的实现）。
+/// `apiMissing`：只剩「有约定无兑现」（接口声明了代码里没有的实现）。
 ///
 /// **`$defs` 类型面与 op 面同一条判据、同一次求值**（D44）：两类都**只判存在**（签名
-/// 归一致性第一步），共同排除面三条——**构造器双向排除**（`is_constructor` 既不进声明集也不进
-/// 导出集）、**透传纯 `$ref` alias 排除**（`api-reexport` 的条目在本模块无本地定义，
-/// 其实现由目标元素承担；判据与 [`reexport_drift`] 同源，不另写一份）、**签名不在此判**。
+/// 归一致性第一步），共同排除面两条——**构造器双向排除**（`is_constructor` 既不进声明集也
+/// 不进导出集）、**透传纯 `$ref` alias 排除**（透传条目在本模块无本地定义，其实现由目标
+/// 元素承担；判据即 [`is_pure_ref_alias`]，不另写一份）。签名不在此判。
 /// `ApiSymbolKind::{Type, Trait, Enum}` 与 `Function` 各归各自的面，MUST NOT 交叉。
 ///
-/// **`occurrences.line` 按两类缺口分列**（D51）：op 缺口取 [`ContractOp::line`]——它是
-/// `### <op-id>` **heading 行**（人读定位的锚点，**不是** `api-op` fence 行，两者相邻但
-/// 不是同一行）；`$defs` 类型缺口取 `0`（[`ArchiDriftOccurrence::line`] 的既有「位置未知」
-/// 口径，见 [`declared_types`] 的 doc）。
+/// **`occurrences.line` 恒 `0`**（D51）：接口定义文件没有 op 级行号
+/// （[`ArchiDriftOccurrence::line`] 的既有「位置未知」口径，见 [`declared_types`] 的
+/// doc）。
 ///
-/// [`ContractOp::line`]: super::contract::ContractOp::line
 /// [`ArchiDriftOccurrence::line`]: crate::drift::report::ArchiDriftOccurrence::line
 ///
-/// **契约文件缺失不再归本判据**（原形态① 已改名 `docMissing`）：同一事实不占两个名字。
+/// **接口文件缺失不归本判据**：装载期不装配该元素的 `Contract`（schema 不在盘即跳过），
+/// 故本函数拿到 `None` 直接零命中——「接口未写」本期零判据。
 fn missing_contracts(
     element: &ArchiElement,
     contract: Option<&Contract>,
@@ -399,7 +322,7 @@ fn missing_contracts(
         element,
         Some(missing.join(" / ")),
         format!(
-            "契约 {} 声明了 {} 但代码导出集里没有实现（代码导出集：{}）",
+            "接口定义 {} 声明了 {} 但代码导出集里没有实现（代码导出集：{}）",
             contract.file,
             missing.join(" / "),
             if exports.is_empty() {
@@ -425,21 +348,17 @@ fn is_type_symbol(kind: ApiSymbolKind) -> bool {
     )
 }
 
-/// 契约声明的类型名清单（`$defs` 键集，**纯 `$ref` alias 排除**，D44）。
+/// 接口声明的类型名清单（`$defs` 键集，**纯 `$ref` alias 排除**，D44）。
 ///
-/// 取数面是**已装配的 `schema.json`**（`input.schemas`）：它的 `$defs` 恰是 `api-types` ∪
-/// `api-reexport` 两处 fence 的装配结果，故「取 schema 即取两处」——MUST NOT 并读
-/// markdown（D17：同一事实的第二个来源必然漂移）。**排除面与 [`reexport_drift`] 同一判据**
-/// （[`is_pure_ref_alias`]）：透传条目在本模块无本地定义、其实现由目标元素承担，参与
-/// `apiMissing` 会让每个父子契约恒报缺失。
+/// 取数面是**已装载的接口定义**（`input.schemas`）：它的 `$defs` 恰是本模块自有类型与透传
+/// alias 的装配结果——文档无结构、MUST NOT 并读（D17：同一事实的第二个来源必然漂移）。
+/// **排除面与 [`is_pure_ref_alias`] 同一判据**：透传条目在本模块无本地定义、其实现由目标
+/// 元素承担，参与 `apiMissing` 会让每个父子接口恒报缺失。
 ///
-/// **行号取 `0`（位置未知，D51）**：`Contract` 不承载 `api-types` / `api-reexport` 的 fence
-/// 条目级行号（`types` / `reexports` 是 fence 原文的裸 `Map`），而
-/// [`ArchiDriftOccurrence::line`] 的既有口径已用 `0` 表达「位置未知」（`drift/mod.rs` /
-/// `parse/mod.rs` / `scan/mod.rs` 三处先例）——MUST NOT 为凑行号在 `Contract` 上新增
-/// `types_line` / `reexports_line` 一类只此一处消费的字段（扩公共类型面换「行号更准」这一
-/// 非判据收益，与 D36 删零消费者 `absent`、D42 收窄 `generated_path` 同族），也 MUST NOT
-/// 为拿条目级行号去扫 fence 文本（那是第二套解析）。
+/// **行号取 `0`（位置未知，D51）**：接口定义文件没有条目级行号（`$defs` 是裸 `Map`），
+/// 而 [`ArchiDriftOccurrence::line`] 的既有口径已用 `0` 表达「位置未知」（`drift/mod.rs`
+/// / `parse/mod.rs` / `scan/mod.rs` 三处先例）——MUST NOT 为凑行号扫文本去数行（那是第二
+/// 套解析），也 MUST NOT 为它新增只此一处消费的字段。
 ///
 /// [`ArchiDriftOccurrence::line`]: crate::drift::report::ArchiDriftOccurrence::line
 fn declared_types(schema: Option<&Value>) -> Vec<String> {
@@ -455,16 +374,19 @@ fn declared_types(schema: Option<&Value>) -> Vec<String> {
         .collect()
 }
 
-/// 纯 `$ref` alias 判据（`{"$ref": …}` 且仅此一键）：透传条目与本地定义的唯一分界，
-/// `apiReexportDrift` 与 `apiMissing` 的类型面共用本函数（MUST NOT 各写一份）。
-fn is_pure_ref_alias(definition: &Value) -> bool {
+/// 纯 `$ref` alias 判据（`{"$ref": …}` 且仅此一键）：透传条目与本地定义的唯一分界。
+///
+/// **三处共用本函数、MUST NOT 各写一份**：`apiMissing` 的类型面（[`declared_types`]）、
+/// `dto` 的 `assets.interface` 三数组二分、`Contract::from_schema` 的 `types` / `reexports`
+/// 分流。
+pub(crate) fn is_pure_ref_alias(definition: &Value) -> bool {
     definition
         .as_object()
         .map(|object| object.contains_key("$ref") && object.len() == 1)
         .unwrap_or(false)
 }
 
-/// 完备性判据 `apiUndeclared`：代码 `external` 导出集 − 契约 `$defs` 键集（档位
+/// 完备性判据 `apiUndeclared`：代码 `external` 导出集 − 接口 `$defs` 键集（档位
 /// `off`，调用点即按档位跳过；保留实现以便将来单值收紧）。
 fn undeclared(
     schema: Option<&Value>,
@@ -493,7 +415,7 @@ fn undeclared(
         element,
         Some(undeclared.join(" / ")),
         format!(
-            "元素 {} 有 external 导出未在契约声明：{}",
+            "元素 {} 有 external 导出未在接口声明：{}",
             element.fqn,
             undeclared.join(" / ")
         ),
@@ -525,7 +447,7 @@ fn signature_mismatch(
         if declared == actual {
             continue;
         }
-        details.push(format!("{}：契约 {declared} / 代码 {actual}", op.id));
+        details.push(format!("{}：接口 {declared} / 代码 {actual}", op.id));
         occurrences.push(ArchiDriftOccurrence {
             file: contract.file.clone(),
             line: op.line,
@@ -541,7 +463,7 @@ fn signature_mismatch(
         element,
         Some(contract.fqn.clone()),
         format!(
-            "元素 {} 的契约签名与代码不一致（归一后仍需相等）：{}",
+            "元素 {} 的接口签名与代码不一致（归一后仍需相等）：{}",
             element.fqn,
             details.join("；")
         ),
@@ -549,7 +471,7 @@ fn signature_mismatch(
     ))
 }
 
-/// 一致性第三序 `apiConstructorDeclared`：契约声明了构造器（契约自身矛盾——构造器由
+/// 一致性第三序 `apiConstructorDeclared`：接口声明了构造器（自身矛盾——构造器由
 /// 生成器产出）。
 fn constructor_declared(
     element: &ArchiElement,
@@ -562,53 +484,8 @@ fn constructor_declared(
         element,
         Some(op.id.clone()),
         format!(
-            "契约 {}:{} 声明了构造器 `{}`——构造器由生成器的 `$defs` 条目自动产出，契约 MUST NOT 声明它（否则必然误报实现缺失）",
-            contract.file, op.line, op.id
-        ),
-        Vec::new(),
-    ))
-}
-
-/// 一致性第二序 `apiReexportDrift`：已落盘 schema 的透传条目键集与契约 `api-reexport` 键集不等。
-///
-/// 解析期的 `contract::verify` 已在内存装配后判过一遍；此处只针对**落盘 schema 与 md
-/// 不一致**的形态（schema 被手改或生成物过期），故不与解析期错误重复报。
-fn reexport_drift(
-    element: &ArchiElement,
-    contract: &Contract,
-    schema: &Value,
-) -> Option<ArchiApiFinding> {
-    let mut schema_reexports: BTreeSet<&str> = BTreeSet::new();
-    if let Some(defs) = schema.get("$defs").and_then(Value::as_object) {
-        for (name, definition) in defs {
-            if is_pure_ref_alias(definition) {
-                schema_reexports.insert(name.as_str());
-            }
-        }
-    }
-    let fence: BTreeSet<&str> = contract.reexports.keys().map(String::as_str).collect();
-    if schema_reexports == fence {
-        return None;
-    }
-    let only_schema: Vec<&str> = schema_reexports.difference(&fence).copied().collect();
-    let only_fence: Vec<&str> = fence.difference(&schema_reexports).copied().collect();
-    Some(finding(
-        ArchiApiFindingKind::ApiReexportDrift,
-        element,
-        Some(contract.fqn.clone()),
-        format!(
-            "契约 {} 的透传键集与 schema 的纯 `$ref` 条目不等（仅 schema：{}；仅契约：{}）",
-            contract.file,
-            if only_schema.is_empty() {
-                "无".to_owned()
-            } else {
-                only_schema.join(" / ")
-            },
-            if only_fence.is_empty() {
-                "无".to_owned()
-            } else {
-                only_fence.join(" / ")
-            }
+            "接口定义 {} 声明了构造器 `{}`——构造器由生成器的 `$defs` 条目自动产出，接口 MUST NOT 声明它（否则必然误报实现缺失）",
+            contract.file, op.id
         ),
         Vec::new(),
     ))
@@ -640,7 +517,7 @@ fn shadowing(input: &ApiCheckInput<'_>, findings: &mut Vec<ArchiApiFinding>) {
                 element,
                 Some(child.fqn.clone()),
                 format!(
-                    "父契约 {} 与子元素 {} 的类型名交集非空：{}——父子 `$defs` 名字必须互斥\
+                    "父接口 {} 与子元素 {} 的类型名交集非空：{}——父子 `$defs` 名字必须互斥\
                      （glob 重复定义编译器只给 warning，MUST NOT 依赖它兜底）",
                     element.fqn,
                     child.fqn,
@@ -680,7 +557,7 @@ fn ref_missing(input: &ApiCheckInput<'_>, findings: &mut Vec<ArchiApiFinding>) {
                 ),
                 Some(candidate) if candidate.api == ApiStatus::None => format!(
                     "元素 {} 的 `$ref`（{name}）指向 {target}，但目标元素声明 `api = none`\
-                     （无契约可引用）",
+                     （无接口可引用）",
                     element.fqn
                 ),
                 Some(_) if !adjacent => format!(
@@ -693,7 +570,7 @@ fn ref_missing(input: &ApiCheckInput<'_>, findings: &mut Vec<ArchiApiFinding>) {
                         .is_some_and(|path| path.is_file()) =>
                 {
                     format!(
-                        "元素 {} 的 `$ref`（{name}）指向 {target}，但目标元素的契约文件不存在",
+                        "元素 {} 的 `$ref`（{name}）指向 {target}，但目标元素的接口定义文件不在盘",
                         element.fqn
                     )
                 }

@@ -76,6 +76,12 @@ fn healthy(tag: &str) -> tempfile::TempDir {
     let dir = tempdir(tag);
     write_model(dir.path(), "01-core.toml", CORE);
     write_file(dir.path(), "src/auth/README.md", "# 认证说明\n\n正文\n");
+    // 检索语料 = `path` 非空元素的在盘派生资产（两条固定规则），故落一份 `<FQN>.md`
+    write_file(
+        dir.path(),
+        ".dev-team/architecture/models/App/App.Auth.md",
+        "# App.Auth\n\n## 职能\n\n认证域。\n",
+    );
     dir
 }
 
@@ -475,10 +481,28 @@ fn api_root(tag: &str) -> tempfile::TempDir {
     write_file(
         dir.path(),
         ".dev-team/architecture/models/App/Api/App.Api.Subject.md",
-        "# App.Api.Subject\n\n## 职能\n\n工具语料。\n\n## 操作\n\n### file_stem\n\n\
-         ```json api-op\n{\"owner\": \"LocalApi\", \
-         \"params\": [{\"name\": \"timestamp\", \"schema\": {\"type\": \"string\"}}], \
-         \"returns\": {\"type\": \"integer\"}}\n```\n",
+        "# App.Api.Subject\n\n## 职能\n\n工具语料。\n",
+    );
+    write_file(
+        dir.path(),
+        ".dev-team/architecture/models/App/Api/App.Api.Subject.schema.json",
+        concat!(
+            "{\n",
+            "  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n",
+            "  \"$id\": \"App.Api.Subject.schema.json\",\n",
+            "  \"title\": \"App.Api.Subject\",\n",
+            "  \"$defs\": {},\n",
+            "  \"properties\": {\n",
+            "    \"file_stem\": {\n",
+            "      \"x-function\": {\n",
+            "        \"owner\": \"LocalApi\",\n",
+            "        \"params\": [{ \"name\": \"timestamp\", \"schema\": { \"type\": \"string\" } }],\n",
+            "        \"returns\": { \"type\": \"integer\" }\n",
+            "      }\n",
+            "    }\n",
+            "  }\n",
+            "}\n",
+        ),
     );
     dir
 }
@@ -627,7 +651,8 @@ async fn archi_api_check零判据成功态() {
     );
 }
 
-/// 正向（AC-15 / D13）：`bootstrap` 出草稿，且与 `archi::api::bootstrap` 直出逐字相等。
+/// 正向（AC-15 / D13）：`bootstrap` 出**双草稿** `{ schema, doc }`，两段各自与
+/// `archi::api::bootstrap` 直出逐字相等（工具出口与 CLI 出口同源）。
 #[tokio::test]
 async fn archi_api_bootstrap出草稿() {
     let dir = api_root("api-bootstrap");
@@ -638,10 +663,13 @@ async fn archi_api_bootstrap出草稿() {
         json!({ "action": "bootstrap", "element": "App.Api.Subject" }),
     )
     .await;
-    let draft = payload["draft"].as_str().expect("draft 为字符串");
-    assert!(!draft.trim().is_empty(), "草稿非空");
+    let schema = payload["schema"].as_str().expect("schema 为字符串");
+    let doc = payload["doc"].as_str().expect("doc 为字符串");
+    assert!(!schema.trim().is_empty(), "接口草稿非空");
+    assert!(!doc.trim().is_empty(), "文档草稿非空");
     let direct = archi::api::bootstrap(dir.path(), "App.Api.Subject").expect("直调应成功");
-    assert_eq!(draft, direct, "与 core 单点逐字相等");
+    assert_eq!(schema, direct.schema, "接口草稿与 core 单点逐字相等");
+    assert_eq!(doc, direct.doc, "文档草稿与 core 单点逐字相等");
 }
 
 /// 异常（AC-15 / spec「未知 action 与缺参」）：`bootstrap` 缺参 / 空白参 → `Err`；未知 /
@@ -674,8 +702,8 @@ async fn archi_api非法action与缺参() {
             .await
             .expect_err("非法 action ⇒ Err");
         assert!(
-            error.contains("check") && error.contains("bootstrap"),
-            "文案含合法值：{error}"
+            error.contains("check") && error.contains("bootstrap") && error.contains("link"),
+            "文案并列三个合法值：{error}"
         );
     }
 }
@@ -688,8 +716,8 @@ async fn archi_api输出过cap_result() {
     // 3000 个元素各带 `path` 但无载体 ⇒ 每元素一条 `docMissing`（另加一个载体元素）
     let mut model = String::from(
         "[element.\"App\"]\nkind = \"package\"\n\n\
-         [element.\"App.Carrier\"]\nkind = \"module\"\napi = \"none\"\n\
-         path = [\"guides/carrier/\"]\ndoc = \"guides/carrier.md\"\n\n",
+         [element.\"App.Carrier\"]\nkind = \"module\"\n\
+         path = [\"guides/carrier/\"]\n\n",
     );
     for index in 0..3000 {
         model.push_str(&format!(
@@ -698,12 +726,12 @@ async fn archi_api输出过cap_result() {
         ));
     }
     write_model(dir.path(), "01.toml", &model);
-    // 契约面启用需要一份属于模型元素的含 fence 载体（`App.Carrier` 自带 `doc` 载体，
-    // 自身零判据）；非载体 md 不构成启用证据
+    // 接口面启用需要一份 declared 元素的 `<FQN>.schema.json` 在盘；其余元素的
+    // `docMissing`（派生 md 不在盘）即规模面的 3000 条判据来源
     write_file(
         dir.path(),
-        "guides/carrier.md",
-        "# App.Carrier\n\n```json api-op\n{}\n```\n",
+        ".dev-team/architecture/models/App/App.Carrier.schema.json",
+        "{\"$id\": \"App.Carrier.schema.json\", \"title\": \"App.Carrier\", \"$defs\": {}, \"properties\": {}}\n",
     );
 
     let context = ArchiContext::new(dir.path().to_path_buf());
@@ -722,8 +750,8 @@ async fn archi_api输出过cap_result() {
         &text[text.len().saturating_sub(200)..]
     );
     assert!(
-        text.contains("\"total\":3000"),
-        "摘要优先：total 全量保留（{}）",
+        text.contains("\"total\":3001"),
+        "摘要优先：total 全量保留（3000 元素 + 启用证据元素各一条 docMissing）（{}）",
         &text[..200.min(text.len())]
     );
 }
@@ -801,12 +829,17 @@ async fn archi_api参数脏值不panic() {
             "脏值 / 对照值的成败与 core 单点同向：{element:?}"
         );
         match (result, direct) {
-            (Ok(text), Ok(draft)) => {
+            (Ok(text), Ok(drafts)) => {
                 let payload: Value = serde_json::from_str(&text).expect("结果为 JSON 串");
                 assert_eq!(
-                    payload["draft"].as_str(),
-                    Some(draft.as_str()),
-                    "草稿逐字透传（零加工）：{element:?}"
+                    payload["schema"].as_str(),
+                    Some(drafts.schema.as_str()),
+                    "接口草稿逐字透传（零加工）：{element:?}"
+                );
+                assert_eq!(
+                    payload["doc"].as_str(),
+                    Some(drafts.doc.as_str()),
+                    "文档草稿逐字透传（零加工）：{element:?}"
                 );
             }
             (Err(tool_error), Err(direct_error)) => assert_eq!(
@@ -858,6 +891,12 @@ fn doc_shape_dir(tag: &str) -> tempfile::TempDir {
     );
     write_file(dir.path(), "src/auth/README.md", "# 认证说明\n\n正文\n");
     write_file(dir.path(), "src/billing/README.md", "# 计费说明\n\n正文\n");
+    // 检索语料 = `path` 非空元素的在盘派生文档（`<FQN>.md`）
+    write_file(
+        dir.path(),
+        ".dev-team/architecture/models/App/App.Auth.md",
+        "# App.Auth\n\n## 职能\n\n认证域。\n",
+    );
     dir
 }
 
@@ -886,11 +925,14 @@ async fn archi_module响应doc单值三组同源() {
         json!({ "element": "App.Billing" }),
     )
     .await;
-    assert_eq!(declared["doc"], json!(null), "declared 出 null");
     assert_eq!(
-        declared["element"]["doc"],
+        declared["doc"],
         json!("./src/billing/README.md"),
-        "元素投影保留原文（MUST NOT 清零）"
+        "`declared` 也照原文出（`doc` 是零判据读者）"
+    );
+    assert_eq!(
+        declared["doc"], declared["element"]["doc"],
+        "段与元素投影同源（零抹平）"
     );
 }
 
@@ -1557,18 +1599,18 @@ async fn archi_scaffold模板值域逐值且零诊断词() {
     );
 
     let doc_line = line_starting_with(draft, "# doc：").expect("`doc` 纪律行在场");
+    let false_hit_word = ApiStatus::None.as_str();
     assert!(
-        doc_line.contains(ApiStatus::default().as_str()),
-        "前提：缺省 api 词亦出现在 `# doc：` 行（全串 contains 会假命中）：{doc_line}"
+        doc_line.contains(false_hit_word),
+        "前提：`api = none` 措辞亦出现在 `# doc：` 行（全串 contains 会假命中）：{doc_line}"
     );
-    let fragment = "# doc：单值指针，declared 写了即 apiUnexpected\n";
+    let fragment = "# doc：约定字段（零判据读者）：常规只有 api = none 的元素会写\n";
     assert!(
-        fragment.contains(ApiStatus::default().as_str()),
+        fragment.contains(false_hit_word),
         "构造片段的全串 `contains` 会命中 `doc` 行"
     );
     assert!(
-        !line_starting_with(fragment, "# api：")
-            .is_some_and(|line| line.contains(ApiStatus::default().as_str())),
+        !line_starting_with(fragment, "# api：").is_some_and(|line| line.contains(false_hit_word)),
         "行首定位不把 `# doc：` 行算作 `# api：` 行判据（行内限定防假命中）"
     );
 
@@ -3066,4 +3108,404 @@ fn 写面口径三处同源() {
             "archi_tool.rs 零旧立场句 `{stale}`"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 三资产（`assets`）与读法（`reading`）：`archi_module` 单元素响应面
+// ---------------------------------------------------------------------------
+
+/// 三资产夹具根：`App.Auth`（`path` 非空 + 入口在盘），两份资产由用例各自落盘。
+fn assets_root(tag: &str) -> tempfile::TempDir {
+    let dir = tempdir(tag);
+    write_model(
+        dir.path(),
+        "01-assets.toml",
+        concat!(
+            "[element.\"App\"]\nkind = \"package\"\n\n",
+            "[element.\"App.Auth\"]\nkind = \"module\"\npath = [\"src/auth/\"]\n",
+        ),
+    );
+    write_file(dir.path(), "src/auth/src/lib.rs", "pub fn f() {}\n");
+    dir
+}
+
+/// 异常 / 边界（AC-6 · 三态一：两份资产都不在盘）：三段 `present` 全假、接口三数组空、
+/// 文档 `headings` 空；`topology` 恒给（file / line 来自模型）；`reading` 非空。
+#[tokio::test]
+async fn archi_module三资产皆缺() {
+    let dir = assets_root("assets-none");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let payload = execute_json(
+        &context,
+        ARCHI_MODULE_TOOL,
+        json!({ "element": "App.Auth" }),
+    )
+    .await;
+
+    let assets = &payload["assets"];
+    assert_eq!(assets["interface"]["present"], json!(false), "接口不在盘");
+    assert_eq!(assets["interface"]["bytes"], json!(0), "零字节");
+    assert_eq!(assets["interface"]["ops"], json!([]), "零 op 键");
+    assert_eq!(assets["interface"]["types"], json!([]), "零类型键");
+    assert_eq!(assets["interface"]["reexports"], json!([]), "零透传键");
+    assert_eq!(assets["doc"]["present"], json!(false), "文档不在盘");
+    assert_eq!(assets["doc"]["headings"], json!([]), "零段名");
+    assert!(
+        assets["topology"]["file"]
+            .as_str()
+            .is_some_and(|file| file.ends_with("01-assets.toml")),
+        "拓扑取模型声明文件：{assets}"
+    );
+    assert_eq!(assets["topology"]["out"], json!(0));
+    assert_eq!(assets["topology"]["in"], json!(0));
+    assert!(
+        payload["reading"]
+            .as_str()
+            .is_some_and(|text| !text.is_empty()),
+        "读法非空：{}",
+        payload["reading"]
+    );
+}
+
+/// 正向（AC-6 · 三态二：只有接口）：接口在盘 ⇒ `present = true`、键名三数组落位、判读按
+/// 六形态取；文档段仍 `present = false`（两段独立）。
+#[tokio::test]
+async fn archi_module只有接口文件() {
+    let dir = assets_root("assets-interface");
+    write_file(
+        dir.path(),
+        ".dev-team/architecture/models/App/App.Auth.schema.json",
+        concat!(
+            "{\n",
+            "  \"$id\": \"App.Auth.schema.json\",\n",
+            "  \"title\": \"App.Auth\",\n",
+            "  \"$defs\": { \"Local\": { \"type\": \"object\", \"properties\": {} } },\n",
+            "  \"properties\": {\n",
+            "    \"run\": { \"x-function\": { \"params\": [], \"returns\": { \"type\": \"string\" } } },\n",
+            "    \"Local\": { \"$ref\": \"#/$defs/Local\" }\n",
+            "  }\n",
+            "}\n",
+        ),
+    );
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let payload = execute_json(
+        &context,
+        ARCHI_MODULE_TOOL,
+        json!({ "element": "App.Auth" }),
+    )
+    .await;
+
+    let interface = &payload["assets"]["interface"];
+    assert_eq!(interface["present"], json!(true), "接口在盘");
+    assert_eq!(interface["ops"], json!(["run"]), "op 键落位");
+    assert_eq!(interface["types"], json!(["Local"]), "类型键落位");
+    assert!(
+        interface["abstract"]
+            .as_str()
+            .is_some_and(|text| text.contains("既有操作也有类型")),
+        "判读按六形态：{interface}"
+    );
+    assert_eq!(
+        payload["assets"]["doc"]["present"],
+        json!(false),
+        "文档段仍不在盘（两段独立）"
+    );
+}
+
+/// 正向（AC-6 · 三态三：只有文档）：文档在盘 ⇒ `present = true`、段名按文件序、行数照实；
+/// 接口段仍 `present = false` 且判读仍是「接口未写」；零正文外溢（`headings` 只给段名）。
+#[tokio::test]
+async fn archi_module只有文档() {
+    let dir = assets_root("assets-doc");
+    write_file(
+        dir.path(),
+        ".dev-team/architecture/models/App/App.Auth.md",
+        "# App.Auth\n\n## 职能\n\n认证域。\n\n## 不变量\n\n令牌不过期。\n",
+    );
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let payload = execute_json(
+        &context,
+        ARCHI_MODULE_TOOL,
+        json!({ "element": "App.Auth" }),
+    )
+    .await;
+
+    let doc = &payload["assets"]["doc"];
+    assert_eq!(doc["present"], json!(true), "文档在盘");
+    assert_eq!(doc["headings"], json!(["职能", "不变量"]), "段名按文件序");
+    assert_eq!(doc["lines"], json!(9), "行数照实");
+    assert!(
+        doc.get("content").is_none(),
+        "只给段名与体量，零正文：{doc}"
+    );
+    assert_eq!(
+        payload["assets"]["interface"]["present"],
+        json!(false),
+        "接口段仍不在盘"
+    );
+    assert!(
+        payload["assets"]["interface"]["abstract"]
+            .as_str()
+            .is_some_and(|text| text.contains("接口未写")),
+        "接口判读不因文档在盘而变：{}",
+        payload["assets"]["interface"]["abstract"]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// `archi_api` 的 `link` 动作：算 `$ref` 串（纯计算，零读盘零写盘）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-7 / D-15）：两形态互斥且前缀单点——跨元素形态的串 = `ref_relative(from, to)` +
+/// `<to>.schema.json#/$defs/<name>`（前缀**不比 spec 示例字面**，与 `paths::ref_relative` 的
+/// 输出逐字对拍）；本模块形态 = `#/$defs/<name>`；同批给两形态 ⇒ `Err`。
+#[tokio::test]
+async fn archi_api_link两形态且前缀单点() {
+    let dir = tempdir("api-link");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+
+    let payload = execute_json(
+        &context,
+        ARCHI_API_TOOL,
+        json!({
+            "action": "link",
+            "from": "App.Api.Subject",
+            "to": "App.Api.Subject.Part",
+            "name": "Piece",
+        }),
+    )
+    .await;
+    let reference = payload["ref"].as_str().expect("ref 为字符串");
+    let expected = format!(
+        "{}{}.schema.json#/$defs/Piece",
+        archi::api::paths::ref_relative("App.Api.Subject", "App.Api.Subject.Part"),
+        "App.Api.Subject.Part"
+    );
+    assert_eq!(
+        reference, expected,
+        "跨元素串 = ref_relative 输出 + 目标文件名 + 片段（层数由单点求出）"
+    );
+    assert!(
+        reference.starts_with("./Subject/"),
+        "同域子元素的前缀是 `./Subject/`：{reference}"
+    );
+
+    let same = execute_json(
+        &context,
+        ARCHI_API_TOOL,
+        json!({ "action": "link", "element": "App.Api.Subject", "name": "Piece" }),
+    )
+    .await;
+    assert_eq!(
+        same["ref"],
+        json!("#/$defs/Piece"),
+        "本模块形态只含片段（零文件部分）"
+    );
+
+    let error = context
+        .execute(
+            ARCHI_API_TOOL,
+            &json!({
+                "action": "link",
+                "from": "App.Api.Subject",
+                "to": "App.Api.Subject.Part",
+                "element": "App.Api.Subject",
+                "name": "Piece",
+            }),
+        )
+        .await
+        .expect_err("两形态同批给 ⇒ Err");
+    assert!(error.contains("互斥"), "文案点明两形态互斥：{error}");
+}
+
+/// 异常（AC-7）：`from` / `to` 非 FQN、`name` 非标识符、三参数缺任一一律 `Err` 并点名该
+/// 参数——FQN 形态闸与标识符闸各复用 `paths` / `contract` 单点（零第二份判据）。
+#[tokio::test]
+async fn archi_api_link参数校验() {
+    let dir = tempdir("api-link-bad");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let long_name = format!("{}.", "a".repeat(1000));
+
+    let cases: [(&str, Value, &str); 9] = [
+        (
+            "from 非 FQN",
+            json!({ "action": "link", "from": "App/Api", "to": "App.Api.Part", "name": "Piece" }),
+            "from",
+        ),
+        (
+            "to 非 FQN",
+            json!({ "action": "link", "from": "App.Api.Subject", "to": "App..Part", "name": "Piece" }),
+            "to",
+        ),
+        (
+            "name 中划线",
+            json!({ "action": "link", "from": "App.Api.Subject", "to": "App.Api.Part", "name": "bad-name" }),
+            "标识符",
+        ),
+        (
+            "name 空串",
+            json!({ "action": "link", "element": "App.Api.Subject", "name": "   " }),
+            "name",
+        ),
+        (
+            "name emoji",
+            json!({ "action": "link", "element": "App.Api.Subject", "name": "🚀" }),
+            "标识符",
+        ),
+        (
+            "name 超长含点",
+            json!({ "action": "link", "element": "App.Api.Subject", "name": long_name }),
+            "标识符",
+        ),
+        (
+            "缺 name",
+            json!({ "action": "link", "from": "App.Api.Subject", "to": "App.Api.Part" }),
+            "name",
+        ),
+        (
+            "缺 from",
+            json!({ "action": "link", "to": "App.Api.Part", "name": "Piece" }),
+            "from",
+        ),
+        (
+            "缺 element 与 from/to",
+            json!({ "action": "link", "name": "Piece" }),
+            "element",
+        ),
+    ];
+    for (label, input, needle) in cases {
+        let error = match context.execute(ARCHI_API_TOOL, &input).await {
+            Ok(text) => panic!("{label} 必须 Err，实际通过: {text}"),
+            Err(error) => error,
+        };
+        assert!(
+            error.contains(needle),
+            "{label} 文案点名 `{needle}`：{error}"
+        );
+    }
+
+    // 超长但形态合法的标识符过闸（判据只看形态，不设长度上限）
+    let long_identifier = format!("a{}", "b".repeat(1200));
+    let payload = execute_json(
+        &context,
+        ARCHI_API_TOOL,
+        json!({ "action": "link", "element": "App.Api.Subject", "name": long_identifier }),
+    )
+    .await;
+    assert_eq!(
+        payload["ref"],
+        json!(format!("#/$defs/{long_identifier}")),
+        "合法形态的超长标识符原样出线"
+    );
+}
+
+/// 边界（AC-7）：`link` 是纯计算——元素不存在 / 无模型目录也照算，调用前后盘面逐字节相等。
+#[tokio::test]
+async fn archi_api_link纯计算零io() {
+    let dir = api_root("api-link-pure");
+    let root = dir.path().to_path_buf();
+    let before = snapshot(&root);
+    let context = ArchiContext::new(root.clone());
+
+    let payload = execute_json(
+        &context,
+        ARCHI_API_TOOL,
+        json!({
+            "action": "link",
+            "from": "Ghost.Left",
+            "to": "Ghost.Right",
+            "name": "Thing",
+        }),
+    )
+    .await;
+    assert!(
+        payload["ref"]
+            .as_str()
+            .is_some_and(|reference| reference.ends_with("Ghost.Right.schema.json#/$defs/Thing")),
+        "模型里没有该元素也照算：{}",
+        payload["ref"]
+    );
+    assert_eq!(
+        snapshot(&root),
+        before,
+        "调用前后盘面逐字节相等（零读盘零写盘）"
+    );
+}
+
+/// 组合（AC-7 尾段）：`link` 算出的跨元素串写进目标 schema 后过写闸（`validate_schema` 的
+/// ⑦ 逐字对拍同一 `ref_relative`），且 `check` 判据面 `apiRefMissing` 零命中——「算出的串
+/// 必可达」。
+#[tokio::test]
+async fn archi_api_link到write到check可达() {
+    let dir = tempdir("api-link-reach");
+    write_model(
+        dir.path(),
+        "01-link.toml",
+        concat!(
+            "[element.\"App\"]\nkind = \"package\"\n\n",
+            "[element.\"App.Api\"]\nkind = \"domain\"\n\n",
+            "[element.\"App.Api.Subject\"]\nkind = \"module\"\n",
+            "path = [\"./crates/api/subject/\"]\n\n",
+            "[element.\"App.Api.Subject.Part\"]\nkind = \"module\"\n",
+            "path = [\"./crates/api/subject/part/\"]\n",
+        ),
+    );
+    // 两元素的派生 md 在盘（`apiRefMissing` 的第四种问题＝目标 md 不在盘 ⇒ 零命中）
+    write_file(
+        dir.path(),
+        ".dev-team/architecture/models/App/Api/App.Api.Subject.md",
+        "# App.Api.Subject\n\n## 职能\n\n引用方。\n",
+    );
+    write_file(
+        dir.path(),
+        ".dev-team/architecture/models/App/Api/Subject/App.Api.Subject.Part.md",
+        "# App.Api.Subject.Part\n\n## 职能\n\n被引用方。\n",
+    );
+    let context = ArchiContext::new(dir.path().to_path_buf());
+
+    let reference = execute_json(
+        &context,
+        ARCHI_API_TOOL,
+        json!({
+            "action": "link",
+            "from": "App.Api.Subject",
+            "to": "App.Api.Subject.Part",
+            "name": "Piece",
+        }),
+    )
+    .await["ref"]
+        .as_str()
+        .expect("ref 为字符串")
+        .to_owned();
+
+    let schema = format!(
+        "{{\n  \"$id\": \"App.Api.Subject.schema.json\",\n  \"title\": \"App.Api.Subject\",\n  \
+         \"$defs\": {{ \"Piece\": {{ \"$ref\": \"{reference}\" }} }},\n  \
+         \"properties\": {{ \"Piece\": {{ \"$ref\": \"#/$defs/Piece\" }} }}\n}}\n"
+    );
+    let target = dir
+        .path()
+        .join(".dev-team/architecture/models/App/Api/App.Api.Subject.schema.json");
+    let written = crate::sdk::tools::execute(
+        dir.path(),
+        "write",
+        &json!({ "path": target, "content": schema }),
+    )
+    .await
+    .expect("link 出的串必过写闸");
+    assert!(
+        written.contains("接口已校验"),
+        "写盘经同一校验单点：{written}"
+    );
+
+    let payload = execute_json(&context, ARCHI_API_TOOL, json!({ "action": "check" })).await;
+    let items = payload["findings"]["items"].as_array().expect("items 数组");
+    let kinds: Vec<&str> = items
+        .iter()
+        .filter_map(|item| item["kind"].as_str())
+        .collect();
+    assert!(
+        !kinds.contains(&"apiRefMissing"),
+        "link 算出的跨元素串必可达（apiRefMissing 零命中）：{kinds:?}"
+    );
 }

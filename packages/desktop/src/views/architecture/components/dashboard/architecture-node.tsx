@@ -92,6 +92,8 @@ function ArchitectureNodeViews({
 }: ArchitectureNodeProps): React.JSX.Element {
   const module = useArchiModule(root, focused === null ? null : focused.fqn);
   const files: FileViewerProps['files'] = [];
+  // 三条路径各自独立在盘事实：contractPath = 文档（.md）、schemaPath = 接口（.schema.json，
+  // 手写真相）、generatedPath = 生成物（.i.rs / .i.ts）——只有一条在盘时只出那一条页签
   if (module.detail?.api?.contractPath) {
     files.push({ path: module.detail.api.contractPath });
   }

@@ -5,19 +5,20 @@
 //! 至多一次、数组元素位 → `(T | null)[]`）、透传 `export type { … } from`、
 //! 头注释、ambient-free 与无品牌类型、幂等与格式化器不动点（一律单引号）。
 //!
-//! 零 mock：真实 `contract::parse` + `schema::build_schema`；`paths::ts_import_specifier`
+//! 零 mock：手写接口定义 JSON 经 `Contract::from_schema` 投影；`paths::ts_import_specifier`
 //! 真实调用；本文件零 `eprintln!`（警告单点在 `emit/mod.rs`）——以源码自证表达。
 
 use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use crate::api::contract::{parse, Contract};
+use crate::api::contract::Contract;
+
+use crate::api::mod_test::{empty_schema, mirrored_schema_text, op_schema, prepare, reexport_def};
 
 use super::ts::{render, ts_comment_text, ts_string_literal};
 use super::{EmitTarget, ModuleRef};
 use crate::api::paths::{self, EntryForm};
-use crate::api::schema::build_schema;
 use crate::api::ApiMeta;
 
 /// 契约文件（repo 相对 POSIX）。
@@ -31,18 +32,16 @@ fn meta() -> ApiMeta {
     crate::api::meta()
 }
 
-/// 解析 + 装配（失败即断言失败）。
-fn prepare(source: &str) -> (Contract, Value) {
-    let contract = parse(source, FQN, FILE).expect("契约应解析成功");
-    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
-    (contract, schema)
+/// 解析 + 投影（共用 `emit/mod_test` 的夹具投影，失败即断言失败）。
+fn prepare_local(source: &str) -> (Contract, Value) {
+    prepare(source, FQN, FILE)
 }
 
 /// 渲染（目录形态的 root；失败即断言失败）。
 ///
 /// 「空 scope」由**入参**表达（D46）：空查表 + 目录形态的 `EmitTarget`。
 fn render_source(source: &str) -> String {
-    let (contract, schema) = prepare(source);
+    let (contract, schema) = prepare_local(source);
     render(&contract, &schema, &meta(), &empty_scope())
 }
 
@@ -114,7 +113,7 @@ fn render_root_target_for(contract: &Contract, element_root: &str) -> EmitTarget
 
 /// 只含 `api-types` fence 的源文渲染。
 fn render_types(types: &str) -> String {
-    render_source(&format!("# {FQN}\n\n```json api-types\n{types}\n```\n"))
+    render_source(&mirrored_schema_text(FQN, types, ""))
 }
 
 // ---------------------------------------------------------------------------
@@ -375,18 +374,20 @@ fn render的oneof为union() {
 #[test]
 fn render的x_function同步与异步() {
     // 落点①：`api-op` 顶层签名（`function_of` 读包裹形态）
-    let sync_op = render_source(&format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": [{{\"name\": \"a\", \"schema\": \
-         {{\"type\": \"string\"}}}}], \"returns\": {{\"type\": \"string\"}}}}\n```\n"
+    let sync_op = render_source(&op_schema(
+        FQN,
+        "load",
+        r#"{"params": [{"name": "a", "schema": {"type": "string"}}], "returns": {"type": "string"}}"#,
     ));
     assert!(
         sync_op.contains("export type load = (a: string) => string;"),
         "同步函数别名：\n{sync_op}"
     );
 
-    let asynchronous = render_source(&format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"type\": \
-         \"string\"}}, \"async\": true}}\n```\n"
+    let asynchronous = render_source(&op_schema(
+        FQN,
+        "load",
+        r#"{"params": [], "returns": {"type": "string"}, "async": true}"#,
     ));
     assert!(
         asynchronous.contains("export type load = () => Promise<string>;"),
@@ -415,9 +416,10 @@ fn render的x_function同步与异步() {
 fn render目录形态specifier() {
     use crate::api::paths::{ts_import_specifier, EntryForm};
 
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"AgentInput\": \"App.Frontend.Components.Agent.Input\"}}\n```\n\n\
-         ## 透传\n\n- AgentInput → App.Frontend.Components.Agent.Input\n"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        "",
     ));
 
     let directory = render_root(&contract, &schema, &meta(), "crates/core/archi");
@@ -453,12 +455,16 @@ fn render目录形态specifier() {
 #[test]
 fn render的空scope由入参表达() {
     // ① 有透传条目 + 空查表 → 只出注释、不产 specifier（不 panic、不退化到 FQN 末段）
-    let with_reexport = format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"AgentInput\": \"App.Frontend.Components.Agent.Input\"}}\n```\n\n\
-         ## 透传\n\n- AgentInput → App.Frontend.Components.Agent.Input\n\n\
-         ```json api-types\n{{\"Item\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    let with_reexport = mirrored_schema_text(
+        FQN,
+        &format!(
+            "{}, {}",
+            reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+            r#""Item": {"type": "object", "properties": {}}"#
+        ),
+        "",
     );
-    let (contract, schema) = prepare(&with_reexport);
+    let (contract, schema) = prepare_local(&with_reexport);
     let by_empty_table = render(&contract, &schema, &meta(), &empty_scope());
     assert!(
         by_empty_table.contains("// 透传自 App.Frontend.Components.Agent.Input"),
@@ -470,10 +476,9 @@ fn render的空scope由入参表达() {
     );
 
     // ② 零透传条目：空查表与「有查表」两形态逐字相等（无透传即不参与）
-    let without_reexport = format!(
-        "# {FQN}\n\n```json api-types\n{{\"Item\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
-    );
-    let (plain_contract, plain_schema) = prepare(&without_reexport);
+    let without_reexport =
+        mirrored_schema_text(FQN, r#""Item": {"type": "object", "properties": {}}"#, "");
+    let (plain_contract, plain_schema) = prepare_local(&without_reexport);
     let mut filled = empty_scope();
     filled.modules.insert(
         "App.Frontend.Components.Agent.Input".to_owned(),
@@ -518,9 +523,10 @@ fn render形态判定不含字面量层数() {
         "形态取 EmitTarget.form、specifier 值走 paths::ts_import_specifier"
     );
 
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"AgentInput\": \"App.Frontend.Components.Agent.Input\"}}\n```\n\n\
-         ## 透传\n\n- AgentInput → App.Frontend.Components.Agent.Input\n"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        "",
     ));
     let as_single = render_root(&contract, &schema, &meta(), "views/architecture.tsx");
     let as_directory = render_root(&contract, &schema, &meta(), "views/architecture");
@@ -549,9 +555,10 @@ fn render形态判定不含字面量层数() {
 /// 形态等价。
 #[test]
 fn render特殊字符element_root() {
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"AgentInput\": \"App.Frontend.Components.Agent.Input\"}}\n```\n\n\
-         ## 透传\n\n- AgentInput → App.Frontend.Components.Agent.Input\n"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        "",
     ));
 
     let long = format!("views/{}", "a".repeat(1200));
@@ -591,20 +598,20 @@ fn render特殊字符element_root() {
 /// `type` 均退 `unknown`（零品牌类型，也不静默收窄成 `any`）。
 #[test]
 fn render的容器类型映射() {
-    let array = render_source(&format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": [{{\"name\": \"items\", \"schema\": \
-         {{\"type\": \"array\", \"items\": {{\"type\": \"string\"}}}}}}], \"returns\": {{\"type\": \
-         \"array\", \"items\": {{\"type\": \"number\"}}}}}}\n```\n"
+    let array = render_source(&op_schema(
+        FQN,
+        "load",
+        r#"{"params": [{"name": "items", "schema": {"type": "array", "items": {"type": "string"}}}], "returns": {"type": "array", "items": {"type": "number"}}}"#,
     ));
     assert!(
         array.contains("export type load = (items: string[]) => number[];"),
         "array → T[]（两侧同位）：\n{array}"
     );
 
-    let map = render_source(&format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": [{{\"name\": \"m\", \"schema\": \
-         {{\"type\": \"object\", \"additionalProperties\": {{\"type\": \"integer\"}}}}}}], \
-         \"returns\": {{\"type\": \"object\"}}}}\n```\n"
+    let map = render_source(&op_schema(
+        FQN,
+        "load",
+        r#"{"params": [{"name": "m", "schema": {"type": "object", "additionalProperties": {"type": "integer"}}}], "returns": {"type": "object"}}"#,
     ));
     assert!(
         map.contains("export type load = (m: Record<string, number>) => Record<string, unknown>;"),
@@ -623,18 +630,20 @@ fn render的容器类型映射() {
 
 #[test]
 fn render的可选参数与outcome信封() {
-    let optional = render_source(&format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": [{{\"name\": \"a\", \"schema\": \
-         {{\"type\": \"string\"}}, \"optional\": true}}], \"returns\": {{\"type\": \"string\"}}}}\n```\n"
+    let optional = render_source(&op_schema(
+        FQN,
+        "load",
+        r#"{"params": [{"name": "a", "schema": {"type": "string"}, "optional": true}], "returns": {"type": "string"}}"#,
     ));
     assert!(
         optional.contains("export type load = (a: string | null) => string;"),
         "可选参数标 `| null`：\n{optional}"
     );
 
-    let outcome = render_source(&format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"outcome\": \
-         {{\"type\": \"string\"}}}}}}\n```\n"
+    let outcome = render_source(&op_schema(
+        FQN,
+        "load",
+        r#"{"params": [], "returns": {"outcome": {"type": "string"}}}"#,
     ));
     assert!(
         outcome.contains("export type load = () => { ok: string } | { err: string };"),
@@ -668,8 +677,10 @@ fn holder_types(fragment: &str, required: bool) -> String {
 
 /// `api-op` 单操作源文（`params` / `returns` 原文直传）。
 fn op_source(params: &str, returns: &str) -> String {
-    format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": {params}, \"returns\": {returns}}}\n```\n"
+    op_schema(
+        FQN,
+        "load",
+        &format!(r#"{{"params": {params}, "returns": {returns}}}"#),
     )
 }
 
@@ -911,9 +922,7 @@ fn render的可选参数幂等() {
         "非 optional 参数零 `| null`：\n{plain}"
     );
 
-    let no_return = render_source(&format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": []}}\n```\n"
-    ));
+    let no_return = render_source(&op_schema(FQN, "load", r#"{"params": []}"#));
     assert!(
         no_return.contains("export type load = () => void;"),
         "无 `returns` → `void`（既有形态零回归）：\n{no_return}"
@@ -928,11 +937,18 @@ fn render的可选参数幂等() {
 /// （`isolatedModules` 下用 `export type`），specifier 取自单点函数（零手算 `../`）。
 #[test]
 fn render的透传export_type() {
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"AgentInput\": \"App.Frontend.Components.Agent.Input\", \
-         \"AgentBlocks\": \"App.Frontend.Components.Agent.AgentBlocks\"}}\n```\n\n## 透传\n\n\
-         - AgentInput → App.Frontend.Components.Agent.Input\n\
-         - AgentBlocks → App.Frontend.Components.Agent.AgentBlocks\n"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        &format!(
+            "{}, {}",
+            reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+            reexport_def(
+                FQN,
+                "AgentBlocks",
+                "App.Frontend.Components.Agent.AgentBlocks"
+            )
+        ),
+        "",
     ));
 
     let directory = render_root(&contract, &schema, &meta(), "views/architecture");
@@ -956,9 +972,10 @@ fn render的透传export_type() {
 /// 注释块之外是可编译的 TS 语句形态。
 #[test]
 fn render的头注释() {
-    let text = render_source(&format!(
-        "# {FQN}\n\n```json api-types\n{{\"Item\": {{\"type\": \"object\", \"properties\": \
-         {{\"a\": {{\"type\": \"string\"}}}}}}}}\n```\n"
+    let text = render_source(&mirrored_schema_text(
+        FQN,
+        r#""Item": {"type": "object", "properties": {"a": {"type": "string"}}}"#,
+        "",
     ));
     let header: Vec<&str> = text
         .lines()
@@ -999,13 +1016,10 @@ fn render的头注释() {
 /// `.d.ts` 形态；来源文件双自查零命中。
 #[test]
 fn render的ambient_free() {
-    let text = render_source(&format!(
-        "# {FQN}
-
-```json api-types
-{{\"Item\": {{\"type\": \"object\", \"properties\": {{}}}}}}
-```
-"
+    let text = render_source(&mirrored_schema_text(
+        FQN,
+        r#""Item": {"type": "object", "properties": {}}"#,
+        "",
     ));
     assert!(
         !text.contains("declare module") && !text.contains("declare const"),
@@ -1111,9 +1125,10 @@ fn render不猜泛型语法() {
 /// 边界：同输入两次渲染逐字相等；类型段按 `$defs` 声明序（不排序、不合并）。
 #[test]
 fn render幂等与键序() {
-    let source = format!(
-        "# {FQN}\n\n```json api-types\n{{\"Zeta\": {{\"type\": \"object\", \"properties\": {{}}}}, \
-         \"Alpha\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    let source = mirrored_schema_text(
+        FQN,
+        r#""Zeta": {"type": "object", "properties": {}}, "Alpha": {"type": "object", "properties": {}}"#,
+        "",
     );
     let first = render_source(&source);
     let second = render_source(&source);
@@ -1127,8 +1142,10 @@ fn render幂等与键序() {
 /// 字面量一律单引号、文件以换行收束；渲染路径零子进程（不 spawn prettier / vp）。
 #[test]
 fn render形态为格式化器不动点() {
-    let text = render_source(&format!(
-        "# {FQN}\n\n```json api-types\n{{\"Mode\": {{\"enum\": [\"a\", \"b\"]}}, \"Item\": {{\"type\": \"object\", \"properties\": {{\"a\": {{\"type\": \"string\"}}}}}}}}\n```\n"
+    let text = render_source(&mirrored_schema_text(
+        FQN,
+        r#""Mode": {"enum": ["a", "b"]}, "Item": {"type": "object", "properties": {"a": {"type": "string"}}}"#,
+        "",
     ));
     for line in text.lines() {
         assert_eq!(line, line.trim_end(), "零尾随空白：{line:?}");
@@ -1148,7 +1165,7 @@ fn render形态为格式化器不动点() {
 /// 边界：零类型零 op → 仅头注释或空串，不含 `export`。
 #[test]
 fn render空契约() {
-    let text = render_source(&format!("# {FQN}\n\n## 职能\n\n正文。\n"));
+    let text = render_source(&empty_schema(FQN));
     assert!(!text.contains("export "), "零内容不出 export：\n{text}");
     assert!(
         text.lines()
@@ -1195,9 +1212,10 @@ fn render特殊字符与规模() {
 /// 不产 specifier（不退化到 FQN 末段）。
 #[test]
 fn render的name取路径末段而非fqn末段() {
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"Archived\": \"{FQN}\"}}\n```\n\n\
-         ## 透传\n\n- Archived → {FQN}\n"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        &reexport_def(FQN, "Archived", FQN),
+        "",
     ));
     let mut modules = BTreeMap::new();
     modules.insert(
@@ -1251,9 +1269,10 @@ fn render的name取路径末段而非fqn末段() {
 /// 归一责任在 `paths::module_name`（渲染器零归一）。
 #[test]
 fn render的查表值特殊字符() {
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"Archived\": \"{FQN}\"}}\n```\n\n\
-         ## 透传\n\n- Archived → {FQN}\n"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        &reexport_def(FQN, "Archived", FQN),
+        "",
     ));
     let long = "a".repeat(1200);
     let cases = ["with space", "模块", "🎯", long.as_str()];
@@ -1406,9 +1425,10 @@ fn ts_comment_text断行防护() {
 /// ——单行、零新增语句；零 `eprintln!`。
 #[test]
 fn render的透传注释经ts_comment_text() {
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"AgentInput\": \"App.Frontend.Components.Agent.Input\"}}\n```\n\n\
-         ## 透传\n\n- AgentInput → App.Frontend.Components.Agent.Input\n"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        "",
     ));
     let target = EmitTarget {
         kind: crate::api::paths::GeneratedKind::TypeScript,
@@ -1561,9 +1581,10 @@ fn render出口单形四参签名恰一() {
     );
 
     // 行为面：直接调用与经 `emit::render_target` 分派逐字相等
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-types\n{{\"Item\": {{\"type\": \"object\", \
-         \"properties\": {{\"a\": {{\"type\": \"string\"}}}}}}}}\n```\n"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        r#""Item": {"type": "object", "properties": {"a": {"type": "string"}}}"#,
+        "",
     ));
     let target = empty_scope();
     let direct = render(&contract, &schema, &meta(), &target);
@@ -1728,14 +1749,16 @@ fn ts侧specifier转义零筛选() {
     // ① 带扩展名末段：单文件形态 specifier 合法且必需
     let dotted = "architecture.tsx";
     let dotted_target = render(
-        &prepare(&format!(
-            "# {FQN}\n\n```json api-reexport\n{{\"Archived\": \"{FQN}\"}}\n```\n\n\
-             ## 透传\n\n- Archived → {FQN}\n"
+        &prepare_local(&mirrored_schema_text(
+            FQN,
+            &reexport_def(FQN, "Archived", FQN),
+            "",
         ))
         .0,
-        &prepare(&format!(
-            "# {FQN}\n\n```json api-reexport\n{{\"Archived\": \"{FQN}\"}}\n```\n\n\
-             ## 透传\n\n- Archived → {FQN}\n"
+        &prepare_local(&mirrored_schema_text(
+            FQN,
+            &reexport_def(FQN, "Archived", FQN),
+            "",
         ))
         .1,
         &meta(),
@@ -1763,9 +1786,10 @@ fn ts侧specifier转义零筛选() {
 
     // ② 含特殊字符的 name：转义后可判、不破 TS 形态（零筛选的必然推论）
     for name in ["it's.tsx", "a\\b.tsx", "a\nb.tsx"] {
-        let (contract, schema) = prepare(&format!(
-            "# {FQN}\n\n```json api-reexport\n{{\"Archived\": \"{FQN}\"}}\n```\n\n\
-             ## 透传\n\n- Archived → {FQN}\n"
+        let (contract, schema) = prepare_local(&mirrored_schema_text(
+            FQN,
+            &reexport_def(FQN, "Archived", FQN),
+            "",
         ));
         let target = EmitTarget {
             kind: paths::GeneratedKind::TypeScript,
@@ -1810,10 +1834,10 @@ fn ts侧specifier转义零筛选() {
 /// 止（本文件结构上收不到）。
 #[test]
 fn 同一schema两侧形态收敛() {
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-types\n{{\"Runner\": {{\"x-class\": true, \"properties\": \
-         {{\"run\": {{\"x-function\": {{\"params\": [{{\"name\": \"input\", \"schema\": \
-         {{\"type\": \"string\"}}}}], \"returns\": {{\"type\": \"boolean\"}}}}}}}}}}}}\n```\n"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        r#""Runner": {"x-class": true, "properties": {"run": {"x-function": {"params": [{"name": "input", "schema": {"type": "string"}}], "returns": {"type": "boolean"}}}}}"#,
+        "",
     ));
     let target = EmitTarget {
         kind: paths::GeneratedKind::TypeScript,
@@ -1860,11 +1884,12 @@ fn common_type按表展开且随表变化() {
 
     use crate::api::CommonRule;
 
-    let source = format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"outcome\": \
-         {{\"type\": \"string\"}}}}}}\n```\n"
+    let source = op_schema(
+        FQN,
+        "load",
+        r#"{"params": [], "returns": {"outcome": {"type": "string"}}}"#,
     );
-    let (contract, schema) = prepare(&source);
+    let (contract, schema) = prepare_local(&source);
 
     let mut custom: BTreeMap<String, CommonRule> = BTreeMap::new();
     custom.insert(
@@ -1891,11 +1916,12 @@ fn common_type按表展开且随表变化() {
 fn common_type空表回落普通分派() {
     use std::collections::BTreeMap;
 
-    let source = format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"outcome\": \
-         {{\"type\": \"string\"}}}}}}\n```\n"
+    let source = op_schema(
+        FQN,
+        "load",
+        r#"{"params": [], "returns": {"outcome": {"type": "string"}}}"#,
     );
-    let (contract, schema) = prepare(&source);
+    let (contract, schema) = prepare_local(&source);
     let mut meta = meta();
     meta.common = BTreeMap::new();
     let text = render(&contract, &schema, &meta, &empty_scope());
@@ -1929,17 +1955,10 @@ fn 三字段只读两项() {
     );
 
     // 行为面：同一契约只改 `form` ⇒ specifier 随变
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}
-
-```json api-reexport
-{{\"AgentInput\": \"App.Frontend.Components.Agent.Input\"}}
-```
-
-         ## 透传
-
-- AgentInput → App.Frontend.Components.Agent.Input
-"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        "",
     ));
     let directory = render_root(&contract, &schema, &meta(), "views/architecture");
     let single = render_root(&contract, &schema, &meta(), "views/architecture.tsx");

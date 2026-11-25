@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use foundation::cancel::CancelFlag;
 use foundation::layout::archi_config_path;
 
+use crate::api::mod_test::{mirrored_schema_text, op_schema};
 use crate::dto;
 use crate::scan::{self, ScanInput};
 
@@ -60,6 +61,17 @@ impl TempDir {
     /// 落模型（`.dev-team/architecture/graph/model/01-test.toml`）。
     fn write_model(&self, content: &str) {
         self.write(".dev-team/architecture/graph/model/01-test.toml", content);
+    }
+
+    /// 落接口定义（`<archi_models_dir>/<分层目录…>/<FQN>.schema.json`）。
+    fn write_schema(&self, fqn: &str, content: &str) {
+        let path = crate::api::paths::schema_path(self.root(), fqn).expect("合法 FQN");
+        let relative = path
+            .strip_prefix(self.root())
+            .expect("repo 相对路径")
+            .to_string_lossy()
+            .replace('\\', "/");
+        self.write(&relative, content);
     }
 
     /// 落架构域看护配置（唯一合法位置）。
@@ -1448,15 +1460,23 @@ fn 错误面文案三值() {
 
 use foundation::layout::archi_models_dir;
 
-/// 落一份契约 md（`<archi_models_dir>/<分层目录…>/<FQN>.md`；目录取父 FQN 段链去根段）。
-fn write_contract(temp: &TempDir, fqn: &str, content: &str) {
+/// 落两资产（文档 + 手写接口定义）——判据面的事实源是 `.schema.json`，文档是独立事实
+/// （`docMissing`），故成对落盘。
+fn write_contract(temp: &TempDir, fqn: &str, schema_text: &str) {
     let path = crate::api::paths::contract_path(temp.root(), fqn).expect("合法 FQN");
     let relative = path
         .strip_prefix(temp.root())
         .expect("repo 相对路径")
         .to_string_lossy()
         .replace('\\', "/");
-    temp.write(&relative, content);
+    temp.write(&relative, &crate::api::mod_test::doc_of(fqn));
+    let schema_path = crate::api::paths::schema_path(temp.root(), fqn).expect("合法 FQN");
+    let schema_relative = schema_path
+        .strip_prefix(temp.root())
+        .expect("repo 相对路径")
+        .to_string_lossy()
+        .replace('\\', "/");
+    temp.write(&schema_relative, schema_text);
     assert!(
         archi_models_dir(temp.root()).is_dir(),
         "契约目录由落盘自动建立"
@@ -1487,20 +1507,19 @@ fn declared_chain_model(fqn: &str, element_root: &str) -> String {
 
 /// 与代码签名一致的试点契约（1 op `file_stem` + 1 类型）。
 fn pilot_contract(fqn: &str) -> String {
-    format!(
-        "# {fqn}\n\n## 职能\n\n门禁执行体。\n\n## 操作\n\n### file_stem\n\n```json api-op\n\
-         {{\"params\": [{{\"name\": \"timestamp\", \"schema\": {{\"type\": \"string\"}}}}], \
-         \"returns\": {{\"type\": \"string\"}}}}\n```\n\n## 类型\n\n```json api-types\n\
-         {{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    mirrored_schema_text(
+        fqn,
+        r#""LocalArchiCheck": {"type": "object", "properties": {}}"#,
+        r#""file_stem": { "x-function": {"params": [{"name": "timestamp", "schema": {"type": "string"}}], "returns": {"type": "string"}} }"#,
     )
 }
 
 /// 与代码签名**不一致**的契约（`file_stem` 的返回位声明为 `integer`）。
 fn mismatched_contract(fqn: &str) -> String {
-    format!(
-        "# {fqn}\n\n## 操作\n\n### file_stem\n\n```json api-op\n\
-         {{\"params\": [{{\"name\": \"timestamp\", \"schema\": {{\"type\": \"string\"}}}}], \
-         \"returns\": {{\"type\": \"integer\"}}}}\n```\n"
+    op_schema(
+        fqn,
+        "file_stem",
+        r#"{"params": [{"name": "timestamp", "schema": {"type": "string"}}], "returns": {"type": "integer"}}"#,
     )
 }
 
@@ -1794,8 +1813,12 @@ fn 坏契约即config错误() {
         "crates/infra/archi/src/lib.rs",
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
     );
-    // H1 与文件名不一致 → 契约错误
-    write_contract(&temp, fqn, "# App.Backend.Other\n\n## 职能\n\n正文。\n");
+    // 接口文件 `$id` 与文件名不符 → 契约错误（文档正文零参与判定）
+    write_contract(&temp, fqn, &crate::api::mod_test::empty_schema(fqn));
+    let bad = format!(
+        "{{\"$id\": \"App.Backend.Other.schema.json\", \"title\": \"{fqn}\", \"$defs\": {{}}, \"properties\": {{}}}}\n"
+    );
+    temp.write_schema(fqn, &bad);
 
     match run_full(temp.root()) {
         Err(CheckError::Config(message)) => {
@@ -1817,8 +1840,8 @@ fn 坏契约即config错误() {
         "pub fn file_stem(timestamp: &str) -> String { String::new() }
 ",
     );
-    let contract_file = crate::api::paths::contract_path(unreadable.root(), fqn).expect("合法 FQN");
-    std::fs::create_dir_all(contract_file.parent().expect("父目录")).expect("建契约目录");
+    let contract_file = crate::api::paths::schema_path(unreadable.root(), fqn).expect("合法 FQN");
+    std::fs::create_dir_all(contract_file.parent().expect("父目录")).expect("建接口目录");
     std::fs::write(&contract_file, [0xff_u8, 0xfe, 0x00, 0x01]).expect("写非法 UTF-8 字节");
     match run_full(unreadable.root()) {
         Err(CheckError::Config(message)) => {
@@ -1911,7 +1934,7 @@ fn chain_with_siblings(fqn: &str, element_root: &str, siblings: &[(&str, &str)])
 
 /// 一个只含类型的契约（零 op；用于类型面提示 / 形状类用例）。
 fn types_only_contract(fqn: &str, defs: &str) -> String {
-    format!("# {fqn}\n\n## 职能\n\n类型面。\n\n## 类型\n\n```json api-types\n{defs}\n```\n")
+    mirrored_schema_text(fqn, defs, "")
 }
 
 /// 某种 kind 的条目数。
@@ -2209,9 +2232,10 @@ fn 组合链规模与多判据独立() {
             write_contract(
                 &scale,
                 &fqn,
-                &format!(
-                    "# {fqn}\n\n## 操作\n\n### run\n\n```json api-op\n\
-                     {{\"params\": [], \"returns\": {{\"type\": \"string\"}}}}\n```\n"
+                &op_schema(
+                    &fqn,
+                    "run",
+                    r#"{"params": [], "returns": {"type": "string"}}"#,
                 ),
             );
         }
@@ -2243,10 +2267,15 @@ fn 组合链规模与多判据独立() {
     write_contract(
         &aggregate,
         fqn,
-        &format!(
-            "# {fqn}\n\n## 操作\n\n### alpha\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"type\": \"string\"}}}}\n```\n\n\
-             ### beta\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"type\": \"string\"}}}}\n```\n\n\
-             ### gamma\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"type\": \"string\"}}}}\n```\n"
+        &mirrored_schema_text(
+            fqn,
+            "",
+            &format!(
+                "{}, {}, {}",
+                r#""alpha": { "x-function": {"params": [], "returns": {"type": "string"}} }"#,
+                r#""beta": { "x-function": {"params": [], "returns": {"type": "string"}} }"#,
+                r#""gamma": { "x-function": {"params": [], "returns": {"type": "string"}} }"#
+            ),
         ),
     );
     let aggregated = run_full(aggregate.root()).expect("判定应成功");
@@ -2285,9 +2314,10 @@ fn 组合链规模与多判据独立() {
     write_contract(
         &multi,
         parent,
-        &format!(
-            "# {parent}\n\n## 操作\n\n### new\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"type\": \"string\"}}}}\n```\n\n\
-             ## 类型\n\n```json api-types\n{{\"Shared\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+        &mirrored_schema_text(
+            parent,
+            r#""Shared": {"type": "object", "properties": {}}"#,
+            r#""new": { "x-function": {"params": [], "returns": {"type": "string"}} }"#,
         ),
     );
     write_contract(
@@ -2426,8 +2456,9 @@ fn 报告版本常量为3() {
     assert!(!source.contains("REPORT_VERSION: u32 = 2"), "零旧值 2");
 }
 
-/// 正向（AC-4）：纳管子集仅含 `warn` 档判据（`apiDocMissing`）且 `errors` / `warnings`
-/// 双空 → `status == warnings`；`passed == true`（warn 档不阻断门禁）。
+/// 正向（AC-9）：纳管子集非空且全为 `warn` 档（`apiEntryMissing`）而 `errors` / `warnings`
+/// 双空 → `status == warnings`；`passed == true`（warn 档不阻断门禁）。`docMissing` 永不
+/// 纳管（文档在盘时零 `docMissing`，不在盘也只 `warn` 不纳管）。
 #[test]
 fn 纳管子集非空且无errors时status为warnings() {
     let temp = TempDir::new("gating-warnings");
@@ -2442,34 +2473,45 @@ fn 纳管子集非空且无errors时status为warnings() {
         "crates/infra/archi/src/lib.rs",
         "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
     );
-    temp.write(
-        "crates/infra/second/src/lib.rs",
-        "pub fn second() -> String { String::new() }\n",
-    );
-    // 试点元素的含 fence 载体把契约面打开；second 的载体在盘但正文无 fence
+    // 试点元素的接口文件把契约面打开（启用证据 = declared ∧ schema 在盘）
     write_contract(&temp, pilot, &pilot_contract(pilot));
+    // second 的接口文件在盘、文档也在盘，但实现入口不在盘 ⇒ `apiEntryMissing`（warn 档，
+    // 且 `api = declared` ∧ schema 在盘 ⇒ 进纳管子集）
     write_contract(
         &temp,
         pending,
-        &format!("# {pending}\n\n## 职能\n\n契约尚未展开。\n"),
+        &mirrored_schema_text(
+            pending,
+            r#""Pending": {"type": "object", "properties": {}}"#,
+            "",
+        ),
     );
 
     let report = run_full(temp.root()).expect("判定应成功");
-    assert!(
+    assert_eq!(
         report
             .api_findings
             .iter()
-            .any(|finding| finding.kind == ArchiApiFindingKind::ApiDocMissing),
-        "有文档无约定 ⇒ `apiDocMissing`（warn 档）：{:?}",
-        report
-            .api_findings
-            .iter()
-            .map(|finding| (finding.kind, finding.element.clone()))
-            .collect::<Vec<_>>()
+            .filter(|finding| finding.element.as_deref() == Some(pending))
+            .map(|finding| finding.kind)
+            .collect::<Vec<_>>(),
+        vec![ArchiApiFindingKind::ApiEntryMissing],
+        "入口缺失是唯一判据（文档在盘 ⇒ 零 docMissing）"
     );
     assert_eq!(report.status, ArchiCheckStatus::Warnings, "纳管 ⇒ warnings");
     assert!(report.errors.is_empty(), "errors 空");
-    assert!(report.warnings.is_empty(), "既存 warnings 空");
+    assert!(
+        report
+            .warnings
+            .iter()
+            .all(|entry| entry.kind != ArchiDriftKind::NoPath),
+        "既存 warnings 只剩祖先容器的 `noPath`（纳管槽与既有槽互不挤占）：{:?}",
+        report
+            .warnings
+            .iter()
+            .map(|entry| entry.kind)
+            .collect::<Vec<_>>()
+    );
     assert!(report.passed(), "warn 档判据不阻断门禁 ⇒ passed == true");
 }
 

@@ -1469,12 +1469,17 @@ fn 非空apiFindings金样在案() {
         finding["occurrences"][0]["file"].as_str(),
         Some(
             format!(
-                "{}/App/App.Mod.md",
+                "{}/App/App.Mod.schema.json",
                 foundation::layout::archi_models_rel_dir()
             )
             .as_str()
         ),
-        "金样 occurrence 的 file 换 base 到 models 段（唯一一处例外）：{finding:?}"
+        "金样 occurrence 指向接口定义文件（真相所在）：{finding:?}"
+    );
+    assert_eq!(
+        finding["occurrences"][0]["line"],
+        serde_json::json!(0),
+        "schema 无行号 ⇒ occurrence.line 恒 0"
     );
     assert_eq!(
         snapshot["status"],

@@ -1,10 +1,13 @@
-//! `$defs` 规则校验、`schema.json` 装配与 `INDEX.toml` 装配。
+//! 接口定义文件的**唯一**校验单点、`$defs` 规则校验与 `INDEX.toml` 装配。
 //!
-//! **生成器只做装配、不做翻译**：`schema.json` 的每一项都有 markdown 出处
-//! （`$schema` / `$id` 常量、`title` 取 H1、`$defs` 取 `api-types` + `api-reexport`
-//! 透传 alias、`properties` 取 op 键 + 类型 `$ref`、`$comment` 常量），fence 内容
-//! 本身就是原生 JSON Schema——`minLength` / `pattern` / `enum` / `anyOf` / `x-*`
-//! 全在 md 内可表达。表达不了即生成器能力不足，应修生成器，MUST NOT 开手改口子。
+//! **真相方向**：`<FQN>.schema.json` 是**手写的接口真相**（人写、写闸校验），`INDEX.toml`
+//! 与 `.i.rs` / `.i.ts` 是生成物。故本模块的公开入口是
+//! [`validate_schema`]（写闸与装载期共用的九道闸），而不再是「由 md 装配 schema」。
+//!
+//! **文件级自洽、零跨元素**：[`validate_schema`] 只吃「本文件 + 本 FQN」。跨元素的一切
+//! （`$ref` 目标是否在模型内 / 是否直接子元素 / 目标是否 `api = none` / 目标文件在不在盘）
+//! 归 `apiRefMissing` 既有判据面——写闸做它就变成第二份判据。唯一例外是跨元素 `$ref` 的
+//! **前缀**：它只需两个 FQN 做纯计算，故留在写闸。
 //!
 //! **索引零语言词**：`INDEX.toml` 里不出现 `crate` / `Cargo.toml` / `Rust` /
 //! `TypeScript`——语言特定只落取数器与渲染器。
@@ -14,7 +17,7 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value};
 use toml_edit::{DocumentMut, Item, Table, Value as TomlValue};
 
-use super::contract::Contract;
+use super::contract::{self, Contract};
 use super::{kind_of, paths, short_digest, ApiError, ApiMeta, DEFS_FRAGMENT, SCHEMA_FILE_SUFFIX};
 
 /// **封闭降级词表**（首期四值）：`x-common.degraded` 的取值域。
@@ -36,11 +39,14 @@ pub(crate) const DEGRADED_KINDS: [&str; 4] = [
     "crossLanguage",
 ];
 
-/// `INDEX.toml` 的契约文件在案状态（封闭二值）：文件事实，与模型意图
-/// [`crate::dto::ApiStatus`] 分立——后者是「承诺有契约」，前者是「文件在案」。
+/// `INDEX.toml` 的接口文件在案状态（封闭二值）：文件事实，与模型意图
+/// [`crate::dto::ApiStatus`] 分立——后者是「承诺有接口」，前者是「文件在案」。
+///
+/// **值域不动**（`declared` / `absent`）：`present`（`declared` 的判定）改为直判
+/// 「`<FQN>.schema.json` 在盘」，命名债（`declared` 读起来像意图）并入清理轮。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApiFormStatus {
-    /// 契约文件在案
+    /// 接口文件在案
     Declared,
     /// `declared` 但文件缺失
     Absent,
@@ -61,7 +67,7 @@ impl ApiFormStatus {
 pub struct IndexEntry {
     /// 元素 FQN
     pub fqn: String,
-    /// 契约文件事实
+    /// 接口文件事实（`declared` = `<FQN>.schema.json` 在盘）
     pub status: ApiFormStatus,
     /// `$defs` 条目数
     pub types: usize,
@@ -73,85 +79,10 @@ pub struct IndexEntry {
     pub degraded: usize,
     /// 分类分布（`category` → 条数；开放值集）
     pub categories: BTreeMap<String, usize>,
-    /// schema 生成物的 repo 相对路径（`absent` 时为空串）
+    /// 接口定义文件的 repo 相对路径（`absent` 时为空串）
     pub schema_rel: String,
     /// 元素生成物的 repo 相对路径（无则 `None`）
     pub generated_rel: Option<String>,
-}
-
-/// `schema.json` 装配（六字段，逐项有 md 出处；`serde_json::Map` 保序 ⇒ 幂等 diff）。
-///
-/// **两处键空间各自唯一**（`serde_json::Map::insert` 会静默覆盖，故两处都先判后写）：
-/// ① `$defs` 内 `api-types` 与 `api-reexport` 不得同名（两条来源合并成同一个键空间）；
-/// ② `properties` 内 op 键与类型键不得同名（同一对象装两类条目，同名会让「这是操作
-/// 还是类型引用」在产物里不可辨）。任一处撞名即 `ApiError::Contract` 并点名该名。
-pub fn build_schema(contract: &Contract, meta: &ApiMeta) -> Result<Value, ApiError> {
-    let mut defs: Map<String, Value> = Map::new();
-    for (name, value) in &contract.types {
-        defs.insert(name.clone(), value.clone());
-    }
-    for (name, target) in &contract.reexports {
-        let Some(target_fqn) = target.as_str() else {
-            return Err(ApiError::Contract(format!(
-                "{}: {name} 的透传目标必须是子元素 FQN 字符串（实际为 {}），\
-                 透传条目只表达「导出自哪个直接子元素」",
-                contract.file,
-                kind_of(target)
-            )));
-        };
-        if defs.contains_key(name) {
-            return Err(ApiError::Contract(format!(
-                "{}: 类型名 `{name}` 同时出现在 `api-types` 与 `api-reexport`——\
-                 `$defs` 的键空间唯一，同名即定义两次（MUST NOT 由后写者静默覆盖）",
-                contract.file
-            )));
-        }
-        let prefix = paths::ref_relative(&contract.fqn, target_fqn);
-        defs.insert(
-            name.clone(),
-            serde_json::json!({
-                "$ref": format!("{prefix}{target_fqn}{SCHEMA_FILE_SUFFIX}#/$defs/{name}")
-            }),
-        );
-    }
-
-    let mut properties: Map<String, Value> = Map::new();
-    for op in &contract.ops {
-        // 操作项 = `api-op` fence 原文包进 `x-function`（fence 内即 params / returns /
-        // async 三键，块内不自包含 op 名——名字由 heading 提供）
-        properties.insert(op.id.clone(), function_schema(&op.signature));
-    }
-    for name in defs.keys() {
-        if properties.contains_key(name) {
-            return Err(ApiError::Contract(format!(
-                "{}: op id `{name}` 与类型名同名——`properties` 的键空间唯一\
-                 （同名会让「操作」与「类型引用」在生成物里不可辨，MUST NOT 静默覆盖）",
-                contract.file
-            )));
-        }
-        properties.insert(
-            name.clone(),
-            serde_json::json!({ "$ref": format!("{DEFS_FRAGMENT}{name}") }),
-        );
-    }
-
-    let mut schema: Map<String, Value> = Map::new();
-    schema.insert(
-        "$schema".to_owned(),
-        Value::String(meta.schema_uri.to_owned()),
-    );
-    schema.insert(
-        "$id".to_owned(),
-        Value::String(format!("{}.schema.json", contract.fqn)),
-    );
-    schema.insert("title".to_owned(), Value::String(contract.title.clone()));
-    schema.insert(
-        "$comment".to_owned(),
-        Value::String(meta.generated_notice.to_owned()),
-    );
-    schema.insert("$defs".to_owned(), Value::Object(defs));
-    schema.insert("properties".to_owned(), Value::Object(properties));
-    Ok(Value::Object(schema))
 }
 
 /// `x-common.degraded` 的**全深度单点扫描**：返回每个标记的 `(JSON pointer, 原值)`。
@@ -193,6 +124,328 @@ fn collect_degraded<'a>(value: &'a Value, pointer: &str, marks: &mut Vec<(String
         }
         _ => {}
     }
+}
+
+/// 接口定义文件的**唯一**校验入口（写闸与装载期共用，只差错误映射）：九道闸一趟走完
+/// 并产出 [`Contract`]。
+///
+/// 闸序固定（顺序即判据：先便宜后昂贵、先自洽后复用）：
+///
+/// ```text
+/// ① 文本层重复键    serde_json 会把重复键折叠成「后者胜」，手写「同名两处定义」会静默
+/// ② JSON 可解析
+/// ③ identity        `$id` == `<FQN>.schema.json`、`title` == `<FQN>`（第三处是文件名，
+///                   由调用方经 `paths::schema_fqn` 反查 ⇒ 与前两处逐字相同即成立）
+/// ④ 键空间          op 键集（带 `x-function` 的 `properties` 键）∩ `$defs` 键集 = ∅
+/// ⑤ 形态白名单      `properties.<k>` 恰一键二选一：`{ "x-function": {…} }` 或
+///                   `{ "$ref": "#/$defs/<名>" }`（且 `<名> ∈ $defs`）
+/// ⑥ 镜像            `$defs` 每个键在 `properties` 有指向自己的 `$ref`
+/// ⑦ `$ref` 前缀     跨元素串的文件部分逐字等于 `ref_relative(本FQN, 目标FQN)`
+/// ⑧ 顶层键封闭      六键封闭；`$id` / `title` / `$defs` / `properties` 四键必在场
+/// ⑨ 复用三闸        [`super::contract::verify`]（七族名字 / 落点 / `required ⊆ properties`）
+///                   + [`verify_defs`]（`$defs` 五条规则与降级词表）
+/// ```
+///
+/// `Contract.file` 取 `<FQN>.schema.json`（本函数无路径入参）；装载期在成功后把它覆写为
+/// repo 相对路径（报告的 `occurrences.file` 口径）。
+pub fn validate_schema(fqn: &str, text: &str) -> Result<Contract, ApiError> {
+    let file = format!("{fqn}{SCHEMA_FILE_SUFFIX}");
+    if let Some((key, offset)) = contract::duplicate_keys(text) {
+        return Err(contract::duplicate_key_error(&file, &key, offset));
+    }
+    let value: Value = serde_json::from_str(text).map_err(|error| {
+        ApiError::Contract(format!(
+            "{file}: 不是合法 JSON：{error}——按上文行列修掉该处语法错误后重新写入"
+        ))
+    })?;
+    if !value.is_object() {
+        return Err(ApiError::Contract(format!(
+            "{file}: 顶层必须是 JSON 对象（实际为 {}）——接口定义以 `$defs` / `properties` \
+             两表承载导出名",
+            kind_of(&value)
+        )));
+    }
+    verify_identity(fqn, &value).map_err(|error| locate(&file, error))?;
+    verify_keyspace(&value).map_err(|error| locate(&file, error))?;
+    verify_shape(&value).map_err(|error| locate(&file, error))?;
+    verify_mirror(&value).map_err(|error| locate(&file, error))?;
+    verify_ref_prefix(fqn, &value).map_err(|error| locate(&file, error))?;
+    verify_top_level_keys(&value).map_err(|error| locate(&file, error))?;
+    let contract = Contract::from_schema(fqn, &file, &value);
+    contract::verify(&contract, &value)?;
+    verify_defs(&value)?;
+    Ok(contract)
+}
+
+/// 闸 ③：`$id` / `title` 与 FQN 逐字一致。
+///
+/// **三处持有同一事实**（`$id` / `title` / 文件名）：漂移会让反查（`reexport_target` 取
+/// 文件主干）与报告文案指向不同元素。文件名一处由调用方经
+/// [`super::paths::schema_fqn`] 反查出 FQN 后与本入参比较，故这里只判两处。
+pub fn verify_identity(fqn: &str, value: &Value) -> Result<(), ApiError> {
+    let expected_id = format!("{fqn}{SCHEMA_FILE_SUFFIX}");
+    match value.get("$id").and_then(Value::as_str) {
+        Some(id) if id == expected_id => {}
+        Some(id) => {
+            return Err(ApiError::Contract(format!(
+                "`$id` 是 `{id}`，期望 `{expected_id}`——`$id` / `title` / 文件名三处持有同一\
+                 事实，必须逐字相同（改成 `{expected_id}`）"
+            )))
+        }
+        None => {
+            return Err(ApiError::Contract(format!(
+                "缺 `$id`（MUST 为 `{expected_id}`）"
+            )))
+        }
+    }
+    match value.get("title").and_then(Value::as_str) {
+        Some(title) if title == fqn => Ok(()),
+        Some(title) => Err(ApiError::Contract(format!(
+            "`title` 是 `{title}`，期望 `{fqn}`——`title` 与 FQN 逐字相同（跨元素 `$ref` 的反查\
+             与报告文案都靠它）"
+        ))),
+        None => Err(ApiError::Contract(format!("缺 `title`（MUST 为 `{fqn}`）"))),
+    }
+}
+
+/// 闸 ④：**op 键集 ∩ `$defs` 键集 = ∅**。
+///
+/// 不是「`properties` 键集与 `$defs` 键集无重名」：⑥ 的镜像要求每个 `$defs` 键在
+/// `properties` 有指向自己的 `$ref` ⇒ 两键集**必须**相交。真正要拒的是「同名既是操作
+/// 又是类型」——那会让「这是操作还是类型引用」在产物里不可辨。
+pub fn verify_keyspace(value: &Value) -> Result<(), ApiError> {
+    let defs = defs_of(value);
+    for (key, property) in properties_of(value).into_iter().flatten() {
+        if property.get(X_FUNCTION).is_none() {
+            continue;
+        }
+        if defs.is_some_and(|defs| defs.contains_key(key)) {
+            return Err(ApiError::Contract(format!(
+                "键 `{key}` 同时是操作（`properties.{key}.x-function`）与类型（`$defs.{key}`）——\
+                 两个键空间必须互斥：操作改名，或把类型放进 `$defs` 的另一个名字下"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// 闸 ⑤：`properties.<k>` 的形态白名单（**恰一键**）。
+///
+/// 合法二选一：`{ "x-function": { … } }`（值须对象）或 `{ "$ref": "#/$defs/<名>" }`
+/// （`<名> ∈ $defs`）。其余形态（内联 `object` / 数组 / `oneOf` / 裸 `type`）一律
+/// `ApiError`——内联 object 会经 `schema_type` 的 type 分派静默退化为
+/// `Record<string, unknown>`（编译通过、类型全丢），这是本闸存在的唯一理由。
+/// `x-function` 的**内层**是自由形状（`async` / 将来可能的 `deprecated`）：本闸只判外层。
+pub fn verify_shape(value: &Value) -> Result<(), ApiError> {
+    let defs = defs_of(value);
+    for (key, property) in properties_of(value).into_iter().flatten() {
+        let Some(object) = property.as_object() else {
+            return Err(shape_error(key));
+        };
+        if let Some(function) = object.get(X_FUNCTION) {
+            if object.len() != 1 {
+                return Err(ApiError::Contract(format!(
+                    "`properties.{key}` 只允许恰一个键——`x-function` 不得与其他键并列（\
+                     `description` 一类注记写进 `x-function` 内层）"
+                )));
+            }
+            if !function.is_object() {
+                return Err(ApiError::Contract(format!(
+                    "`properties.{key}.x-function` 的值必须是对象（实际为 {}）——\
+                     它承载 `params` / `returns` / `async` / `owner` / `description`",
+                    kind_of(function)
+                )));
+            }
+            continue;
+        }
+        if let Some(reference) = object.get("$ref") {
+            if object.len() != 1 {
+                return Err(ApiError::Contract(format!(
+                    "`properties.{key}` 只允许恰一个键——`$ref` 不得与其他键并列"
+                )));
+            }
+            let Some(reference) = reference.as_str() else {
+                return Err(ApiError::Contract(format!(
+                    "`properties.{key}.$ref` 必须是字符串"
+                )));
+            };
+            let Some(name) = reference
+                .strip_prefix(DEFS_FRAGMENT)
+                .filter(|name| !name.is_empty() && !name.contains('/'))
+            else {
+                return Err(ApiError::Contract(format!(
+                    "`properties.{key}.$ref` 指向 `{reference}`——`properties` 只允许本文件内的 \
+                     `#/$defs/<名>`；跨元素引用写进 `$defs` 的纯 `$ref` alias"
+                )));
+            };
+            if !defs.is_some_and(|defs| defs.contains_key(name)) {
+                return Err(ApiError::Contract(format!(
+                    "`properties.{key}.$ref` 指向 `{name}`，但本文件 `$defs` 里没有该条目——\
+                     先声明类型，或改指向已有条目"
+                )));
+            }
+            continue;
+        }
+        return Err(shape_error(key));
+    }
+    Ok(())
+}
+
+/// 闸 ⑤ 的错误面：二选一形态 + 可执行出路（想把类型复用就放进 `$defs`）。
+fn shape_error(key: &str) -> ApiError {
+    ApiError::Contract(format!(
+        "`properties.{key}` 的形态非法：只允许 `{{ \"x-function\": {{ … }} }}`（声明操作）或 \
+         `{{ \"$ref\": \"#/$defs/<名>\" }}`（引用本文件类型）——内联 `object` 会静默退化成 \
+         `Record<string, unknown>`；想复用类型就放进 `$defs`，想声明操作就用 `x-function`"
+    ))
+}
+
+/// 闸 ⑥：镜像——`$defs` 每个键在 `properties` 有指向自己的 `$ref`。
+///
+/// 两侧同表是「类型可见」的表达方式：`$defs` 只定义、`properties` 才导出。缺镜像的
+/// 条目在产物里既不可见也无从引用（`emit` 只渲染 `properties` 可达面），静默丢失。
+pub fn verify_mirror(value: &Value) -> Result<(), ApiError> {
+    let properties = properties_of(value);
+    for (name, _) in defs_of(value).into_iter().flatten() {
+        let expected = format!("{DEFS_FRAGMENT}{name}");
+        let mirrored = properties
+            .and_then(|properties| properties.get(name))
+            .and_then(|property| property.get("$ref"))
+            .and_then(Value::as_str)
+            .is_some_and(|reference| reference == expected);
+        if !mirrored {
+            return Err(ApiError::Contract(format!(
+                "`$defs.{name}` 在 `properties` 里没有指向自己的镜像条目——补 \
+                 `\"{name}\": {{ \"$ref\": \"{expected}\" }}`（`$defs` 只定义、`properties` \
+                 才导出）"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// 闸 ⑦：跨元素 `$ref` 的文件部分逐字等于 `ref_relative(本FQN, 目标FQN) + <目标FQN>`。
+///
+/// 少一个 `../` 会绕过 `apiRefMissing` 并在 `.i.ts` 里 import 一个不存在的路径、到编译期
+/// 才炸；因此前缀校验留在这里（只需两个 FQN 做纯计算，仍是文件级自洽）。文案并列
+/// 「当前串」与「期望串」。同文件引用（`#/$defs/<名>`）不在射程。
+pub fn verify_ref_prefix(fqn: &str, value: &Value) -> Result<(), ApiError> {
+    let mut references: Vec<String> = Vec::new();
+    collect_refs(value, &mut references);
+    for reference in references {
+        let Some(target) = super::reexport_target(&reference) else {
+            continue;
+        };
+        let expected_file = format!(
+            "{}{target}{SCHEMA_FILE_SUFFIX}",
+            paths::ref_relative(fqn, &target)
+        );
+        let current_file = reference
+            .split_once('#')
+            .map(|(file, _)| file)
+            .unwrap_or("");
+        if current_file == expected_file {
+            continue;
+        }
+        return Err(ApiError::Contract(format!(
+            "跨元素 `$ref` 的前缀非法：当前串 `{reference}`，期望 `{expected_file}#/$defs/<名>`\
+             ——前缀由 `ref_relative(本元素, 目标元素)` 逐段求出，MUST NOT 手算层数（用 \
+             `archi_api` 的 `link` 算）"
+        )));
+    }
+    Ok(())
+}
+
+/// 闸 ⑧：顶层键**封闭六项**（`$schema` / `$id` / `title` / `$comment` / `$defs` /
+/// `properties`），其中 `$id` / `title` / `$defs` / `properties` 四键 MUST 在场。
+///
+/// 自造的 `x-` 前缀键在这一层就被拒：`x-` 面封闭为 `x-function` / `x-class` /
+/// `x-common` 三项，且它们只在条目内部（不在顶层）。
+pub fn verify_top_level_keys(value: &Value) -> Result<(), ApiError> {
+    let Some(object) = value.as_object() else {
+        return Err(ApiError::Contract(
+            "顶层必须是 JSON 对象（接口定义以 `$defs` / `properties` 两表承载导出名）".to_owned(),
+        ));
+    };
+    for key in object.keys() {
+        if !TOP_LEVEL_KEYS.contains(&key.as_str()) {
+            return Err(ApiError::Contract(format!(
+                "顶层出现未知键 `{key}`——顶层封闭为 {}；`x-` 面只有 `x-function` / `x-class` / \
+                 `x-common` 三项且只在条目内部",
+                TOP_LEVEL_KEYS.join(" / ")
+            )));
+        }
+    }
+    for key in REQUIRED_TOP_LEVEL_KEYS {
+        if !object.contains_key(key) {
+            return Err(ApiError::Contract(format!(
+                "缺顶层键 `{key}`——四键 MUST 在场：{}",
+                REQUIRED_TOP_LEVEL_KEYS.join(" / ")
+            )));
+        }
+    }
+    for key in ["$defs", "properties"] {
+        if !object.get(key).is_some_and(Value::is_object) {
+            return Err(ApiError::Contract(format!(
+                "顶层键 `{key}` 的值必须是对象（空面写 `{{}}`）"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// 顶层键封闭集（[`verify_top_level_keys`] 的唯一持有者）。
+const TOP_LEVEL_KEYS: [&str; 6] = ["$schema", "$id", "title", "$comment", "$defs", "properties"];
+
+/// 顶层必在场键（identity / 形态 / 镜像三闸的对象）。
+const REQUIRED_TOP_LEVEL_KEYS: [&str; 4] = ["$id", "title", "$defs", "properties"];
+
+/// 函数标记层关键字（单点定义在 [`super::contract`]，形态闸与键名摘要共用）。
+const X_FUNCTION: &str = super::contract::X_FUNCTION;
+
+/// `$defs` 表（缺省 / 非对象 → `None`）。
+fn defs_of(value: &Value) -> Option<&Map<String, Value>> {
+    value.get("$defs").and_then(Value::as_object)
+}
+
+/// `properties` 表（缺省 / 非对象 → `None`）。
+fn properties_of(value: &Value) -> Option<&Map<String, Value>> {
+    value.get("properties").and_then(Value::as_object)
+}
+
+/// 一棵 JSON 子树内所有 `$ref` 字符串（[`verify_ref_prefix`] 的收集面）。
+fn collect_refs(value: &Value, references: &mut Vec<String>) {
+    match value {
+        Value::Object(object) => {
+            for (key, inner) in object {
+                if key == "$ref" {
+                    if let Some(reference) = inner.as_str() {
+                        references.push(reference.to_owned());
+                        continue;
+                    }
+                }
+                collect_refs(inner, references);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_refs(item, references);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// 错误面统一补文件前缀（第一行自足：文件 + 期望值 + 出路）。
+///
+/// 带 fqn 的闸（identity / `$ref` 前缀）不必自带文件名，故这里统一补一次即可（本函数
+/// 只看前缀是否已在，避免双写）。
+fn locate(file: &str, error: ApiError) -> ApiError {
+    let message = error.message();
+    if message.starts_with(file) {
+        return error;
+    }
+    ApiError::Contract(format!("{file}: {message}"))
 }
 
 /// `$defs` 五条规则 + 透传条目纯 `$ref` 校验 + `x-class` 带属性判错：
@@ -308,6 +561,10 @@ pub fn verify_defs(schema: &Value) -> Result<(), ApiError> {
 
 /// `INDEX.toml` 文本装配：顶部说明段（生成警示 / review 口径 / 生成器标识）+
 /// 按 FQN 字典序的条目。
+///
+/// 说明段承载两件事：**手写 / 生成分界**（`<FQN>.schema.json` 与 `<FQN>.md` 是手写资产，
+/// 本文件与 `.i.*` 是生成物）与 P6 的命名债注解（`status` 的 `declared` = 接口文件在案，
+/// 值域不动）。
 pub fn build_index(entries: &[IndexEntry], meta: &ApiMeta) -> String {
     let mut ordered: Vec<&IndexEntry> = entries.iter().collect();
     ordered.sort_by(|left, right| left.fqn.cmp(&right.fqn));
@@ -318,7 +575,7 @@ pub fn build_index(entries: &[IndexEntry], meta: &ApiMeta) -> String {
     let digest = short_digest(&meta.common_digest);
     let header = format!(
         "由 archi-api-gen 生成 · 勿手改\n\
-         review 口径：只读元素目录下的 `<FQN>.md`；本文件与 `*.schema.json` 的 diff 视为机械噪声。\n\
+         review 口径：读 `<FQN>.schema.json`（接口，手写真相）与 `<FQN>.md`（理由）；status 的 declared = 接口文件在案；本文件与 `*.i.*` 的 diff 视为机械噪声。\n\
          契约面：目录 {} · 生成器 archi-api {} · 映射规则摘要 {}\n",
         contract_dir, meta.tool_version, digest
     );
@@ -360,17 +617,6 @@ fn comment_block(text: &str) -> String {
         output.push('\n');
     }
     output
-}
-
-/// 操作项装配：`api-op` fence 原文 → `{ x-function: { params, returns, async? } }`。
-///
-/// 块内允许两种等价写法——带 `params` / `returns` 键的完整形态，或直接给
-/// `{ "x-function": … }`（生成器不猜测、只补标记层）。
-fn function_schema(signature: &Value) -> Value {
-    match signature.get("x-function") {
-        Some(inner) => serde_json::json!({ "x-function": inner.clone() }),
-        None => serde_json::json!({ "x-function": signature.clone() }),
-    }
 }
 
 /// 顶层 `$defs` 引用的形态判据（`#/$defs/<名>`）。

@@ -5,17 +5,18 @@
 //! 泛型零支持与幂等；闸二（D45 / AC-23 ②⑤）的注释转义单点 `rust_comment_text`（防断行）
 //! 与变体名归一 `variant_name`（恒为合法标识符，经 `render` 的 enum 成员断言）。
 //!
-//! 零 mock：真实 `contract::parse` + `schema::build_schema` 产出输入；本渲染器纯出
+//! 零 mock：手写接口定义 JSON 经 `Contract::from_schema` 投影产出输入；本渲染器纯出
 //! `String`（文件系统 / 时钟 / 子进程零依赖）。
 
 use serde_json::Value;
 
-use crate::api::contract::{parse, Contract};
+use crate::api::contract::Contract;
+
+use crate::api::mod_test::{empty_schema, mirrored_schema_text, op_schema, prepare, reexport_def};
 
 use super::rust::{render, rust_comment_text};
 use super::{render_target, EmitTarget, ModuleRef};
 use crate::api::paths::GeneratedKind;
-use crate::api::schema::build_schema;
 use crate::api::{meta, ApiError};
 
 /// 契约文件（repo 相对 POSIX）。
@@ -24,11 +25,9 @@ const FILE: &str = ".dev-team/architecture/models/Backend/Infra/App.Backend.Infr
 /// 元素 FQN。
 const FQN: &str = "App.Backend.Infra.ArchiRuntime";
 
-/// 解析 + 装配（失败即断言失败）。
-fn prepare(source: &str) -> (Contract, Value) {
-    let contract = parse(source, FQN, FILE).expect("契约应解析成功");
-    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
-    (contract, schema)
+/// 解析 + 投影（共用 `emit/mod_test` 的夹具投影，失败即断言失败）。
+fn prepare_local(source: &str) -> (Contract, Value) {
+    prepare(source, FQN, FILE)
 }
 
 /// 渲染（失败即断言失败）。
@@ -45,13 +44,13 @@ fn empty_target() -> EmitTarget {
 
 /// 渲染（失败即断言失败）。
 fn render_source(source: &str) -> String {
-    let (contract, schema) = prepare(source);
+    let (contract, schema) = prepare_local(source);
     render(&contract, &schema, &meta(), &empty_target())
 }
 
 /// 只含 `api-types` fence 的源文渲染。
 fn render_types(types: &str) -> String {
-    render_source(&format!("# {FQN}\n\n```json api-types\n{types}\n```\n"))
+    render_source(&mirrored_schema_text(FQN, types, ""))
 }
 
 /// 断言渲染返回 `Err(ApiError::Contract(..))` 并返回文案。
@@ -425,20 +424,20 @@ fn render的x_function位置分派() {
 /// 不可归类的 `type` 同样退 `serde_json::Value`，零猜测新类型）。
 #[test]
 fn render的容器类型位置分派() {
-    let array = render_source(&format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": [{{\"name\": \"items\", \"schema\": \
-         {{\"type\": \"array\", \"items\": {{\"type\": \"string\"}}}}}}], \"returns\": {{\"type\": \
-         \"array\", \"items\": {{\"type\": \"integer\"}}}}}}\n```\n"
+    let array = render_source(&op_schema(
+        FQN,
+        "load",
+        r#"{"params": [{"name": "items", "schema": {"type": "array", "items": {"type": "string"}}}], "returns": {"type": "array", "items": {"type": "integer"}}}"#,
     ));
     assert!(
         array.contains("const _: fn(&[String]) -> Vec<i64> = super::load;"),
         "入参 &[T] / 返回 Vec<T>：\n{array}"
     );
 
-    let map = render_source(&format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": [{{\"name\": \"m\", \"schema\": \
-         {{\"type\": \"object\", \"additionalProperties\": {{\"type\": \"integer\"}}}}}}], \
-         \"returns\": {{\"type\": \"object\"}}}}\n```\n"
+    let map = render_source(&op_schema(
+        FQN,
+        "load",
+        r#"{"params": [{"name": "m", "schema": {"type": "object", "additionalProperties": {"type": "integer"}}}], "returns": {"type": "object"}}"#,
     ));
     assert!(
         map.contains("const _: fn(BTreeMap<String, i64>) -> serde_json::Value = super::load;"),
@@ -458,10 +457,10 @@ fn render的容器类型位置分派() {
 /// 正向（AC-5）：返回类型 `Outcome(T)` → `Result<T, String>`（std 类型，不生成新类型）。
 #[test]
 fn render的outcome为result() {
-    let text = render_source(&format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"outcome\": \
-         {{\"type\": \"string\"}}}}}}\n```\n\n```json api-types\n{{\"Cache\": {{\"type\": \
-         \"object\", \"properties\": {{}}}}}}\n```\n"
+    let text = render_source(&mirrored_schema_text(
+        FQN,
+        r#""Cache": {"type": "object", "properties": {}}"#,
+        r#""load": { "x-function": {"params": [], "returns": {"outcome": {"type": "string"}}} }"#,
     ));
     assert!(
         text.contains("const _: fn() -> Result<String, String> = super::load;"),
@@ -507,11 +506,10 @@ fn render的自动构造器() {
 /// 每个可构造类型一行。
 #[test]
 fn render的签名见证形态() {
-    let text = render_source(&format!(
-        "# {FQN}\n\n### file_stem\n\n```json api-op\n{{\"owner\": \"LocalArchiCheck\", \
-         \"params\": [{{\"name\": \"timestamp\", \"schema\": {{\"type\": \"string\"}}}}], \
-         \"returns\": {{\"type\": \"string\"}}}}\n```\n\n```json api-types\n\
-         {{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    let text = render_source(&mirrored_schema_text(
+        FQN,
+        r#""LocalArchiCheck": {"type": "object", "properties": {}}"#,
+        r#""file_stem": { "x-function": {"owner": "LocalArchiCheck", "params": [{"name": "timestamp", "schema": {"type": "string"}}], "returns": {"type": "string"}} }"#,
     ));
     assert!(
         text.contains("const _: fn(&str) -> String = super::LocalArchiCheck::file_stem;"),
@@ -527,9 +525,10 @@ fn render的签名见证形态() {
     );
 
     // 自由函数（无 owner）→ `super::<op>`
-    let free = render_source(&format!(
-        "# {FQN}\n\n### compose_text\n\n```json api-op\n{{\"params\": [], \"returns\": \
-         {{\"type\": \"string\"}}}}\n```\n"
+    let free = render_source(&op_schema(
+        FQN,
+        "compose_text",
+        r#"{"params": [], "returns": {"type": "string"}}"#,
     ));
     assert!(
         free.contains("const _: fn() -> String = super::compose_text;"),
@@ -541,11 +540,18 @@ fn render的签名见证形态() {
 /// 查表（`EmitTarget.modules[..].module_path`，`crate::*` 形态），零本地 struct 重定义。
 #[test]
 fn render的透传pub_use() {
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"AgentInput\": \"App.Frontend.Components.Agent.Input\", \
-         \"AgentBlocks\": \"App.Frontend.Components.Agent.AgentBlocks\"}}\n```\n\n## 透传\n\n\
-         - AgentInput → App.Frontend.Components.Agent.Input\n\
-         - AgentBlocks → App.Frontend.Components.Agent.AgentBlocks\n"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        &format!(
+            "{}, {}",
+            reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+            reexport_def(
+                FQN,
+                "AgentBlocks",
+                "App.Frontend.Components.Agent.AgentBlocks"
+            )
+        ),
+        "",
     ));
     let mut modules = std::collections::BTreeMap::new();
     for (fqn, path) in [
@@ -592,7 +598,7 @@ fn render的透传pub_use() {
 /// 四句 + 工具版本 + `common.json@sha256:<12 位>`。
 #[test]
 fn render的头注释四句() {
-    let text = render_source(&format!("# {FQN}\n\n## 职能\n\n正文。\n"));
+    let text = render_source(&empty_schema(FQN));
     let header: Vec<&str> = text
         .lines()
         .take_while(|line| line.starts_with("//"))
@@ -648,9 +654,10 @@ fn render不猜泛型形态() {
 /// 边界：同输入两次渲染逐字相等；类型段按 `$defs` 声明序（不排序、不合并）。
 #[test]
 fn render幂等与键序() {
-    let source = format!(
-        "# {FQN}\n\n```json api-types\n{{\"Zeta\": {{\"type\": \"object\", \"properties\": {{}}}}, \
-         \"Alpha\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    let source = mirrored_schema_text(
+        FQN,
+        r#""Zeta": {"type": "object", "properties": {}}, "Alpha": {"type": "object", "properties": {}}"#,
+        "",
     );
     let first = render_source(&source);
     let second = render_source(&source);
@@ -665,10 +672,10 @@ fn render幂等与键序() {
 /// 换行、无 tab 缩进；渲染路径零 `std::process`。
 #[test]
 fn render形态为格式化器不动点() {
-    let text = render_source(&format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"type\": \
-         \"string\"}}}}\n```\n\n```json api-types\n{{\"Item\": {{\"type\": \"object\", \
-         \"properties\": {{\"a\": {{\"type\": \"string\"}}}}}}}}\n```\n"
+    let text = render_source(&mirrored_schema_text(
+        FQN,
+        r#""Item": {"type": "object", "properties": {"a": {"type": "string"}}}"#,
+        r#""load": { "x-function": {"params": [], "returns": {"type": "string"}} }"#,
     ));
     for line in text.lines() {
         assert_eq!(line, line.trim_end(), "零尾随空白：{line:?}");
@@ -686,7 +693,7 @@ fn render形态为格式化器不动点() {
 /// 字样、零 `crate` 定义段。
 #[test]
 fn render语言词边界() {
-    let text = render_source(&format!("# {FQN}\n\n## 职能\n\n正文。\n"));
+    let text = render_source(&empty_schema(FQN));
     assert!(
         !text.contains("Cargo.toml"),
         "MUST NOT 出现 Cargo.toml 字样：\n{text}"
@@ -700,7 +707,7 @@ fn render语言词边界() {
 /// 边界：零类型零 op → 仅头注释（不含 `impl` / `pub use` / 见证行）。
 #[test]
 fn render空契约只余头注释() {
-    let text = render_source(&format!("# {FQN}\n\n## 职能\n\n正文。\n"));
+    let text = render_source(&empty_schema(FQN));
     assert!(
         !text.lines().any(|line| line.starts_with("impl ")),
         "零内容不出 impl：\n{text}"
@@ -735,13 +742,17 @@ fn render规模与特殊字符() {
         ",\"长🎯\": {{\"type\": \"object\", \"properties\": {{}}, \"description\": \"{long}\"}}}}"
     ));
 
-    let mut source = format!("# {FQN}\n\n## 操作\n\n");
+    let mut properties = String::new();
     for index in 0..200 {
-        source.push_str(&format!(
-            "### op{index}\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"type\": \"string\"}}}}\n```\n\n"
+        if index > 0 {
+            properties.push_str(", ");
+        }
+        properties.push_str(&format!(
+            "\"op{index}\": {{ \"x-function\": {} }}",
+            r#"{"params": [], "returns": {"type": "string"}}"#
         ));
     }
-    source.push_str(&format!("```json api-types\n{types}\n```\n"));
+    let source = mirrored_schema_text(FQN, &types, &properties);
 
     let text = render_source(&source);
     assert_eq!(
@@ -778,9 +789,8 @@ fn render规模与特殊字符() {
 ///    按该元素 `Cargo.toml` 定（待决问题 1）。
 #[test]
 fn render的enum不落serde派生且不降级为错误() {
-    let source =
-        format!("# {FQN}\n\n```json api-types\n{{\"Mode\": {{\"enum\": [\"a\", \"b\"]}}}}\n```\n");
-    let (contract, schema) = prepare(&source);
+    let source = mirrored_schema_text(FQN, r#""Mode": {"enum": ["a", "b"]}"#, "");
+    let (contract, schema) = prepare_local(&source);
 
     // ① 经语言分派处（`render_target`）走完整路径：`Ok` 而非 `Err(ApiError::Element)`
     let target = EmitTarget {
@@ -885,9 +895,10 @@ fn render的透传模块路径零fqn派生() {
 /// 与非空时逐字相等（「空 scope」由入参表达，不由函数数量表达）。
 #[test]
 fn render的modules查不到目标只出注释() {
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"AgentInput\": \"App.Frontend.Components.Agent.Input\"}}\n```\n\n\
-         ## 透传\n\n- AgentInput → App.Frontend.Components.Agent.Input\n"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        "",
     ));
     let target = EmitTarget {
         kind: GeneratedKind::Rust,
@@ -905,8 +916,10 @@ fn render的modules查不到目标只出注释() {
         "MUST NOT 退化到 FQN 末段：\n{text}"
     );
 
-    let (plain_contract, plain_schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-types\n{{\"Item\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    let (plain_contract, plain_schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        r#""Item": {"type": "object", "properties": {}}"#,
+        "",
     ));
     let by_empty = render_target(&target, &plain_contract, &plain_schema, &meta())
         .expect("零透传条目渲染成功");
@@ -1022,9 +1035,10 @@ fn rust_comment_text的消费面() {
     );
 
     // 行为面：透传目标 FQN 含换行 → `// 透传自 …` 仍是一行注释
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"AgentInput\": \"App.Frontend\\nComponents.Agent\"}}\n```\n\n\
-         ## 透传\n\n- AgentInput → App.Frontend.Components.Agent\n"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        &reexport_def(FQN, "AgentInput", r#"App.Frontend\nComponents.Agent"#),
+        "",
     ));
     let target = EmitTarget {
         kind: GeneratedKind::Rust,
@@ -1153,9 +1167,10 @@ fn render出口单形四参签名恰一() {
         "四参单形（`target` 末位、返回 `String`）恰 1 处（D46）"
     );
 
-    let (contract, schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-types\n{{\"Item\": {{\"type\": \"object\", \
-         \"properties\": {{\"a\": {{\"type\": \"string\"}}}}}}}}\n```\n"
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        r#""Item": {"type": "object", "properties": {"a": {"type": "string"}}}"#,
+        "",
     ));
     let target = empty_target();
     let direct = render(&contract, &schema, &meta(), &target);
@@ -1184,8 +1199,10 @@ fn render零异名孪生() {
 
     // 行为面：空 `modules` + `Crate` 形态的 `EmitTarget` 与「有查表但零透传条目」
     // 产出逐字相等（退化关系由入参表达，不由函数数量表达）
-    let (plain_contract, plain_schema) = prepare(&format!(
-        "# {FQN}\n\n```json api-types\n{{\"Item\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    let (plain_contract, plain_schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        r#""Item": {"type": "object", "properties": {}}"#,
+        "",
     ));
     let by_empty = render(&plain_contract, &plain_schema, &meta(), &empty_target());
     let mut filled = empty_target();
@@ -1358,11 +1375,12 @@ fn common_type按表展开且随表变化() {
 
     use crate::api::CommonRule;
 
-    let source = format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"outcome\": \
-         {{\"type\": \"string\"}}}}}}\n```\n"
+    let source = op_schema(
+        FQN,
+        "load",
+        r#"{"params": [], "returns": {"outcome": {"type": "string"}}}"#,
     );
-    let (contract, schema) = prepare(&source);
+    let (contract, schema) = prepare_local(&source);
 
     let mut custom: BTreeMap<String, CommonRule> = BTreeMap::new();
     custom.insert(
@@ -1392,11 +1410,12 @@ fn common_type按表展开且随表变化() {
 fn common_type空表回落普通分派() {
     use std::collections::BTreeMap;
 
-    let source = format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"outcome\": \
-         {{\"type\": \"string\"}}}}}}\n```\n"
+    let source = op_schema(
+        FQN,
+        "load",
+        r#"{"params": [], "returns": {"outcome": {"type": "string"}}}"#,
     );
-    let (contract, schema) = prepare(&source);
+    let (contract, schema) = prepare_local(&source);
     let mut meta = meta();
     meta.common = BTreeMap::new();
     let text = render(&contract, &schema, &meta, &empty_target());
@@ -1442,8 +1461,10 @@ fn holder_types(fragment: &str, required: bool) -> String {
 
 /// `api-op` 单操作源文（`params` / `returns` 原文直传）。
 fn op_source(params: &str, returns: &str) -> String {
-    format!(
-        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": {params}, \"returns\": {returns}}}\n```\n"
+    op_schema(
+        FQN,
+        "load",
+        &format!(r#"{{"params": {params}, "returns": {returns}}}"#),
     )
 }
 

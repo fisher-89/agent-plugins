@@ -273,7 +273,7 @@ function statusText(
   if (root === null) return '无工作区根';
   if (error !== null) return null;
   if (loading || check === null) return '解析中…';
-  if (!check.enabled) return '契约面未启用（应生成集此时只含 `INDEX.toml`）';
+  if (!check.enabled) return '接口面未启用（应生成集此时只含 `INDEX.toml`）';
   const artifacts = check.mismatched.length + check.orphaned.length + check.missing.length;
   if (artifacts === 0 && findings.length === 0) return '生成物最新，判据 0 条';
   return null;

@@ -5328,8 +5328,9 @@ fn 注入矩阵八行逐行命中() {
             "proposal",
             "executor",
             &[
-                crate::sdk::mount::ARCHI_SEARCH_TOOL,
                 crate::sdk::mount::ARCHI_MODULE_TOOL,
+                crate::sdk::mount::ARCHI_SEARCH_TOOL,
+                crate::sdk::mount::ARCHI_API_TOOL,
                 crate::sdk::mount::ARCHI_SCAFFOLD_TOOL,
                 crate::sdk::mount::ARCHI_ELEMENT_TOOL,
                 crate::sdk::mount::ARCHI_RELATION_TOOL,
@@ -5341,6 +5342,7 @@ fn 注入矩阵八行逐行命中() {
             &[
                 crate::sdk::mount::ARCHI_MODULE_TOOL,
                 crate::sdk::mount::ARCHI_SEARCH_TOOL,
+                crate::sdk::mount::ARCHI_API_TOOL,
                 crate::sdk::mount::ARCHI_DRIFT_TOOL,
                 crate::sdk::mount::ARCHI_SCAFFOLD_TOOL,
                 crate::sdk::mount::ARCHI_ELEMENT_TOOL,
@@ -5400,7 +5402,14 @@ fn 注入矩阵八行逐行命中() {
             Some(expected_names),
             "命中行名字清单 = 七内建 + 矩阵命中 + 两 DB 名: {phase}/{role}"
         );
-        assert!(injections.preamble.is_none(), "preamble 维持不消费");
+        // 知识段与写权同源：`proposal` / `dev-design` 的 executor 不挂锁 ⇒ 注入知识；
+        // 其余行恒不消费
+        let write_phase = (phase == "proposal" || phase == "dev-design") && role == "executor";
+        assert_eq!(
+            injections.preamble.is_some(),
+            write_phase,
+            "preamble 与写权同源（{phase}/{role}）"
+        );
     }
 }
 

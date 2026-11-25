@@ -1,0 +1,667 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\contract_test.rs:64:
+     )
+ }
+ 
+[31m-
+[0m[31m-
+[0m[31m-
+[0m[31m-
+[0m[31m-
+[0m[31m-
+[0m[31m-
+[0m // ---------------------------------------------------------------------------
+ // is_constructor：封闭集（精确六名 + 两前缀）
+ // ---------------------------------------------------------------------------
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\contract_test.rs:815:
+             serde_json::json!({"x-function": {"params": [], "returns": {"type": "string"}}}),
+         );
+     }
+[31m-    properties.insert("Mirror".to_owned(), serde_json::json!({"$ref": "#/$defs/Mirror"}));
+[0m[32m+    properties.insert(
+[0m[32m+        "Mirror".to_owned(),
+[0m[32m+        serde_json::json!({"$ref": "#/$defs/Mirror"}),
+[0m[32m+    );
+[0m     let schema = serde_json::json!({
+         "$defs": {"Mirror": {"type": "object"}, "带 空格": {"type": "object"}},
+         "properties": properties
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\diff_test.rs:215:
+     fs::remove_file(&generated).expect("删文件失败");
+ 
+     let diff = compare(temp.root()).expect("比对应成功");
+[31m-    assert_eq!(diff.missing, vec![rel(&temp, &generated)], "missing 恰含一份");
+[0m[32m+    assert_eq!(
+[0m[32m+        diff.missing,
+[0m[32m+        vec![rel(&temp, &generated)],
+[0m[32m+        "missing 恰含一份"
+[0m[32m+    );
+[0m     assert!(diff.mismatched.is_empty(), "mismatched 不含它");
+     assert!(diff.orphaned.is_empty(), "orphaned 不含它");
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\diff_test.rs:301:
+     let temp = TempDir::new("compare-clean");
+     write_two_language_corpus(&temp);
+     let written = materialize(&temp);
+[31m-    assert_eq!(written.len(), 3, "基线三类产物（`.i.rs` + `.i.ts` + `INDEX.toml`）");
+[0m[32m+    assert_eq!(
+[0m[32m+        written.len(),
+[0m[32m+        3,
+[0m[32m+        "基线三类产物（`.i.rs` + `.i.ts` + `INDEX.toml`）"
+[0m[32m+    );
+[0m     assert!(
+         !written.iter().any(|(path, _)| path
+             .file_name()
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:519:
+     assert_eq!(snapshot.contracts[0].fqn, fqn);
+     assert_eq!(snapshot.contracts[0].ops.len(), 1, "一个 op");
+     assert_eq!(snapshot.contracts[0].ops[0].id, "file_stem");
+[31m-    assert_eq!(snapshot.contracts[0].ops[0].line, 0, "schema 无行号 ⇒ line 恒 0");
+[0m[32m+    assert_eq!(
+[0m[32m+        snapshot.contracts[0].ops[0].line, 0,
+[0m[32m+        "schema 无行号 ⇒ line 恒 0"
+[0m[32m+    );
+[0m     let mut expected = snapshot.schemas[fqn]["properties"]["file_stem"]["x-function"].clone();
+     expected
+         .as_object_mut()
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:2280:
+     let drafts = bootstrap(temp.root(), fqn).expect("起草应成功");
+ 
+     // schema：与写闸同一入口校验即可通过（草稿即过闸）
+[31m-    let contract = crate::api::schema::validate_schema(fqn, &drafts.schema)
+[0m[31m-        .expect("草稿 MUST 直接过写闸");
+[0m[32m+    let contract =
+[0m[32m+        crate::api::schema::validate_schema(fqn, &drafts.schema).expect("草稿 MUST 直接过写闸");
+[0m     assert_eq!(contract.fqn, fqn, "草稿的 FQN = 入参");
+     assert!(
+         contract.ops.iter().any(|op| op.id == "run"),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:2288:
+         "函数符号落 properties：{:?}",
+[31m-        contract.ops.iter().map(|op| op.id.as_str()).collect::<Vec<_>>()
+[0m[32m+        contract
+[0m[32m+            .ops
+[0m[32m+            .iter()
+[0m[32m+            .map(|op| op.id.as_str())
+[0m[32m+            .collect::<Vec<_>>()
+[0m     );
+     assert!(
+         contract.types.contains_key("Config"),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:2316:
+         drafts.doc
+     );
+     assert_eq!(
+[31m-        drafts.doc.lines().filter(|line| !line.trim().is_empty()).count(),
+[0m[32m+        drafts
+[0m[32m+            .doc
+[0m[32m+            .lines()
+[0m[32m+            .filter(|line| !line.trim().is_empty())
+[0m[32m+            .count(),
+[0m         2,
+         "doc 骨架只有 H1 与一句指引：{:?}",
+         drafts.doc
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:2337:
+     temp.write("src/empty/src/lib.rs", "fn private() {}\n");
+ 
+     let drafts = bootstrap(temp.root(), fqn).expect("零符号仍可起草");
+[31m-    let contract = crate::api::schema::validate_schema(fqn, &drafts.schema)
+[0m[31m-        .expect("空骨架仍过写闸");
+[0m[32m+    let contract =
+[0m[32m+        crate::api::schema::validate_schema(fqn, &drafts.schema).expect("空骨架仍过写闸");
+[0m     assert!(contract.ops.is_empty(), "零 op");
+     assert!(contract.types.is_empty(), "零类型");
+     assert!(contract.reexports.is_empty(), "零透传");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:2345:
+ 
+     let value: Value = serde_json::from_str(&drafts.schema).expect("合法 JSON");
+     assert_eq!(value["$defs"], serde_json::json!({}), "`$defs` 空对象");
+[31m-    assert_eq!(value["properties"], serde_json::json!({}), "`properties` 空对象");
+[0m     assert_eq!(
+[31m-        drafts.doc.lines().filter(|line| !line.trim().is_empty()).count(),
+[0m[32m+        value["properties"],
+[0m[32m+        serde_json::json!({}),
+[0m[32m+        "`properties` 空对象"
+[0m[32m+    );
+[0m[32m+    assert_eq!(
+[0m[32m+        drafts
+[0m[32m+            .doc
+[0m[32m+            .lines()
+[0m[32m+            .filter(|line| !line.trim().is_empty())
+[0m[32m+            .count(),
+[0m         2,
+         "留白形态的 doc 仍只两行"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:2367:
+         .0;
+     let schema_pos = drafts.find("pub schema: String").expect("`schema` 字段");
+     let doc_pos = drafts.find("pub doc: String").expect("`doc` 字段");
+[31m-    assert!(schema_pos < doc_pos, "字段声明序 `schema` → `doc`：{drafts}");
+[0m[32m+    assert!(
+[0m[32m+        schema_pos < doc_pos,
+[0m[32m+        "字段声明序 `schema` → `doc`：{drafts}"
+[0m[32m+    );
+[0m 
+     assert!(
+         source.contains("pub doc_present: BTreeMap<String, bool>"),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:3088:
+         );
+     }
+     assert!(
+[31m-        module_file
+[0m[31m-            .content
+[0m[31m-            .contains(meta().generated_notice),
+[0m[32m+        module_file.content.contains(meta().generated_notice),
+[0m         "`.i.rs` 头注释逐字取同一份载元的 generated_notice：\n{}",
+         module_file.content
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:3221:
+     // 源码自证：后缀剥法单点在 `paths::schema_fqn`（`mod.rs` 只委托，零第二份切分）
+     let paths_source = include_str!("paths.rs");
+     assert_eq!(
+[31m-        paths_source.matches("strip_suffix(SCHEMA_FILE_SUFFIX)").count(),
+[0m[32m+        paths_source
+[0m[32m+            .matches("strip_suffix(SCHEMA_FILE_SUFFIX)")
+[0m[32m+            .count(),
+[0m         1,
+         "后缀剥法单点（`paths::schema_fqn`）"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:3231:
+         1,
+         "`mod.rs` 经 `paths::schema_fqn` 反查（零自写后缀切分）"
+     );
+[31m-    assert!(
+[0m[31m-        !source.contains("strip_suffix("),
+[0m[31m-        "`mod.rs` 内零后缀切分"
+[0m[31m-    );
+[0m[32m+    assert!(!source.contains("strip_suffix("), "`mod.rs` 内零后缀切分");
+[0m     for (file, text) in [
+         ("check.rs", include_str!("check.rs")),
+         ("emit/rust.rs", include_str!("emit/rust.rs")),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:4419:
+     let temp = TempDir::new("findings-bad-json");
+     let fqn = "App.Core.Alpha";
+     temp.write_schema(fqn, "{\n  \"$id\": \"App.Core.Alpha.schema.json\"\n}\n");
+[31m-    temp.write("src/alpha/src/lib.rs", "pub fn a() -> String { String::new() }\n");
+[0m[31m-    let error = findings(temp.root(), &[element(fqn, &["src/alpha/"])])
+[0m[31m-        .expect_err("非法接口文件：应 Err");
+[0m[32m+    temp.write(
+[0m[32m+        "src/alpha/src/lib.rs",
+[0m[32m+        "pub fn a() -> String { String::new() }\n",
+[0m[32m+    );
+[0m[32m+    let error =
+[0m[32m+        findings(temp.root(), &[element(fqn, &["src/alpha/"])]).expect_err("非法接口文件：应 Err");
+[0m     assert!(
+         matches!(error, ApiError::Contract(_)),
+         "非法接口归 Contract：{error:?}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:4986:
+     }
+     // 骨架由 `schema_draft` / `doc_draft` 两段拼装（`bootstrap_text` 已随双草稿退役）
+     assert_eq!(
+[31m-        source.matches("fn schema_draft(fqn: &str, symbols: &[ApiSymbol]) -> String").count(),
+[0m[32m+        source
+[0m[32m+            .matches("fn schema_draft(fqn: &str, symbols: &[ApiSymbol]) -> String")
+[0m[32m+            .count(),
+[0m         1,
+         "`schema_draft` 形参为 `(fqn, symbols)`（`entry` 退出）"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:4997:
+     );
+     assert_eq!(
+         source
+[31m-            .matches("pub fn bootstrap(root: &Path, element: &str) -> Result<BootstrapDrafts, ApiError>")
+[0m[32m+            .matches(
+[0m[32m+                "pub fn bootstrap(root: &Path, element: &str) -> Result<BootstrapDrafts, ApiError>"
+[0m[32m+            )
+[0m             .count(),
+         1,
+         "`bootstrap` 返回双草稿"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:5356:
+     let live = "App.Core.Live";
+     let dark = "App.Core.Dark";
+     temp.write_schema(live, &pilot_schema(live));
+[31m-    let elements = [
+[0m[31m-        element(live, &["src/live/"]),
+[0m[31m-        element(dark, &["src/dark/"]),
+[0m[31m-    ];
+[0m[32m+    let elements = [element(live, &["src/live/"]), element(dark, &["src/dark/"])];
+[0m     assert!(
+         enabled(temp.root(), &elements),
+         "两份元素其一 schema 在盘即启用"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:5392:
+ 
+     // ② `models/README.md`（旧判据的「任意 md」形态）
+     let readme = TempDir::new("enabled-readme");
+[31m-    readme.write(
+[0m[31m-        ".dev-team/architecture/models/README.md",
+[0m[31m-        "# 说明\n",
+[0m[31m-    );
+[0m[32m+    readme.write(".dev-team/architecture/models/README.md", "# 说明\n");
+[0m     assert!(
+         !enabled(readme.root(), &[element(fqn, &["src/b/"])]),
+         "README.md 不是任何元素的接口文件"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\paths_test.rs:2721:
+     );
+     for fqn in ["App.Auth", "App.Backend.Infra.ArchiRuntime"] {
+         let path = schema_path(Path::new(""), fqn).expect("合法 FQN");
+[31m-        let name = path.file_name().and_then(|name| name.to_str()).expect("文件名");
+[0m[32m+        let name = path
+[0m[32m+            .file_name()
+[0m[32m+            .and_then(|name| name.to_str())
+[0m[32m+            .expect("文件名");
+[0m         assert_eq!(schema_fqn(name), Some(fqn), "落盘名往返一致：{name}");
+     }
+     assert_eq!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\schema_test.rs:102:
+     let contract = validate_schema(FQN, &schema_text("", "")).expect("空壳应合法");
+     assert_eq!(contract.fqn, FQN, "FQN 取入参");
+     assert_eq!(contract.title, FQN, "`title` 逐字");
+[31m-    assert_eq!(contract.file, FILE, "`file` = `<FQN>.schema.json`（无路径入参）");
+[0m[32m+    assert_eq!(
+[0m[32m+        contract.file, FILE,
+[0m[32m+        "`file` = `<FQN>.schema.json`（无路径入参）"
+[0m[32m+    );
+[0m     assert!(contract.ops.is_empty() && contract.types.is_empty() && contract.reexports.is_empty());
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\schema_test.rs:230:
+ 
+     for (label, text, expected) in cases {
+         let error = parse_error(validate_schema(FQN, &text));
+[32m+        assert!(error.contains(FILE), "{label} 的文案点名接口文件：{error}");
+[0m         assert!(
+[31m-            error.contains(FILE),
+[0m[31m-            "{label} 的文案点名接口文件：{error}"
+[0m[31m-        );
+[0m[31m-        assert!(
+[0m             error.contains(expected),
+             "{label} 的文案含期望串 `{expected}`：{error}"
+         );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\schema_test.rs:328:
+         assert!(verify_identity(fqn, &value).is_ok(), "三者一致 ⇒ Ok：{fqn}");
+     }
+     for (label, id, title) in [
+[31m-        ("大小写差异", "app.backend.infra.archiruntime.schema.json", FQN),
+[0m[31m-        ("前后空白", " App.Backend.Infra.ArchiRuntime.schema.json", FQN),
+[0m[31m-        ("全角字符", "Ａpp.Backend.Infra.ArchiRuntime.schema.json", FQN),
+[0m[32m+        (
+[0m[32m+            "大小写差异",
+[0m[32m+            "app.backend.infra.archiruntime.schema.json",
+[0m[32m+            FQN,
+[0m[32m+        ),
+[0m[32m+        (
+[0m[32m+            "前后空白",
+[0m[32m+            " App.Backend.Infra.ArchiRuntime.schema.json",
+[0m[32m+            FQN,
+[0m[32m+        ),
+[0m[32m+        (
+[0m[32m+            "全角字符",
+[0m[32m+            "Ａpp.Backend.Infra.ArchiRuntime.schema.json",
+[0m[32m+            FQN,
+[0m[32m+        ),
+[0m     ] {
+         let value = json!({ "$id": id, "title": title });
+         let error = contract_error(verify_identity(FQN, &value));
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\schema_test.rs:389:
+             json!({"$defs": {}, "properties": {"T": {"$ref": "#/$defs/Ghost"}}}),
+             "没有该条目",
+         ),
+[31m-        (
+[0m[31m-            "空对象",
+[0m[31m-            json!({"properties": {"T": {}}}),
+[0m[31m-            "形态非法",
+[0m[31m-        ),
+[0m[31m-        (
+[0m[31m-            "数组形态",
+[0m[31m-            json!({"properties": {"T": []}}),
+[0m[31m-            "形态非法",
+[0m[31m-        ),
+[0m[32m+        ("空对象", json!({"properties": {"T": {}}}), "形态非法"),
+[0m[32m+        ("数组形态", json!({"properties": {"T": []}}), "形态非法"),
+[0m     ];
+     for (label, value, expected) in cases {
+         let error = contract_error(verify_shape(&value));
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\schema_test.rs:410:
+         "x-function 内层自由"
+     );
+     assert!(
+[31m-        verify_shape(&json!({"$defs": {"T": {}}, "properties": {"T": {"$ref": "#/$defs/T"}}})).is_ok(),
+[0m[32m+        verify_shape(&json!({"$defs": {"T": {}}, "properties": {"T": {"$ref": "#/$defs/T"}}}))
+[0m[32m+            .is_ok(),
+[0m         "指向在册 `$defs` ⇒ Ok"
+     );
+[31m-    assert!(verify_shape(&json!({"properties": {}})).is_ok(), "空表 ⇒ Ok");
+[0m[32m+    assert!(
+[0m[32m+        verify_shape(&json!({"properties": {}})).is_ok(),
+[0m[32m+        "空表 ⇒ Ok"
+[0m[32m+    );
+[0m }
+ 
+ /// 异常（闸 ⑥）：`$defs.<名>` 无 `properties.<名>` 的自我 `$ref` / `$ref` 指向别的名字 ⇒
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\schema_test.rs:431:
+         "$defs": {"T": {"type": "object"}, "U": {"type": "object"}},
+         "properties": {"T": {"$ref": "#/$defs/U"}, "U": {"$ref": "#/$defs/U"}},
+     });
+[31m-    assert!(contract_error(verify_mirror(&wrong)).contains("T"), "指向别的名字 ⇒ Err");
+[0m[32m+    assert!(
+[0m[32m+        contract_error(verify_mirror(&wrong)).contains("T"),
+[0m[32m+        "指向别的名字 ⇒ Err"
+[0m[32m+    );
+[0m 
+     assert!(
+[31m-        verify_mirror(&json!({"$defs": {"T": {"type": "object"}}, "properties": {"T": {"$ref": "#/$defs/T"}}})).is_ok(),
+[0m[32m+        verify_mirror(
+[0m[32m+            &json!({"$defs": {"T": {"type": "object"}}, "properties": {"T": {"$ref": "#/$defs/T"}}})
+[0m[32m+        )
+[0m[32m+        .is_ok(),
+[0m         "全镜像 ⇒ Ok"
+     );
+[31m-    assert!(verify_mirror(&json!({"$defs": {}})).is_ok(), "无类型无镜像要求");
+[0m[32m+    assert!(
+[0m[32m+        verify_mirror(&json!({"$defs": {}})).is_ok(),
+[0m[32m+        "无类型无镜像要求"
+[0m[32m+    );
+[0m }
+ 
+ /// 异常（闸 ⑦）：同 crate 兄弟 / 跨 crate / 越根三形态——前缀 == `ref_relative` 输出 ⇒ `Ok`；
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\schema_test.rs:451:
+     ];
+     for target in siblings {
+         let prefix = paths::ref_relative(FQN, target);
+[31m-        let ok = json!({"$defs": {"X": {"$ref": format!("{prefix}{target}.schema.json#/$defs/X")}}});
+[0m[32m+        let ok =
+[0m[32m+            json!({"$defs": {"X": {"$ref": format!("{prefix}{target}.schema.json#/$defs/X")}}});
+[0m         assert!(
+             verify_ref_prefix(FQN, &ok).is_ok(),
+             "前缀 == ref_relative 输出 ⇒ Ok：{target} / {prefix}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\schema_test.rs:485:
+         "非字符串 `$ref` 不在本闸射程"
+     );
+     assert!(
+[31m-        verify_ref_prefix(FQN, &json!({"$defs": {"X": {"$ref": "App.Other#/$defs/X"}}})).is_ok(),
+[0m[32m+        verify_ref_prefix(
+[0m[32m+            FQN,
+[0m[32m+            &json!({"$defs": {"X": {"$ref": "App.Other#/$defs/X"}}})
+[0m[32m+        )
+[0m[32m+        .is_ok(),
+[0m         "无 `.schema.json` 后缀 ⇒ 不是跨元素引用"
+     );
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\schema_test.rs:511:
+         json!({"$id": FILE, "title": FQN, "$defs": {}, "properties": {}}),
+         json!({"$schema": "draft", "$comment": "注", "$id": FILE, "title": FQN, "$defs": {}, "properties": {}}),
+     ] {
+[31m-        assert!(verify_top_level_keys(&with_optional).is_ok(), "可选键缺省/在场两臂");
+[0m[32m+        assert!(
+[0m[32m+            verify_top_level_keys(&with_optional).is_ok(),
+[0m[32m+            "可选键缺省/在场两臂"
+[0m[32m+        );
+[0m     }
+     for illegal in [json!([1, 2]), json!("x")] {
+         let error = contract_error(verify_top_level_keys(&illegal));
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\schema_test.rs:518:
+[31m-        assert!(error.contains("顶层必须是 JSON 对象"), "非对象 ⇒ Err：{error}");
+[0m[32m+        assert!(
+[0m[32m+            error.contains("顶层必须是 JSON 对象"),
+[0m[32m+            "非对象 ⇒ Err：{error}"
+[0m[32m+        );
+[0m     }
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\schema_test.rs:522:
+[31m-
+[0m // ---------------------------------------------------------------------------
+ // verify_defs：五条规则
+ // ---------------------------------------------------------------------------
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\schema_test.rs:1796:
+         "`build_schema` 已退役（接口文件是手写资产）"
+     );
+     let module = include_str!("mod.rs");
+[31m-    for needle in [
+[0m[31m-        "本文件由元素的契约 markdown 生成",
+[0m[31m-        "勿手改",
+[0m[31m-        "api:check",
+[0m[31m-    ] {
+[0m[32m+    for needle in ["本文件由元素的契约 markdown 生成", "勿手改", "api:check"] {
+[0m         assert!(
+             module.contains(needle),
+             "`GENERATED_NOTICE` 逐字保留（缺 `{needle}`）"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:1818:
+         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+     );
+     // 接口文件 `$id` 与文件名不符 → 契约错误（文档正文零参与判定）
+[31m-    write_contract(&temp, fqn, "# App.Backend.Infra.ArchiRuntime\n\n## 职能\n\n正文。\n");
+[0m[32m+    write_contract(
+[0m[32m+        &temp,
+[0m[32m+        fqn,
+[0m[32m+        "# App.Backend.Infra.ArchiRuntime\n\n## 职能\n\n正文。\n",
+[0m[32m+    );
+[0m     let bad = format!(
+         "{{\"$id\": \"App.Backend.Other.schema.json\", \"title\": \"{fqn}\", \"$defs\": {{}}, \"properties\": {{}}}}\n"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:2501:
+             .iter()
+             .all(|entry| entry.kind != ArchiDriftKind::NoPath),
+         "既存 warnings 只剩祖先容器的 `noPath`（纳管槽与既有槽互不挤占）：{:?}",
+[31m-        report.warnings.iter().map(|entry| entry.kind).collect::<Vec<_>>()
+[0m[32m+        report
+[0m[32m+            .warnings
+[0m[32m+            .iter()
+[0m[32m+            .map(|entry| entry.kind)
+[0m[32m+            .collect::<Vec<_>>()
+[0m     );
+     assert!(report.passed(), "warn 档判据不阻断门禁 ⇒ passed == true");
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\dto_test.rs:1652:
+         std::slice::from_ref(&detail.element),
+         &detail.element,
+     );
+[31m-    assert_eq!(detail.api, direct, "接口文件在案时两路逐字段相等（投影纯单点）");
+[0m[32m+    assert_eq!(
+[0m[32m+        detail.api, direct,
+[0m[32m+        "接口文件在案时两路逐字段相等（投影纯单点）"
+[0m[32m+    );
+[0m     assert_eq!(detail.api.status, ApiStatus::Declared);
+     assert!(
+         detail.api.generated_path.is_some(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\edit\warnings_test.rs:280:
+ 
+     // 非 `created` 的 upsert 不复读存量文档债
+     let existing = upsert_warnings(temp.root(), &element, &changed(&["api"]), false);
+[31m-    assert!(existing.is_empty(), "既有元素的 upsert 零文档债：{existing:?}");
+[0m[32m+    assert!(
+[0m[32m+        existing.is_empty(),
+[0m[32m+        "既有元素的 upsert 零文档债：{existing:?}"
+[0m[32m+    );
+[0m }
+ 
+ // ---------------------------------------------------------------------------
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\edit\warnings_test.rs:410:
+             warning.kind
+         );
+         assert!(
+[31m-            [ApiFindingSeverity::Warn.as_str(), ApiFindingSeverity::Error.as_str()]
+[0m[31m-                .contains(&warning.severity),
+[0m[32m+            [
+[0m[32m+                ApiFindingSeverity::Warn.as_str(),
+[0m[32m+                ApiFindingSeverity::Error.as_str()
+[0m[32m+            ]
+[0m[32m+            .contains(&warning.severity),
+[0m             "`severity` 取自既有档位词：{}",
+             warning.severity
+         );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\search_test.rs:240:
+         "openspec/specs/desktop-archi-model/spec.md",
+         "# archi 能力规约\n\n涉及 App.Auth 与 auth 的说明。\n",
+     );
+[31m-    temp.write(
+[0m[31m-        "decisions/0001-auth.md",
+[0m[31m-        "# ADR：auth 的切法\n",
+[0m[31m-    );
+[0m[32m+    temp.write("decisions/0001-auth.md", "# ADR：auth 的切法\n");
+[0m     let doc = write_doc(&temp, "App.Auth");
+     let mut target = element("App.Auth");
+     target.path = vec!["./docs/".to_owned()];
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\search_test.rs:415:
+ 
+     // 资产侧：同目录段（`architecture`）命中全部派生资产且元素侧零命中
+     let docs_hit = search(&graph, temp.root(), "architecture", SearchScope::All).expect("成功");
+[31m-    assert!(docs_hit.element_fqns.is_empty(), "元素 FQN 不含 architecture");
+[0m[32m+    assert!(
+[0m[32m+        docs_hit.element_fqns.is_empty(),
+[0m[32m+        "元素 FQN 不含 architecture"
+[0m[32m+    );
+[0m     let paths: Vec<&str> = docs_hit.doc.iter().map(String::as_str).collect();
+     assert_eq!(paths.len(), 200, "200 份资产按目录段命中");
+     let mut sorted = paths.clone();
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\tests\pilot_test.rs:766:
+         );
+         let source = read_repo(&item.rel);
+         let value: Value = serde_json::from_str(&source).expect("接口定义是合法 JSON");
+[31m-        let properties = value["properties"].as_object().expect("`properties` 是对象");
+[0m[32m+        let properties = value["properties"]
+[0m[32m+            .as_object()
+[0m[32m+            .expect("`properties` 是对象");
+[0m         assert!(
+             properties
+                 .values()
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\tests\pilot_test.rs:836:
+     assert!(!files.is_empty(), "收面应至少一份 `*.schema.json`");
+ 
+     for (rel, fqn) in &files {
+[31m-        assert!(
+[0m[31m-            rel.ends_with(".schema.json"),
+[0m[31m-            "只认 `*.schema.json`：{rel}"
+[0m[31m-        );
+[0m[32m+        assert!(rel.ends_with(".schema.json"), "只认 `*.schema.json`：{rel}");
+[0m         assert!(
+             rel.starts_with(".dev-team/architecture/models/"),
+             "路径串经 `archi::api::display` 归一为 repo 相对 POSIX：{rel}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\infra\agent\src\archi_knowledge_test.rs:294:
+ /// 留给判断 + 派生路径段逐段在场，「六段」零命中。
+ fn 头注释段落随动() {
+     let source = include_str!("archi_knowledge.rs");
+[31m-    for piece in ["三资产分工", "设计顺序", "三条不可越界", "工具面", "留给判断", "派生路径段"] {
+[0m[32m+    for piece in [
+[0m[32m+        "三资产分工",
+[0m[32m+        "设计顺序",
+[0m[32m+        "三条不可越界",
+[0m[32m+        "工具面",
+[0m[32m+        "留给判断",
+[0m[32m+        "派生路径段",
+[0m[32m+    ] {
+[0m         assert!(source.contains(piece), "模块 doc 含 `{piece}`");
+     }
+     assert!(!source.contains("六段"), "旧「六段」表述零命中");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs:1610:
+         "构造片段的全串 `contains` 会命中 `doc` 行"
+     );
+     assert!(
+[31m-        !line_starting_with(fragment, "# api：")
+[0m[31m-            .is_some_and(|line| line.contains(false_hit_word)),
+[0m[32m+        !line_starting_with(fragment, "# api：").is_some_and(|line| line.contains(false_hit_word)),
+[0m         "行首定位不把 `# doc：` 行算作 `# api：` 行判据（行内限定防假命中）"
+     );
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs:3136:
+ async fn archi_module三资产皆缺() {
+     let dir = assets_root("assets-none");
+     let context = ArchiContext::new(dir.path().to_path_buf());
+[31m-    let payload = execute_json(&context, ARCHI_MODULE_TOOL, json!({ "element": "App.Auth" })).await;
+[0m[32m+    let payload = execute_json(
+[0m[32m+        &context,
+[0m[32m+        ARCHI_MODULE_TOOL,
+[0m[32m+        json!({ "element": "App.Auth" }),
+[0m[32m+    )
+[0m[32m+    .await;
+[0m 
+     let assets = &payload["assets"];
+     assert_eq!(assets["interface"]["present"], json!(false), "接口不在盘");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs:3155:
+     assert_eq!(assets["topology"]["out"], json!(0));
+     assert_eq!(assets["topology"]["in"], json!(0));
+     assert!(
+[31m-        payload["reading"].as_str().is_some_and(|text| !text.is_empty()),
+[0m[32m+        payload["reading"]
+[0m[32m+            .as_str()
+[0m[32m+            .is_some_and(|text| !text.is_empty()),
+[0m         "读法非空：{}",
+         payload["reading"]
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs:3182:
+         ),
+     );
+     let context = ArchiContext::new(dir.path().to_path_buf());
+[31m-    let payload = execute_json(&context, ARCHI_MODULE_TOOL, json!({ "element": "App.Auth" })).await;
+[0m[32m+    let payload = execute_json(
+[0m[32m+        &context,
+[0m[32m+        ARCHI_MODULE_TOOL,
+[0m[32m+        json!({ "element": "App.Auth" }),
+[0m[32m+    )
+[0m[32m+    .await;
+[0m 
+     let interface = &payload["assets"]["interface"];
+     assert_eq!(interface["present"], json!(true), "接口在盘");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs:3212:
+         "# App.Auth\n\n## 职能\n\n认证域。\n\n## 不变量\n\n令牌不过期。\n",
+     );
+     let context = ArchiContext::new(dir.path().to_path_buf());
+[31m-    let payload = execute_json(&context, ARCHI_MODULE_TOOL, json!({ "element": "App.Auth" })).await;
+[0m[32m+    let payload = execute_json(
+[0m[32m+        &context,
+[0m[32m+        ARCHI_MODULE_TOOL,
+[0m[32m+        json!({ "element": "App.Auth" }),
+[0m[32m+    )
+[0m[32m+    .await;
+[0m 
+     let doc = &payload["assets"]["doc"];
+     assert_eq!(doc["present"], json!(true), "文档在盘");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\infra\agent\src\sdk\tools_test.rs:1810:
+         .iter()
+         .find(|def| def.name == crate::sdk::mount::ARCHI_MODULE_TOOL)
+         .expect("archi_module 定义在场");
+[31m-    for piece in ["单值 doc", "api.schemaPath", "api.generatedPath", "入口文档"] {
+[0m[32m+    for piece in [
+[0m[32m+        "单值 doc",
+[0m[32m+        "api.schemaPath",
+[0m[32m+        "api.generatedPath",
+[0m[32m+        "入口文档",
+[0m[32m+    ] {
+[0m         assert!(
+             module.description.contains(piece),
+             "描述含三资产分工片段 {piece:?}：{}",
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\tools\archi-api-gen\src\main_test.rs:93:
+ const GENERATED_RS: &str = "crates/core/archi/src/lib.i.rs";
+ 
+ /// 试点元素的手写接口定义（`<FQN>.schema.json`，生成输入面）。
+[31m-const SCHEMA_REL: &str = ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json";
+[0m[32m+const SCHEMA_REL: &str =
+[0m[32m+    ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json";
+[0m 
+ /// 接口定义内容（1 op `file_stem` + 1 类型 `LocalArchiCheck`）。
+ ///
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\tools\archi-api-gen\src\main_test.rs:1298:
+         &original.replace("pub struct", "pub struct Renamed"),
+     );
+     let report = archi::compare(mismatched.root()).expect("比对应成功");
+[31m-    assert_eq!(report.mismatched, vec![GENERATED_RS.to_owned()], "点名该文件");
+[0m[32m+    assert_eq!(
+[0m[32m+        report.mismatched,
+[0m[32m+        vec![GENERATED_RS.to_owned()],
+[0m[32m+        "点名该文件"
+[0m[32m+    );
+[0m     assert!(report.orphaned.is_empty() && report.missing.is_empty());
+     let json: serde_json::Value =
+         serde_json::from_str(&super::diff_json(&report)).expect("单行 JSON");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\tools\archi-api-gen\src\main_test.rs:1331:
+         report.missing
+     );
+     assert!(
+[31m-        !report.missing.iter().any(|path| path.ends_with(".schema.json")),
+[0m[32m+        !report
+[0m[32m+            .missing
+[0m[32m+            .iter()
+[0m[32m+            .any(|path| path.ends_with(".schema.json")),
+[0m         "手写接口定义不进应生成集：{:?}",
+         report.missing
+     );
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

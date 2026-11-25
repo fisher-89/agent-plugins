@@ -237,11 +237,42 @@ function detailOf(fqn: string) {
     dependsOn: [],
     dependedBy: [],
     children: [],
-    docs: [],
-    warnings: [],
+    // `doc` 单值（模型原文；零判据读者）
+    doc: null,
     // 契约状态投影（`ArchiModuleDetail.api` 为必填）：`declared` 才渲契约段与判据列表
-    // （`none` 走一行空态）；三路径此处不落事务态，取 `null`（行不渲）
+    // （`none` 走一行空态）；三路径各自独立出线，取 `null` 即该行不渲
     api: { status: 'declared', contractPath: null, schemaPath: null, generatedPath: null },
+    // 入口解析结果（三态之一；本例恒「不可用」成因）
+    resolvedEntry: { state: 'absent', entry: null, problem: null },
+    // 元素声明文件的当前内容哈希（形态即契约）
+    fileHash: `sha256:${'b'.repeat(64)}`,
+    // 三资产一次给全：拓扑 / 接口 / 文档三段各自 `present`（此处三段皆缺）
+    assets: {
+      topology: {
+        file: '.dev-team/architecture/graph/model/01-core.toml',
+        line: 1,
+        out: 0,
+        in: 0,
+      },
+      interface: {
+        path: '.dev-team/architecture/models/App.schema.json',
+        present: false,
+        bytes: 0,
+        ops: [],
+        types: [],
+        reexports: [],
+        abstract: '接口未写（`.schema.json` 不在盘）',
+      },
+      doc: {
+        path: '.dev-team/architecture/models/App.md',
+        present: false,
+        bytes: 0,
+        lines: 0,
+        headings: [],
+      },
+    },
+    // 读法指引（静态常量）
+    reading: '理解本模块已足够：拓扑看 file/line 与出入边、接口看 `assets.interface` 的键名。',
   };
 }
 
@@ -1691,6 +1722,113 @@ describe('右栏文档分段（api 三路径 → FileViewer → read_file）', (
     });
     // 链路只经既有读面：不触发生成命令
     expect(callsOf('archi_api_generate')).toHaveLength(0);
+  });
+});
+
+/**
+ * 用给定 `api` 三路径跑一次右栏「文档」分段（每条用例各自起一棵临时树，断言互不串门）。
+ */
+async function renderDocSection(api: {
+  status: 'declared' | 'none';
+  contractPath: string | null;
+  schemaPath: string | null;
+  generatedPath: string | null;
+}): Promise<void> {
+  invokeMock.mockImplementation((command: string) => {
+    if (command === 'archi_graph') return Promise.resolve(healthyGraph());
+    if (command === 'archi_drift') return Promise.resolve(driftReport());
+    if (command === 'archi_module') {
+      return Promise.resolve({ ...detailOf('App'), api });
+    }
+    if (command === 'archi_file_tree') return Promise.resolve(fileTree());
+    if (command === 'archi_api_check') return Promise.resolve(apiCheck());
+    if (command === 'read_file') {
+      const content = '# 内容\n';
+      return Promise.resolve({
+        content,
+        stat: { size: content.length, modifiedMs: null, isFile: true, isDir: false },
+        offset: 0,
+        nextOffset: content.length,
+        truncated: false,
+        encoding: 'utf8',
+      });
+    }
+    return Promise.reject(new Error(`未预期命令: ${command}`));
+  });
+  render(<ArchitecturePanel root={'/ws'} mode="full" />);
+  await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole('tab', { name: '文档' })).toBeTruthy());
+}
+
+/** 文档分段的页签名清单（只认三条派生名）。 */
+function docTabs(): string[] {
+  return screen
+    .queryAllByRole('tab')
+    .map((tab) => tab.textContent ?? '')
+    .filter((name) =>
+      ['.md', '.schema.json', '.i.ts', '.i.rs'].some((suffix) => name.endsWith(suffix)),
+    );
+}
+
+describe('右栏文档分段：三路径各自独立出线（矩阵 3 形态 + 2 越界态）', () => {
+  it('应在只有接口定义时只出该页签（文档行不渲、零 crash）', async () => {
+    await renderDocSection({
+      status: 'declared',
+      contractPath: null,
+      schemaPath: '.dev-team/architecture/models/App.Auth.schema.json',
+      generatedPath: null,
+    });
+    expect(docTabs()).toEqual(['App.Auth.schema.json']);
+  });
+
+  it('应在只有文档时只出该页签', async () => {
+    await renderDocSection({
+      status: 'declared',
+      contractPath: '.dev-team/architecture/models/App.Auth.md',
+      schemaPath: null,
+      generatedPath: null,
+    });
+    expect(docTabs()).toEqual(['App.Auth.md']);
+  });
+
+  it('应在三条全在时按 文档 → 接口 → 生成物 的序出三个页签', async () => {
+    await renderDocSection({
+      status: 'declared',
+      contractPath: '.dev-team/architecture/models/App.Auth.md',
+      schemaPath: '.dev-team/architecture/models/App.Auth.schema.json',
+      generatedPath: 'src/auth.i.ts',
+    });
+    expect(docTabs()).toEqual(['App.Auth.md', 'App.Auth.schema.json', 'auth.i.ts']);
+  });
+
+  it('应在三条全空时整段零页签（不渲空标题）', async () => {
+    await renderDocSection({
+      status: 'declared',
+      contractPath: null,
+      schemaPath: null,
+      generatedPath: null,
+    });
+    expect(docTabs()).toEqual([]);
+  });
+
+  it('应在 status = none 而接口路径非空时仍渲接口行（越界态照报事实）', async () => {
+    await renderDocSection({
+      status: 'none',
+      contractPath: null,
+      schemaPath: '.dev-team/architecture/models/App.Auth.schema.json',
+      generatedPath: null,
+    });
+    expect(docTabs()).toEqual(['App.Auth.schema.json']);
+  });
+
+  it('应在 status = none 且三路径全空时零页签（渲染面只看路径事实）', async () => {
+    await renderDocSection({
+      status: 'none',
+      contractPath: null,
+      schemaPath: null,
+      generatedPath: null,
+    });
+    expect(docTabs()).toEqual([]);
   });
 });
 

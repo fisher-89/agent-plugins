@@ -203,6 +203,47 @@ describe('ContractPanel：两轴并列', () => {
     expect(chips.some((chip) => chip.getAttribute('data-category') === 'contract')).toBe(false);
   });
 
+  it('应在七组各一条时渲七个 chip（序按类别名，零退役 kind 参与聚合）', async () => {
+    const categories = [
+      'constructor',
+      'contract',
+      'doc',
+      'entry',
+      'nesting',
+      'reexport',
+      'signature',
+    ];
+    renderPanel({
+      findings: categories.map((category) => finding({ category })),
+    });
+    await waitFor(() => expect(itemsIn('findings')).toHaveLength(7));
+
+    const chips = within(axis('findings')).queryAllByTestId('archi-contract-chip');
+    expect(chips.map((chip) => chip.getAttribute('data-category'))).toEqual(categories);
+    expect(chips.map((chip) => chip.textContent)).toEqual(categories.map((name) => `${name} 1`));
+  });
+
+  it('应在单组 38 条 docMissing 时渲恰一个 doc chip 且计数 38', async () => {
+    renderPanel({
+      findings: Array.from({ length: 38 }, (_, index) =>
+        finding({ category: 'doc', element: `App.E${index}`, kind: 'docMissing' }),
+      ),
+    });
+    await waitFor(() => expect(itemsIn('findings')).toHaveLength(38));
+    const chips = within(axis('findings')).queryAllByTestId('archi-contract-chip');
+    expect(chips).toHaveLength(1);
+    expect(chips[0]!.textContent).toBe('doc 38');
+  });
+
+  it('应在 findings = [] 时零 chip 零条目且不崩', async () => {
+    renderPanel({ findings: [] });
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-contract-status').textContent).toContain('判据 0 条'),
+    );
+    expect(within(axis('findings')).queryAllByTestId('archi-contract-chip')).toHaveLength(0);
+    expect(itemsIn('findings')).toHaveLength(0);
+  });
+
   it('应支持 chip 过滤与取消（再点同 chip 恢复全量）', async () => {
     renderPanel({
       findings: [
@@ -318,7 +359,7 @@ describe('ContractPanel：状态矩阵', () => {
     await waitFor(() => expect(itemsIn('artifacts')).toHaveLength(1));
 
     const status = screen.getByTestId('archi-contract-status').textContent ?? '';
-    expect(status).toContain('契约面未启用');
+    expect(status).toContain('接口面未启用');
     expect(status).toContain('INDEX.toml');
     expect(itemsIn('artifacts')[0]?.getAttribute('data-kind')).toBe('missing');
   });
@@ -603,6 +644,12 @@ describe('ContractPanel：零第二份取数（源码自证）', () => {
       expect(source.includes(`'${category}'`), `contract-panel.tsx 零类别常量 ${category}`).toBe(
         false,
       );
+    }
+    for (const retiredKind of ['apiReexportDrift', 'docNotFound', 'apiDocMissing']) {
+      expect(
+        source.includes(`'${retiredKind}'`),
+        `contract-panel.tsx 零退役 kind 字面 ${retiredKind}`,
+      ).toBe(false);
     }
     expect(source).toContain('new Map<string, number>()');
   });

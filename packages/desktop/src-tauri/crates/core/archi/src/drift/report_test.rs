@@ -594,10 +594,10 @@ fn api_finding() -> ArchiApiFinding {
     }
 }
 
-/// 正向（AC-3）：十三值 `ALL` 长度 13、`as_str` 逐值 camelCase、无重复。
+/// 正向（AC-8）：十值 `ALL` 长度 10、`as_str` 逐值 camelCase、无重复。
 #[test]
-fn 契约判据词汇十三值封闭() {
-    assert_eq!(ArchiApiFindingKind::ALL.len(), 13, "十三值清单");
+fn 契约判据词汇十值封闭() {
+    assert_eq!(ArchiApiFindingKind::ALL.len(), 10, "十值清单");
     let expected = [
         (ArchiApiFindingKind::ApiEntryMissing, "apiEntryMissing"),
         (ArchiApiFindingKind::ApiMissing, "apiMissing"),
@@ -613,16 +613,13 @@ fn 契约判据词汇十三值封闭() {
             ArchiApiFindingKind::ApiNestedCrossCrate,
             "apiNestedCrossCrate",
         ),
-        (ArchiApiFindingKind::ApiReexportDrift, "apiReexportDrift"),
         (
             ArchiApiFindingKind::ApiConstructorDeclared,
             "apiConstructorDeclared",
         ),
         (ArchiApiFindingKind::DocMissing, "docMissing"),
-        (ArchiApiFindingKind::DocNotFound, "docNotFound"),
-        (ArchiApiFindingKind::ApiDocMissing, "apiDocMissing"),
     ];
-    assert_eq!(expected.len(), 13, "表驱动十三值");
+    assert_eq!(expected.len(), 10, "表驱动十值");
     for (kind, word) in expected {
         assert_eq!(kind.as_str(), word, "{kind:?} 的线词");
         assert_eq!(
@@ -641,7 +638,7 @@ fn 契约判据词汇十三值封闭() {
     let all_words = words.clone();
     words.sort_unstable();
     words.dedup();
-    assert_eq!(words.len(), 13, "ALL 无重复值");
+    assert_eq!(words.len(), 10, "ALL 无重复值");
     assert_eq!(
         all_words,
         expected
@@ -652,7 +649,7 @@ fn 契约判据词汇十三值封闭() {
     );
 }
 
-/// 正向（AC-3 / AC-7 / D14）：`severity()` 三档分布 `Off 1 + Error 3 + Warn 9`；
+/// 正向（AC-8）：`severity()` 三档分布 `Off 1 + Error 2 + Warn 7`；
 /// `ApiFindingSeverity` 三值 `ALL` 与线词；与 `GateTier` 类型分立（各自 `match` 穷尽）。
 #[test]
 fn 契约判据档位三档分布() {
@@ -671,7 +668,7 @@ fn 契约判据档位三档分布() {
         .copied()
         .filter(|kind| kind.severity() == ApiFindingSeverity::Error)
         .collect();
-    assert_eq!(warn.len(), 9, "九条 warn 档：{warn:?}");
+    assert_eq!(warn.len(), 7, "七条 warn 档：{warn:?}");
     assert_eq!(off.len(), 1, "唯一完备性判据 off：{off:?}");
     assert_eq!(
         off,
@@ -682,10 +679,9 @@ fn 契约判据档位三档分布() {
         error,
         vec![
             ArchiApiFindingKind::ApiMissing,
-            ArchiApiFindingKind::ApiSignatureMismatch,
-            ArchiApiFindingKind::DocNotFound
+            ArchiApiFindingKind::ApiSignatureMismatch
         ],
-        "error 档恰 docNotFound / apiMissing / apiSignatureMismatch：{error:?}"
+        "error 档恰 apiMissing / apiSignatureMismatch：{error:?}"
     );
     assert!(
         !warn.contains(&ArchiApiFindingKind::ApiUndeclared),
@@ -1061,7 +1057,7 @@ fn 报告非空api_findings往返() {
             occurrences: Vec::new(),
         },
         ArchiApiFinding {
-            kind: ArchiApiFindingKind::ApiReexportDrift,
+            kind: ArchiApiFindingKind::ApiRefMissing,
             category: "reexport".to_owned(),
             element: Some("App.Backend.Infra.ArchiRuntime".to_owned()),
             target: Some("App.Backend.Infra.ArchiRuntime".to_owned()),
@@ -1313,13 +1309,13 @@ fn finding_of(kind: ArchiApiFindingKind, element: Option<&str>) -> ArchiApiFindi
 #[test]
 fn has_error_tier只看档位() {
     assert!(
-        has_error_tier(&[finding_of(ArchiApiFindingKind::DocNotFound, Some("App.A"))]),
+        has_error_tier(&[finding_of(ArchiApiFindingKind::ApiMissing, Some("App.A"))]),
         "error 档一条即真"
     );
     assert!(
         !has_error_tier(&[
             finding_of(ArchiApiFindingKind::DocMissing, Some("App.A")),
-            finding_of(ArchiApiFindingKind::ApiDocMissing, Some("App.B")),
+            finding_of(ArchiApiFindingKind::ApiEntryMissing, Some("App.B")),
         ]),
         "仅 warn 档 ⇒ 假"
     );
@@ -1343,7 +1339,7 @@ fn has_error_tier只看档位() {
         "重复条目仍为真且零 panic"
     );
     assert!(
-        has_error_tier(&[finding_of(ArchiApiFindingKind::DocNotFound, None)]),
+        has_error_tier(&[finding_of(ArchiApiFindingKind::ApiSignatureMismatch, None)]),
         "`element = None` 的 error 条目也算真（只看档位）"
     );
 }
@@ -1358,8 +1354,8 @@ fn passed零error即真() {
     report.warnings = vec![entry("App.A", "App.B")];
     report.api_findings = vec![
         finding_of(ArchiApiFindingKind::DocMissing, Some("App.A")),
-        finding_of(ArchiApiFindingKind::ApiDocMissing, Some("App.B")),
-        finding_of(ArchiApiFindingKind::ApiEntryMissing, Some("App.C")),
+        finding_of(ArchiApiFindingKind::ApiEntryMissing, Some("App.B")),
+        finding_of(ArchiApiFindingKind::ApiUnexpected, Some("App.C")),
     ];
     assert!(
         report.passed(),
@@ -1415,7 +1411,7 @@ fn passed与status一致性锚() {
     assert!(empty_findings.passed(), "空数组 ⇒ true");
 
     for (kind, expected_status) in [
-        (ArchiApiFindingKind::DocNotFound, ArchiCheckStatus::Errors),
+        (ArchiApiFindingKind::ApiMissing, ArchiCheckStatus::Errors),
         (ArchiApiFindingKind::DocMissing, ArchiCheckStatus::Clean),
     ] {
         let mut report = empty_report();
@@ -1434,15 +1430,11 @@ fn passed与status一致性锚() {
     }
 }
 
-/// 正向：三新词在案（`docMissing` / `docNotFound` / `apiDocMissing`），旧十词零漂移；
-/// 十三词两两不等、零驼峰外大小写变体。
+/// 正向：本变更收缩后的十词线面（`doc` 组只剩 `docMissing`）两两不等、零驼峰外大小写
+/// 变体。
 #[test]
 fn 三新词线面与唯一性() {
-    let new_words = [
-        (ArchiApiFindingKind::DocMissing, "docMissing"),
-        (ArchiApiFindingKind::DocNotFound, "docNotFound"),
-        (ArchiApiFindingKind::ApiDocMissing, "apiDocMissing"),
-    ];
+    let new_words = [(ArchiApiFindingKind::DocMissing, "docMissing")];
     for (kind, word) in new_words {
         assert_eq!(kind.as_str(), word, "{kind:?} 的线词");
         assert_eq!(
@@ -1458,7 +1450,7 @@ fn 三新词线面与唯一性() {
         .collect();
     words.sort_unstable();
     words.dedup();
-    assert_eq!(words.len(), 13, "十三词两两不等");
+    assert_eq!(words.len(), 10, "十词两两不等");
 
     for (severity, word) in [
         (ApiFindingSeverity::Off, "off"),
@@ -1472,7 +1464,7 @@ fn 三新词线面与唯一性() {
 }
 
 /// 边界：`REPORT_VERSION` 仍为 3，`api_findings` 序列化键名仍为 `apiFindings`，报告字段面
-/// 与序零变化（十三值进场不动线形）。
+/// 与序零变化（十值进场不动线形）。
 #[test]
 fn 报告版本与槽位键名零变化() {
     assert_eq!(super::REPORT_VERSION, 3, "报告版本仍 3");

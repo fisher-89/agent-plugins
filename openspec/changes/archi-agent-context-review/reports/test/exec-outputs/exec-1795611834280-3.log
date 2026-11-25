@@ -1,0 +1,119 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\check_test.rs:2879:
+             ],
+         );
+     fixture.touch_entry("src/alpha");
+[31m-    write_doc(&fixture.temp, fqn, "# App.Core.Alpha\n\n## 职能\n\n认证域。\n");
+[0m[32m+    write_doc(
+[0m[32m+        &fixture.temp,
+[0m[32m+        fqn,
+[0m[32m+        "# App.Core.Alpha\n\n## 职能\n\n认证域。\n",
+[0m[32m+    );
+[0m 
+     // 折算面（doc fact 缺省按「派生 md 在盘」）与真实装载面同判
+     let folded = fixture.run();
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\check_test.rs:2925:
+     );
+ 
+     let findings = fixture.run_with_real_doc_presence();
+[31m-    let produced: Vec<&str> = findings.iter().map(|finding| finding.kind.as_str()).collect();
+[0m[32m+    let produced: Vec<&str> = findings
+[0m[32m+        .iter()
+[0m[32m+        .map(|finding| finding.kind.as_str())
+[0m[32m+        .collect();
+[0m     for kind in retired {
+         assert!(
+             !produced.contains(&kind),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:5701:
+         face.contains("pub use api::{"),
+         "`pub use api::{{…}}` 分组块形态保留"
+     );
+[31m-    assert!(
+[0m[31m-        !face.contains("pub use api::*"),
+[0m[31m-        "逐名出口纪律（零通配）"
+[0m[31m-    );
+[0m[32m+    assert!(!face.contains("pub use api::*"), "逐名出口纪律（零通配）");
+[0m }
+ 
+ /// 异常（退役名零出线）：`DocFact` / `carrier_path` / `doc_path` / `build_schema` /
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:5737:
+     assert!(drafts.schema.is_empty() && drafts.doc.is_empty());
+     let text = mirrored_schema_text("App.Core.Export", "", "");
+     crate::validate_schema("App.Core.Export", &text).expect("空壳应过九闸");
+[31m-    assert_eq!(crate::schema_fqn("App.Core.Export.schema.json"), Some("App.Core.Export"));
+[0m[32m+    assert_eq!(
+[0m[32m+        crate::schema_fqn("App.Core.Export.schema.json"),
+[0m[32m+        Some("App.Core.Export")
+[0m[32m+    );
+[0m     assert!(crate::is_fqn("App.Core.Export"));
+     assert!(crate::is_identifier("file_stem"));
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\dto_test.rs:4325:
+     let interface_path = paths::schema_path(temp.root(), "App.Auth").expect("合法 FQN");
+     fs::remove_file(&interface_path).expect("删接口失败");
+     let neither = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+[31m-    assert!(!neither.assets.interface.present, "两份皆缺 ⇒ 接口段 absent");
+[0m[32m+    assert!(
+[0m[32m+        !neither.assets.interface.present,
+[0m[32m+        "两份皆缺 ⇒ 接口段 absent"
+[0m[32m+    );
+[0m     assert!(!neither.assets.doc.present, "两份皆缺 ⇒ 文档段 absent");
+     assert_eq!(
+         neither.assets.topology.file, both.assets.topology.file,
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\archi\src\edit\warnings_test.rs:746:
+     assert_eq!(warnings.len(), 1, "只此一条：{warnings:?}");
+     assert_eq!(pair(&warnings[0]), ("apiUnexpected", "warn"));
+     assert!(
+[31m-        warnings[0].message.contains("删该 schema")
+[0m[31m-            && warnings[0].message.contains("改 declared"),
+[0m[32m+        warnings[0].message.contains("删该 schema") && warnings[0].message.contains("改 declared"),
+[0m         "尾句给两条出路：{}",
+         warnings[0].message
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:4311:
+             !text.lines().any(|line| {
+                 let trimmed = line.trim_start();
+                 trimmed.starts_with("- ")
+[31m-                    && ["kind = ", "gate = ", "api = ", "path = ", "entry = ", "doc = ", "summary = "]
+[0m[31m-                        .iter()
+[0m[31m-                        .any(|field| trimmed.contains(field))
+[0m[32m+                    && [
+[0m[32m+                        "kind = ",
+[0m[32m+                        "gate = ",
+[0m[32m+                        "api = ",
+[0m[32m+                        "path = ",
+[0m[32m+                        "entry = ",
+[0m[32m+                        "doc = ",
+[0m[32m+                        "summary = ",
+[0m[32m+                    ]
+[0m[32m+                    .iter()
+[0m[32m+                    .any(|field| trimmed.contains(field))
+[0m             }),
+             "{name} 零字段值长表（`- ` 起首的 `键 = 值` 行）"
+         );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:4372:
+         line.contains("`archi_api`") && line.contains("check"),
+         "含 `archi_api` 的 `check` 自查：{line}"
+     );
+[31m-    assert!(
+[0m[31m-        !line.contains(".dev-team/"),
+[0m[31m-        "句内零路径模板：{line}"
+[0m[31m-    );
+[0m[32m+    assert!(!line.contains(".dev-team/"), "句内零路径模板：{line}");
+[0m     assert!(
+         !text.contains("archi_element") && !text.contains("archi_relation"),
+         "无写权相位零写工具字面"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-agent-context-review\packages\desktop\src-tauri\crates\infra\agent\src\archi_knowledge_test.rs:375:
+         source.contains("schema（唯一凭据）"),
+         "新立场「schema 是唯一凭据」在场"
+     );
+[31m-    assert!(
+[0m[31m-        source.contains("md 答理由"),
+[0m[31m-        "文档侧表述为「答理由」"
+[0m[31m-    );
+[0m[32m+    assert!(source.contains("md 答理由"), "文档侧表述为「答理由」");
+[0m }
+ 
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

@@ -4,7 +4,7 @@
 //! [`super::check`]，报告落盘在 `crates/infra/archi`。
 //!
 //! **词汇封闭且单点**：`status`（五值）、漂移条目 `kind`（**五值**）、观察项 `kind`
-//! （两值）、**契约判据 `kind`（十三值）** 各持一份 `ALL` 常量——新增变体必须同补
+//! （两值）、**接口判据 `kind`（十值）** 各持一份 `ALL` 常量——新增变体必须同补
 //! `ALL`（长度即红灯），语料对拍覆盖全部取值。四组词汇 MUST NOT 复用既有 DTO 词汇
 //! （`DiagnosticKind` 结构诊断九类 / `EdgeMark` / `NodeMark` 画布标记）——混用会让
 //! 「结构错」「漂移违例」两类在类型上不可辨。（退役的文档警告单值已随三源文档关联
@@ -189,7 +189,11 @@ impl ApiFindingSeverity {
     ];
 }
 
-/// 契约判据种类（封闭十三值；线格式 camelCase）。
+/// 接口判据种类（封闭十值；线格式 camelCase）。
+///
+/// **本变更由十三值收为十值**：散文透传列表对拍、文档在盘无 fence、`doc` 指不到盘三值的
+/// 事实源随真相搬移消失（md 无结构、`doc` 字段惰性化）——这是**词汇缩小**而非标准降低，
+/// 补位判据（`schemaMissing` / `schemaInvalid`）明属后续 change，MUST NOT 以别名预铺。
 ///
 /// **与 [`ArchiDriftKind`] 分立**（不并入的四值枚举）：① 事实源不同——`ArchiDriftKind`
 /// 是「模型 relation 图 vs 代码」，本枚举是「契约文件 vs 代码」；② 定级语义不同——
@@ -206,7 +210,7 @@ pub enum ArchiApiFindingKind {
     ApiUndeclared,
     /// 契约签名与代码签名（归一后）不一致
     ApiSignatureMismatch,
-    /// 留白与其反面矛盾（`api = none` 而契约文件存在）
+    /// 留白与其反面矛盾（**单形态**：`api = none` 而 `<FQN>.schema.json` 在盘）
     ApiUnexpected,
     /// 父 `$defs` 与子元素 `$defs` 类型名交集非空
     ApiShadowing,
@@ -214,20 +218,11 @@ pub enum ArchiApiFindingKind {
     ApiRefMissing,
     /// 嵌套元素父子分属不同 crate
     ApiNestedCrossCrate,
-    /// markdown 散文列表与 `api-reexport` fence 键集不等
-    ApiReexportDrift,
     /// 契约 `### 操作` 声明了构造器（应由生成器产出）
     ApiConstructorDeclared,
-    /// 入口文档未就位（`declared`：派生契约 md 不在盘 / `none`：`doc` 未声明）
+    /// 文档未就位（单成因）：派生的 `<archi_models_dir>/<分层目录…>/<FQN>.md` 不在盘，
+    /// **与 `api` 状态、`doc` 字段都无关**
     DocMissing,
-    /// `doc` 声明指不到盘（仅 `api = none` 元素的声明类形态）
-    ///
-    /// **名字复用而非能力延续**：退役的文档警告单值读旧的多值字段、只报不拦（那组
-    /// 词汇已随三源文档关联删除）；本值读 `doc` 单值、`error` 档、纳管 `status`、参与
-    /// `passed`。
-    DocNotFound,
-    /// 有文档无约定（派生契约 md 在盘但正文无 api fence 语言标）
-    ApiDocMissing,
 }
 
 impl ArchiApiFindingKind {
@@ -242,29 +237,30 @@ impl ArchiApiFindingKind {
             ArchiApiFindingKind::ApiShadowing => "apiShadowing",
             ArchiApiFindingKind::ApiRefMissing => "apiRefMissing",
             ArchiApiFindingKind::ApiNestedCrossCrate => "apiNestedCrossCrate",
-            ArchiApiFindingKind::ApiReexportDrift => "apiReexportDrift",
             ArchiApiFindingKind::ApiConstructorDeclared => "apiConstructorDeclared",
             ArchiApiFindingKind::DocMissing => "docMissing",
-            ArchiApiFindingKind::DocNotFound => "docNotFound",
-            ArchiApiFindingKind::ApiDocMissing => "apiDocMissing",
         }
     }
 
-    /// 判据级档位（**唯一来源**）：`error` 恰三项（`docNotFound` / `apiMissing` /
-    /// `apiSignatureMismatch`）、`off` 恰 `apiUndeclared`、其余 `warn`。
+    /// 判据级档位（**唯一来源**）：`error` 恰两项（`apiMissing` / `apiSignatureMismatch`）、
+    /// `off` 恰 `apiUndeclared`、其余七项 `warn`。
+    ///
+    /// `error` 只可能落在「接口定义已就位」的元素上（两项都以 schema 在盘且过校验为前提、
+    /// 且 `apiMissing` / `apiSignatureMismatch` 的触发条件蕴含纳管成立）——这是
+    /// `status == errors ⟺ passed == false` 的结构性保证。
     pub fn severity(self) -> ApiFindingSeverity {
         match self {
             ArchiApiFindingKind::ApiUndeclared => ApiFindingSeverity::Off,
-            ArchiApiFindingKind::DocNotFound
-            | ArchiApiFindingKind::ApiMissing
-            | ArchiApiFindingKind::ApiSignatureMismatch => ApiFindingSeverity::Error,
+            ArchiApiFindingKind::ApiMissing | ArchiApiFindingKind::ApiSignatureMismatch => {
+                ApiFindingSeverity::Error
+            }
             // 新增变体落哪一档须在此显式决定（兜底只为现有变体的 `warn` 面）
             _ => ApiFindingSeverity::Warn,
         }
     }
 
-    /// 全部合法值（清单单点：新增变体不同步即语料红）。新增三值排在原十值之后。
-    pub const ALL: [ArchiApiFindingKind; 13] = [
+    /// 全部合法值（清单单点：新增变体不同步即语料红）。**恰十值**（本变更由十三收十）。
+    pub const ALL: [ArchiApiFindingKind; 10] = [
         ArchiApiFindingKind::ApiEntryMissing,
         ArchiApiFindingKind::ApiMissing,
         ArchiApiFindingKind::ApiUndeclared,
@@ -273,11 +269,8 @@ impl ArchiApiFindingKind {
         ArchiApiFindingKind::ApiShadowing,
         ArchiApiFindingKind::ApiRefMissing,
         ArchiApiFindingKind::ApiNestedCrossCrate,
-        ArchiApiFindingKind::ApiReexportDrift,
         ArchiApiFindingKind::ApiConstructorDeclared,
         ArchiApiFindingKind::DocMissing,
-        ArchiApiFindingKind::DocNotFound,
-        ArchiApiFindingKind::ApiDocMissing,
     ];
 }
 
@@ -378,8 +371,8 @@ pub struct ArchiDriftObservation {
 pub struct ArchiApiFinding {
     /// 判据种类
     pub kind: ArchiApiFindingKind,
-    /// 报告分组（开放值集：`entry` / `contract` / `signature` / `reexport` / `nesting` /
-    /// `constructor`）
+    /// 报告分组（开放值集，**七值**：`entry` / `contract` / `signature` / `reexport` /
+    /// `nesting` / `constructor` / `doc`——`doc` 只剩 `docMissing` 一个成员）
     pub category: String,
     /// 归属元素 FQN
     pub element: Option<String>,
@@ -501,8 +494,9 @@ pub struct ArchiDriftReport {
     pub suppressed: Vec<ArchiDriftSuppressedEntry>,
     /// 观察项（永不影响 `status` / `passed`）
     pub observations: Vec<ArchiDriftObservation>,
-    /// 契约判据（并列槽位；空数组 = 无契约问题）。对 `status` **与** `passed` 的影响
-    /// 限于**入口文档承诺已成立**的纳管子集（纳管口径归 `desktop-archi-api-check`，
+    /// 接口判据（并列槽位；空数组 = 无接口问题）。对 `status` **与** `passed` 的影响
+    /// 限于**接口承诺已成立**（`api = declared` ∧ schema 在盘）的纳管子集（纳管口径归
+    /// `desktop-archi-api-check`，
     /// 筛选单点在 `api::gating_findings`）——严重度由判据级
     /// [`ArchiApiFindingKind::severity`] 决定
     pub api_findings: Vec<ArchiApiFinding>,
@@ -514,9 +508,9 @@ impl ArchiDriftReport {
     /// 门禁布尔单点（`status == errors ⟺ passed == false`）：`errors` 空 ∧ 模型结构错
     /// 空 ∧ **纳管子集内零 `error` 档判据**。
     ///
-    /// `error` 档的触发条件都蕴含纳管成立（`docNotFound` 需 `doc` 已声明；
-    /// `apiMissing` / `apiSignatureMismatch` 需契约在盘含 fence），故不存在「打断了
-    /// `passed` 却不进 `status`」的旁路。门禁执行体只读本方法，MUST NOT 另写一份判据。
+    /// `error` 档的触发条件都蕴含纳管成立（两项都以「接口定义在盘且过装载校验」为前提），
+    /// 故不存在「打断了 `passed` 却不进 `status`」的旁路。门禁执行体只读本方法，MUST NOT
+    /// 另写一份判据。
     pub fn passed(&self) -> bool {
         self.errors.is_empty()
             && self.model.structural_errors.is_empty()

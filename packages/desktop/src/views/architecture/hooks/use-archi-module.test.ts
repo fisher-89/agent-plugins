@@ -40,6 +40,31 @@ function detailOf(fqn: string): ArchiModuleDetail {
     api: { status: 'declared', contractPath: null, schemaPath: null, generatedPath: null },
     resolvedEntry: { path: null, via: null, problem: null },
     fileHash: 'sha256:0f'.padEnd(71, '0'),
+    assets: {
+      topology: {
+        file: '.dev-team/architecture/graph/model/01-core.toml',
+        line: 6,
+        out: 0,
+        in: 0,
+      },
+      interface: {
+        path: null,
+        present: false,
+        bytes: 0,
+        ops: [],
+        types: [],
+        reexports: [],
+        abstract: '',
+      },
+      doc: {
+        path: null,
+        present: false,
+        bytes: 0,
+        lines: 0,
+        headings: [],
+      },
+    },
+    reading: 'none',
   };
 }
 

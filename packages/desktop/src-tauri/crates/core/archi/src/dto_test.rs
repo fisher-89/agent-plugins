@@ -1171,25 +1171,29 @@ fn archi_api_ref四字段线形() {
     assert!(back.contract_path.is_some() && back.schema_path.is_some());
 }
 
-/// 边界（AC-10 / D22）：`status = None` 时三路径全 `None`（序列化为 `null`），
-/// 投影不产出「部分路径」组合。
+/// 边界（D-11）：`status = none`（接口文件缺席）时两条资产路径全 `null`，但生成物路径仍
+/// 由入口派生给出——四条独立可空字段，投影不出「部分路径」组合。
 #[test]
 fn archi_api_ref为none时三路径全空() {
     let temp = TempDir::new("api-ref-none");
     let value = declared_ref(temp.root(), "App.Core.MissingMod");
-    assert_eq!(value["status"], json!("none"), "md 缺席 → none");
-    for key in ["contractPath", "schemaPath", "generatedPath"] {
-        assert_eq!(value[key], json!(null), "{key} 显式 null");
-        assert!(
-            value.as_object().expect("对象").contains_key(key),
-            "{key} 不被省略（四字段独立可空但 none 时三者全空）"
-        );
-    }
+    assert_eq!(
+        value["status"],
+        json!("none"),
+        "schema 缺席 → none（文档在盘也不改判）"
+    );
+    assert_eq!(value["contractPath"], json!(null), "文档不在盘 ⇒ null");
+    assert_eq!(value["schemaPath"], json!(null), "接口不在盘 ⇒ null");
+    assert_eq!(
+        value["generatedPath"],
+        json!("src/mod/src/lib.i.rs"),
+        "生成物路径是入口的函数（有入口即给路径串，与资产在盘无关）"
+    );
 
     let back: crate::dto::ArchiApiRef = serde_json::from_value(value).expect("反序列化成功");
-    assert!(back.contract_path.is_none(), "往返后全 None");
+    assert!(back.contract_path.is_none(), "往返后两条资产路径 None");
     assert!(back.schema_path.is_none());
-    assert!(back.generated_path.is_none());
+    assert!(back.generated_path.is_some(), "生成物路径 Some");
 }
 
 /// 正向（AC-6 / AC-9）：`module_detail` 的 `api` 为**并列字段**，键集按声明序为
@@ -1217,9 +1221,11 @@ fn module_detail并列api字段() {
             "doc",
             "api",
             "resolvedEntry",
-            "fileHash"
+            "fileHash",
+            "assets",
+            "reading"
         ],
-        "八字段键序（doc 单值 + api 并列字段 + resolvedEntry + fileHash）"
+        "十字段键序（doc 单值 + api 并列字段 + resolvedEntry + fileHash + 三资产 + 读法）"
     );
     // `doc` 是单值（字符串或 null），契约投影不进该槽位
     assert!(
@@ -1234,33 +1240,46 @@ fn module_detail并列api字段() {
     );
 }
 
-/// 正向 / 边界（AC-10 / D22）：`module_detail(root, fqn).api.status` 随 md 存在与否
-/// 二值切换；容器元素（`path = []`）恒 `None` 且三路径全 `None`。
+/// 正向 / 边界（D-11）：`module_detail(root, fqn).api.status` 只认接口文件在盘；两条路径
+/// 各自按自身在盘事实出线；容器元素（`path = []`）无入口 ⇒ 生成物路径恒 `null`。
 #[test]
 fn module_detail投影随md存在性切换() {
     let temp = healthy_dir("detail-api-switch");
     let before = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
-    assert_eq!(before.api.status, ApiStatus::None, "无 md 时 status = none");
+    assert_eq!(
+        before.api.status,
+        ApiStatus::None,
+        "无 schema 时 status = none（文档在盘也不改判）"
+    );
 
-    // 落 md 后重投影 → declared
+    // 落接口文件后重投影 → declared
     let fqn = "App.Auth";
-    let contract_relative = paths::contract_path(temp.root(), fqn)
+    let schema_relative = paths::schema_path(temp.root(), fqn)
         .expect("合法 FQN")
         .strip_prefix(temp.root())
         .expect("相对")
         .to_string_lossy()
         .replace('\\', "/");
     temp.write(
-        &contract_relative,
-        &format!("# {fqn}\n\n## 职能\n\n正文。\n"),
+        &schema_relative,
+        &format!(
+            "{{\"$id\": \"{fqn}.schema.json\", \"title\": \"{fqn}\", \"$defs\": {{}}, \"properties\": {{}}}}\n"
+        ),
     );
 
     let after = dto::module_detail(temp.root(), fqn).expect("Ok");
-    assert_eq!(after.api.status, ApiStatus::Declared, "md 在案 → declared");
-    assert!(after.api.contract_path.is_some(), "契约路径在案");
-    assert!(after.api.schema_path.is_some(), "schema 路径同源给出");
+    assert_eq!(
+        after.api.status,
+        ApiStatus::Declared,
+        "schema 在盘 → declared"
+    );
+    assert!(after.api.schema_path.is_some(), "接口路径在案");
+    assert!(
+        after.api.contract_path.is_none(),
+        "文档不在盘 ⇒ 文档路径 null（两条路径各自出线）"
+    );
 
-    // 容器元素（path 空）→ 恒 None
+    // 容器元素（path 空）⇒ 无入口 ⇒ generatedPath 恒 null
     let graph = dto::graph_view(temp.root()).expect("Ok");
     let container = graph
         .elements
@@ -1269,9 +1288,10 @@ fn module_detail投影随md存在性切换() {
         .map(|element| element.fqn.clone());
     if let Some(fqn) = container {
         let detail = dto::module_detail(temp.root(), &fqn).expect("Ok");
-        assert_eq!(detail.api.status, ApiStatus::None, "容器元素天然无契约");
-        assert!(detail.api.contract_path.is_none());
-        assert!(detail.api.generated_path.is_none());
+        assert_eq!(
+            detail.api.generated_path, None,
+            "容器元素无入口 ⇒ 生成物路径 null"
+        );
     }
 }
 
@@ -1614,16 +1634,18 @@ fn module_detail的api与投影单点逐字段相等() {
     assert_eq!(detail.api.status, ApiStatus::None);
     assert_eq!(detail.element.api, ApiStatus::Declared, "模型字段零回写");
 
-    // 形态二：md 在案 → 两路都是 declared 且三路径逐字相等
-    let contract_relative = paths::contract_path(temp.root(), fqn)
+    // 形态二：接口文件在案 → 两路都是 declared 且各路径逐字相等
+    let schema_relative = paths::schema_path(temp.root(), fqn)
         .expect("合法 FQN")
         .strip_prefix(temp.root())
         .expect("相对路径")
         .to_string_lossy()
         .replace('\\', "/");
     temp.write(
-        &contract_relative,
-        &format!("# {fqn}\n\n## 职能\n\n正文。\n"),
+        &schema_relative,
+        &format!(
+            "{{\"$id\": \"{fqn}.schema.json\", \"title\": \"{fqn}\", \"$defs\": {{}}, \"properties\": {{}}}}\n"
+        ),
     );
 
     let detail = dto::module_detail(temp.root(), fqn).expect("Ok");
@@ -1632,7 +1654,10 @@ fn module_detail的api与投影单点逐字段相等() {
         std::slice::from_ref(&detail.element),
         &detail.element,
     );
-    assert_eq!(detail.api, direct, "md 在案时两路逐字段相等（投影纯单点）");
+    assert_eq!(
+        detail.api, direct,
+        "接口文件在案时两路逐字段相等（投影纯单点）"
+    );
     assert_eq!(detail.api.status, ApiStatus::Declared);
     assert!(
         detail.api.generated_path.is_some(),
@@ -1670,9 +1695,12 @@ fn module_detail的api与投影单点逐字段相等() {
             line.matches("paths::entry_state").count() + line.matches("paths::EntryState").count()
         })
         .sum();
+    // 三资产投影各经自己的落点单点（`schema_path` / `contract_path`），入口判据经
+    // `entry_state`；三处都是 `paths::` 单点，本层零路径拼接
     assert_eq!(
-        code_paths, entry_only,
-        "`dto` 内 `paths::` 只用于入口判据单点（零契约路径派生）"
+        code_paths,
+        entry_only + 2,
+        "`dto` 内 `paths::` = 入口判据 + 两份资产落点各一次（零手算路径）"
     );
     assert!(
         !source.contains("foundation::layout::archi_graph_dir") && constructed == 0,
@@ -2477,10 +2505,14 @@ fn module_detail的entry投影与入口同级落点() {
         ),
     );
     temp.write("crates/core/archi/src/lib.rs", "pub fn f() {}\n");
-    let contract_path = crate::api::paths::contract_path(temp.root(), "App.Core.Archi")
+    let schema_path = crate::api::paths::schema_path(temp.root(), "App.Core.Archi")
         .expect("测试 FQN 恒为合法形态");
-    fs::create_dir_all(contract_path.parent().expect("契约目录")).expect("创建契约目录失败");
-    fs::write(&contract_path, "# App.Core.Archi\n\n## 职能\n\n正文。\n").expect("写契约失败");
+    fs::create_dir_all(schema_path.parent().expect("接口目录")).expect("创建接口目录失败");
+    fs::write(
+        &schema_path,
+        "{\"$id\": \"App.Core.Archi.schema.json\", \"title\": \"App.Core.Archi\", \"$defs\": {}, \"properties\": {}}\n",
+    )
+    .expect("写接口定义失败");
 
     let detail = dto::module_detail(temp.root(), "App.Core.Archi").expect("Ok");
     assert_eq!(
@@ -2496,7 +2528,7 @@ fn module_detail的entry投影与入口同级落点() {
     assert_eq!(
         detail.api.status,
         ApiStatus::Declared,
-        "契约在案即 declared"
+        "接口文件在案即 declared"
     );
 
     // 停摆态逐值（test-design:141 两行）：① 结构诊断非空 → elements / relations 皆空 +
@@ -2548,16 +2580,19 @@ fn module_detail的entry投影与入口同级落点() {
 fn dto_doc方位串换段() {
     let source = include_str!("dto.rs");
     assert_eq!(
-        source.matches("架构域 `models/<分层目录…>/`").count(),
-        1,
-        "`ApiStatus` 的 doc 方位串按分层目录改写"
-    );
-    assert_eq!(
         source
             .matches("<archi_models_dir>/<分层目录…>/<FQN>.md")
             .count(),
         1,
-        "`ArchiApiRef::contract_path` 的 doc 方位串按分层目录改写"
+        "`ArchiApiRef::contract_path` 的文档方位串按分层目录改写"
+    );
+    assert!(
+        source.contains("同目录 `<FQN>.schema.json`"),
+        "`ArchiApiRef::schema_path` 的接口方位串在案（与文档并列各自出线）"
+    );
+    assert!(
+        !source.contains("架构域 `models/<分层目录…>/`"),
+        "`ApiStatus` 不再复述方位串（状态只报文件事实）"
     );
 }
 
@@ -2569,15 +2604,14 @@ fn dto_doc方位串换段() {
 fn 三份产品源文doc方位串换段() {
     let dto = include_str!("dto.rs");
     assert_eq!(
-        dto.matches("架构域 `models/<分层目录…>/`").count(),
-        1,
-        "`dto.rs` 的 `ApiStatus` doc 方位串按分层目录改写"
-    );
-    assert_eq!(
         dto.matches("<archi_models_dir>/<分层目录…>/<FQN>.md")
             .count(),
         1,
         "`dto.rs` 的 `ArchiApiRef::contract_path` doc 方位串按分层目录改写"
+    );
+    assert!(
+        dto.contains("同目录 `<FQN>.schema.json`"),
+        "`dto.rs` 的接口方位串在案（两份资产并列各自出线）"
     );
 
     let extract = include_str!("api/extract/mod.rs");
@@ -2757,8 +2791,8 @@ fn doc_dir(tag: &str) -> TempDir {
     temp
 }
 
-/// 正向：`api = none` 的元素出模型原文（`./` 前缀不归一）；`declared` 的元素恒 `null`
-/// （投影不复述模型矛盾）。
+/// 正向（D-23）：`doc` 槽位回答「模型写了什么」——两形态（`api = none` / `declared`）
+/// 都出原文（`./` 前缀不归一）；未声明 ⇒ `null`。投影不复述矛盾、不改写模型。
 #[test]
 fn module_detail_doc留白出原文声明支恒null() {
     let temp = doc_dir("detail-doc");
@@ -2769,14 +2803,17 @@ fn module_detail_doc留白出原文声明支恒null() {
         "留白元素出模型原文（不归一）"
     );
 
+    // `doc` 是**零判据读者**：`api = declared` 的元素照样出模型原文，投影不复述矛盾、
+    // 不改写模型
     let declared = dto::module_detail(temp.root(), "App.Billing").expect("Ok");
     assert_eq!(
-        declared.doc, None,
-        "`declared` 即便模型写了 doc 也出 null（入口文档走 api.contractPath）"
+        declared.doc.as_deref(),
+        Some("./src/billing/README.md"),
+        "`declared` 也照原文出（`doc` 零判据、零抹平）"
     );
 
     let container = dto::module_detail(temp.root(), "App").expect("Ok");
-    assert_eq!(container.doc, None, "未声明 doc 的留白元素出 null");
+    assert_eq!(container.doc, None, "未声明 doc 的元素出 null");
 }
 
 /// 边界：`doc` 槽位恒在场（`null` 不省略）、字段序 `children → doc → api`。
@@ -2801,9 +2838,11 @@ fn module_detail_doc键恒在场且序在api前() {
             "doc",
             "api",
             "resolvedEntry",
-            "fileHash"
+            "fileHash",
+            "assets",
+            "reading"
         ],
-        "`doc` 在 `children` 之后、`api` 之前且不省略（`resolvedEntry` 之后是 `fileHash` 表尾）"
+        "`doc` 在 `children` 之后、`api` 之前且不省略（`reading` 是表尾恒定读法）"
     );
     assert!(
         value.as_object().expect("对象").contains_key("doc"),
@@ -2829,10 +2868,18 @@ fn module_detail异常与零旧键() {
 #[test]
 fn search_doc数组为路径串() {
     let temp = doc_dir("search-doc");
+    // 语料 = `path` 非空元素的在盘派生资产：落一份 `<FQN>.md` 后即可命中
+    let doc_path = paths::contract_path(temp.root(), "App.Auth").expect("合法 FQN");
+    let doc_relative = doc_path
+        .strip_prefix(temp.root())
+        .expect("相对路径")
+        .to_string_lossy()
+        .replace('\\', "/");
+    temp.write(&doc_relative, "# App.Auth\n\n## 职能\n\n正文。\n");
     let all = dto::search(temp.root(), "auth", SearchScope::All).expect("Ok");
     assert!(
-        all.doc.contains(&"src/auth/README.md".to_owned()),
-        "留白元素的 doc 载体入语料：{:?}",
+        all.doc.contains(&doc_relative),
+        "派生文档入语料：{:?}",
         all.doc
     );
     assert!(
@@ -3021,8 +3068,8 @@ fn dto词面零docs且三处doc声明() {
     }
     assert_eq!(
         source.matches("    pub doc:").count(),
-        3,
-        "三处 `doc` 字段（模块详情 / 检索结果 / 元素投影）"
+        4,
+        "四处 `doc` 字段（模块详情 / 检索结果 / 元素投影 / 三资产里的文档资产）"
     );
     assert!(
         source.contains("pub doc: Vec<String>"),
@@ -3447,7 +3494,15 @@ fn dto入口解析单点源码自证() {
         !source.contains("entry_candidates"),
         "零候选派生的第二份实现"
     );
-    assert!(!source.contains("is_file()"), "零第二份存在性探测");
+    assert_eq!(
+        source.matches("is_file()").count(),
+        2,
+        "存在性探测只在两份资产装配各一次（`interface_asset` / `doc_asset`），入口面零第二份"
+    );
+    assert!(
+        !source.contains("path.is_file() &&"),
+        "入口解析不做存在性预判（`entry_state` 单点裁定）"
+    );
     assert_eq!(
         source.matches("has_path: !").count(),
         1,
@@ -4036,4 +4091,270 @@ fn 新字段追加表尾且薄面不带() {
         !keys.iter().any(|key| key == "fileHash"),
         "薄概览不带 `fileHash`：{keys:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 三资产（`assets`）与读法（`reading`）：三段 present 各自独立
+// ---------------------------------------------------------------------------
+
+/// 三资产夹具根：单元素 `App.Auth`，`path` 非空（故入口候选在盘与否可独立控制）。
+fn asset_dir(tag: &str) -> TempDir {
+    let temp = TempDir::new(tag);
+    temp.write_model(
+        "01-assets.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"src/auth/\"]\n",
+        ),
+    );
+    temp.write("src/auth/src/lib.rs", "pub fn f() {}\n");
+    temp
+}
+
+/// 落接口定义（空留白形态 + 给定 `$defs` / `properties` 片段）。
+fn write_interface(temp: &TempDir, fqn: &str, defs: &str, properties: &str) {
+    let path = paths::schema_path(temp.root(), fqn).expect("合法 FQN");
+    let relative = path
+        .strip_prefix(temp.root())
+        .expect("相对路径")
+        .to_string_lossy()
+        .replace('\\', "/");
+    temp.write(
+        &relative,
+        &format!(
+            "{{\"$id\": \"{fqn}.schema.json\", \"title\": \"{fqn}\", \"$defs\": {{{defs}}}, \"properties\": {{{properties}}}}}\n"
+        ),
+    );
+}
+
+/// 落文档（`<FQN>.md`，只写理由 + 若干 `##` 段名）。
+fn write_doc_asset(temp: &TempDir, fqn: &str, body: &str) {
+    let path = paths::contract_path(temp.root(), fqn).expect("合法 FQN");
+    let relative = path
+        .strip_prefix(temp.root())
+        .expect("相对路径")
+        .to_string_lossy()
+        .replace('\\', "/");
+    temp.write(&relative, body);
+}
+
+/// 异常 / 边界（AC-6 三态）：两份资产都不在盘 ⇒ `interface.present = false` 且三数组空、
+/// `bytes = 0`、`abstract` 指「接口未写」；`doc.present = false` 且 `headings` / `bytes` /
+/// `lines` 全 0；`topology` 恒在（模型事实，零额外读盘）；`reading` 是静态常量非空。
+#[test]
+fn 三资产皆缺() {
+    let temp = asset_dir("assets-none");
+    let detail = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+
+    assert!(!detail.assets.interface.present, "接口不在盘");
+    assert_eq!(detail.assets.interface.bytes, 0, "不在盘 ⇒ 零字节");
+    assert!(
+        detail.assets.interface.ops.is_empty()
+            && detail.assets.interface.types.is_empty()
+            && detail.assets.interface.reexports.is_empty(),
+        "不在盘 ⇒ 三数组空"
+    );
+    assert!(
+        detail.assets.interface.abstract_note.contains("接口未写"),
+        "一句话判读指向「接口未写」：{}",
+        detail.assets.interface.abstract_note
+    );
+    assert!(
+        detail.assets.interface.path.is_some(),
+        "路径仍给出（派生成功与否 ≠ 在盘与否）"
+    );
+
+    assert!(!detail.assets.doc.present, "文档不在盘");
+    assert_eq!(detail.assets.doc.bytes, 0);
+    assert_eq!(detail.assets.doc.lines, 0);
+    assert!(detail.assets.doc.headings.is_empty(), "不在盘 ⇒ 零段名");
+
+    assert_eq!(detail.assets.topology.out, 0, "零出边");
+    assert_eq!(detail.assets.topology.in_degree, 0, "零入边");
+    assert!(
+        detail.assets.topology.file.ends_with("01-assets.toml"),
+        "拓扑取模型声明文件：{}",
+        detail.assets.topology.file
+    );
+    assert!(!detail.reading.is_empty(), "读法是静态常量非空");
+}
+
+/// 正向（AC-6 三态 · 只有接口）：接口在盘 ⇒ `present = true`、`bytes > 0`、键名三数组逐项
+/// 落位、`abstract` 按六形态取「既有操作也有类型」；文档段 `present = false` 且零段名
+/// （缺一份不影响另一份）。
+#[test]
+fn 只有接口文件() {
+    let temp = asset_dir("assets-interface-only");
+    write_interface(
+        &temp,
+        "App.Auth",
+        "\"Local\": {\"type\": \"object\", \"properties\": {}}",
+        "\"run\": {\"x-function\": {\"params\": [], \"returns\": {\"type\": \"string\"}}}, \"Local\": {\"$ref\": \"#/$defs/Local\"}",
+    );
+    let detail = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+    let interface = &detail.assets.interface;
+
+    assert!(interface.present, "接口在盘");
+    assert!(interface.bytes > 0, "字节数照实");
+    assert_eq!(interface.ops, vec!["run".to_owned()], "op 键落位");
+    assert_eq!(interface.types, vec!["Local".to_owned()], "类型键落位");
+    assert!(interface.reexports.is_empty(), "零透传键");
+    assert_eq!(
+        interface.abstract_note, "既有操作也有类型",
+        "六形态之一：{}",
+        interface.abstract_note
+    );
+
+    assert!(!detail.assets.doc.present, "文档仍不在盘（两段独立）");
+    assert!(detail.assets.doc.headings.is_empty());
+}
+
+/// 正向（AC-6 三态 · 只有文档）：文档在盘 ⇒ `present = true`、`headings` 按文件序取
+/// `## ` 级段名、`lines` 行数照实；接口段 `present = false`、`abstract` 仍是「接口未写」。
+#[test]
+fn 只有文档() {
+    let temp = asset_dir("assets-doc-only");
+    write_doc_asset(
+        &temp,
+        "App.Auth",
+        "# App.Auth\n\n## 职能\n\n认证域。\n\n## 不变量\n\n令牌不过期。\n",
+    );
+    let detail = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+
+    assert!(detail.assets.doc.present, "文档在盘");
+    assert_eq!(
+        detail.assets.doc.headings,
+        vec!["职能".to_owned(), "不变量".to_owned()],
+        "段名按文件序"
+    );
+    assert_eq!(detail.assets.doc.lines, 9, "行数照实（含空行与标题行）");
+    assert!(!detail.assets.interface.present, "接口仍不在盘（两段独立）");
+    assert!(
+        detail.assets.interface.abstract_note.contains("接口未写"),
+        "接口段判读不因文档在盘而变"
+    );
+}
+
+/// 边界（AC-6 反例）：接口文件在盘但坏文本 ⇒ **不 `Err`**（导航面不可停摆）：`present =
+/// true`、`bytes` 照实、三数组空、`abstract` 指向 `archi_api` 的 `check`。
+#[test]
+fn 坏接口文件不阻导航() {
+    let temp = asset_dir("assets-bad-interface");
+    write_interface(&temp, "App.Auth", "not-an-object", "");
+    let detail = dto::module_detail(temp.root(), "App.Auth").expect("坏接口文件不致 Err");
+    assert!(detail.assets.interface.present, "仍在盘");
+    assert!(detail.assets.interface.bytes > 0, "字节数照实");
+    assert!(detail.assets.interface.ops.is_empty(), "坏文件 ⇒ 三数组空");
+    assert!(
+        detail.assets.interface.abstract_note.contains("不可解析")
+            && detail.assets.interface.abstract_note.contains("check"),
+        "判读指路自查：{}",
+        detail.assets.interface.abstract_note
+    );
+}
+
+/// 边界（AC-6 六形态）：同一份接口文件按键面取六种判读——留白（两空）/ 只有操作 /
+/// 只有类型 / 两者都有 / 含透传。
+#[test]
+fn 接口判读六形态() {
+    let cases: [(&str, &str, &str, &str); 5] = [
+        ("留白", "", "", "留白"),
+        ("只有操作", "", "\"run\": {\"x-function\": {\"params\": []}}", "只有操作"),
+        ("只有类型", "\"Local\": {\"type\": \"object\"}", "\"Local\": {\"$ref\": \"#/$defs/Local\"}", "只有类型"),
+        (
+            "两者都有",
+            "\"Local\": {\"type\": \"object\"}",
+            "\"run\": {\"x-function\": {\"params\": []}}, \"Local\": {\"$ref\": \"#/$defs/Local\"}",
+            "既有操作也有类型",
+        ),
+        (
+            "含透传",
+            "\"Local\": {\"type\": \"object\"}, \"Up\": {\"$ref\": \"../App/App.Other.schema.json#/$defs/Up\"}",
+            "\"run\": {\"x-function\": {\"params\": []}}, \"Local\": {\"$ref\": \"#/$defs/Local\"}, \"Up\": {\"$ref\": \"#/$defs/Up\"}",
+            "含透传",
+        ),
+    ];
+    for (label, defs, properties, expected) in cases {
+        let temp = asset_dir(&format!("assets-shape-{}", label.len()));
+        write_interface(&temp, "App.Auth", defs, properties);
+        let detail = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+        assert!(
+            detail.assets.interface.abstract_note.contains(expected),
+            "{label} 的判读应含 `{expected}`：{}",
+            detail.assets.interface.abstract_note
+        );
+    }
+}
+
+/// 正向（AC-6 四态）：三段 `present` 各自独立——两者都在盘 ⇒ `interface.present` 与
+/// `doc.present` 双 `true`、`topology.present` 恒 `true`（元素必在模型里）；任一缺失只落
+/// 自己那一段，另一段读数逐字不变。
+#[test]
+fn 三段present互不牵连() {
+    let temp = asset_dir("assets-both");
+    write_interface(
+        &temp,
+        "App.Auth",
+        "\"Local\": {\"type\": \"object\", \"properties\": {}}",
+        "\"Local\": {\"$ref\": \"#/$defs/Local\"}",
+    );
+    write_doc_asset(&temp, "App.Auth", "# App.Auth\n\n## 职能\n\n认证域。\n");
+    let both = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+    assert!(both.assets.interface.present, "接口在盘 ⇒ 该段 present");
+    assert!(both.assets.doc.present, "文档在盘 ⇒ 该段 present");
+    assert!(
+        !both.assets.topology.file.is_empty(),
+        "拓扑恒在（模型事实，三态共用同一份声明位置）"
+    );
+
+    // 抽掉文档 ⇒ 只落文档段（接口段读数逐字不变）
+    let doc_path = paths::contract_path(temp.root(), "App.Auth").expect("合法 FQN");
+    fs::remove_file(&doc_path).expect("删文档失败");
+    let interface_only = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+    assert!(!interface_only.assets.doc.present, "文档缺席 ⇒ 该段 absent");
+    assert_eq!(
+        interface_only.assets.interface, both.assets.interface,
+        "接口段读数与文档在盘与否无关"
+    );
+
+    // 抽掉接口 ⇒ 反向
+    let interface_path = paths::schema_path(temp.root(), "App.Auth").expect("合法 FQN");
+    fs::remove_file(&interface_path).expect("删接口失败");
+    let neither = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+    assert!(
+        !neither.assets.interface.present,
+        "两份皆缺 ⇒ 接口段 absent"
+    );
+    assert!(!neither.assets.doc.present, "两份皆缺 ⇒ 文档段 absent");
+    assert_eq!(
+        neither.assets.topology.file, both.assets.topology.file,
+        "拓扑面零牵连（两份资产在盘与否不改声明位置）"
+    );
+}
+
+/// 边界（读法是静态常量）：`reading` 令零变量插值——同元素两次调用逐字相等、不同元素
+/// 逐字相等；语义含「read」整读与「不必整读」两面，并给「已足够」的判断句。
+#[test]
+fn 静态指引零插值() {
+    let temp = asset_dir("reading-static");
+    let first = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+    let again = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+    let container = dto::module_detail(temp.root(), "App").expect("Ok");
+
+    assert_eq!(first.reading, again.reading, "同元素两次调用逐字相等");
+    assert_eq!(
+        first.reading, container.reading,
+        "不同元素（模块 vs 容器包）逐字相等（零 FQN / 路径 / 度数插值）"
+    );
+    for needle in ["已足够", "`read`", "整读", "不必整读"] {
+        assert!(
+            first.reading.contains(needle),
+            "读法含 `{needle}`：{}",
+            first.reading
+        );
+    }
 }

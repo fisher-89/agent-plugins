@@ -2973,8 +2973,8 @@ fn stale_stances() -> Vec<String> {
 /// 重写后不点名任何 archi 工具（`archi_module` 仍由注入矩阵下发，prompt 侧不承诺；
 /// 其只读规则行只禁写架构模型）。
 const ARCHI_PROMPT_MATRIX: [(&str, [bool; 5]); 6] = [
-    ("proposal-planner", [true, true, false, false, true]),
-    ("dev-design-planner", [true, true, false, true, true]),
+    ("proposal-planner", [true, true, true, false, true]),
+    ("dev-design-planner", [true, true, true, true, true]),
     ("dev-design-evaluator", [true, true, false, false, false]),
     ("test-design-planner", [false, true, false, false, false]),
     ("implementation-generator", [true, false, true, true, false]),
@@ -3015,7 +3015,10 @@ fn implementation_generator含archi_api自检句() {
         text.contains("生成物新鲜度") || text.contains("生成物"),
         "说明自查生成物新鲜度：{text}"
     );
-    assert!(text.contains("契约判据"), "说明自查契约判据");
+    assert!(
+        text.contains("接口判据") || text.contains("接口面自检"),
+        "说明自查接口判据"
+    );
     assert!(text.contains("archi_module"), "既有 archi_module 仍在");
     assert!(!text.contains("archi_search"), "不含未下发的 archi_search");
     assert!(text.contains("MUST NOT 手改生成物"), "含生成物禁手改硬线");
@@ -3026,7 +3029,10 @@ fn implementation_generator含archi_api自检句() {
 #[test]
 fn 其余md零archi_api() {
     for name in prompt_names() {
-        if name == "implementation-generator" {
+        if name == "implementation-generator"
+            || name == "proposal-planner"
+            || name == "dev-design-planner"
+        {
             continue;
         }
         let text = prompt_text(&name);
@@ -3039,8 +3045,12 @@ fn 其余md零archi_api() {
         .collect();
     assert_eq!(
         api_rows,
-        vec!["implementation-generator"],
-        "矩阵 api 维度仅一份命中"
+        vec![
+            "proposal-planner",
+            "dev-design-planner",
+            "implementation-generator"
+        ],
+        "矩阵 api 维度三份命中（起草与改码两侧都要能算 $ref 与自查）"
     );
 }
 
@@ -3824,7 +3834,7 @@ fn 矩阵外八份整篇零archi工具名() {
 // 本变更：两份写权 prompt 的工具行改「读 N 件 + 写两件」（AC-12b）
 // ---------------------------------------------------------------------------
 
-/// 正向：`proposal-planner` 的工具行读三写两——含三只读名与两写名；零「额外可用只读工具」
+/// 正向：`proposal-planner` 的工具行读四写两——含四只读名与两写名；零「额外可用只读工具」
 /// 旧措辞（工具行不再是只读单面）。
 #[test]
 fn 提案planner工具行读三写两() {
@@ -3833,13 +3843,18 @@ fn 提案planner工具行读三写两() {
         .lines()
         .find(|line| line.contains("额外可用 archi 工具"))
         .expect("工具行在场");
-    for read in ["archi_search", "archi_module", "archi_scaffold"] {
+    for read in [
+        "archi_search",
+        "archi_module",
+        "archi_api",
+        "archi_scaffold",
+    ] {
         assert!(line.contains(read), "读件 `{read}` 在工具行：{line}");
     }
     for write in ["archi_element", "archi_relation"] {
         assert!(line.contains(write), "写件 `{write}` 在工具行：{line}");
     }
-    assert!(line.contains("读三件"), "工具行点明读三件：{line}");
+    assert!(line.contains("读四件"), "工具行点明读四件：{line}");
     assert!(line.contains("写两件"), "工具行点明写两件：{line}");
     assert!(
         !text.contains("额外可用只读工具"),
@@ -3852,7 +3867,7 @@ fn 提案planner工具行读三写两() {
     );
 }
 
-/// 正向：`dev-design-planner` 的工具行读四写两——含四只读名与两写名；自查句仍
+/// 正向：`dev-design-planner` 的工具行读五写两——含五只读名与两写名；自查句仍
 /// `archi_drift` + `archi_module` 双工具。
 #[test]
 fn 设计planner工具行读四写两() {
@@ -3864,6 +3879,7 @@ fn 设计planner工具行读四写两() {
     for read in [
         "archi_search",
         "archi_module",
+        "archi_api",
         "archi_drift",
         "archi_scaffold",
     ] {
@@ -3872,7 +3888,7 @@ fn 设计planner工具行读四写两() {
     for write in ["archi_element", "archi_relation"] {
         assert!(line.contains(write), "写件 `{write}` 在工具行：{line}");
     }
-    assert!(line.contains("读四件"), "工具行点明读四件：{line}");
+    assert!(line.contains("读五件"), "工具行点明读五件：{line}");
     assert!(line.contains("写两件"), "工具行点明写两件：{line}");
     assert!(
         !text.contains("四个只读工具"),
@@ -3914,4 +3930,269 @@ fn 锁定侧prompt零写工具名且零旧立场() {
         }
     }
     assert_eq!(locked, 12, "锁定侧恰十二份（14 − 2 写权相位）");
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：两份写权 prompt 的落笔顺序句与接口面留白纪律（AC-10 / D-18）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-10）：两份写权相位的落笔顺序句都在场——「后接触面」「最后理由」两序子串，
+/// 首序取「先边界」或「先拓扑」之一（design D-18 与 proposal 正文的措辞尚未统一，断言
+/// 不钉死首序字面），且三序落在**同一行**（顺序句不是散落两处）。
+#[test]
+fn 两份写权相位落笔顺序句在场() {
+    for name in ["proposal-planner", "dev-design-planner"] {
+        let text = prompt_text(name);
+        let line = text
+            .lines()
+            .find(|line| line.contains("落笔顺序"))
+            .unwrap_or_else(|| panic!("{name} 缺落笔顺序句"));
+        assert!(
+            line.contains("后接触面") && line.contains("最后理由"),
+            "{name} 顺序句含两序子串：{line}"
+        );
+        assert!(
+            line.contains("先边界") || line.contains("先拓扑"),
+            "{name} 首序是「先边界」或「先拓扑」：{line}"
+        );
+        assert!(
+            line.contains("倒置") || line.contains("反复重写"),
+            "{name} 顺序句给出倒置的代价（不是无理由的排序）：{line}"
+        );
+    }
+}
+
+/// 正向（AC-10）：两份写权相位的接口面留白纪律句在场——空 schema 的两空对象（`$defs {}` /
+/// `properties {}`）与「不编造导出」的否定句；同句给出 `archi_api` 的两动作（`bootstrap` /
+/// `link`）。零路径模板（不把目录字面写进 prompt）、零字段形态长表。
+#[test]
+fn 两份写权相位留白纪律句在场() {
+    for name in ["proposal-planner", "dev-design-planner"] {
+        let text = prompt_text(name);
+        let line = text
+            .lines()
+            .find(|line| line.contains("接口面纪律"))
+            .unwrap_or_else(|| panic!("{name} 缺接口面纪律句"));
+        assert!(
+            line.contains("`$defs {}`") && line.contains("`properties {}`"),
+            "{name} 留白形态点明两空对象：{line}"
+        );
+        assert!(
+            line.contains("编造"),
+            "{name} 含「不编造导出」的否定句：{line}"
+        );
+        assert!(
+            line.contains("bootstrap") && line.contains("link"),
+            "{name} 同句给出 `archi_api` 的取草稿与算引用两动作：{line}"
+        );
+        assert!(
+            !line.contains(".dev-team") && !line.contains("openspec/"),
+            "{name} 零路径模板（目录字面不进 prompt）：{line}"
+        );
+    }
+    // 零字段形态长表：两份均不以「- 」起头的字段值行（值域词典不复制进 prompt）
+    for name in ["proposal-planner", "dev-design-planner"] {
+        let text = prompt_text(name);
+        let dictionary_lines: Vec<&str> = text
+            .lines()
+            .filter(|line| {
+                let trimmed = line.trim_start();
+                (trimmed.starts_with("- kind") || trimmed.starts_with("- gate"))
+                    && trimmed.contains('=')
+            })
+            .collect();
+        assert!(
+            dictionary_lines.is_empty(),
+            "{name} 零字段形态长表：{dictionary_lines:?}"
+        );
+    }
+}
+
+/// 正向（AC-10 第三份）：`implementation-generator` 的接口同步句——「导出面」+「同批」+
+/// `.schema.json` + `archi_api` 的 `check` 四要素齐备，且句内零路径模板。
+///
+/// 句长门限按实测冻结：该句（去列表前缀）86 字符，故取 ≤ 100——它防的是「把三资产分工
+/// 全文复制进 prompt」，不是逐字长度。
+#[test]
+fn implementation_generator接口同步句在场() {
+    let text = prompt_text("implementation-generator");
+    let line = text
+        .lines()
+        .find(|line| line.contains("导出面"))
+        .expect("接口同步句在场");
+    for piece in ["导出面", "同批", ".schema.json", "archi_api"] {
+        assert!(line.contains(piece), "接口同步句含 `{piece}`：{line}");
+    }
+    assert!(
+        line.contains("check"),
+        "同步句点名 `archi_api` 的 `check` 自查动作：{line}"
+    );
+    assert!(
+        !line.contains(".dev-team") && !line.contains("openspec/"),
+        "句内零路径模板：{line}"
+    );
+    assert!(
+        line.trim_start_matches("- ").chars().count() <= 100,
+        "一句不带知识段（实测冻结 ≤ 100 字符）：{}",
+        line.chars().count()
+    );
+    assert!(
+        !line.contains("唯一凭据") && !line.contains("三资产"),
+        "不复述知识段的三资产分工全文：{line}"
+    );
+
+    // 无写权相位纪律：本份零两写工具名与零写权声明
+    for forbidden in ["archi_element", "archi_relation", "架构模型可写"] {
+        assert!(
+            !text.contains(forbidden),
+            "implementation-generator 无写权，零 `{forbidden}`"
+        );
+    }
+}
+
+/// 正向（AC-10）：`proposal-planner` 的工具行同时点明 `archi_api` 的三动作（`bootstrap` 取
+/// 双草稿 / `link` 算 `$ref` / `check` 查两轴）——起草相位持有草稿工具。
+#[test]
+fn 提案planner工具行点名archi_api三动作() {
+    let line = prompt_text("proposal-planner")
+        .lines()
+        .find(|line| line.contains("额外可用 archi 工具"))
+        .expect("工具行在场")
+        .to_owned();
+    for piece in ["archi_api", "bootstrap", "link", "check"] {
+        assert!(line.contains(piece), "工具行含 `{piece}`：{line}");
+    }
+    assert!(
+        line.contains("archi_module") && line.contains("archi_scaffold"),
+        "既有两工具名仍在：{line}"
+    );
+}
+
+// ===========================================================================
+// 三份 prompt 的新句（三资产纪律 / 读五件 / 接口同步）
+// ===========================================================================
+
+/// 正向（三序句在场，两写权相位各一）：`proposal-planner` 与 `dev-design-planner` 的落笔
+/// 顺序句含「后接触面」「最后理由」两序，首序取「先边界」或「先拓扑」之一，且三序**同段**
+/// （同一行内出现，非散落两处）。
+#[test]
+fn 三序句在场() {
+    for name in ["proposal-planner", "dev-design-planner"] {
+        let text = prompt_text(name);
+        let line = text
+            .lines()
+            .find(|line| line.contains("后接触面") && line.contains("最后理由"))
+            .unwrap_or_else(|| panic!("{name} 的顺序句应在同一段内"));
+        assert!(
+            line.contains("先边界") || line.contains("先拓扑"),
+            "{name} 的顺序句首序应可判：{line}"
+        );
+        assert!(
+            line.contains("落笔顺序"),
+            "{name} 的顺序句带「落笔顺序」锚：{line}"
+        );
+    }
+}
+
+/// 正向（留白不用编）：两份起草 prompt 的接口面纪律句含两个空对象纪律（`$defs {}` 与
+/// `properties {}`）与「不编造」的否定句；零路径模板、零字段形态长表。
+#[test]
+fn 留白不用编() {
+    for name in ["proposal-planner", "dev-design-planner"] {
+        let text = prompt_text(name);
+        let line = text
+            .lines()
+            .find(|line| line.contains("接口面留白"))
+            .unwrap_or_else(|| panic!("{name} 应含接口面留白纪律句"));
+        assert!(line.contains("$defs {}"), "{name} 含空 `$defs`：{line}");
+        assert!(
+            line.contains("properties {}"),
+            "{name} 含空 `properties`：{line}"
+        );
+        assert!(
+            line.contains("MUST NOT 编造") || line.contains("不编造"),
+            "{name} 含「不编造」否定句：{line}"
+        );
+        assert!(
+            !line.contains(".dev-team/architecture/models"),
+            "{name} 零路径模板：{line}"
+        );
+        assert!(
+            !text.lines().any(|line| {
+                let trimmed = line.trim_start();
+                trimmed.starts_with("- ")
+                    && [
+                        "kind = ",
+                        "gate = ",
+                        "api = ",
+                        "path = ",
+                        "entry = ",
+                        "doc = ",
+                        "summary = ",
+                    ]
+                    .iter()
+                    .any(|field| trimmed.contains(field))
+            }),
+            "{name} 零字段值长表（`- ` 起首的 `键 = 值` 行）"
+        );
+    }
+}
+
+/// 正向（读五件）：`dev-design-planner` 的只读工具行含五名（`archi_module` /
+/// `archi_search` / `archi_drift` / `archi_scaffold` / `archi_api`）；`proposal-planner`
+/// 的只读面**不含** `archi_drift`（两侧只读面差异逐名成立，互不复制）。
+#[test]
+fn 读五件() {
+    let design = prompt_text("dev-design-planner");
+    let line = design
+        .lines()
+        .find(|line| line.contains("额外可用 archi 工具"))
+        .unwrap_or_else(|| panic!("dev-design-planner 应含工具行"));
+    for tool in [
+        "archi_module",
+        "archi_search",
+        "archi_drift",
+        "archi_scaffold",
+        "archi_api",
+    ] {
+        assert!(line.contains(tool), "读五件应含 {tool}：{line}");
+    }
+    assert!(
+        !design.contains("读四件"),
+        "旧措辞「读四件」零残留（工具面已扩为五件）"
+    );
+
+    let proposal = prompt_text("proposal-planner");
+    assert!(
+        !proposal.contains("archi_drift"),
+        "`proposal-planner` 的只读面不含 `archi_drift`"
+    );
+    assert!(
+        proposal.contains("archi_api"),
+        "`proposal-planner` 的只读面含 `archi_api`（两写权相位同纪律）"
+    );
+}
+
+/// 正向（改导出即改接口）：`implementation-generator` 的接口同步句含四要素——「导出面」、
+/// 「同批」或「同步」、`.schema.json`、`archi_api` 的 `check`；句内零路径模板。
+#[test]
+fn 改导出即改接口() {
+    let text = prompt_text("implementation-generator");
+    let line = text
+        .lines()
+        .find(|line| line.contains("导出面") && line.contains(".schema.json"))
+        .unwrap_or_else(|| panic!("implementation-generator 应含接口同步句"));
+    assert!(
+        line.contains("同批") || line.contains("同步"),
+        "含同批 / 同步语义：{line}"
+    );
+    assert!(
+        line.contains("`archi_api`") && line.contains("check"),
+        "含 `archi_api` 的 `check` 自查：{line}"
+    );
+    assert!(!line.contains(".dev-team/"), "句内零路径模板：{line}");
+    assert!(
+        !text.contains("archi_element") && !text.contains("archi_relation"),
+        "无写权相位零写工具字面"
+    );
 }

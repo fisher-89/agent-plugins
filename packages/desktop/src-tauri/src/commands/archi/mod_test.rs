@@ -1331,7 +1331,7 @@ async fn archi_drift增量模式取变更集失败即err() {
 // 命令层仍是薄包装：`api` 由 `dto::module_detail` 填充，本层零特判、零路径拼装。
 // ===========================================================================
 
-/// 落一份元素契约 md（`<archi_models_dir>/<Domain>/<FQN>.md`）。
+/// 落一份元素文档（`<archi_models_dir>/<Domain>/<FQN>.md`；理由，零结构）。
 fn write_contract(root: &Path, fqn: &str, content: &str) {
     let relative = archi::api::paths::contract_path(root, fqn).expect("合法 FQN");
     let relative = relative
@@ -1346,6 +1346,28 @@ fn write_contract(root: &Path, fqn: &str, content: &str) {
     fs::write(&path, content).expect("写契约失败");
 }
 
+/// 落一份接口定义（`<archi_models_dir>/<Domain>/<FQN>.schema.json`；判据面的唯一凭据）。
+fn write_schema(root: &Path, fqn: &str, content: &str) {
+    let relative = archi::api::paths::schema_path(root, fqn).expect("合法 FQN");
+    let relative = relative
+        .strip_prefix(root)
+        .expect("repo 相对路径")
+        .to_string_lossy()
+        .replace('\\', "/");
+    let path = root.join(&relative);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("建接口目录失败");
+    }
+    fs::write(&path, content).expect("写接口定义失败");
+}
+
+/// 一份最小合法接口定义（空留白形态 + 指定 `properties` 片段）。
+fn minimal_schema(fqn: &str, properties: &str) -> String {
+    format!(
+        "{{\"$id\": \"{fqn}.schema.json\", \"title\": \"{fqn}\", \"$defs\": {{}}, \"properties\": {properties}}}\n"
+    )
+}
+
 /// 正向（AC-10 / AC-13）：元素 + 契约 md 在案 → `archi_module_inner` 出参 `api.status`
 /// 为 `declared`、三路径均 `Some` 且 repo 相对 POSIX；序列化文本含 `"api"` 并列键。
 #[test]
@@ -1358,6 +1380,7 @@ fn archi_module出参含api并列字段() {
     );
     let fqn = "App.Shop";
     write_contract(temp.path(), fqn, &format!("# {fqn}\n\n## 职能\n\n正文。\n"));
+    write_schema(temp.path(), fqn, &minimal_schema(fqn, "{}"));
     // 生成物路径是**入口**的函数：入口落盘后三路径才全 `Some`
     temp.write("src/shop/src/lib.rs", "pub fn f() {}\n");
 
@@ -1365,7 +1388,7 @@ fn archi_module出参含api并列字段() {
     assert_eq!(
         serde_json::to_value(&detail.api).expect("序列化成功")["status"],
         serde_json::json!("declared"),
-        "md 在案 → status = declared"
+        "接口文件在案 → status = declared"
     );
     let value = serde_json::to_value(&detail).expect("序列化成功");
     let api = &value["api"];
@@ -1661,11 +1684,17 @@ fn archi_module试点declared且同输入判据零命中() {
     write_contract(
         temp.path(),
         fqn,
+        &format!("# {fqn}\n\n## 职能\n\n门禁执行体。\n"),
+    );
+    write_schema(
+        temp.path(),
+        fqn,
         &format!(
-            "# {fqn}\n\n## 职能\n\n门禁执行体。\n\n## 操作\n\n### file_stem\n\n```json api-op\n\
-             {{\"params\": [{{\"name\": \"timestamp\", \"schema\": {{\"type\": \"string\"}}}}], \
-             \"returns\": {{\"type\": \"string\"}}}}\n```\n\n## 类型\n\n```json api-types\n\
-             {{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+            "{{\"$id\": \"{fqn}.schema.json\", \"title\": \"{fqn}\", \"$defs\": {{\"LocalArchiCheck\": \
+             {{\"type\": \"object\", \"properties\": {{}}}}}}, \"properties\": {{\"file_stem\": \
+             {{\"x-function\": {{\"owner\": \"LocalArchiCheck\", \"params\": [{{\"name\": \"timestamp\", \
+             \"schema\": {{\"type\": \"string\"}}}}], \"returns\": {{\"type\": \"string\"}}}}}}, \
+             \"LocalArchiCheck\": {{\"$ref\": \"#/$defs/LocalArchiCheck\"}}}}}}\n"
         ),
     );
 
@@ -1993,12 +2022,30 @@ fn archi_file_tree命令层零领域规则() {
 // 本变更：archi_api_check / archi_api_generate（第二条写命令）
 // ---------------------------------------------------------------------------
 
-/// 契约语料（1 op `file_stem` + 1 类型；H1 = `App.Api.Subject`）。
-const API_CONTRACT: &str = "# App.Api.Subject\n\n## 职能\n\n命令面语料。\n\n## 操作\n\n\
-     ### file_stem\n\n```json api-op\n{\"owner\": \"LocalGate\", \
-     \"params\": [{\"name\": \"timestamp\", \"schema\": {\"type\": \"string\"}}], \
-     \"returns\": {\"type\": \"string\"}}\n```\n\n## 类型\n\n```json api-types\n\
-     {\"LocalGate\": {\"type\": \"object\", \"properties\": {}}}\n```\n";
+/// 文档语料（只写理由，零结构）。
+const API_DOC: &str = "# App.Api.Subject\n\n## 职能\n\n命令面语料。\n";
+
+/// 接口定义语料（1 op `file_stem` + 1 类型 `LocalGate`；手写真相 = 判据面的唯一凭据）。
+const API_SCHEMA: &str = r##"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "App.Api.Subject.schema.json",
+  "title": "App.Api.Subject",
+  "$comment": "手写接口真相：本文件是接口的唯一凭据，不是生成物",
+  "$defs": {
+    "LocalGate": { "type": "object", "properties": {} }
+  },
+  "properties": {
+    "file_stem": {
+      "x-function": {
+        "owner": "LocalGate",
+        "params": [{ "name": "timestamp", "schema": { "type": "string" } }],
+        "returns": { "type": "string" }
+      }
+    },
+    "LocalGate": { "$ref": "#/$defs/LocalGate" }
+  }
+}
+"##;
 
 /// 契约面语料根：模型（`App` 容器 + `App.Api` 域 + 叶元素）+ 入口源文 + 契约 md。
 fn api_fixture(tag: &str) -> TempDir {
@@ -2018,7 +2065,11 @@ fn api_fixture(tag: &str) -> TempDir {
     );
     temp.write(
         ".dev-team/architecture/models/App/Api/App.Api.Subject.md",
-        API_CONTRACT,
+        API_DOC,
+    );
+    temp.write(
+        ".dev-team/architecture/models/App/Api/App.Api.Subject.schema.json",
+        API_SCHEMA,
     );
     temp
 }
@@ -2689,8 +2740,10 @@ fn module出参带fileHash() {
             "api",
             "resolvedEntry",
             "fileHash",
+            "assets",
+            "reading",
         ],
-        "八字段且 fileHash 在声明序末位"
+        "十字段且 assets / reading 在声明序末位"
     );
 
     let file = archi_graph_model_dir(temp.path()).join("01-core.toml");

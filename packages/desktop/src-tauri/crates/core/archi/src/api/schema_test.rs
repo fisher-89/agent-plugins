@@ -1,10 +1,12 @@
-//! `api::schema` 的单元测试：`build_schema` 的六字段装配与保序、`verify_defs` 的
-//! 五条规则 + 透传纯 `$ref` 校验 + `x-class` 带属性判错、`build_index` 的说明段 /
-//! 七字段 / 字典序 / `[entry.categories]` 形状分布与整段省略。
+//! `api::schema` 的单元测试：`validate_schema` 的九道闸（identity / 键空间 / 形态 /
+//! 镜像 / `$ref` 前缀 / 顶层键封闭 / 复用三闸 + `$defs` 规则）、`verify_defs` 的五条
+//! 规则 + 透传纯 `$ref` 校验 + `x-class` 带属性判错、`build_index` 的说明段 / 七字段 /
+//! 字典序 / `[entry.categories]` 形状分布与整段省略。
 //!
-//! 零 mock：契约输入由真实 `contract::parse` 产出（`verify_defs` 的 `schema` 入参是
-//! 纯值，另备 `json!` 直接构造非法形态）；`toml` 反解析真实执行（INDEX 可解析性即
-//! 被测语义）；`ApiMeta` 以字面量构造真实值（零替身类型）。
+//! 零 mock：接口定义文本手写（`json!` / 原始 `&str`），真实 `serde_json` 解析与真实
+//! `paths::ref_relative`；`toml` 反解析真实执行（INDEX 可解析性即被测语义）；`ApiMeta`
+//! 以字面量构造真实值（零替身类型）。写闸与装载期共用同一入口，故本文件的判据面即
+//! AC-4 / AC-5 的窄面。
 
 use std::collections::BTreeMap;
 
@@ -13,15 +15,17 @@ use toml_edit::DocumentMut;
 
 use crate::api::contract::Contract;
 
-use super::contract::parse;
 use super::paths;
-use super::schema::{build_index, build_schema, degraded_marks, verify_defs, DEGRADED_KINDS};
+use super::schema::{
+    build_index, degraded_marks, validate_schema, verify_defs, verify_identity, verify_keyspace,
+    verify_mirror, verify_ref_prefix, verify_shape, verify_top_level_keys, DEGRADED_KINDS,
+};
 use super::{ApiError, ApiFormStatus, ApiMeta, IndexEntry};
 
-/// 契约文件（repo 相对 POSIX）。
-const FILE: &str = ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.md";
+/// 接口文件（repo 相对 POSIX；`validate_schema` 无路径入参，`Contract.file` 取文件名）。
+const FILE: &str = "App.Backend.Infra.ArchiRuntime.schema.json";
 
-/// 元素 FQN（= H1 = 文件名去 `.md`）。
+/// 元素 FQN（= `title` = 文件名主干）。
 const FQN: &str = "App.Backend.Infra.ArchiRuntime";
 
 /// 装配用载元（`tool_version` 取编译期常量、摘要取真实值）。
@@ -38,7 +42,7 @@ fn contract_error(result: Result<(), ApiError>) -> String {
     }
 }
 
-/// 断言 `parse` 报契约错误并返回文案（D37：文本层判据的错误面）。
+/// 断言接口定义校验报契约错误并返回文案。
 fn parse_error(result: Result<Contract, ApiError>) -> String {
     match result {
         Ok(_) => panic!("期望契约错误，实际 Ok"),
@@ -47,29 +51,16 @@ fn parse_error(result: Result<Contract, ApiError>) -> String {
     }
 }
 
-/// 断言 `build_schema` 报契约错误并返回文案。
-fn build_error(result: Result<Value, ApiError>) -> String {
-    match result {
-        Ok(value) => panic!("期望契约错误，实际 Ok：{value}"),
-        Err(ApiError::Contract(message)) => message,
-        Err(other) => panic!("期望 ApiError::Contract，实际：{other:?}"),
-    }
-}
-
-/// 试点形态源文（1 op `file_stem` + 1 类型 `LocalArchiCheck`）。
-fn pilot_source() -> String {
+/// 接口定义文本构造器：`$defs` / `properties` 两表片段直传，其余四顶层键按 FQN 补齐。
+///
+/// 九闸用例只替换一表，其余闸保持绿——反例因此**单点归因**（例外：闸序用例刻意同时违反
+/// 多闸，见 `闸序固定`）。
+fn schema_text(defs: &str, properties: &str) -> String {
     format!(
-        "# {FQN}\n\n## 职能\n\n门禁执行体。\n\n## 操作\n\n### file_stem\n\n```json api-op\n\
-         {{\"params\": [{{\"name\": \"timestamp\", \"schema\": {{\"type\": \"string\"}}}}], \
-         \"returns\": {{\"type\": \"string\"}}}}\n```\n\n## 类型\n\n```json api-types\n\
-         {{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}, \
-         \"x-common\": {{\"note\": \"零字段门禁执行体\"}}}}}}\n```\n"
+        "{{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"$id\": \
+         \"{FQN}.schema.json\",\n  \"title\": \"{FQN}\",\n  \"$comment\": \"手写接口真相\",\n  \
+         \"$defs\": {{{defs}}},\n  \"properties\": {{{properties}}}\n}}\n"
     )
-}
-
-/// 解析试点契约（失败即断言失败）。
-fn pilot_contract() -> Contract {
-    parse(&pilot_source(), FQN, FILE).expect("试点契约应解析成功")
 }
 
 /// 单条 INDEX 条目（`Declared` 形态的缺省值）。
@@ -101,286 +92,468 @@ fn comment_lines(text: &str) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------
-// build_schema：六字段
+// validate_schema：九闸
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-2）：试点契约 → 顶层键**恰**六项，逐项有 md 出处。
+/// 正向（闸 ③–⑨ 全过）：空壳——`$defs {}` + `properties {}` 两空表、四顶层键齐备 ⇒ `Ok`，
+/// `Contract` 三表全空、`file` == `<FQN>.schema.json`。
 #[test]
-fn build_schema六字段齐备() {
-    let contract = pilot_contract();
-    let schema = build_schema(&contract, &meta()).expect("装配应成功");
-    let object = schema.as_object().expect("schema 是 JSON 对象");
-
-    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
-    keys.sort_unstable();
+fn 空壳合法() {
+    let contract = validate_schema(FQN, &schema_text("", "")).expect("空壳应合法");
+    assert_eq!(contract.fqn, FQN, "FQN 取入参");
+    assert_eq!(contract.title, FQN, "`title` 逐字");
     assert_eq!(
-        keys,
-        vec!["$comment", "$defs", "$id", "$schema", "properties", "title"],
-        "顶层键恰六项（零多余、零缺失）"
+        contract.file, FILE,
+        "`file` = `<FQN>.schema.json`（无路径入参）"
     );
+    assert!(contract.ops.is_empty() && contract.types.is_empty() && contract.reexports.is_empty());
+}
 
+/// 正向：1 op + 1 类型（镜像 `$ref`）+ 1 跨元素透传 alias ⇒ `Ok`；签名解包（`description`
+/// 不进投影）、`types` / `reexports` 各 1（纯 alias 二分单点）。
+#[test]
+fn 合法面全过() {
+    let target = "App.Backend.Core.Agent";
+    let prefix = paths::ref_relative(FQN, target);
+    let text = schema_text(
+        &format!(
+            "\"Local\": {{ \"type\": \"object\", \"properties\": {{}} }}, \
+             \"AgentInput\": {{ \"$ref\": \"{prefix}{target}.schema.json#/$defs/AgentInput\" }}"
+        ),
+        concat!(
+            r##""run": { "x-function": { "description": "跑", "params": [], "returns": "##,
+            r##"{ "type": "string" } } }, "Local": { "$ref": "#/$defs/Local" }, "##,
+            r##""AgentInput": { "$ref": "#/$defs/AgentInput" }"##,
+        ),
+    );
+    let contract = validate_schema(FQN, &text).expect("合法面应全过");
+    assert_eq!(contract.ops.len(), 1, "一个 op");
+    assert_eq!(contract.ops[0].id, "run");
+    assert_eq!(contract.ops[0].line, 0, "schema 无行号");
+    assert!(
+        contract.ops[0].signature.get("description").is_none(),
+        "`description` 不进投影：{:?}",
+        contract.ops[0].signature
+    );
+    assert!(contract.types.contains_key("Local"), "本地类型");
     assert_eq!(
-        object["$schema"],
-        json!("https://json-schema.org/draft/2020-12/schema"),
-        "方言常量取 draft 2020-12"
-    );
-    assert_eq!(
-        object["$id"],
-        json!(format!("{FQN}.schema.json")),
-        "$id = <FQN>.schema.json（不合成 URI）"
-    );
-    assert!(
-        !object["$id"].as_str().unwrap_or("").contains("http"),
-        "$id MUST NOT 是 URI"
-    );
-    assert_eq!(object["title"], json!(FQN), "title 取 H1");
-    assert!(
-        object["$defs"]
-            .as_object()
-            .is_some_and(|defs| defs.contains_key("LocalArchiCheck")),
-        "$defs 含 api-types 键"
-    );
-
-    let properties = object["properties"].as_object().expect("properties 是对象");
-    assert!(properties.contains_key("file_stem"), "properties 含 op 键");
-    assert!(
-        properties.contains_key("LocalArchiCheck"),
-        "properties 含每个 $defs 键的 $ref"
-    );
-    assert_eq!(
-        properties["LocalArchiCheck"],
-        json!({"$ref": "#/$defs/LocalArchiCheck"}),
-        "类型键的值仅一个 $ref（零结构关键字）"
-    );
-
-    let comment = object["$comment"].as_str().expect("$comment 是字符串");
-    assert!(!comment.is_empty(), "$comment 非空");
-    assert!(
-        comment.contains("勿手改"),
-        "$comment 含勿手改警示：{comment}"
-    );
-    assert!(
-        comment.contains("api:check"),
-        "$comment 含零 diff 门提示：{comment}"
+        contract.reexports.get("AgentInput").and_then(Value::as_str),
+        Some(target),
+        "跨元素纯 alias 落 `reexports`（值 = 目标 FQN）"
     );
 }
 
-/// 正向（D7）：op 键的值为 `api-op` fence 原文包进 `x-function`（零翻译）；类型键
-/// 的值为纯 `$ref`。
+/// 异常（九闸逐闸反例）：① 文本层重复键 ② 非法 JSON ③ `$id` / `title` / 文件主干三条不符
+/// ④ op 名与类型名撞名 ⑤ `properties.<k>` 兄弟键 / `$ref` 指向 `$defs` 外 ⑥ `$defs` 键无镜像
+/// ⑦ 跨元素 `$ref` 前缀差一字符 ⑧ 未知顶层键 ⑨ `x-function.params[].required` 越界 ⇒ 各一条
+/// `Err`，文案点名文件与期望值。
 #[test]
-fn build_schema的properties双来源() {
-    let contract = pilot_contract();
-    let schema = build_schema(&contract, &meta()).expect("装配应成功");
-    let properties = schema["properties"].as_object().expect("properties 是对象");
+fn 九闸各自独立可判() {
+    let target = "App.Backend.Core.Agent";
+    let prefix = paths::ref_relative(FQN, target);
+    let cases: Vec<(&str, String, &str)> = vec![
+        (
+            "① 重复键",
+            format!(
+                "{{\n  \"$id\": \"{FQN}.schema.json\",\n  \"title\": \"{FQN}\",\n  \
+                 \"$defs\": {{\"A\": {{}}, \"A\": {{}} }},\n  \"properties\": {{}}\n}}\n"
+            ),
+            "重复声明",
+        ),
+        ("② 非法 JSON", "{\n  \"$id\": ".to_owned(), "不是合法 JSON"),
+        (
+            "③ `$id` 不符",
+            format!(
+                "{{\n  \"$id\": \"App.Other.schema.json\",\n  \"title\": \"{FQN}\",\n  \
+                 \"$defs\": {{}},\n  \"properties\": {{}}\n}}\n"
+            ),
+            "App.Other.schema.json",
+        ),
+        (
+            "③ `title` 不符",
+            format!(
+                "{{\n  \"$id\": \"{FQN}.schema.json\",\n  \"title\": \"App.Other\",\n  \
+                 \"$defs\": {{}},\n  \"properties\": {{}}\n}}\n"
+            ),
+            "App.Other",
+        ),
+        (
+            "④ op 与类型撞名",
+            schema_text(
+                "\"run\": { \"type\": \"object\", \"properties\": {} }",
+                "\"run\": { \"x-function\": { \"params\": [], \"returns\": { \"type\": \"string\" } } }",
+            ),
+            "两个键空间必须互斥",
+        ),
+        (
+            "⑤ `x-function` 与兄弟键并列",
+            schema_text(
+                "",
+                "\"run\": { \"x-function\": { \"params\": [] }, \"description\": \"x\" }",
+            ),
+            "只允许恰一个键",
+        ),
+        (
+            "⑤ `$ref` 指向 `$defs` 外",
+            schema_text("", "\"Item\": { \"$ref\": \"#/$defs/Ghost\" }"),
+            "本文件 `$defs` 里没有该条目",
+        ),
+        (
+            "⑥ `$defs` 键无镜像",
+            schema_text("\"Local\": { \"type\": \"object\" }", ""),
+            "没有指向自己的镜像条目",
+        ),
+        (
+            "⑦ 跨元素前缀差一字符",
+            schema_text(
+                &format!(
+                    "\"AgentInput\": {{ \"$ref\": \"{prefix}x{target}.schema.json#/$defs/AgentInput\" }}"
+                ),
+                "\"AgentInput\": { \"$ref\": \"#/$defs/AgentInput\" }",
+            ),
+            "跨元素 `$ref` 的前缀非法",
+        ),
+        (
+            "⑧ 未知顶层键",
+            format!(
+                "{{\n  \"$id\": \"{FQN}.schema.json\",\n  \"title\": \"{FQN}\",\n  \
+                 \"$defs\": {{}},\n  \"properties\": {{}},\n  \"type\": \"object\"\n}}\n"
+            ),
+            "顶层出现未知键 `type`",
+        ),
+        (
+            "⑨ `required` 越界",
+            schema_text(
+                "\"Local\": { \"type\": \"object\", \"properties\": {}, \"required\": [\"ghost\"] }",
+                "\"Local\": { \"$ref\": \"#/$defs/Local\" }",
+            ),
+            "required 元素在同条目 `properties` 里没有对应键",
+        ),
+    ];
 
-    let op_entry = &properties["file_stem"];
-    assert!(
-        op_entry.get("x-function").is_some(),
-        "op 键值带 x-function 标记层：{op_entry}"
-    );
-    assert!(
-        op_entry["x-function"].get("params").is_some(),
-        "fence 的 params 原样透传"
-    );
-    assert!(
-        op_entry["x-function"].get("returns").is_some(),
-        "fence 的 returns 原样透传"
-    );
-}
-
-/// 异常（D7）：`properties` 的键空间唯一——op id 与类型名同名 ⇒ `ApiError::Contract`
-/// 并点名该名（后写者静默覆盖会让「操作」与「类型引用」在产物里不可辨）。
-#[test]
-fn build_schema的op与类型同名报错() {
-    let source = format!(
-        "# {FQN}\n\n### T\n\n```json api-op\n{{\"params\": []}}\n```\n\n\
-         ```json api-types\n{{\"T\": {{\"type\": \"object\"}}}}\n```\n"
-    );
-    let contract = parse(&source, FQN, FILE).expect("同名形态解析合法（歧义在装配期判）");
-    let error = build_schema(&contract, &meta()).expect_err("op id 与类型名同名应报契约错误");
-    let message = error.message();
-    assert!(
-        message.contains("`T`") && message.contains("`properties`"),
-        "文案点名撞名键与键空间：{message}"
-    );
-}
-
-/// 异常（D7）：`$defs` 的键空间唯一——`api-types` 与 `api-reexport` 同名 ⇒
-/// `ApiError::Contract` 并点名两条来源（同名即定义两次）。
-#[test]
-fn build_schema的types与reexport同名报错() {
-    let source = format!(
-        "# {FQN}\n\n```json api-types\n{{\"T\": {{\"type\": \"object\"}}}}\n```\n\n\
-         ```json api-reexport\n{{\"T\": \"App.Core.Other\"}}\n```\n\n## 透传\n\n\
-         - T → App.Core.Other\n"
-    );
-    let contract = parse(&source, FQN, FILE).expect("同名形态解析合法");
-    let error = build_schema(&contract, &meta()).expect_err("两侧同名应报契约错误");
-    let message = error.message();
-    assert!(
-        message.contains("api-types") && message.contains("api-reexport"),
-        "文案点名两条来源与撞名键：{message}"
-    );
-}
-
-/// 边界（AC-2 幂等）：`$defs` 键序 = `api-types` 声明序 + `api-reexport` 序；同输入
-/// 两次 `to_string_pretty` 字节相等。
-#[test]
-fn build_schema的defs键序保序幂等() {
-    let source = format!(
-        "# {FQN}\n\n```json api-types\n{{\"b\": {{\"type\": \"object\"}}, \
-         \"a\": {{\"type\": \"object\"}}}}\n```\n\n```json api-reexport\n\
-         {{\"c\": \"App.Backend.Infra.AgentRuntime\"}}\n```\n\n## 透传\n\n\
-         - c → App.Backend.Infra.AgentRuntime\n"
-    );
-    let contract = parse(&source, FQN, FILE).expect("保序形态合法");
-    let schema = build_schema(&contract, &meta()).expect("装配应成功");
-    let keys: Vec<&str> = schema["$defs"]
-        .as_object()
-        .expect("$defs 是对象")
-        .keys()
-        .map(String::as_str)
-        .collect();
-    assert_eq!(keys, vec!["b", "a", "c"], "键序 = 声明序（零排序、零合并）");
-
-    let first = serde_json::to_string_pretty(&schema).expect("序列化应成功");
-    let second = serde_json::to_string_pretty(&build_schema(&contract, &meta()).expect("重装配"))
-        .expect("序列化应成功");
-    assert_eq!(first, second, "同输入两次序列化字节相等");
-}
-
-/// 正向（AC-11）：透传条目为纯 `$ref`，前缀取自 `paths::ref_relative`（同域 `./`、
-/// 跨目录逐段相对路径）。
-#[test]
-fn build_schema的透传条目纯ref() {
-    for (target, expected_prefix) in [
-        ("App.Backend.Infra.AgentRuntime", "./"),
-        ("App.Backend.Core.Agent", "../Core/"),
-    ] {
-        let source = format!(
-            "# {FQN}\n\n```json api-reexport\n{{\"AgentInput\": \"{target}\"}}\n```\n\n\
-             ## 透传\n\n- AgentInput → {target}\n"
-        );
-        let contract = parse(&source, FQN, FILE).expect("透传形态合法");
-        let schema = build_schema(&contract, &meta()).expect("装配应成功");
-        let definition = &schema["$defs"]["AgentInput"];
-        assert_eq!(
-            definition,
-            &json!({
-                "$ref": format!(
-                    "{expected_prefix}{target}.schema.json#/$defs/AgentInput"
-                )
-            }),
-            "透传条目只含 $ref，前缀由 ref_relative 单点给出"
-        );
-        assert_eq!(
-            definition.as_object().map(Map::len),
-            Some(1),
-            "零结构关键字（恰一个键）"
+    for (label, text, expected) in cases {
+        let error = parse_error(validate_schema(FQN, &text));
+        assert!(error.contains(FILE), "{label} 的文案点名接口文件：{error}");
+        assert!(
+            error.contains(expected),
+            "{label} 的文案含期望串 `{expected}`：{error}"
         );
     }
 }
 
-/// 边界：空契约（零 op 零类型）→ `$defs` / `properties` 为空对象，其余四字段仍在。
+/// 边界（闸序固定）：①–② 的坏文本同时违反 ③（重复键 + `$id` 不符）⇒ 文案落在 ①（先
+/// 发生）；③–⑧ 同时违反多闸 ⇒ 文案按固定闸序取最前（identity 先于顶层键）。
 #[test]
-fn build_schema空契约六字段恒在场() {
-    for source in [
-        format!("# {FQN}\n\n## 职能\n\n正文。\n"),
-        format!("# {FQN}\n\n```json api-types\n{{}}\n```\n"),
-        format!("# {FQN}\n\n```json api-reexport\n{{}}\n```\n"),
+fn 闸序固定() {
+    let duplicated = concat!(
+        r#"{"#,
+        r#""$id": "App.Other.schema.json","#,
+        r#""title": "App.Other","#,
+        r#""$defs": {"A": {}, "A": {}},"#,
+        r#""properties": {}"#,
+        "}\n",
+    );
+    let error = parse_error(validate_schema(FQN, duplicated));
+    assert!(error.contains("重复声明"), "① 先于 ③：{error}");
+    assert!(
+        !error.contains("`$id` 是"),
+        "identity 文案不出现（被 ① 短路）：{error}"
+    );
+
+    // ③ 与 ⑧ 同时违反：identity 先发生
+    let both = concat!(
+        r#"{"#,
+        r#""$id": "App.Other.schema.json","#,
+        r#""title": "App.Other","#,
+        r#""$defs": {},"#,
+        r#""properties": {},"#,
+        r#""type": "object""#,
+        "}\n",
+    );
+    let error = parse_error(validate_schema(FQN, both));
+    assert!(error.contains("`$id` 是"), "③ 先于 ⑧：{error}");
+    assert!(!error.contains("未知键"), "顶层键闸被短路：{error}");
+}
+
+/// 边界（文本边界不 panic）：空串 / 纯空白 / 1 MB 超长 / emoji / 含 `\0` / 带 BOM ⇒ 全
+/// `Err` 且不 panic（`\0` 与 BOM 由 ② 兜）。
+#[test]
+fn 文本边界不panic() {
+    let long = "a".repeat(1024 * 1024);
+    let cases = [
+        "",
+        "   \n\t  ",
+        long.as_str(),
+        "🎯🎯🎯",
+        "{\u{0}}",
+        "\u{feff}{}",
+    ];
+    for text in cases {
+        let error = parse_error(validate_schema(FQN, text));
+        assert!(!error.is_empty(), "错误文案非空：{text:.20?}");
+    }
+}
+
+/// 异常（闸 ③ 三合一）：`$id` 缺 / 非字符串 / 不等于 `<FQN>.schema.json`；`title` ≠ FQN；
+/// 文件主干 ≠ FQN（由 `paths::schema_fqn` 反查，同名判据）⇒ 各一条 `Err` 并列期望值。
+#[test]
+fn identity三合一() {
+    let cases: [(&str, Value, &str); 5] = [
+        ("`$id` 缺", json!({"title": FQN}), "缺 `$id`"),
+        (
+            "`$id` 非字符串",
+            json!({"$id": 1, "title": FQN}),
+            "缺 `$id`",
+        ),
+        (
+            "`$id` 不符",
+            json!({"$id": "App.Other.schema.json", "title": FQN}),
+            "期望 `App.Backend.Infra.ArchiRuntime.schema.json`",
+        ),
+        ("`title` 缺", json!({"$id": FILE}), "缺 `title`"),
+        (
+            "`title` 不符",
+            json!({"$id": FILE, "title": "App.Other"}),
+            "期望 `App.Backend.Infra.ArchiRuntime`",
+        ),
+    ];
+    for (label, value, expected) in cases {
+        let error = contract_error(verify_identity(FQN, &value));
+        assert!(
+            error.contains(expected),
+            "{label} 的文案并列期望值 `{expected}`：{error}"
+        );
+    }
+    // 文件名主干的反查单点：`<FQN>.schema.json` → FQN，形态不符 ⇒ None
+    assert_eq!(paths::schema_fqn(FILE), Some(FQN), "文件名主干反查");
+}
+
+/// 正向（闸 ③ 正例与逐字判据）：三者一致（四段 / 单段两形态）⇒ `Ok`；大小写差异 / 前后
+/// 空白 / 全角字符 ⇒ `Err`（逐字相等，零归一）。
+#[test]
+fn identity正例() {
+    for fqn in [FQN, "App"] {
+        let value = json!({ "$id": format!("{fqn}.schema.json"), "title": fqn });
+        assert!(verify_identity(fqn, &value).is_ok(), "三者一致 ⇒ Ok：{fqn}");
+    }
+    for (label, id, title) in [
+        (
+            "大小写差异",
+            "app.backend.infra.archiruntime.schema.json",
+            FQN,
+        ),
+        (
+            "前后空白",
+            " App.Backend.Infra.ArchiRuntime.schema.json",
+            FQN,
+        ),
+        (
+            "全角字符",
+            "Ａpp.Backend.Infra.ArchiRuntime.schema.json",
+            FQN,
+        ),
     ] {
-        let contract = parse(&source, FQN, FILE).expect("空形态合法");
-        let schema = build_schema(&contract, &meta()).expect("装配应成功");
-        assert_eq!(schema["$defs"], json!({}), "$defs 空对象");
-        assert_eq!(schema["properties"], json!({}), "properties 空对象");
-        for key in ["$schema", "$id", "title", "$comment"] {
+        let value = json!({ "$id": id, "title": title });
+        let error = contract_error(verify_identity(FQN, &value));
+        assert!(!error.is_empty(), "{label} 逐字判据 ⇒ Err：{error}");
+    }
+}
+
+/// 异常（闸 ④）：同名既是 op（带 `x-function`）又是 `$defs` 键 ⇒ `Err` 点名两键空间；
+/// 正例：两键集不相交、`$defs` 空 / `properties` 空、仅 `properties` 有非 op 的 `$ref`
+/// 镜像键 ⇒ 全 `Ok`（判的是「同名两用」，不是「properties 与 `$defs` 无重名」）。
+#[test]
+fn 同名不成两用() {
+    let collision = json!({
+        "$defs": {"run": {"type": "object"}},
+        "properties": {"run": {"x-function": {"params": []}}},
+    });
+    let error = contract_error(verify_keyspace(&collision));
+    assert!(
+        error.contains("run") && error.contains("互斥"),
+        "点名撞名键与两键空间：{error}"
+    );
+
+    for (label, value) in [
+        (
+            "不相交",
+            json!({"$defs": {"T": {"type": "object"}}, "properties": {"run": {"x-function": {}}}}),
+        ),
+        (
+            "镜像键同名（合法）",
+            json!({"$defs": {"T": {"type": "object"}}, "properties": {"T": {"$ref": "#/$defs/T"}}}),
+        ),
+        ("两表皆空", json!({"$defs": {}, "properties": {}})),
+    ] {
+        assert!(verify_keyspace(&value).is_ok(), "{label} ⇒ Ok");
+    }
+}
+
+/// 异常（闸 ⑤ 白名单）：`{x-function: 非对象}` / `{x-function, $ref}` 双键 / `$ref` 指向
+/// `$defs` 外 / `properties.<k>` 空对象 / 为数组 ⇒ 各一条 `Err`；正例：`x-function` 内层
+/// 自由（含将来未知键）、`$ref` 指向在册 `$defs`、`properties {}` 空 ⇒ `Ok`。
+#[test]
+fn 形态恰一键() {
+    let cases: [(&str, Value, &str); 5] = [
+        (
+            "x-function 非对象",
+            json!({"properties": {"run": {"x-function": "not-object"}}}),
+            "必须是对象",
+        ),
+        (
+            "双键并列",
+            json!({"properties": {"run": {"x-function": {}, "$ref": "#/$defs/T"}}}),
+            "只允许恰一个键",
+        ),
+        (
+            "$ref 越界",
+            json!({"$defs": {}, "properties": {"T": {"$ref": "#/$defs/Ghost"}}}),
+            "没有该条目",
+        ),
+        ("空对象", json!({"properties": {"T": {}}}), "形态非法"),
+        ("数组形态", json!({"properties": {"T": []}}), "形态非法"),
+    ];
+    for (label, value, expected) in cases {
+        let error = contract_error(verify_shape(&value));
+        assert!(error.contains(expected), "{label} ⇒ {expected}：{error}");
+    }
+
+    assert!(
+        verify_shape(&json!({"properties": {"run": {"x-function": {"deprecated": true}}}})).is_ok(),
+        "x-function 内层自由"
+    );
+    assert!(
+        verify_shape(&json!({"$defs": {"T": {}}, "properties": {"T": {"$ref": "#/$defs/T"}}}))
+            .is_ok(),
+        "指向在册 `$defs` ⇒ Ok"
+    );
+    assert!(
+        verify_shape(&json!({"properties": {}})).is_ok(),
+        "空表 ⇒ Ok"
+    );
+}
+
+/// 异常（闸 ⑥）：`$defs.<名>` 无 `properties.<名>` 的自我 `$ref` / `$ref` 指向别的名字 ⇒
+/// 各一条 `Err`；正例：全镜像 ⇒ `Ok`，`$defs {}` ⇒ `Ok`（无类型即无镜像要求）。
+#[test]
+fn defs每键须自我镜像() {
+    let missing = json!({"$defs": {"T": {"type": "object"}}, "properties": {}});
+    let error = contract_error(verify_mirror(&missing));
+    assert!(
+        error.contains("T") && error.contains("镜像"),
+        "点名缺镜像的 `$defs` 键：{error}"
+    );
+
+    let wrong = json!({
+        "$defs": {"T": {"type": "object"}, "U": {"type": "object"}},
+        "properties": {"T": {"$ref": "#/$defs/U"}, "U": {"$ref": "#/$defs/U"}},
+    });
+    assert!(
+        contract_error(verify_mirror(&wrong)).contains("T"),
+        "指向别的名字 ⇒ Err"
+    );
+
+    assert!(
+        verify_mirror(
+            &json!({"$defs": {"T": {"type": "object"}}, "properties": {"T": {"$ref": "#/$defs/T"}}})
+        )
+        .is_ok(),
+        "全镜像 ⇒ Ok"
+    );
+    assert!(
+        verify_mirror(&json!({"$defs": {}})).is_ok(),
+        "无类型无镜像要求"
+    );
+}
+
+/// 异常（闸 ⑦）：同 crate 兄弟 / 跨 crate / 越根三形态——前缀 == `ref_relative` 输出 ⇒ `Ok`；
+/// 差一字符 / 少一层 `../` / 多一段目录 ⇒ `Err` 且文案并列当前串与期望串。
+#[test]
+fn 前缀由ref_relative单点决定() {
+    let siblings = [
+        "App.Backend.Infra.AgentRuntime",
+        "App.Backend.Core.Agent",
+        "App.Frontend.Views.Welcome",
+    ];
+    for target in siblings {
+        let prefix = paths::ref_relative(FQN, target);
+        let ok =
+            json!({"$defs": {"X": {"$ref": format!("{prefix}{target}.schema.json#/$defs/X")}}});
+        assert!(
+            verify_ref_prefix(FQN, &ok).is_ok(),
+            "前缀 == ref_relative 输出 ⇒ Ok：{target} / {prefix}"
+        );
+
+        for bad in [
+            format!("{prefix}x{target}.schema.json#/$defs/X"),
+            format!("{target}.schema.json#/$defs/X"),
+            format!("{prefix}extra/{target}.schema.json#/$defs/X"),
+        ] {
+            let value = json!({"$defs": {"X": {"$ref": bad}}});
+            let error = contract_error(verify_ref_prefix(FQN, &value));
             assert!(
-                schema.get(key).is_some(),
-                "六字段恒在场（缺 {key}）：{source}"
+                error.contains("当前串") && error.contains("期望"),
+                "文案并列当前串与期望串：{error}"
             );
         }
     }
 }
 
-/// 边界：200 op + 1000 `$defs` 键的大契约 → 装配成功、键数逐项相等；单条超长
-/// `description`（>1000 chars）原样透传。
+/// 边界（闸 ⑦ 不判面）：本模块内 `#/$defs/<名>`（零文件部分）⇒ 不作跨元素判（`Ok`）；
+/// `$ref` 非字符串（形态闸管）与无 `.schema.json` 后缀的目标 ⇒ 不进入前缀判。
 #[test]
-fn build_schema大契约原样透传() {
-    let long = "描".repeat(1200);
-    let mut types = String::from("{");
-    for index in 0..1000 {
-        if index > 0 {
-            types.push(',');
-        }
-        types.push_str(&format!("\"T{index}\": {{\"type\": \"object\"}}"));
-    }
-    types.push_str(&format!(
-        ",\"Long\": {{\"type\": \"object\", \"description\": \"{long}\"}}}}"
-    ));
-
-    let mut source = format!("# {FQN}\n\n## 操作\n\n");
-    for index in 0..200 {
-        source.push_str(&format!(
-            "### op{index}\n\n```json api-op\n{{\"params\": []}}\n```\n\n"
-        ));
-    }
-    source.push_str(&format!("```json api-types\n{types}\n```\n"));
-
-    let contract = parse(&source, FQN, FILE).expect("大契约应解析成功");
-    let schema = build_schema(&contract, &meta()).expect("装配应成功");
-
-    assert_eq!(
-        schema["$defs"].as_object().map(Map::len),
-        Some(1001),
-        "1000 声明 + 1 长描述"
+fn 本模块不判前缀() {
+    assert!(
+        verify_ref_prefix(FQN, &json!({"$defs": {"X": {"$ref": "#/$defs/X"}}})).is_ok(),
+        "本模块引用零文件部分 ⇒ Ok"
     );
-    assert_eq!(
-        schema["properties"].as_object().map(Map::len),
-        Some(1201),
-        "200 op + 1001 类型键"
+    assert!(
+        verify_ref_prefix(FQN, &json!({"$defs": {"X": {"$ref": 1}}})).is_ok(),
+        "非字符串 `$ref` 不在本闸射程"
     );
-    assert_eq!(
-        schema["$defs"]["Long"]["description"],
-        json!(long),
-        "超长描述原样透传（零改写）"
+    assert!(
+        verify_ref_prefix(
+            FQN,
+            &json!({"$defs": {"X": {"$ref": "App.Other#/$defs/X"}}})
+        )
+        .is_ok(),
+        "无 `.schema.json` 后缀 ⇒ 不是跨元素引用"
     );
 }
 
-/// 异常：`api-types` 值为非对象（字符串 / 数组 / `null`）→ 解析期即 `Err`（fence 内容
-/// 必须是 JSON 对象）；`api-op` fence 内容为非对象亦 `Err`。
+/// 异常（闸 ⑧）：六键外任一（`additionalProperties` / `definitions` / `type`）⇒ `Err`；
+/// 缺 `$id` / `title` / `$defs` / `properties` 各一臂 ⇒ `Err`；边界：`$schema` / `$comment`
+/// 可选（在场 / 缺席两臂）⇒ `Ok`；顶层值非对象 ⇒ `Err`。
 #[test]
-fn build_schema非法类型值() {
-    for (fence, body) in [
-        ("api-types", "\"just a string\""),
-        ("api-types", "[1, 2, 3]"),
-        ("api-types", "null"),
-        ("api-op", "\"not an object\""),
-    ] {
-        let source = if fence == "api-types" {
-            format!("# {FQN}\n\n```json api-types\n{body}\n```\n")
-        } else {
-            format!("# {FQN}\n\n### op\n\n```json api-op\n{body}\n```\n")
-        };
-        let error = match parse(&source, FQN, FILE) {
-            Ok(contract) => panic!("非对象 fence 内容应报错，实际 Ok：{contract:?}"),
-            Err(ApiError::Contract(message)) => message,
-            Err(other) => panic!("期望 ApiError::Contract，实际：{other:?}"),
-        };
-        assert!(error.contains(fence), "文案点名 fence（{fence}）：{error}");
+fn 顶层键封闭() {
+    for extra in ["additionalProperties", "definitions", "type"] {
+        let mut value = json!({"$id": FILE, "title": FQN, "$defs": {}, "properties": {}});
+        value[extra] = json!({});
+        let error = contract_error(verify_top_level_keys(&value));
+        assert!(error.contains(extra), "点名未知键 `{extra}`：{error}");
     }
-
-    // api-reexport 的值必须是子元素 FQN 字符串（build_schema 侧的判据）
-    let source = format!(
-        "# {FQN}\n\n```json api-reexport\n{{\"AgentInput\": 42}}\n```\n\n\
-         ## 透传\n\n- AgentInput → App.Backend.Infra.AgentRuntime\n"
-    );
-    let contract = parse(&source, FQN, FILE).expect("结构合法的 reexport 值形态");
-    let error = build_error(build_schema(&contract, &meta()));
-    assert!(error.contains("AgentInput"), "点名违规的透传键：{error}");
-    assert!(
-        error.contains("FQN") || error.contains("字符串"),
-        "点明值的形态要求：{error}"
-    );
+    for missing in ["$id", "title", "$defs", "properties"] {
+        let mut value = json!({"$id": FILE, "title": FQN, "$defs": {}, "properties": {}});
+        value.as_object_mut().expect("对象").remove(missing);
+        let error = contract_error(verify_top_level_keys(&value));
+        assert!(error.contains(missing), "点名缺键 `{missing}`：{error}");
+    }
+    for with_optional in [
+        json!({"$id": FILE, "title": FQN, "$defs": {}, "properties": {}}),
+        json!({"$schema": "draft", "$comment": "注", "$id": FILE, "title": FQN, "$defs": {}, "properties": {}}),
+    ] {
+        assert!(
+            verify_top_level_keys(&with_optional).is_ok(),
+            "可选键缺省/在场两臂"
+        );
+    }
+    for illegal in [json!([1, 2]), json!("x")] {
+        let error = contract_error(verify_top_level_keys(&illegal));
+        assert!(
+            error.contains("顶层必须是 JSON 对象"),
+            "非对象 ⇒ Err：{error}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -401,30 +574,32 @@ fn verify_defs键值必须是对象() {
 /// **文本层**判——`serde_json::from_str` 在解析阶段即把重复键折叠（后者胜、前者消失），
 /// `verify_defs` 的 `&Value` 入参结构上不可达该形态。本用例钉住两侧：
 ///
-/// ① **重复键即契约错误**（判据落 `contract::parse` 的 fence 文本层）：同一 `api-types`
-///    fence 里重复声明同一键 → `parse` 返回 `Err(ApiError::Contract(..))`，文案点名该键；
+/// ① **重复键即契约错误**（判据落文本层 `duplicate_keys`）：同一 `$defs` 对象里重复声明
+///    同一键 → `validate_schema` 返回 `Err(ApiError::Contract(..))`，文案点名该键；
 /// ② **身份 = 键名的判据本身成立**：键名精确比较（不归一、不合并、不加别名）——
 ///    `A` 与 `a` 是两个键、两键各留一份定义、`verify_defs` 前后键数不变（零副作用）。
 #[test]
 fn verify_defs键名身份唯一在文本层判() {
-    // ① 重复键在文本层即被拦下（D37：这是唯一可判处）
-    let duplicated_fence = format!(
-        "# {FQN}\n\n```json api-types\n{{\"A\": {{\"type\": \"object\"}}, \
-         \"A\": {{\"enum\": [\"x\"]}}}}\n```\n"
+    // ① 重复键在文本层即被拦下（D37：这是唯一可判处；`serde_json` 会折叠重复键，
+    //    故夹具必须是**原始文本**而非解析后的值）
+    let duplicated = format!(
+        "{{\"$id\": \"{FQN}.schema.json\", \"title\": \"{FQN}\", \"$defs\": \
+         {{\"A\": {{\"type\": \"object\"}}, \"A\": {{\"enum\": [\"x\"]}}}}, \
+         \"properties\": {{}}}}\n"
     );
     assert_eq!(
-        duplicated_fence.matches("\"A\"").count(),
+        duplicated.matches("\"A\":").count(),
         2,
-        "源文里同名键声明了两次（判据的前提面）"
+        "文本里同名键声明了两次（判据的前提面）"
     );
-    let error = parse_error(parse(&duplicated_fence, FQN, FILE));
+    let error = parse_error(super::schema::validate_schema(FQN, &duplicated));
     assert!(
         error.contains("重复声明") && error.contains('A'),
         "点名重复键与「同名即定义两次」：{error}"
     );
     assert!(
         error.contains(FILE),
-        "文案带 `file:line` 前缀（可直接改到那一行）：{error}"
+        "文案带文件名与行号前缀（可直接改到那一行）：{error}"
     );
 
     // ② 身份 = 键名的判据成立：键名精确比较、零归一、零合并、零别名
@@ -725,6 +900,21 @@ fn build_index说明段三行与语言词禁令() {
     assert!(
         lines[1].contains("review") && lines[1].contains("<FQN>.md"),
         "次行 review 口径（只读元素目录下的 md）：{}",
+        lines[1]
+    );
+    assert!(
+        lines[1].contains("<FQN>.schema.json"),
+        "次行把接口定义文件（手写真相）与文档并列：{}",
+        lines[1]
+    );
+    assert!(
+        lines[1].contains("手写真相"),
+        "次行点明 schema 是手写真相、生成物才是机械噪声：{}",
+        lines[1]
+    );
+    assert!(
+        lines[1].contains("declared") && lines[1].contains("接口文件在案"),
+        "次行说明 status 的 declared = 接口文件在案（值域命名债的注解）：{}",
         lines[1]
     );
     assert!(
@@ -1536,10 +1726,11 @@ fn verify_defs既有规则零回归() {
     );
 
     let duplicated = format!(
-        "# {FQN}\n\n```json api-types\n{{\"A\": {{\"type\": \"object\"}}, \
-         \"A\": {{\"enum\": [\"x\"]}}}}\n```\n"
+        "{{\"$id\": \"{FQN}.schema.json\", \"title\": \"{FQN}\", \"$defs\": \
+         {{\"A\": {{\"type\": \"object\"}}, \"A\": {{\"enum\": [\"x\"]}}}}, \
+         \"properties\": {{}}}}\n"
     );
-    let duplicate_error = parse_error(parse(&duplicated, FQN, FILE));
+    let duplicate_error = parse_error(super::schema::validate_schema(FQN, &duplicated));
     assert!(
         duplicate_error.contains("重复声明"),
         "同名两次（文本层判据）：{duplicate_error}"
@@ -1638,4 +1829,38 @@ fn build_index说明段与条目规模无关() {
     assert_eq!(single.len(), 3, "单条目说明段三行：{single:?}");
     assert_eq!(wide.len(), 3, "41 条说明段三行：{wide:?}");
     assert_eq!(single, wide, "说明段不随条目数变化（同输入同输出）");
+}
+
+// ---------------------------------------------------------------------------
+// 退役面：生成器让位而注记分家
+// ---------------------------------------------------------------------------
+
+/// 异常（AC-2 / AC-5 源码自证）：`build_schema` 零命中（生成器不再产接口文件）；
+/// `GENERATED_NOTICE` 逐字保留（`.i.*` 字节不变的前提）；`SCHEMA_WRITER_NOTICE` 在场且含
+/// 「手写接口真相」与 `archi_api` 的 `check` 自查。
+#[test]
+fn 生成器让位而注记分家() {
+    let source = include_str!("schema.rs");
+    assert_eq!(
+        source.matches("pub fn build_schema").count(),
+        0,
+        "`build_schema` 已退役（接口文件是手写资产）"
+    );
+    let module = include_str!("mod.rs");
+    for needle in ["本文件由元素的契约 markdown 生成", "勿手改", "api:check"] {
+        assert!(
+            module.contains(needle),
+            "`GENERATED_NOTICE` 逐字保留（缺 `{needle}`）"
+        );
+    }
+    for needle in ["手写接口真相", "`archi_api` 的 `check`"] {
+        assert!(
+            module.contains(needle),
+            "`SCHEMA_WRITER_NOTICE` 含 `{needle}`"
+        );
+    }
+    assert!(
+        module.matches("SCHEMA_WRITER_NOTICE").count() >= 2,
+        "写者纪律注在案并被骨架使用"
+    );
 }

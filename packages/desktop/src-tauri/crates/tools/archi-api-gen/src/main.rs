@@ -1,7 +1,10 @@
-//! 模块 API 契约生成器的 CLI 入口：`generate` / `--check` / `bootstrap` 三子命令编排 +
-//! 退出码。判定（契约解析 / `$defs` 规则 / 十条判据 / 渲染 / 比对）全在
+//! 模块 API 接口生成器的 CLI 入口：`generate` / `--check` / `bootstrap` 三子命令编排 +
+//! 退出码。判定（接口校验 / `$defs` 规则 / 十条判据 / 渲染 / 比对）全在
 //! `crates/core/archi`，生成物写盘单点在 `crates/infra/archi::api_artifacts`——本文件
 //! 零判定、零文件系统写调用、零本地目录遍历实现。
+//!
+//! **三类生成物**（`INDEX.toml` / `.i.rs` / `.i.ts`）：手写的 `<FQN>.schema.json` 与
+//! `<FQN>.md` 不是生成物，故既不写也不比对。
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -14,7 +17,7 @@ use archi::ArtifactDiff;
 /// CLI 子命令（封闭四值；未知参数归 `Usage`）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Command {
-    /// 写四类生成物（幂等）
+    /// 写三类生成物（幂等）
     Generate,
     /// 生成到内存后与磁盘比对，零写入
     Check,
@@ -71,16 +74,20 @@ pub(crate) fn run(command: Command, root: &Path) -> Result<i32, String> {
             Ok(1)
         }
         Command::Bootstrap(element) => {
-            let text = api::bootstrap(root, &element).map_err(|error| error.message())?;
-            println!("{text}");
+            let drafts = api::bootstrap(root, &element).map_err(|error| error.message())?;
+            // 单行 JSON：两段草稿各自可直接落盘（`schema` 骨架过写闸、`doc` 只有 H1 与一句指引）
+            println!(
+                "{}",
+                serde_json::json!({ "schema": drafts.schema, "doc": drafts.doc })
+            );
             Ok(0)
         }
         Command::Usage => {
             println!(
                 "用法：archi-api-gen <子命令>\n\
-                 \x20 generate            写四类生成物（schema.json / INDEX.toml / .i.rs / .i.ts）\n\
+                 \x20 generate            写三类生成物（INDEX.toml / .i.rs / .i.ts）\n\
                  \x20 --check             读盘比对，零写入；有差异即非零退出并列清单\n\
-                 \x20 bootstrap <元素>    输出契约草稿到 stdout（不写盘）"
+                 \x20 bootstrap <元素>    输出双草稿（schema + doc）的 JSON 到 stdout（不写盘）"
             );
             Ok(2)
         }

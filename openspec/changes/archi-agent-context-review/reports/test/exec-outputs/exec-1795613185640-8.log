@@ -1,0 +1,21 @@
+
+=== packages_desktop_vite-plus (vite-plus) · files=3 ===
+[32m21:26:35 (24136) INFO ProjectReader[39m Found 3 of 60379 file(s) to be mutated.
+[32m21:26:35 (24136) INFO Instrumenter[39m Instrumented 3 source file(s) with 323 mutant(s)
+[32m21:26:37 (24136) INFO ConcurrencyTokenProvider[39m Creating 8 test runner process(es).
+[32m21:27:11 (24136) INFO DryRunExecutor[39m Starting initial test run (vitest test runner with "perTest" coverage analysis). This may take a while.
+[32m21:27:46 (24136) INFO DryRunExecutor[39m Initial test run succeeded. Ran 376 tests in 34 seconds (net 18066.056000000004 ms, overhead 16234.943999999996 ms).
+[32m21:31:23 (24136) INFO JsonReporter[39m Your report can be found at: file:///D:/Projects/.worktrees/wps-claude-plugin/archi-agent-context-review/openspec/changes/archi-agent-context-review/reports/test/packages_desktop_vite-plus/mutation/mutation-seg-0.json
+[32m21:31:23 (24136) INFO MutationTestExecutor[39m Done in 4 minutes and 55 seconds.
+npm warn EBADDEVENGINES The developer of this package has specified the following through devEngines
+npm warn EBADDEVENGINES Invalid devEngines.packageManager
+npm warn EBADDEVENGINES Invalid name "pnpm" does not match "npm" for "packageManager"
+npm warn EBADDEVENGINES {
+npm warn EBADDEVENGINES   current: { name: 'npm', version: '11.20.0' },
+npm warn EBADDEVENGINES   required: { name: 'pnpm', onFail: 'warn' }
+npm warn EBADDEVENGINES }
+
+=== packages_desktop_src-tauri_rust (rust) · files=56 ===
+Found 223 mutants to test
+MISSED   crates/infra/agent/src/sdk/archi_tool.rs:240:27: replace || with && in ArchiContext::link_payload in 11s build + 53s test
+223 mutants tested in 30m: 1 missed, 186 caught, 36 unviable

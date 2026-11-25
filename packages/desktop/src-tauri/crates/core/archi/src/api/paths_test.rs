@@ -13,19 +13,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use foundation::layout::{archi_graph_dir, archi_models_dir};
 
-use crate::api::contract::parse;
 use crate::api::emit::ts::render as render_ts;
 use crate::api::emit::{EmitTarget, ModuleRef};
-use crate::api::mod_test::declare_ancestors;
-use crate::api::schema::build_schema;
+use crate::api::mod_test::{declare_ancestors, mirrored_schema_text, reexport_def};
 use crate::api::{load_contracts, meta, render_all};
 use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
 
 use super::paths::{
-    contract_path, dir_segments, directory, entry_candidates, entry_state, generated_kind,
-    generated_path, index_path, is_module_segment, language_of, module_name, normalize_root,
-    ref_relative, rust_module_path, schema_path, ts_import_specifier, EntryForm, EntryProblem,
-    EntryState, GeneratedKind, Language,
+    checked_root, contract_path, dir_segments, directory, entry_candidates, entry_state,
+    generated_kind, generated_path, index_path, is_fqn, is_module_segment, language_of,
+    module_name, normalize_root, ref_relative, rust_module_path, schema_fqn, schema_path,
+    ts_import_specifier, EntryForm, EntryProblem, EntryState, GeneratedKind, Language,
 };
 
 // ---------------------------------------------------------------------------
@@ -83,13 +81,16 @@ impl TempDir {
         );
     }
 
-    /// 落契约（`<archi_models_dir>/<分层目录…>/<FQN>.md`）。
-    fn write_contract(&self, fqn: &str, content: &str) {
+    /// 落两资产：文档（`<archi_models_dir>/<分层目录…>/<FQN>.md`，只为「在盘」这一事实）+
+    /// 手写接口定义原文（`.schema.json`）。渲染的输入面是接口定义，两资产成对落盘。
+    fn write_contract(&self, fqn: &str, schema: &str) {
         let path = contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).expect("创建契约目录失败");
         }
-        fs::write(&path, content).expect("写契约失败");
+        fs::write(&path, super::mod_test::doc_of(fqn)).expect("写契约失败");
+        let schema_path = super::paths::schema_path(self.root(), fqn).expect("合法 FQN");
+        fs::write(schema_path, schema).expect("写接口定义失败");
     }
 }
 
@@ -1914,8 +1915,8 @@ fn 形态判据三单点各一处定义() {
     // `checked_root` 1 + `doc_path` 1 + 基准 / 落位两条判据各 1
     assert_eq!(
         source.matches("is_repo_relative(").count(),
-        5,
-        "`is_repo_relative` 无第二份实现（定义 1 + 四处判据消费）"
+        4,
+        "`is_repo_relative` 无第二份实现（定义 1 + 三处判据消费：`checked_root` / 入口基准 / 落位）"
     );
 }
 
@@ -2044,13 +2045,16 @@ fn module_refs的rust分支筛选() {
     // 同一份透传声明由两个消费方共用：B 末段 `welcome-view.tsx`（非法模块段）、
     // C 的 `./` 归一后为空末段（语言无关的退化）
     let reexports = |fqn: &str| {
-        format!(
-            "# {fqn}\n\n## 职能\n\n正文。\n\n\
-             ```json api-reexport\n{{\"AgentView\": \"{dotted_target}\", \
-             \"Empty\": \"{empty_target}\", \"Base\": \"{valid_target}\"}}\n```\n\n\
-             ## 透传\n\n- AgentView → {dotted_target}\n- Empty → {empty_target}\n\
-             - Base → {valid_target}\n\n\
-             ```json api-types\n{{\"Thing\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+        mirrored_schema_text(
+            fqn,
+            &format!(
+                "{}, {}, {}, {}",
+                reexport_def(fqn, "AgentView", dotted_target),
+                reexport_def(fqn, "Empty", empty_target),
+                reexport_def(fqn, "Base", valid_target),
+                r#""Thing": {"type": "object", "properties": {}}"#
+            ),
+            "",
         )
     };
 
@@ -2068,8 +2072,11 @@ fn module_refs的rust分支筛选() {
     // B：被透传的 TS 元素（同一个带扩展名的元素根，也有自己的入口 → 自带 `.i.ts`）
     temp.write_contract(
         dotted_target,
-        "# App.Frontend.Views.Welcome\n\n## 职能\n\n正文。\n\n\
-         ```json api-types\n{\"Item\": {\"type\": \"object\", \"properties\": {}}}\n```\n",
+        &mirrored_schema_text(
+            dotted_target,
+            r#""Item": {"type": "object", "properties": {}}"#,
+            "",
+        ),
     );
     temp.write("views/welcome-view.tsx", "export interface Item {}\n");
 
@@ -2188,12 +2195,9 @@ fn module_refs的rust分支筛选() {
 fn render的from经ts_string_literal() {
     let fqn = "App.Backend.Infra.ArchiRuntime";
     let file = ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.md";
-    let source = format!(
-        "# {fqn}\n\n```json api-reexport\n{{\"Archived\": \"{fqn}\"}}\n```\n\n\
-         ## 透传\n\n- Archived → {fqn}\n"
-    );
-    let contract = parse(&source, fqn, file).expect("契约应解析成功");
-    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
+    let source = mirrored_schema_text(fqn, &reexport_def(fqn, "Archived", fqn), "");
+    let (contract, schema): (crate::api::contract::Contract, serde_json::Value) =
+        crate::api::mod_test::prepare(&source, fqn, file);
 
     for name in ["it's", "a\\b", "a\nb"] {
         let mut modules = BTreeMap::new();
@@ -2700,225 +2704,117 @@ fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
     &rest[..end]
 }
 
-// ===========================================================================
-// `doc` 载体路径：`doc_path` 归一 + 形态闸、`carrier_path` 派生单点
-//
-// `doc` 是模型单值原文（不归一、不清洗）；把原文变成可探测路径只有 [`doc_path`]
-// 一条路，`declared` / `none` 的载体开关只有 [`carrier_path`] 一条路。
-// ===========================================================================
+// ---------------------------------------------------------------------------
+// schema_fqn：`<FQN>.schema.json` 去后缀的唯一反查
+// ---------------------------------------------------------------------------
 
-use super::paths::{carrier_path, doc_path, is_repo_relative};
-
-/// 正向：四种原文写法经 `doc_path` 归一（剥前导 `./`、反斜杠归一、去尾 `/`）后与
-/// `root.join(归一值)` 逐字相等。
+/// 正向：`App.Auth.schema.json` ⇒ `Some("App.Auth")`；四段 FQN 同式；与
+/// `schema_path` 的落盘名往返一致（同一后缀常量）。
 #[test]
-fn doc_path正向_归一后与root拼接() {
-    let root = Path::new("/ws");
-    let cases = [
-        ("./src/auth/README.md", "src/auth/README.md"),
-        ("src\\auth\\README.md", "src/auth/README.md"),
-        ("./docs/a.md/", "docs/a.md"),
-        ("a/b/c/d/e.md", "a/b/c/d/e.md"),
-    ];
-    for (raw, normalized) in cases {
-        let path = doc_path(root, raw).unwrap_or_else(|| panic!("合法形态应可派生：{raw:?}"));
-        assert_eq!(path, root.join(normalized), "归一后拼接：{raw:?}");
-        assert!(dot_segments(&path).is_empty(), "零目录穿越段：{raw:?}");
+fn 文件名反查唯一() {
+    assert_eq!(schema_fqn("App.Auth.schema.json"), Some("App.Auth"));
+    assert_eq!(
+        schema_fqn("App.Backend.Infra.ArchiRuntime.schema.json"),
+        Some("App.Backend.Infra.ArchiRuntime")
+    );
+    for fqn in ["App.Auth", "App.Backend.Infra.ArchiRuntime"] {
+        let path = schema_path(Path::new(""), fqn).expect("合法 FQN");
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("文件名");
+        assert_eq!(schema_fqn(name), Some(fqn), "落盘名往返一致：{name}");
+    }
+    assert_eq!(
+        schema_fqn("App.schema.json"),
+        Some("App"),
+        "单段 FQN ⇒ Some"
+    );
+}
+
+/// 异常：`App.Auth.md` / `schema.json`（零主干）/ `X.schema.JSON`（大写）/ 空串 ⇒ 全 `None`。
+#[test]
+fn 非schema名零命中() {
+    for name in ["App.Auth.md", "schema.json", "X.schema.JSON", ""] {
+        assert_eq!(schema_fqn(name), None, "非接口文件名零命中：{name:?}");
     }
 }
 
-/// 异常：绝对前缀 / 盘符 / `~` / `..` / `.` / 空段 / 空串一律 `None`——`join` 越根的
-/// 安全边界（放行即任意文件读取面）。
+/// 边界：超长名 / 含 emoji / 多重后缀 `.schema.json.json` ⇒ 按既有后缀规则裁定、`None` 或
+/// 去一层后缀（不 panic）；单段 FQN ⇒ `Some`。
 #[test]
-fn doc_path异常_越根形态一律none() {
-    let root = Path::new("/ws");
-    for raw in [
-        "",
-        "/abs/a.md",
-        "~/a.md",
-        "~user/a.md",
-        "C:/a.md",
-        "c:a.md",
-        "a/../b.md",
-        "a//b.md",
-        "a/./b.md",
-        ".",
-        "docs/..",
-    ] {
-        assert!(doc_path(root, raw).is_none(), "越根形态应拒绝：{raw:?}");
-    }
-}
-
-/// 边界：超长合法串 / 中文与 emoji 段 / 单段 / root 三形态同源——判据只看形态，
-/// 不清洗内容。
-#[test]
-fn doc_path边界_超长与特殊字符与root三形态() {
-    let long = format!("guides/{}.md", "a".repeat(1200));
+fn 边界不panic() {
+    let long = format!("{}.schema.json", "a".repeat(1200));
     assert!(
-        doc_path(Path::new("/ws"), &long).is_some(),
-        "超长但形态合法即放行"
+        schema_fqn(&long).is_some_and(|stem| stem.len() == 1200),
+        "超长名仍按后缀切分"
     );
-
-    let exotic = doc_path(Path::new("/ws"), "文档/入口🚀.md").expect("中文与 emoji 段合法");
     assert_eq!(
-        exotic,
-        Path::new("/ws").join("文档/入口🚀.md"),
-        "判据只看形态，不清洗内容"
+        schema_fqn("App.🎯.schema.json"),
+        Some("App.🎯"),
+        "emoji 主干原样保留"
     );
-
     assert_eq!(
-        doc_path(Path::new("/ws"), "a.md"),
-        Some(Path::new("/ws").join("a.md")),
-        "单段路径合法"
+        schema_fqn("App.schema.json.json"),
+        None,
+        "后缀不在串尾 ⇒ None（后缀常量唯一，零模糊匹配）"
     );
+}
 
-    // root 三形态（空 / 尾分隔符 / 含空格与中文）——派生同源，尾段逐字相同
-    let roots = [
-        Path::new(""),
-        Path::new("/ws/"),
-        Path::new("/ws 含 空格/中文根"),
-    ];
-    for root in roots {
-        let path = doc_path(root, "docs/a.md").unwrap_or_else(|| panic!("root 形态合法：{root:?}"));
-        assert!(
-            path.ends_with("docs/a.md"),
-            "尾段逐字相同（root 形态不改变派生）：{path:?}"
-        );
+// ---------------------------------------------------------------------------
+// 形态判据的可见性：`is_fqn` / `checked_root`（写闸与 link 共用同一判据）
+// ---------------------------------------------------------------------------
+
+/// 边界：`is_fqn` 已提为 `pub`（`link` 的 FQN 形态判据复用）；合法四段 / 单段 / 空串 /
+/// 带中划线四形态逐值。
+#[test]
+fn link复用同一判据() {
+    for valid in ["App", "App.Auth", "App.Backend.Infra.ArchiRuntime"] {
+        assert!(is_fqn(valid), "合法 FQN：{valid}");
+    }
+    for invalid in ["", "App..Auth", "App.", "App/Auth", "C:App"] {
+        assert!(!is_fqn(invalid), "非法 FQN：{invalid:?}");
     }
 }
 
-/// 正向：`carrier_path` 的 `api` 开关两臂——`declared` 恒取派生契约落点（`doc` 有值
-/// 也同），`none` 取 `doc` 声明的落点。
+/// 边界：`checked_root` 已提为 `pub(crate)`（写面 `path_on_disk` 复用「归一 + 越根」判据）
+/// ——`""` / `"."` / `"./"` / `"a/./b"` / `"../x"` / 绝对路径六形态与 `entry_state` 同判据；
+/// 两次调用幂等。
 #[test]
-fn carrier_path正向_两臂各自取数() {
-    let root = Path::new("/ws");
-    let fqn = "App.Auth";
-    let mut subject = element(fqn, &["src/auth/"]);
-    subject.doc = Some("./src/auth/README.md".to_owned());
+fn 写面复用同一归一() {
+    assert_eq!(checked_root(""), None, "空串越根");
+    assert_eq!(checked_root("."), None, "单个点段越根");
+    assert_eq!(checked_root("./"), None, "点斜杠归一后为空");
+    assert_eq!(checked_root("a/./b"), None, "含点段");
+    assert_eq!(checked_root("../x"), None, "越根");
+    assert_eq!(checked_root("/etc/passwd"), None, "绝对路径");
     assert_eq!(
-        carrier_path(root, &subject),
-        contract_path(root, fqn),
-        "declared 恒取派生契约落点（`doc` 不参与）"
+        checked_root("./src/alpha/"),
+        Some("src/alpha".to_owned()),
+        "合法形态归一去前导点斜杠与尾斜杠"
     );
-
-    let mut blank = element(fqn, &["src/auth/"]);
-    blank.api = ApiStatus::None;
-    blank.doc = Some("./src/auth/README.md".to_owned());
     assert_eq!(
-        carrier_path(root, &blank),
-        doc_path(root, "./src/auth/README.md"),
-        "none 取 `doc` 声明落点"
+        checked_root("./src/alpha/"),
+        checked_root("./src/alpha/"),
+        "两次调用幂等"
     );
 }
 
-/// 异常：`none` 未声明 `doc` / `doc` 越根 / `declared` 的 FQN 形态非法 → `None`。
+/// 异常（资产① 落点单份）：`paths.rs` 内 `carrier_path` / `doc_path` 零命中——文档落点
+/// 恒为派生 `<FQN>.md`，不存在第二份载体派生。
 #[test]
-fn carrier_path异常_无声明与越根与非法fqn均none() {
-    let root = Path::new("/ws");
-    let mut blank = element("App.Auth", &["src/auth/"]);
-    blank.api = ApiStatus::None;
-    assert!(
-        carrier_path(root, &blank).is_none(),
-        "none 且未声明 doc ⇒ 无载体"
-    );
-    for raw in ["/abs/a.md", "../a.md"] {
-        blank.doc = Some(raw.to_owned());
-        assert!(
-            carrier_path(root, &blank).is_none(),
-            "非法 doc 形态 ⇒ 无载体：{raw:?}"
-        );
-    }
-    for fqn in ["App..X", "App/X"] {
-        assert!(
-            carrier_path(root, &element(fqn, &["src/x/"])).is_none(),
-            "非法 FQN 无法派生契约落点：{fqn:?}"
-        );
-    }
-}
-
-/// 边界：同一元素两 `api` 态取值必不同（开关单点）；`path` 空不阻断派生；纯路径
-/// 零 IO（调用前后盘面零变化）。
-#[test]
-fn carrier_path边界_开关单点与零io() {
-    let temp = TempDir::new("carrier-switch");
-    let fqn = "App.Auth";
-    let mut declared = element(fqn, &[]);
-    declared.doc = Some("src/auth/README.md".to_owned());
-    let mut blank = declared.clone();
-    blank.api = ApiStatus::None;
-
-    let declared_path = carrier_path(temp.root(), &declared).expect("declared 恒可派生");
-    let blank_path = carrier_path(temp.root(), &blank).expect("none + doc 恒可派生");
-    assert_ne!(declared_path, blank_path, "两臂取值必不同（派生 vs 声明）");
-    assert!(
-        !declared_path.exists() && !blank_path.exists(),
-        "纯路径零 IO：探测前后盘面零变化"
-    );
-}
-
-/// 正向：`is_repo_relative` 对合法 repo 相对串恒 `true`（判据是 crate 内单点，
-/// `doc_path` / 入口四条判据同源消费）。
-#[test]
-fn is_repo_relative正向_合法相对串放行() {
-    for raw in ["a/b.md", "a", "src/auth/README.md"] {
-        assert!(is_repo_relative(raw), "合法相对串：{raw:?}");
-    }
-}
-
-/// 异常：空串 / 绝对前缀 / `~` / 盘符（大小写）/ 空段 / `.` 段 / `..` 段 → `false`。
-#[test]
-fn is_repo_relative异常_越根形态拒绝() {
-    for raw in [
-        "", "/a.md", "~/a.md", "C:/a.md", "c:a.md", "a//b", "a/./b", "a/../b",
-    ] {
-        assert!(!is_repo_relative(raw), "越根形态应拒绝：{raw:?}");
-    }
-}
-
-/// 边界：`doc_path` 先归一再判——`"a/./b"` / `"a/../b"` 不因归一被消掉（`normalize_root`
-/// 只剥前导 `./` 与尾 `/`，不消 `.` / `..` 段）；`doc_path` 与 `is_repo_relative` 对合法
-/// 集的结论逐值一致（原 `normalize_rel` 判据的正例集迁入本文件的对照）。
-#[test]
-fn is_repo_relative边界_与doc_path判据逐值一致() {
-    let root = Path::new("/ws");
-    for raw in ["a/./b.md", "a/../b.md"] {
-        assert!(
-            doc_path(root, raw).is_none(),
-            "归一不消 `.` / `..` 段 ⇒ 仍拒：{raw:?}"
-        );
-    }
-    for raw in ["a/b.md", "a", "src/auth/README.md", "./src/auth/README.md"] {
-        let path = doc_path(root, raw);
-        assert_eq!(
-            path.is_some(),
-            is_repo_relative(&normalize_root(raw)),
-            "两处判据对同一串同一结论：{raw:?}"
-        );
-    }
-}
-
-/// 边界（单点自证）：`paths.rs` 内载体派生只有 `carrier_path` 一份、`doc` 归一只有
-/// `doc_path` 一份，`is_repo_relative` 是 `pub(crate)` 单点（零 `normalize_rel` 残留）。
-#[test]
-fn 载体派生与doc归一各一份实现() {
+fn 载体派生单份() {
     let source = include_str!("paths.rs");
-    assert_eq!(
-        source.matches("pub fn carrier_path(").count(),
-        1,
-        "载体派生单点恰一处"
-    );
-    assert_eq!(
-        source.matches("pub fn doc_path(").count(),
-        1,
-        "doc 归一单点恰一处"
-    );
-    assert_eq!(
-        source.matches("pub(crate) fn is_repo_relative(").count(),
-        1,
-        "repo 相对判据单点且 `pub(crate)` 可见"
-    );
-    assert!(
-        !source.contains("fn normalize_rel"),
-        "旧文档关联实现的归一已随能力删除"
-    );
+    for retired in [
+        "pub fn carrier_path",
+        "pub fn doc_path",
+        "carrier_path(",
+        "doc_path(",
+    ] {
+        assert_eq!(
+            source.matches(retired).count(),
+            0,
+            "该符号已随资产① 落点收面退役：{retired}"
+        );
+    }
 }

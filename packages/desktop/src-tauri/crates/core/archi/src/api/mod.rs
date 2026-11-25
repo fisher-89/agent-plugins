@@ -1,17 +1,25 @@
-//! 模块 API 契约面：手写 `<FQN>.md`（唯一真相）→ 四类生成物 → 十三条判据的
-//! 判定与装配层。
+//! 模块 API 接口面：手写 `<FQN>.schema.json`（唯一凭据）+ 纯散文 `<FQN>.md` →
+//! 三类生成物 → 十条判据的判定与装配层。
 //!
-//! **纯读盘、零写盘、零 spawn**（沿本 crate 既有纪律）：契约解析、`$defs` 规则、
-//! schema / 索引装配、声明抽取、判据求值、渲染与比对全在这里。生成物写盘单点在
+//! **三资产分工**：拓扑在 `graph/model/*.toml`（谁在谁的里面、谁依赖谁）、接口在同目录
+//! `<FQN>.schema.json`（跨过这条边时接触面长什么样，**唯一凭据**）、理由在同目录
+//! `<FQN>.md`（纯散文、无结构、读面零解析）。
+//!
+//! **纯读盘、零写盘、零 spawn**（沿本 crate 既有纪律）：接口校验、`$defs` 规则、索引
+//! 装配、声明抽取、判据求值、渲染与比对全在这里。生成物写盘单点在
 //! `crates/infra/archi::api_artifacts`（与报告落盘并列的第二处 dumb IO 面），CLI
 //! （`archi-api-gen`）与两条 IPC（检查 / 生成）两个驱动面同源；本 crate 零写盘
 //! 纪律 MUST NOT 反向稀释。
 //!
-//! **契约面启用条件（冷启动纪律）**：`path` 非空元素的入口文档载体全都不在盘、或
-//! 在盘者正文皆无 api fence 语言标 ⇒ 未启用，判据返回空集且既有漂移语料逐字不变；
-//! 一级 `NN-<域>.toml`（模型声明）与 `models/` 里的杂项 md **不是**启用证据。载体
-//! 派生单点在 [`paths::carrier_path`]（`declared` → 派生契约 md / `none` → `doc`
-//! 声明）。一旦启用即**全部 `path` 非空元素**纳入判据，无白名单、无开关、无部分豁免。
+//! **零 md 回落**：读面只从 `.schema.json` 取接口事实，MUST NOT 解析文档正文（历史
+//! `api-*` fence 视为普通内容）。接口文件不在盘 ⇒ 该元素「接口未写」（零判据）；在盘但
+//! 校验失败 ⇒ [`ApiError`] **停摆**（不产半真报告）。
+//!
+//! **接口面启用条件（冷启动纪律）**：任一 `path` 非空 ∧ `api = declared` 元素的
+//! `<FQN>.schema.json` 在盘 ⇒ 启用；否则判据返回空集且既有漂移语料逐字不变。散落的
+//! 与任何元素无关的 `*.md` / `*.schema.json`、以及 `api = none` 元素在盘的 schema 都**不是**
+//! 启用证据。
+//! 一旦启用即**全部 `path` 非空元素**纳入判据，无白名单、无开关、无部分豁免。
 //!
 //! 边界：零 UI 框架 / 零库句柄 / 零子进程 / 零工作流与编排 crate 依赖 / 零工作区
 //! 配置读取。
@@ -41,14 +49,14 @@ use emit::{EmitTarget, ModuleRef};
 use extract::{ApiSymbol, ApiSymbolKind, ApiType};
 use schema::{build_index, ApiFormStatus, IndexEntry};
 
-/// 契约面错误面（封闭三值）：契约是判定的输入资产，资产坏了应「检查不执行、不产出
+/// 接口面错误面（封闭三值）：接口定义是判定的输入资产，资产坏了应「检查不执行、不产出
 /// 半真报告」（[`crate::drift::check`] 把它映射进既有 `CheckError::Config`，不新增
 /// 第四变体）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApiError {
-    /// 读盘失败（契约文件存在但不可读 / 被目录占位）
+    /// 读盘失败（接口定义文件存在但不可读 / 被目录占位）
     Io(String),
-    /// 契约资产非法（结构 / 双向 gate / `$defs` 规则 / 签名形态）
+    /// 接口定义非法（身份 / 键空间 / 形态 / 镜像 / `$ref` 前缀 / 顶层键 / 名字 / `$defs` 规则）
     Contract(String),
     /// 元素入参非法（FQN 不存在 / 无可用入口 / 语言不可判）或元素表不可得
     /// （模型结构性错，见 [`elements_of`]——不新增第四变体，D20 的封闭三值不动）
@@ -108,43 +116,33 @@ pub struct GeneratedFile {
     pub content: String,
 }
 
-/// 载体事实（进程内三态，不进 IPC）：`path` 非空元素的入口文档载体的盘上事实。
+/// 起草的两段文本（**唯一返回形**，CLI 与 agent 工具两个出口共用同一份内容）。
 ///
-/// 三态互斥且穷尽：
-/// - [`DocFact::Absent`]：`api = none` 且未声明 `doc`（没有载体，合法但产出 `docMissing`）；
-/// - [`DocFact::Missing`]：载体已派生（`declared`）或已声明（`none`）但指不到盘——
-///   不在盘，或声明值形态越根（绝对路径 / 盘符 / `~` / `..` / 空段）而派生不出路径；
-///   两种成因同属「声明在案」，故同报 `docNotFound`，MUST NOT 混进 `Absent`；
-/// - [`DocFact::Present`]：载体在盘 + 正文是否含 api fence 语言标（只判有无，不判
-///   fence 合法性——那是 `contract::parse` 的 `Err` 面）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DocFact {
-    /// 无载体（`api = none` 且未声明 `doc`）
-    Absent,
-    /// 载体声明在案但指不到盘（不在盘 / 声明值形态越根）
-    Missing,
-    /// 载体在盘；`has_api_fence` = 正文含 `api-op` / `api-types` 语言标
-    Present {
-        /// 正文是否含 api fence 语言标
-        has_api_fence: bool,
-    },
+/// 两段都不含段模板：`schema` 是可直接过写闸的接口骨架，`doc` 只有 H1 与一句指引
+/// （文档无结构，给段名等于把一条已废除的约定重新推荐）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BootstrapDrafts {
+    /// 接口骨架（`<FQN>.schema.json` 的初稿；可直接落盘并过写闸）
+    pub schema: String,
+    /// 文档骨架（`# <FQN>` + 一句指引；零 `##` 段名、零 fence）
+    pub doc: String,
 }
 
-/// 一次装载的只读快照（契约 / 内存 schema / 代码符号集 / 载体事实）。
+/// 一次装载的只读快照（接口投影 / 接口原文 / 代码符号集 / 文档存在性）。
 ///
-/// **无「缺契约清单」字段**：`api = declared` 而契约文件缺失是判据 ② 的求值结果
-/// （[`check::check`] 逐元素比对 `contracts` 与模型意图即得），装载期再存一份
-/// 同名清单就是同一事实的第二个来源——两份会漂移，且判据从不消费它。
+/// **无「缺接口清单」字段**：`api = declared` 而接口文件缺失在判据面上**零对象**
+/// （装载期即跳过该元素，MUST NOT 以别名预铺），故不需要、也 MUST NOT 存一份清单
+/// ——同一事实的第二个来源必然漂移。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiSnapshot {
-    /// 已解析并通过双向 gate 的契约（FQN 字典序）
+    /// 已通过校验的接口投影（FQN 字典序）
     pub contracts: Vec<Contract>,
-    /// FQN → 装配好的 schema（`$defs` 判据的唯一读取面）
+    /// FQN → 接口定义原文（`$defs` / 判据 / 渲染的唯一读取面）
     pub schemas: BTreeMap<String, Value>,
     /// FQN → 代码符号集（取数器产出，判据的「代码导出集」一侧）
     pub symbols: BTreeMap<String, Vec<ApiSymbol>>,
-    /// FQN → 载体事实（与契约装载同批产出；启用判据与 `apiDocMissing` 的唯一来源）
-    pub doc_facts: BTreeMap<String, DocFact>,
+    /// FQN → 派生 `<FQN>.md` 是否在盘（与接口装载同批产出；`docMissing` 的唯一来源）
+    pub doc_present: BTreeMap<String, bool>,
 }
 
 /// 判据求值入参（全部借用；零 clone 大结构）。
@@ -153,15 +151,15 @@ pub struct ApiCheckInput<'a> {
     pub root: &'a Path,
     /// 模型元素表（`path` 非空者参与判据）
     pub elements: &'a [ArchiElement],
-    /// 已装载契约
+    /// 已装载的接口投影
     pub contracts: &'a [Contract],
-    /// FQN → schema（`$defs` 只读这里，MUST NOT 并读 markdown）
+    /// FQN → 接口定义原文（`$defs` 只读这里，MUST NOT 并读文档正文）
     pub schemas: &'a BTreeMap<String, Value>,
     /// FQN → 代码符号集
     pub symbols: &'a BTreeMap<String, Vec<ApiSymbol>>,
-    /// FQN → 载体事实（check 侧唯一读取面：零读盘）
-    pub doc_facts: &'a BTreeMap<String, DocFact>,
-    /// 契约面是否启用（`false` ⇒ 判据空集）
+    /// FQN → 派生 `<FQN>.md` 是否在盘（check 侧唯一读取面：零读盘）
+    pub doc_present: &'a BTreeMap<String, bool>,
+    /// 接口面是否启用（`false` ⇒ 判据空集）
     pub enabled: bool,
 }
 
@@ -247,16 +245,16 @@ pub(crate) fn parse_common(source: &str) -> Result<BTreeMap<String, CommonRule>,
     Ok(rules)
 }
 
-/// 协议名字 → 契约 / schema 承载键的**换算单点**（D57 ②）。
+/// 协议名字 → `schema.json` 承载键的**换算单点**（D57 ②）。
 ///
 /// 资产键是协议名字（`Outcome`，与 `ApiType::Outcome` / `#/$defs/Outcome` 同形），
-/// 而契约与 `schema.json` 里的承载键是小写（`"outcome"`）。两侧渲染器 MUST 经本
+/// 而接口定义里的承载键是小写（`"outcome"`）。两侧渲染器 MUST 经本
 /// 函数求承载键，MUST NOT 各写一份键变换；**资产键 MUST NOT 改成小写**。
 pub(crate) fn protocol_key(name: &str) -> String {
     name.to_ascii_lowercase()
 }
 
-/// 十三条契约判据的**对外唯一入口**：`enabled == false` → 空 `Vec`（契约面未启用）；
+/// 十条接口判据的**对外唯一入口**：`enabled == false` → 空 `Vec`（接口面未启用）；
 /// 否则委托 [`check::check`] 单点求值，再按 `(kind, element, target)` 稳定排序（可逐字
 /// diff 的报告）。
 ///
@@ -299,34 +297,32 @@ pub fn artifact_check(root: &Path) -> Result<ArchiApiCheck, ApiError> {
     })
 }
 
-/// 契约判据装配单点：一次装载 → 由快照的载体事实派生启用 → 十三判据（稳定排序）。
+/// 接口判据装配单点：一次装载 → 由元素表派生启用 → 十条判据（稳定排序）。
 ///
 /// [`crate::drift::check`] 与 agent 工具 `archi_api` 共用本函数，MUST NOT 出现第二份
-/// 「契约输入装配」（两份必然在契约资产非法时分叉）。`enabled` 不再前置独立判定——
-/// 事实装配只有 [`load_contracts`] 一处，`api::check` 的对外入口仍保留
-/// `enabled == false → 空集` 短路。
+/// 「接口输入装配」（两份必然在接口文件非法时分叉）。`enabled` 由元素表直判（
+/// [`enabled`] 单点），`api::check` 的对外入口仍保留 `enabled == false → 空集` 短路。
 pub fn findings(root: &Path, elements: &[ArchiElement]) -> Result<Vec<ArchiApiFinding>, ApiError> {
     let snapshot = load_contracts(root, elements)?;
-    let enabled = facts_enabled(&snapshot.doc_facts);
     Ok(check(ApiCheckInput {
         root,
         elements,
         contracts: &snapshot.contracts,
         schemas: &snapshot.schemas,
         symbols: &snapshot.symbols,
-        doc_facts: &snapshot.doc_facts,
-        enabled,
+        doc_present: &snapshot.doc_present,
+        enabled: enabled(root, elements),
     }))
 }
 
-/// `status` 纳管子集筛选单点：口径 = **入口文档承诺已成立**。
+/// `status` 纳管子集筛选单点：口径 = **接口承诺已成立**（`api = declared` ∧ schema 在盘）。
 ///
-/// 入选 = `element` 非空 ∧（`api = declared`：派生的契约 md 在盘 / `api = none`：
-/// `doc` 字段已声明——声明本身即承诺，`docNotFound` 判的正是它）。`docMissing` 两侧
-/// 都不成立 ⇒ 永不纳管（否则存量入口文档债会把状态词常规化为永久 `warnings`）。
+/// 入选 = `element` 非空 ∧ `api = declared` ∧ `<FQN>.schema.json` 在盘。**文档在盘与否
+/// 退出纳管口径**——`docMissing` 恒 `warn` 且两侧都不成立 ⇒ 永不纳管（否则存量文档债会
+/// 把状态词常规化为永久 `warnings`）；`api = none` 元素因其 schema 在盘即违约
+/// （`apiUnexpected`、`warn`）⇒ 也不纳管：留白违约是判据面的债，不是「承诺未兑现」。
 ///
-/// 「载体在盘」的判定只在本函数一次性发生——载体经 [`paths::carrier_path`] 单点派生，
-/// MUST NOT 在此另写 `declared` / `none` 的旁路派生；`drift` 侧 MUST NOT 自行判
+/// 「接口在盘」的判定只在本函数一次性发生（Q9 的锚点），`drift` 侧 MUST NOT 自行判
 /// `is_file`，前端 / 命令层 MUST NOT 二次筛选。`element = None` 的条目落选（无归属即
 /// 无承诺可对）。
 pub fn gating_findings(
@@ -336,12 +332,8 @@ pub fn gating_findings(
 ) -> Vec<ArchiApiFinding> {
     let gating: BTreeSet<&str> = elements
         .iter()
-        .filter(|element| match element.api {
-            ApiStatus::Declared => {
-                paths::carrier_path(root, element).is_some_and(|path| path.is_file())
-            }
-            ApiStatus::None => element.doc.is_some(),
-        })
+        .filter(|element| element.api == ApiStatus::Declared)
+        .filter(|element| schema_on_disk(root, &element.fqn))
         .map(|element| element.fqn.as_str())
         .collect();
     findings
@@ -356,97 +348,52 @@ pub fn gating_findings(
         .collect()
 }
 
-/// 契约面启用的唯一判据：任一 `path` 非空元素的入口文档载体在盘且正文含 api fence
-/// 语言标（= [`doc_facts`] 中至少一个 `Present { has_api_fence: true }`）。
+/// 接口面启用的唯一判据：任一 `path` 非空 ∧ `api = declared` 元素的
+/// `<FQN>.schema.json` 在盘。
 ///
-/// MUST NOT 退化为「`<archi_models_dir>` 递归任意 `*.md`」——`models/` 里放一份笔记
-/// （非任何元素的载体）或一份无 fence 的 `<分层目录>/notes.md` MUST NOT 误判为启用。
-/// 判据与判据面同源（同一 `doc_facts`、同一 fence 语言标常量），命令层 MUST NOT 另
-/// 判一套。
+/// **单点纯函数**：[`artifact_check`]（生成预览）与 [`findings`]（判据面）同调本函数，
+/// MUST NOT 从快照反推、MUST NOT 在命令层另判一套。MUST NOT 退化为「`<archi_models_dir>`
+/// 递归任意 `*.schema.json`」——散落的无关文件 MUST NOT 构成启用证据；`api = none`
+/// 元素在盘的 schema 是违约事实（`apiUnexpected`），同样 MUST NOT 构成启用证据。
 pub fn enabled(root: &Path, elements: &[ArchiElement]) -> bool {
-    facts_enabled(&doc_facts(root, elements))
+    elements
+        .iter()
+        .filter(|element| !element.path.is_empty())
+        .filter(|element| element.api == ApiStatus::Declared)
+        .any(|element| schema_on_disk(root, &element.fqn))
 }
 
-/// 启用判据本体（[`enabled`] 与 [`findings`] 共用的唯一判定）：任一载体在盘且含 api
-/// fence 语言标。
-fn facts_enabled(facts: &BTreeMap<String, DocFact>) -> bool {
-    facts.values().any(|fact| {
-        matches!(
-            fact,
-            DocFact::Present {
-                has_api_fence: true
-            }
-        )
-    })
+/// 接口文件是否在盘（形态非法的 FQN 一律按「不在盘」处理——它派生不出路径）。
+fn schema_on_disk(root: &Path, fqn: &str) -> bool {
+    paths::schema_path(root, fqn).is_some_and(|path| path.is_file())
 }
 
-/// 载体事实装配（**唯一装配点**）：每份载体至多读一次即弃（不缓存全文）。
+/// 文档事实装配（**唯一装配点**）：派生 `<FQN>.md` 是否在盘，逐元素一次。
 ///
-/// **「派生不出路径」不直接等于「无载体」**：`doc` 已声明而形态越根 ⇒ 声明在案、指不到
-/// 盘（`Missing`），`doc` 未声明 ⇒ 真无载体（`Absent`）——判据面对两者分档、分纳管结论。
-///
-/// 读失败按 `Present { has_api_fence: false }` 处置——启用判定是探针，不得因一个坏
-/// 文件把 `archi_api_check` 整条打成 `Err`；契约解析的读失败仍是既有 `ApiError::Io`。
-fn doc_facts(root: &Path, elements: &[ArchiElement]) -> BTreeMap<String, DocFact> {
-    let mut facts: BTreeMap<String, DocFact> = BTreeMap::new();
+/// 只回答「在不在」——文档无结构、零解析、零正文读取；`api` 状态与模型 `doc` 字段都
+/// 不参与（`docMissing` 单成因）。
+fn doc_presence(root: &Path, elements: &[ArchiElement]) -> BTreeMap<String, bool> {
+    let mut present: BTreeMap<String, bool> = BTreeMap::new();
     for element in elements.iter().filter(|element| !element.path.is_empty()) {
-        // 派生不出载体有两种成因，分流依据是「`doc` 声明在不在」而不是「路径派生成没成」：
-        // 未声明 ⇒ 真无载体（`Absent` ⇒ `docMissing`，warn 不纳管）；已声明而形态越根
-        // ⇒ 声明在案、指不到盘（`Missing` ⇒ `docNotFound`，error 且纳管）。归并成
-        // `Absent` 会让「把 `doc` 指向不存在文件」降级为「还没写」，`docNotFound` 的
-        // error 档与纳管口径同时失效——那正是本档要堵的消红后门。
-        let Some(carrier) = paths::carrier_path(root, element) else {
-            let fact = if element.doc.is_some() {
-                DocFact::Missing
-            } else {
-                DocFact::Absent
-            };
-            facts.insert(element.fqn.clone(), fact);
-            continue;
-        };
-        if !carrier.is_file() {
-            facts.insert(element.fqn.clone(), DocFact::Missing);
-            continue;
-        }
-        let has_api_fence = match fs::read_to_string(&carrier) {
-            Ok(source) => has_api_fence(&source),
-            Err(_) => false,
-        };
-        facts.insert(element.fqn.clone(), DocFact::Present { has_api_fence });
+        let exists = paths::contract_path(root, &element.fqn).is_some_and(|path| path.is_file());
+        present.insert(element.fqn.clone(), exists);
     }
-    facts
+    present
 }
 
-/// 正文是否含 api fence（只看语言标有无，不判 fence 合法性——那是 `contract::parse`
-/// 的 `Err` 面）。
+/// 逐元素装载接口定义：`api = none` / `path` 空跳过（留 `apiUnexpected` 自判）；
+/// `<FQN>.schema.json` 不在盘跳过（「接口未写」零判据）；在盘即经
+/// [`schema::validate_schema`] 校验并装配 `Contract`。
 ///
-/// 语言标与切分单点复用 [`contract::FENCE_OP`] / [`contract::FENCE_TYPES`] /
-/// [`contract::info_tokens`]：MUST NOT 抄第二份字面量、MUST NOT 补写半个 markdown
-/// 解析器。
-fn has_api_fence(source: &str) -> bool {
-    source.lines().any(|raw| {
-        let trimmed_start = raw.trim_end().trim_start();
-        if !trimmed_start.starts_with("```") {
-            return false;
-        }
-        let info = trimmed_start.trim_start_matches("```").trim();
-        let tokens = contract::info_tokens(info);
-        tokens.contains(&contract::FENCE_OP) || tokens.contains(&contract::FENCE_TYPES)
-    })
-}
-
-/// 逐元素装载契约：`api = none` 跳过（留 `apiUnexpected` 自判）；契约文件存在 →
-/// 解析 → 装配 schema → 双向 gate → `$defs` 规则；不存在 → 跳过（缺口由 `docMissing`
-/// 判据从载体事实直接得出，不在此另记一份清单）。
-///
-/// 任一契约非法即 `Err`（MUST NOT 静默跳过坏契约、MUST NOT 返回部分快照）。
+/// **零 md 回落**：文档正文不被读取（历史 `api-*` fence 视为普通内容）。
+/// **任一份失败即 `Err`**（MUST NOT 静默跳过坏接口、MUST NOT 返回部分快照）：接口是判定
+/// 的输入资产，资产坏了应「检查不执行、不产出半真报告」。
 pub fn load_contracts(root: &Path, elements: &[ArchiElement]) -> Result<ApiSnapshot, ApiError> {
     // 映射规则资产形态复核（D54 ②）：与 `meta()` 共用同一解析点；失败即
     // `ApiError::Contract`（静默跳过不允许——形态坏的资产会让渲染器落回硬编码）。
     parse_common(COMMON_JSON)?;
-    let meta = meta();
-    // 载体事实与契约装载同批产出（`facts` 与函数同名会遮蔽，故先命名清楚）
-    let facts = doc_facts(root, elements);
+    // 文档事实与接口装载同批产出（`facts` 与函数同名会遮蔽，故先命名清楚）
+    let facts = doc_presence(root, elements);
     let mut contracts: Vec<Contract> = Vec::new();
     let mut schemas: BTreeMap<String, Value> = BTreeMap::new();
     let mut symbols: BTreeMap<String, Vec<ApiSymbol>> = BTreeMap::new();
@@ -455,22 +402,21 @@ pub fn load_contracts(root: &Path, elements: &[ArchiElement]) -> Result<ApiSnaps
         if element.path.is_empty() || element.api == ApiStatus::None {
             continue;
         }
-        let file = paths::contract_path(root, &element.fqn);
+        let file = paths::schema_path(root, &element.fqn);
         let Some(file) = file.filter(|path| path.is_file()) else {
             continue;
         };
-        let source = fs::read_to_string(&file).map_err(|error| {
-            ApiError::Io(format!(
-                "契约文件读取失败（{}）：{error}",
-                display(root, &file)
-            ))
-        })?;
         let relative = display(root, &file);
-        let parsed = contract::parse(&source, &element.fqn, &relative)?;
-        let built = schema::build_schema(&parsed, &meta)?;
-        contract::verify(&parsed, &built)?;
-        schema::verify_defs(&built)?;
-        schemas.insert(element.fqn.clone(), built);
+        let source = fs::read_to_string(&file).map_err(|error| {
+            ApiError::Io(format!("接口定义文件读取失败（{relative}）：{error}"))
+        })?;
+        let mut parsed = schema::validate_schema(&element.fqn, &source)?;
+        let value: Value = serde_json::from_str(&source)
+            .map_err(|error| ApiError::Contract(format!("{relative}: 不是合法 JSON：{error}")))?;
+        // `validate_schema` 无路径入参 ⇒ 报告的 `occurrences.file` 须在此覆写为
+        // repo 相对路径（口径与其他 occurrence 一致）
+        parsed.file = relative;
+        schemas.insert(element.fqn.clone(), value);
         contracts.push(parsed);
         symbols.insert(
             element.fqn.clone(),
@@ -482,7 +428,7 @@ pub fn load_contracts(root: &Path, elements: &[ArchiElement]) -> Result<ApiSnaps
         contracts,
         schemas,
         symbols,
-        doc_facts: facts,
+        doc_present: facts,
     })
 }
 
@@ -499,35 +445,20 @@ fn element_symbols(
     extract::extract_element(root, elements, element, &entry)
 }
 
-/// 装配四类生成物为内存清单（**零写盘**）：`<FQN>.schema.json` / `INDEX.toml` /
-/// `<入口主干>.i.rs` / `<入口主干>.i.ts`（后两者落**实现入口同级**）。
+/// 装配三类生成物为内存清单（**零写盘**）：`INDEX.toml` / `<入口主干>.i.rs` /
+/// `<入口主干>.i.ts`（后两者落**实现入口同级**）。
+///
+/// `<FQN>.schema.json` **不在应生成集**：它是手写真相（第二份资产），进应生成集就会让
+/// `generate` 覆写手写内容、让 `api:check` 一改即报 `mismatched`。
 ///
 /// 元素表经 [`elements_of`]（`dto::graph_view` 单点取数）——模型结构性坏 ⇒ `Err`
 /// （fail-closed：坏模型不得被固化成入库生成物）。
 ///
-/// 契约无类型无 op 时**跳过** `.i.*`（零 pub 项的生成物会让入口的
+/// 接口无类型无 op 时**跳过** `.i.*`（零 pub 项的生成物会让入口的
 /// `pub use api_gen::*;` 触发 `unused_imports`，`clippy -D warnings` 即红）。
 pub fn render_all(root: &Path, snapshot: &ApiSnapshot) -> Result<Vec<GeneratedFile>, ApiError> {
     let meta = meta();
     let mut files: Vec<GeneratedFile> = Vec::new();
-    for contract in &snapshot.contracts {
-        let Some(schema_value) = snapshot.schemas.get(&contract.fqn) else {
-            continue;
-        };
-        let mut text = serde_json::to_string_pretty(schema_value)
-            .map_err(|error| ApiError::Contract(format!("schema 序列化失败：{error}")))?;
-        text.push('\n');
-        let Some(path) = paths::schema_path(root, &contract.fqn) else {
-            return Err(ApiError::Contract(format!(
-                "契约 FQN `{}` 无法派生出 schema 生成物路径（FQN 形态非法）",
-                contract.fqn
-            )));
-        };
-        files.push(GeneratedFile {
-            path,
-            content: text,
-        });
-    }
     let elements = elements_of(root)?;
     for element in &elements {
         if element.path.is_empty() {
@@ -546,7 +477,7 @@ pub fn render_all(root: &Path, snapshot: &ApiSnapshot) -> Result<Vec<GeneratedFi
         if contract.ops.is_empty() && contract.types.is_empty() && contract.reexports.is_empty() {
             continue;
         }
-        // 入口形态与落点均取 `entry_state` 的 `Resolved`（D41 / D6）：无可用入口 ⇒ 该契约
+        // 入口形态与落点均取 `entry_state` 的 `Resolved`（D41 / D6）：无可用入口 ⇒ 该接口
         // 不产 `.i.*`（与「零内容不生成」同口径）——形态 MUST NOT 由渲染器二次推导
         let paths::EntryState::Resolved { form, entry } =
             paths::entry_state(root, &elements, element)
@@ -573,7 +504,10 @@ pub fn render_all(root: &Path, snapshot: &ApiSnapshot) -> Result<Vec<GeneratedFi
     Ok(files)
 }
 
-/// `INDEX.toml` 条目（全部 `path` 非空元素各一条；`status` 按契约文件是否在案）。
+/// `INDEX.toml` 条目（全部 `path` 非空元素各一条；`status` 按**接口文件是否在案**）。
+///
+/// `present` 直判 `paths::schema_path(...).is_file()`（D-13：不依赖 `contract.is_some()`，
+/// 因为 `api = none` 的越界 schema 同样在案）；统计字段取 `snapshot`（不另读盘）。
 ///
 /// `generated` 取**入口同级**的生成物路径；无可用入口（`Absent` / `Invalid`）留空——
 /// 生成物路径是入口的函数，无入口即无路径可写。
@@ -591,8 +525,7 @@ fn index_entries(
             .contracts
             .iter()
             .find(|contract| contract.fqn == element.fqn);
-        let present = contract.is_some()
-            && paths::contract_path(root, &element.fqn).is_some_and(|path| path.is_file());
+        let present = paths::schema_path(root, &element.fqn).is_some_and(|path| path.is_file());
         let schema_value = snapshot.schemas.get(&element.fqn);
         let types = schema_value
             .and_then(|value| value.get("$defs"))
@@ -631,7 +564,7 @@ fn index_entries(
 
 /// `$defs` 形状分布（`category` → 条数；`BTreeMap` 保字典序 ⇒ 幂等 diff）。
 ///
-/// 无契约 / `absent` 元素返回空表（[`build_index`] 会整段省略，MUST NOT 输出空表）。
+/// 无接口的 `absent` 元素返回空表（[`build_index`] 会整段省略，MUST NOT 输出空表）。
 fn categories_of(schema: Option<&Value>) -> BTreeMap<String, usize> {
     let mut categories: BTreeMap<String, usize> = BTreeMap::new();
     let Some(defs) = schema
@@ -655,8 +588,8 @@ fn categories_of(schema: Option<&Value>) -> BTreeMap<String, usize> {
 /// 无 `enum`）→ `scalar`；其余（含 `object`）→ `object`。
 ///
 /// **MUST NOT 复用判据分类**（`check` 模块里按 kind 打标那个函数）：那是判据结果的
-/// 分类（`entry` / `contract` / …），随债数漂移；本函数是契约形状的静态分布，只随
-/// 契约改动变化。
+/// 分类（`entry` / `contract` / …），随债数漂移；本函数是接口形状的静态分布，只随
+/// 接口改动变化。
 fn def_shape(definition: &Value) -> &'static str {
     let Some(object) = definition.as_object() else {
         return "object";
@@ -683,11 +616,14 @@ fn def_shape(definition: &Value) -> &'static str {
     "object"
 }
 
-/// 取数器草稿（**只出字符串、零写盘**）：定位入口 → 读源 → 抽取 → md 骨架。
+/// 取数器草稿（**只出字符串、零写盘**）：定位入口 → 读源 → 抽取 → **双草稿**
+/// （[`BootstrapDrafts`]：schema 骨架 + doc 骨架）。
 ///
-/// 每个符号附 `visibility` 与**定义文件与行**的注释（`ApiSymbol.file` / `line`，不是入口
-/// 串——闭包一跳后行号属于另一个文件）；构造器条目不进草稿（构造器由生成器产出）。
-pub fn bootstrap(root: &Path, element: &str) -> Result<String, ApiError> {
+/// 两段都是「可直接落盘」的骨架，且**都不含任何段模板**——复盘 #1 的成因正是「模型把
+/// 六段草稿当规格写」；文档无结构后，草稿再给段名等于把一条已废除的约定重新推荐。
+///
+/// 失败面（元素不存在 / 无可用入口 / 符号抽取失败）逐字不变。
+pub fn bootstrap(root: &Path, element: &str) -> Result<BootstrapDrafts, ApiError> {
     if element.trim().is_empty() {
         return Err(ApiError::Element("元素 FQN 为空".to_owned()));
     }
@@ -723,13 +659,16 @@ pub fn bootstrap(root: &Path, element: &str) -> Result<String, ApiError> {
         };
         return Err(ApiError::Element(format!(
             "元素 {element} 无可用入口（{reason}；约定的候选 {expected} 皆不在盘）——\
-             无法起草契约"
+             无法起草接口定义"
         )));
     };
     // 取数面与判据的「代码导出集」同源（同一元素的公开面散在入口与它引用的各文件里）；
     // 只读入口会把真正的操作漏掉，草稿随即失真
     let symbols = extract::extract_element(root, &elements, found, &entry);
-    Ok(bootstrap_text(element, &symbols))
+    Ok(BootstrapDrafts {
+        schema: schema_draft(element, &symbols),
+        doc: doc_draft(element),
+    })
 }
 
 /// `EntryProblem` 的一句话理由（「为什么这个入口不可用」）——[`bootstrap`] 失败文案的
@@ -751,71 +690,71 @@ pub(crate) fn entry_problem_reason(problem: &paths::EntryProblem) -> String {
     }
 }
 
-/// 草稿尾部的作者注：起草引导（三类 fence 的落点与唯一性 / 散文只留语义 /
-/// `api-reexport` 形态 / 起草后自查两轴）。
+/// 接口骨架的写者纪律注（`$comment`；人员可读、零判据读者）。
 ///
-/// 解析器对非 `api-*` fence 显式跳过 ⇒ 整块惰性、零判据；MUST NOT 移出 fence——放进
-/// 裸正文或 `## ` 段正文会被两个抽取面（透传列表 / 表格复述）扫到，放进 `### ` heading
-/// 则占掉一个 op 锚点，三种错位都是装载期 `ApiError::Contract`。
-const BOOTSTRAP_NOTE: &str = concat!(
-    "```text\n",
-    "作者注（本块不参与契约解析）：\n",
-    "- 三类 fence：api-op（`### <op-id>` 下紧随）/ api-types（本模块自有 $defs，同文件唯一）/\n",
-    "  api-reexport（键 = 导出名、值 = 直接子元素 FQN，同文件唯一）\n",
-    "- 散文只留语义：职能 / 边界 / 不变量 / 承载理由；MUST NOT 用表格复述名字清单\n",
-    "  （名字清单的唯一持有者是三类 fence）\n",
-    "- api-reexport 形态：{ \"导出名\": \"直接子元素 FQN\" }；散文里的透传列表须与键集逐名相等\n",
-    "- 起草后跑 archi_api check 看两轴（生成物新鲜度 / 契约判据）；契约面未启用时\n",
-    "  enabled = false 且 findings 恒空\n",
-    "```\n",
-);
+/// **`GENERATED_NOTICE` 逐字保留**：它经 `emit::notice_lines` 进 `.i.rs` / `.i.ts` 头注释，
+/// 改它即改生成物字节（与「生成物逐字节不变」的验收锚冲突）。故写者纪律另立一条常量，
+/// 只出现在新骨架的 `$comment` 里。
+const SCHEMA_WRITER_NOTICE: &str = "本文件是手写接口真相（不是生成物）：导出名 / 签名 / 类型的唯一持有者；`x-function.description` 只写调用方要知道的语义、MUST NOT 复述签名；改完用 `archi_api` 的 `check` 自查";
 
-/// md 骨架文本（H1 + 六段：职能 / 不变量 / 操作 / 类型 / 边界 / 承载理由 + 末尾
-/// 非 `api-*` fence 作者注）。
+/// 接口骨架文本（六顶层键、每 op 一项 `x-function`、每类型一项 `$defs` + `properties`
+/// 镜像；空符号集 ⇒ 两空对象）。
 ///
-/// 六段各带一行含 CJK 的「（待补：…）」占位：解析器丢弃空 body 段，占位句是六段都进
-/// `sections` 的前提；占位句不是 `- ` / `* ` / `|` 起手，故两个抽取面零命中。
-///
-/// 注记行 `<!-- <visibility> @ <file>:<line> -->` 取每个符号的**定义文件与行**
-/// （`ApiSymbol.file` / `line`），入口退出注记面——闭包一跳之后行号属于另一个文件，
-/// 用入口串拼它就等于注解说谎。
-fn bootstrap_text(fqn: &str, symbols: &[ApiSymbol]) -> String {
-    let mut text = format!(
-        "# {fqn}\n\n## 职能\n\n（待补：一句职能）\n\n## 不变量\n\n（待补）\n\n\
-         ## 操作\n\n（待补：每个操作一个三级标题 + 紧随一个 api-op fence）\n\n"
-    );
+/// **骨架可直接过写闸**（D-14）：identity / 键空间 / 形态白名单 / 镜像 / `$ref` 前缀 /
+/// 顶层键 / 复用三闸全满足，故「取草稿 → 原样 `write` 落盘」是一条通路。`description`
+/// 落空串（与缺省语义等价）而 MUST NOT 写「（待补）」一类提示语——它会被读者当正文渲染。
+/// 透传（`api-reexport` 形态）**不产占位**：透传是设计判断，空条目冒充已声明。
+fn schema_draft(fqn: &str, symbols: &[ApiSymbol]) -> String {
+    let mut properties: Vec<String> = Vec::new();
+    let mut defs: Vec<String> = Vec::new();
     for symbol in symbols
         .iter()
         .filter(|symbol| symbol.kind == ApiSymbolKind::Function)
         .filter(|symbol| !contract::is_constructor(&symbol.name))
     {
-        text.push_str(&format!(
-            "### {}\n\n<!-- {} @ {}:{}{} -->\n\n",
+        properties.push(format!(
+            "    \"{}\": {{\n      \"x-function\": {}\n    }}",
             symbol.name,
-            symbol.visibility.as_str(),
-            symbol.file,
-            symbol.line,
-            if symbol.is_async { " async" } else { "" }
+            draft_function(symbol)
         ));
-        text.push_str("```json api-op\n");
-        text.push_str(&bootstrap_op(symbol));
-        text.push_str("\n```\n\n");
     }
-    text.push_str(
-        "## 类型\n\n（待补：本模块自有 $defs，一个 api-types fence，同文件唯一）\n\n\
-         ```json api-types\n",
-    );
-    text.push_str(&bootstrap_types(symbols));
-    text.push_str(
-        "\n```\n\n## 边界\n\n（待补：本模块**不**负责什么）\n\n## 承载理由\n\n\
-         （待补：为什么它是独立元素）\n\n",
-    );
-    text.push_str(BOOTSTRAP_NOTE);
-    text
+    for symbol in symbols
+        .iter()
+        .filter(|symbol| symbol.kind != ApiSymbolKind::Function)
+        .filter(|symbol| !contract::is_constructor(&symbol.name))
+    {
+        defs.push(format!(
+            "    \"{}\": {{\n      \"type\": \"object\",\n      \"description\": \"\"\n    }}",
+            symbol.name
+        ));
+        properties.push(format!(
+            "    \"{}\": {{\n      \"$ref\": \"#/$defs/{}\"\n    }}",
+            symbol.name, symbol.name
+        ));
+    }
+    format!(
+        "{{\n  \"$schema\": \"{schema_uri}\",\n  \"$id\": \"{fqn}{suffix}\",\n  \
+         \"title\": \"{fqn}\",\n  \"$comment\": \"{notice}\",\n  \"$defs\": {{{defs}}},\n  \
+         \"properties\": {{{properties}}}\n}}\n",
+        schema_uri = SCHEMA_URI,
+        suffix = SCHEMA_FILE_SUFFIX,
+        notice = SCHEMA_WRITER_NOTICE,
+        defs = join_objects(&defs),
+        properties = join_objects(&properties),
+    )
 }
 
-/// 单个操作的 `api-op` fence 内容（参数 / 返回类型按逻辑类型投影）。
-fn bootstrap_op(symbol: &ApiSymbol) -> String {
+/// `properties` / `$defs` 的条目拼装（空集 ⇒ 空对象体内的空串）。
+fn join_objects(entries: &[String]) -> String {
+    if entries.is_empty() {
+        String::new()
+    } else {
+        format!("\n{}\n  ", entries.join(",\n"))
+    }
+}
+
+/// 单个操作的 `x-function` 内容（参数 / 返回类型按逻辑类型投影，`description` 落空串）。
+fn draft_function(symbol: &ApiSymbol) -> String {
     let params: Vec<String> = symbol
         .params
         .iter()
@@ -828,49 +767,25 @@ fn bootstrap_op(symbol: &ApiSymbol) -> String {
         })
         .collect();
     let mut body = format!(
-        "  \"params\": [{}],\n  \"returns\": {}",
+        "\"description\": \"\",\n        \"params\": [{}],\n        \"returns\": {}",
         params.join(", "),
         json_type(&symbol.returns)
     );
     if symbol.is_async {
-        body.push_str(",\n  \"async\": true");
+        body.push_str(",\n        \"async\": true");
     }
-    format!("{{\n{body}\n}}")
+    format!("{{\n        {body}\n      }}")
 }
 
-/// `api-types` fence 内容（本次抽到的类型类符号；形状留给人工剪枝）。
-///
-/// `待剪枝` 注记同样取符号的**定义文件与行**（`ApiSymbol.file`）。
-fn bootstrap_types(symbols: &[ApiSymbol]) -> String {
-    let named: Vec<&ApiSymbol> = symbols
-        .iter()
-        .filter(|symbol| symbol.kind != ApiSymbolKind::Function)
-        .collect();
-    if named.is_empty() {
-        return "{}".to_owned();
-    }
-    let entries: Vec<String> = named
-        .iter()
-        .map(|symbol| {
-            format!(
-                "  \"{}\": {{\"type\": \"object\", \"x-common\": {{\"note\": \"待剪枝：{} @ {}:{} {}\"}}}}",
-                symbol.name,
-                match symbol.kind {
-                    ApiSymbolKind::Type => "类型",
-                    ApiSymbolKind::Trait => "trait",
-                    ApiSymbolKind::Enum => "枚举",
-                    ApiSymbolKind::Function => "函数",
-                },
-                symbol.file,
-                symbol.line,
-                symbol.visibility.as_str()
-            )
-        })
-        .collect();
-    format!("{{\n{}\n}}", entries.join(",\n"))
+/// 文档骨架文本：`# <FQN>` + 一句指引（**零段名、零 fence、零作者注**）。
+fn doc_draft(fqn: &str) -> String {
+    format!("# {fqn}\n\n段落按内容自定，先例见同目录同类元素。\n")
 }
 
 /// 逻辑类型 → JSON Schema 片段（粗投影：bootstrap 是草稿，形状由人剪枝）。
+///
+/// 只产**本文件内**的 `$ref`（`#/$defs/<名>`）：跨元素引用是设计判断，草稿不猜
+/// （手拼 `../` 层数少一层会绕过 `apiRefMissing`，故用 `archi_api` 的 `link` 算）。
 fn json_type(ty: &ApiType) -> String {
     match ty {
         ApiType::Str | ApiType::OwnedString => "{\"type\": \"string\"}".to_owned(),
@@ -893,14 +808,18 @@ fn json_type(ty: &ApiType) -> String {
     }
 }
 
-/// 契约状态投影（D22 双层口径）：契约文件在案 → `declared` 且三路径给出（`schema`
-/// 与生成物即使尚未生成也给路径串）；否则 `none` 且三路径 `None`。
+/// 接口状态投影：`status` = **接口文件在案**（`declared` ⟺ `<FQN>.schema.json` 在盘），
+/// 三条路径**各自按自身在盘事实出线**。
 ///
 /// **投影只报文件事实，MUST NOT 回写模型字段**——模型存的是意图（`declared` 而文件
-/// 缺失是迁移期主形态），抹平会让消费方以为「有契约可读」。
+/// 缺失是迁移期主形态），抹平会让消费方以为「有接口可读」。
 ///
-/// 模型结构坏（[`elements_of`] 的停摆态）⇒ 取不到元素表，按「元素缺席」投影：契约 /
-/// schema 路径仍报文件事实，生成物路径退 `None`（本入口无错误面）。
+/// 旧的全或无投影会把三份资产的存在事实压成一个开关（缺一份则三项皆空）；现在
+/// `contractPath`（文档）/ `schemaPath`（接口）/ `generatedPath`（生成物，有可用入口即给
+/// 路径串、即便尚未生成）各报各的。
+///
+/// 模型结构坏（[`elements_of`] 的停摆态）⇒ 取不到元素表，按「元素缺席」投影：文档 /
+/// 接口路径仍报文件事实，生成物路径退 `None`（本入口无错误面）。
 pub fn api_ref(root: &Path, fqn: &str) -> ArchiApiRef {
     let elements = elements_of(root).unwrap_or_default();
     match elements.iter().find(|candidate| candidate.fqn == fqn) {
@@ -920,10 +839,10 @@ pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement
 }
 
 /// 投影面唯一装配体：`entry = None` 同时表达「元素缺席」与「该元素无可用入口」两态
-/// （MUST NOT 为凑参数构造占位元素），契约 / schema 路径仍报文件事实。
+/// （MUST NOT 为凑参数构造占位元素）；三路径各自独立，`status` 只看接口文件。
 fn ref_projection(root: &Path, fqn: &str, entry: Option<&str>) -> ArchiApiRef {
-    let contract = paths::contract_path(root, fqn).filter(|path| path.is_file());
-    let schema = paths::schema_path(root, fqn);
+    let doc = paths::contract_path(root, fqn).filter(|path| path.is_file());
+    let schema = paths::schema_path(root, fqn).filter(|path| path.is_file());
     let generated = entry.and_then(|entry| {
         paths::generated_path(
             root,
@@ -931,23 +850,18 @@ fn ref_projection(root: &Path, fqn: &str, entry: Option<&str>) -> ArchiApiRef {
             paths::generated_kind(paths::language_of(entry)),
         )
     });
-    match (contract, schema, generated) {
-        (Some(contract), Some(schema), generated) => ArchiApiRef {
-            status: ApiStatus::Declared,
-            contract_path: Some(display(root, &contract)),
-            schema_path: Some(display(root, &schema)),
-            generated_path: generated.map(|path| display(root, &path)),
+    ArchiApiRef {
+        status: match schema {
+            Some(_) => ApiStatus::Declared,
+            None => ApiStatus::None,
         },
-        _ => ArchiApiRef {
-            status: ApiStatus::None,
-            contract_path: None,
-            schema_path: None,
-            generated_path: None,
-        },
+        contract_path: doc.map(|path| display(root, &path)),
+        schema_path: schema.map(|path| display(root, &path)),
+        generated_path: generated.map(|path| display(root, &path)),
     }
 }
 
-/// 契约的透传目标查表（键 = 目标元素 FQN，值 = 该元素根的 [`ModuleRef`]，D40）。
+/// 接口的透传目标查表（键 = 目标元素 FQN，值 = 该元素根的 [`ModuleRef`]，D40）。
 ///
 /// 查表属调用方：`render_all` 手上已有元素表，逐条把 `reexports` 的目标 FQN 经
 /// [`paths::module_name`] 与 [`paths::rust_module_path`] 各算一次；模型里没有的目标不入
@@ -1036,7 +950,7 @@ fn generated_path_of(
 /// 坏事实固化进入库资产，本面与既有 `dto` 各投影的「结构错 ⇒ `Err`」同口径。
 fn elements_of(root: &Path) -> Result<Vec<ArchiElement>, ApiError> {
     let graph = crate::dto::graph_view(root)
-        .map_err(|_| ApiError::Element("模型读取失败（契约面的元素表来源）".to_owned()))?;
+        .map_err(|_| ApiError::Element("模型读取失败（接口面的元素表来源）".to_owned()))?;
     if !graph.diagnostics.is_empty() {
         return Err(ApiError::Element(crate::dto::graph_diagnostics_error(
             &graph.diagnostics,
@@ -1057,20 +971,17 @@ pub(crate) fn ref_name(reference: &str) -> String {
         .unwrap_or_else(|| reference.rsplit('/').next().unwrap_or(reference).to_owned())
 }
 
-/// 外部契约文件引用 → 目标元素 FQN（`<相对前缀><FQN>.schema.json#/$defs/<名>` 的
+/// 外部接口定义文件引用 → 目标元素 FQN（`<相对前缀><FQN>.schema.json#/$defs/<名>` 的
 /// 中间段）；同文件引用（`#/$defs/<名>`）与无 `.schema.json` 后缀者 → `None`。
 ///
 /// **单点**：`check::ref_missing`（跨模块引用检查）与 `emit::{rust, ts}`（透传渲染）
 /// 共用本函数。
 pub(crate) fn reexport_target(reference: &str) -> Option<String> {
     let file = reference.split_once('#').map(|(file, _)| file)?;
-    file.rsplit('/')
-        .next()?
-        .strip_suffix(SCHEMA_FILE_SUFFIX)
-        .map(str::to_owned)
+    paths::schema_fqn(file.rsplit('/').next()?).map(str::to_owned)
 }
 
-/// JSON 值的类型名（错误文案用）。契约解析与 schema 装配共用同一份词表。
+/// JSON 值的类型名（错误文案用）。接口校验与索引装配共用同一份词表。
 pub(crate) fn kind_of(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
@@ -1115,14 +1026,14 @@ const SCHEMA_URI: &str = "https://json-schema.org/draft/2020-12/schema";
 /// 生成物警示文案（`$comment` 与 `.i.*` 头注释共用同一句）。
 const GENERATED_NOTICE: &str = "本文件由元素的契约 markdown 生成，勿手改：手改将在下次 generate 时被覆盖，且 api:check 零 diff 门会失败";
 
-/// 契约资产与契约索引两处有界枚举共用的深度上限（分层目录深度随 FQN 深度增长，8 层
+/// 索引侧有界枚举（`diff::api_dir_artifacts`）的深度上限（分层目录深度随 FQN 深度增长，8 层
 /// 对「`Frontend/Components/Agent/` 级」留足余量；本值只防环，不是布局判据）。
 const MAX_API_WALK_DEPTH: usize = 8;
 
 /// `$ref` 的 `$defs` 片段（[`ref_name`] 的切分点，schema 装配与两渲染器同源）。
 pub(crate) const DEFS_FRAGMENT: &str = "#/$defs/";
 
-/// schema 生成物后缀（[`reexport_target`] 的切分点，与 [`paths::schema_path`] 同源）。
+/// 接口文件后缀（[`reexport_target`] 的切分点，与 [`paths::schema_path`] 同源）。
 pub(crate) const SCHEMA_FILE_SUFFIX: &str = ".schema.json";
 
 #[cfg(test)]
@@ -1132,7 +1043,7 @@ mod contract_test;
 #[cfg(test)]
 mod diff_test;
 #[cfg(test)]
-mod mod_test;
+pub(crate) mod mod_test;
 #[cfg(test)]
 mod paths_test;
 #[cfg(test)]
