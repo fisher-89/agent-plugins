@@ -3805,10 +3805,7 @@ async fn archi臂调用点链路捕获与直调全等() {
     let assembled = injections_of("archi", None);
     let knowledge = assembled.preamble.clone().expect("archi 臂知识段在位");
     let snapshot = expected_body(Some(&knowledge), &env.root());
-    assert_eq!(
-        snapshot, knowledge,
-        "无 AGENT.md 时快照正文 = 知识段"
-    );
+    assert_eq!(snapshot, knowledge, "无 AGENT.md 时快照正文 = 知识段");
 
     let captured = runner.captured_injections();
     assert_eq!(captured.len(), 1, "恰一次 open_session 捕获");

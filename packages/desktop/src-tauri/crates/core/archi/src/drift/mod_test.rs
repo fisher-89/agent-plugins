@@ -2270,7 +2270,7 @@ fn 组合链规模与多判据独立() {
         &mirrored_schema_text(
             fqn,
             "",
-            &format!(
+            format!(
                 "{}, {}, {}",
                 r#""alpha": { "x-function": {"params": [], "returns": {"type": "string"}} }"#,
                 r#""beta": { "x-function": {"params": [], "returns": {"type": "string"}} }"#,

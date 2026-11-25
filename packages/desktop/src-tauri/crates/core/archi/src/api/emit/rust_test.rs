@@ -542,7 +542,7 @@ fn render的签名见证形态() {
 fn render的透传pub_use() {
     let (contract, schema) = prepare_local(&mirrored_schema_text(
         FQN,
-        &format!(
+        format!(
             "{}, {}",
             reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
             reexport_def(
@@ -897,7 +897,7 @@ fn render的透传模块路径零fqn派生() {
 fn render的modules查不到目标只出注释() {
     let (contract, schema) = prepare_local(&mirrored_schema_text(
         FQN,
-        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
         "",
     ));
     let target = EmitTarget {
@@ -1037,7 +1037,7 @@ fn rust_comment_text的消费面() {
     // 行为面：透传目标 FQN 含换行 → `// 透传自 …` 仍是一行注释
     let (contract, schema) = prepare_local(&mirrored_schema_text(
         FQN,
-        &reexport_def(FQN, "AgentInput", r#"App.Frontend\nComponents.Agent"#),
+        reexport_def(FQN, "AgentInput", r#"App.Frontend\nComponents.Agent"#),
         "",
     ));
     let target = EmitTarget {
@@ -1464,7 +1464,7 @@ fn op_source(params: &str, returns: &str) -> String {
     op_schema(
         FQN,
         "load",
-        &format!(r#"{{"params": {params}, "returns": {returns}}}"#),
+        format!(r#"{{"params": {params}, "returns": {returns}}}"#),
     )
 }
 

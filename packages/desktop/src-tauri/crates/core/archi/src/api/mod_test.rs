@@ -263,7 +263,7 @@ pub(crate) fn op_schema(fqn: &str, op: impl AsRef<str>, signature: impl AsRef<st
     mirrored_schema_text(
         fqn,
         "",
-        &format!("\"{op}\": {{ \"x-function\": {signature} }}"),
+        format!("\"{op}\": {{ \"x-function\": {signature} }}"),
     )
 }
 
@@ -812,7 +812,7 @@ fn load_contracts落点闸违例即中止() {
             "$defs.T.properties.call.items",
             schema_text(
                 fqn,
-                &format!(
+                format!(
                     "\"T\": {{ \"type\": \"object\", \"properties\": {{ \"call\": {{ \"type\": \"array\", \"items\": {{ \"x-function\": {function} }} }} }} }}"
                 ),
                 mirror,
@@ -823,7 +823,7 @@ fn load_contracts落点闸违例即中止() {
             "$defs.T.additionalProperties",
             schema_text(
                 fqn,
-                &format!(
+                format!(
                     "\"T\": {{ \"type\": \"object\", \"additionalProperties\": {{ \"x-function\": {function} }} }}"
                 ),
                 mirror,
@@ -834,7 +834,7 @@ fn load_contracts落点闸违例即中止() {
             "$defs.T.oneOf[1]",
             schema_text(
                 fqn,
-                &format!(
+                format!(
                     "\"T\": {{ \"oneOf\": [{{ \"type\": \"string\" }}, {{ \"x-function\": {function} }}] }}"
                 ),
                 mirror,
@@ -845,7 +845,7 @@ fn load_contracts落点闸违例即中止() {
             "$defs.T",
             schema_text(
                 fqn,
-                &format!("\"T\": {{ \"x-function\": {function} }}"),
+                format!("\"T\": {{ \"x-function\": {function} }}"),
                 mirror,
             ),
         ),
@@ -1069,7 +1069,7 @@ path = [\"crates/core/no-entry/\"]
     // A：crate 形态入口（`<dir>/src/lib.rs`），透传目标为 B
     temp.write_pair_schema(
         backend,
-        &mirrored_schema_text(backend, &reexport_def(backend, "AgentView", frontend), ""),
+        &mirrored_schema_text(backend, reexport_def(backend, "AgentView", frontend), ""),
     );
     temp.write(
         "crates/infra/archi/src/lib.rs",
@@ -1082,7 +1082,7 @@ path = [\"crates/core/no-entry/\"]
         frontend,
         &mirrored_schema_text(
             frontend,
-            &format!(
+            format!(
                 "{}, {}",
                 reexport_def(frontend, "Accept", backend),
                 r#""Item": {"type": "object", "properties": {}}"#
@@ -1652,7 +1652,7 @@ fn render_all的index_categories() {
         fqn,
         &mirrored_schema_text(
             fqn,
-            &format!(
+            format!(
                 "{}, {}",
                 r#""Alpha": {"type": "object", "properties": {}}"#,
                 reexport_def(fqn, "AgentInput", "App.Core.Beta")
@@ -3453,7 +3453,7 @@ fn render_all拒绝关键字末段的rust透传目标() {
         consumer,
         &mirrored_schema_text(
             consumer,
-            &format!(
+            format!(
                 "{}, {}, {}",
                 reexport_def(consumer, "Loop", keyword_target),
                 reexport_def(consumer, "Base", valid_target),
@@ -3611,7 +3611,7 @@ gate = \"warn\"
         consumer,
         &mirrored_schema_text(
             consumer,
-            &format!(
+            format!(
                 "{}, {}",
                 reexport_def(consumer, "AgentInput", target),
                 r#""Thing": {"type": "object", "properties": {}}"#
@@ -3683,7 +3683,7 @@ gate = \"warn\"
         consumer,
         &mirrored_schema_text(
             consumer,
-            &format!(
+            format!(
                 "{}, {}",
                 reexport_def(consumer, "AgentInput", target),
                 r#""Thing": {"type": "object", "properties": {}}"#
@@ -4544,7 +4544,7 @@ fn load_contracts拒收非法degraded取值() {
         let fqn = "App.Core.Marked";
         let contract = mirrored_schema_text(
             fqn,
-            &format!(r#""W": {{"type": "object", "x-common": {{"degraded": {value}}}}}"#),
+            format!(r#""W": {{"type": "object", "x-common": {{"degraded": {value}}}}}"#),
             "",
         );
         let elements = [write_element(&temp, fqn, "src/marked/", Some(&contract))];
@@ -4812,7 +4812,7 @@ fn closure_contract(fqn: &str) -> String {
     mirrored_schema_text(
         fqn,
         r#""AgentInputProps": {"type": "object", "properties": {}},"MessageList": {"type": "array", "items": {"type": "string"}}"#,
-        &format!(
+        format!(
             "{}, {}",
             r#""useAgentInput": { "x-function": {"params": [], "returns": {"type": "boolean"}} }"#,
             r#""useSession": { "x-function": {"params": [], "returns": {"type": "boolean"}} }"#

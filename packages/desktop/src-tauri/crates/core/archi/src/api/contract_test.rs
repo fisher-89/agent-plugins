@@ -352,7 +352,7 @@ fn choice_payload词面零残留() {
 
 /// 单条目 `api-types` 契约（`$defs.Widget` 取给定 JSON 原文）。
 fn widget_contract(definition: &str) -> Contract {
-    let source = mirrored_schema_text(FQN, &format!("\"Widget\": {definition}"), "");
+    let source = mirrored_schema_text(FQN, format!("\"Widget\": {definition}"), "");
     parse(&source, FQN, FILE)
 }
 

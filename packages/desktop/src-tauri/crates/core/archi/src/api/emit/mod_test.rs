@@ -201,7 +201,7 @@ fn render_target单契约粒度() {
     // 入口形态的两种取值：目录形态 `../`、单文件形态 `./`
     let source = mirrored_schema_text(
         FQN,
-        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
         "",
     );
     let (contract, schema) = prepare_local(&source);
@@ -243,7 +243,7 @@ fn render_target泛型零支持() {
             "{\"type\": \"object\", \"typeArguments\": [\"T\"]}",
         ),
     ] {
-        let source = mirrored_schema_text(FQN, &format!("\"{name}\": {definition}"), "");
+        let source = mirrored_schema_text(FQN, format!("\"{name}\": {definition}"), "");
         let (contract, schema) = prepare_local(&source);
         for kind in [GeneratedKind::Rust, GeneratedKind::TypeScript] {
             let message = contract_error(render_target(&target(kind), &contract, &schema, &meta()));
@@ -695,7 +695,7 @@ fn render_target删两字段零行为影响() {
 fn render_target的modules查不到目标即退化() {
     let source = mirrored_schema_text(
         FQN,
-        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
         "",
     );
     let (contract, schema) = prepare_local(&source);
@@ -852,7 +852,7 @@ fn render_target的形态由调用方决定() {
 
     let (contract, schema) = prepare_local(&mirrored_schema_text(
         FQN,
-        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
         "",
     ));
     let mut as_directory = target(GeneratedKind::TypeScript);

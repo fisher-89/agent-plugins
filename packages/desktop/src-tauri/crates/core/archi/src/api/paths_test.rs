@@ -2047,7 +2047,7 @@ fn module_refs的rust分支筛选() {
     let reexports = |fqn: &str| {
         mirrored_schema_text(
             fqn,
-            &format!(
+            format!(
                 "{}, {}, {}, {}",
                 reexport_def(fqn, "AgentView", dotted_target),
                 reexport_def(fqn, "Empty", empty_target),
@@ -2195,7 +2195,7 @@ fn module_refs的rust分支筛选() {
 fn render的from经ts_string_literal() {
     let fqn = "App.Backend.Infra.ArchiRuntime";
     let file = ".dev-team/architecture/models/Backend/Infra/App.Backend.Infra.ArchiRuntime.md";
-    let source = mirrored_schema_text(fqn, &reexport_def(fqn, "Archived", fqn), "");
+    let source = mirrored_schema_text(fqn, reexport_def(fqn, "Archived", fqn), "");
     let (contract, schema): (crate::api::contract::Contract, serde_json::Value) =
         crate::api::mod_test::prepare(&source, fqn, file);
 

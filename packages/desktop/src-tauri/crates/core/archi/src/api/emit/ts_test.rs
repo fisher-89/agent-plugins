@@ -418,7 +418,7 @@ fn render目录形态specifier() {
 
     let (contract, schema) = prepare_local(&mirrored_schema_text(
         FQN,
-        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
         "",
     ));
 
@@ -457,7 +457,7 @@ fn render的空scope由入参表达() {
     // ① 有透传条目 + 空查表 → 只出注释、不产 specifier（不 panic、不退化到 FQN 末段）
     let with_reexport = mirrored_schema_text(
         FQN,
-        &format!(
+        format!(
             "{}, {}",
             reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
             r#""Item": {"type": "object", "properties": {}}"#
@@ -525,7 +525,7 @@ fn render形态判定不含字面量层数() {
 
     let (contract, schema) = prepare_local(&mirrored_schema_text(
         FQN,
-        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
         "",
     ));
     let as_single = render_root(&contract, &schema, &meta(), "views/architecture.tsx");
@@ -557,7 +557,7 @@ fn render形态判定不含字面量层数() {
 fn render特殊字符element_root() {
     let (contract, schema) = prepare_local(&mirrored_schema_text(
         FQN,
-        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
         "",
     ));
 
@@ -680,7 +680,7 @@ fn op_source(params: &str, returns: &str) -> String {
     op_schema(
         FQN,
         "load",
-        &format!(r#"{{"params": {params}, "returns": {returns}}}"#),
+        format!(r#"{{"params": {params}, "returns": {returns}}}"#),
     )
 }
 
@@ -939,7 +939,7 @@ fn render的可选参数幂等() {
 fn render的透传export_type() {
     let (contract, schema) = prepare_local(&mirrored_schema_text(
         FQN,
-        &format!(
+        format!(
             "{}, {}",
             reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
             reexport_def(
@@ -1214,7 +1214,7 @@ fn render特殊字符与规模() {
 fn render的name取路径末段而非fqn末段() {
     let (contract, schema) = prepare_local(&mirrored_schema_text(
         FQN,
-        &reexport_def(FQN, "Archived", FQN),
+        reexport_def(FQN, "Archived", FQN),
         "",
     ));
     let mut modules = BTreeMap::new();
@@ -1271,7 +1271,7 @@ fn render的name取路径末段而非fqn末段() {
 fn render的查表值特殊字符() {
     let (contract, schema) = prepare_local(&mirrored_schema_text(
         FQN,
-        &reexport_def(FQN, "Archived", FQN),
+        reexport_def(FQN, "Archived", FQN),
         "",
     ));
     let long = "a".repeat(1200);
@@ -1427,7 +1427,7 @@ fn ts_comment_text断行防护() {
 fn render的透传注释经ts_comment_text() {
     let (contract, schema) = prepare_local(&mirrored_schema_text(
         FQN,
-        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
         "",
     ));
     let target = EmitTarget {
@@ -1751,13 +1751,13 @@ fn ts侧specifier转义零筛选() {
     let dotted_target = render(
         &prepare_local(&mirrored_schema_text(
             FQN,
-            &reexport_def(FQN, "Archived", FQN),
+            reexport_def(FQN, "Archived", FQN),
             "",
         ))
         .0,
         &prepare_local(&mirrored_schema_text(
             FQN,
-            &reexport_def(FQN, "Archived", FQN),
+            reexport_def(FQN, "Archived", FQN),
             "",
         ))
         .1,
@@ -1788,7 +1788,7 @@ fn ts侧specifier转义零筛选() {
     for name in ["it's.tsx", "a\\b.tsx", "a\nb.tsx"] {
         let (contract, schema) = prepare_local(&mirrored_schema_text(
             FQN,
-            &reexport_def(FQN, "Archived", FQN),
+            reexport_def(FQN, "Archived", FQN),
             "",
         ));
         let target = EmitTarget {
@@ -1957,7 +1957,7 @@ fn 三字段只读两项() {
     // 行为面：同一契约只改 `form` ⇒ specifier 随变
     let (contract, schema) = prepare_local(&mirrored_schema_text(
         FQN,
-        &reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
+        reexport_def(FQN, "AgentInput", "App.Frontend.Components.Agent.Input"),
         "",
     ));
     let directory = render_root(&contract, &schema, &meta(), "views/architecture");

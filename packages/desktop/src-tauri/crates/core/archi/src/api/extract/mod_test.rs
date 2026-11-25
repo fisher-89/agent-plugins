@@ -1530,7 +1530,7 @@ fn widget_source(fragment: &Value, required: bool) -> String {
     };
     mirrored_schema_text(
         CONTRACT_FQN,
-        &format!(r#""Widget": {{"type": "object", "properties": {{"f": {fragment}}}{required}}}"#),
+        format!(r#""Widget": {{"type": "object", "properties": {{"f": {fragment}}}{required}}}"#),
         "",
     )
 }
@@ -1539,7 +1539,7 @@ fn widget_source(fragment: &Value, required: bool) -> String {
 fn two_field_source(fragment: &Value) -> String {
     mirrored_schema_text(
         CONTRACT_FQN,
-        &format!(
+        format!(
             r#""Widget": {{"type": "object", "properties": {{"a": {fragment}, "b": {fragment}}}, "required": ["a"]}}"#
         ),
         "",
