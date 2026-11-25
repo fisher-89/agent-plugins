@@ -48,7 +48,7 @@ fn evaluator_protocol() -> String {
         "\n\n---\n\n## 输出协议（必须遵守）\n\n\
 1. 评估落账由桌面编排代写——你只产出评估结论，不写任何落账数据（含 `workflow.json`）。\n\
 2. 评估完成后**调用 `finish_step` 工具收口**——checklist 与 report 是工具参数（形状由工具 schema 给出），无需在最终消息里输出任何 JSON。\n\
-3. `report` 不超过 {MAX_REPORT_CHARS} 字符；checklist 逐项需 `id`（取自本 prompt「静态清单」表首列）+ `title`（同表第二列「检查项」）+ `pass`（布尔）+ `evidence`（事实依据，含 file:line）。\n\
+3. `report` 不超过 {MAX_REPORT_CHARS} 字符；checklist 逐项需 `id`（取自本 prompt `## Check List` 表首列）+ `title`（同表第二列「检查项」）+ `pass`（布尔）+ `evidence`（事实依据，含 file:line）。\n\
 4. 无需 `verdict` / `phase` / `attempt` / `skipped` 字段：verdict 由 checklist 推导，其余由桌面编排按 provenance 盖戳。"
     )
 }

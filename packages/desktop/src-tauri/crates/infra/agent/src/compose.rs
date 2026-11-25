@@ -538,7 +538,7 @@ fn freeze_preamble(injections: &agent::SessionInjections, ctx: &agent::SessionCt
     crate::sdk::preamble::freeze(injections.preamble.as_deref(), agent_md.as_deref())
 }
 
-/// 空快照正文 → `None`：无正文可注入即零 System 消息（指引常量不单独成条）。
+/// 空快照正文 → `None`：无正文可注入即零 System 消息。
 fn injectable(body: String) -> Option<String> {
     (!body.is_empty()).then_some(body)
 }

@@ -18,7 +18,7 @@ use crate::verdict::{validate_checklist, EvaluatorChecklist, MAX_REPORT_CHARS};
 
 /// 两行静态清单（C1 / C2）prompt。
 fn prompt_c1_c2() -> String {
-    "## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\
+    "## Check List\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\
      | C1 | 变更代码中无安全漏洞 | 检查：SQL注入、XSS（全角括号） |\n\
      | C2 | 变更代码有对应测试 | 检查测试文件存在 |\n"
         .to_owned()
@@ -396,7 +396,7 @@ fn 重复id集合相等即ok_不静默去重() {
 #[test]
 fn 规模边界_百项ok千项不panic() {
     // 100 项清单 + 100 项 args（全覆盖）
-    let mut prompt = String::from("## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n");
+    let mut prompt = String::from("## Check List\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n");
     let mut items = Vec::with_capacity(100);
     for index in 0..100 {
         prompt.push_str(&format!("| C{index} | 检查项 {index} | 依据 |\n"));
@@ -412,7 +412,7 @@ fn 规模边界_百项ok千项不panic() {
     assert_eq!(checklist.verdict, Verdict::Pass);
 
     // 1000 项：不 panic、不超时
-    let mut prompt = String::from("## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n");
+    let mut prompt = String::from("## Check List\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n");
     let mut items = Vec::with_capacity(1000);
     for index in 0..1000 {
         prompt.push_str(&format!("| C{index} | 检查项 {index} | 依据 |\n"));
@@ -661,7 +661,7 @@ fn title元素索引定位_items索引与元素对位() {
 #[test]
 fn title内部空白承载语义_折叠即拒() {
     // 权威正文内部连续空白承载语义（MUST NOT 折叠）
-    let prompt = "## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\
+    let prompt = "## Check List\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\
                   | G1 | 单元测试  >  用例 表格每行已生成对应测试骨架 | 检查测试骨架 |\n";
     let exact = "单元测试  >  用例 表格每行已生成对应测试骨架";
 
@@ -767,7 +767,7 @@ fn title一次一错_只报首项不含次项() {
 #[test]
 fn title特殊字符_逐字一致即ok且内部换行形态err携当前值() {
     // 全角标点 / emoji / NUL 与权威正文逐字相同 → Ok
-    let prompt = "## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\
+    let prompt = "## Check List\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\
                   | E1 | 校验 🚀 全角（括号）、标点\0。 | 依据 |\n";
     let exact = "校验 🚀 全角（括号）、标点\0。";
     let checklist = validate_checklist(

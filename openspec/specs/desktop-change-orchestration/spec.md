@@ -482,14 +482,14 @@ run 落库写缝 SHALL 收在 walker 侧单点：`walk_run` 终态出口（`guar
 - **WHEN** run 运行中（已 emit 多节点与 feedback 边）视图重挂后读取快照
 - **THEN** 快照 nodes 与 edges 与已 emit 逐条一致（emit 序、`instance_no` 稳定），后续通知继续触发重读；不依赖前端累积
 
-### Requirement: 相位 prompt 组装面静态化（静态主体 + 动态 append）
+### Requirement: 相位 prompt 组装面（模板渲染 change 名 + 动态 append）
 
-executor / evaluator 会话 prompt SHALL 以写面下发的静态角色知识文本（desktop-phase-prompts / desktop-workflow-write-face）为主体；动态面 SHALL 全部 append 而非模板替换：上下文头一行 `change: <name>`、回溯重做窗口段（见「决策协议」与 desktop-workflow-write-face「回溯重做窗口推导与 prompt 携带」）、失败反馈段（门禁修复注入 / fail 重试注入；**同源格由写面整段省略**，见下）、输出协议附录（evaluator）、decision 两动作与有界输入段（决策会话）与一句「无法裁决时调用 `ask_user_question` 工具」指路。prompt 组装 MUST NOT 使用 `<change>` / `<phase>` 模板替换。段序 SHALL 为「上下文头 → 静态主体 → 回溯重做窗口段 → 失败反馈段（门禁修复注入）→ 输出协议附录（evaluator）」：窗口段是失败反馈段的上位语境（前者答「为什么这个相位被叫回来」，后者答「本相位这次错在哪」），MUST NOT 倒置于反馈段之后；单行「回溯原因」形式已退役（窗口段完全取代，单点渲染）。该段序 SHALL 以**两段并存**为前置条件：同源格（写面判据：覆盖当前相位的开放窗口集合中存在 `from_phase == 当前相位`）下失败反馈段整段缺席，序退化为「上下文头 → 静态主体 → 回溯重做窗口段 →（evaluator）输出协议附录」。反馈段的在场性 SHALL 完全由写面下发的 prompt 文本决定：orchestration MUST NOT 依据 `PhaseNextOutcome.backtrack_window` 自行抑制、裁剪或补回反馈段，MUST NOT 另持一份「同源」判据（判据单源 = desktop-workflow-write-face「回溯重做窗口推导与 prompt 携带」）。窗口段的条目数与裁剪完全由写面下发的集合决定（写面常量 `MAX_BACKTRACK_WINDOWS`：≤ 该上限时全量并集、超限取创建序末位两层；双分支完整表述见「决策协议」与 desktop-workflow-write-face「回溯重做窗口推导与 prompt 携带」），orchestration 侧 MUST NOT 二次裁剪、亦不定义该常量。**verdict 裁决内化后动态面 SHALL NOT 含任何「verdict 解析失败修复注入」**——纠错由 `finish_step` 工具在同一 turn 内闭合，不产生跨轮反馈注入。**协议形状不进 prompt 主体**：`finish_step` 与 `ask_user_question` 的 description / parameters 形状 SHALL 由**工具挂载面**承载（挂载清单 + 动态 schema），MUST NOT 作为 prompt 正文重复一遍——prompt 侧只留「何时收口 / 何时提问」的各一句指引与落账归属红线。`decision_answer_prompt`（ask 应答的唯一再提示面）SHALL 随 ask 停等内移一并退役（应答不再开新一轮，`grep` 零命中）。`WorkerTurnRequest.provenance.source_ref = <change>/<phase>/<role>/<attempt>` 与 `root` / `model_level` 结构化通道不变——phase / attempt 盖戳不依赖 prompt 文本。
+executor / evaluator 会话 prompt SHALL 以写面下发的角色知识文本（desktop-phase-prompts / desktop-workflow-write-face）为主体；change 名 SHALL 经唯一模板占位符 `{{change}}` 由写面在 `build_phase_response` 内以记录 `name` 渲染（Tera，autoescape=false），渲染发生在写面、orchestration 只消费已渲染文本。其余动态面 SHALL 全部 append 而非模板替换：回溯重做窗口段（见「决策协议」与 desktop-workflow-write-face「回溯重做窗口推导与 prompt 携带」）、失败反馈段（门禁修复注入 / fail 重试注入；**同源格由写面整段省略**，见下）、输出协议附录（evaluator）、decision 两动作与有界输入段（决策会话）与一句「无法裁决时调用 `ask_user_question` 工具」指路。prompt 组装 MUST NOT 使用 `<change>` / `<phase>` 模板替换（该两占位符已退役）。段序 SHALL 为「静态主体（`{{change}}` 已渲染）→ 回溯重做窗口段 → 失败反馈段（门禁修复注入）→ 输出协议附录（evaluator）」：窗口段是失败反馈段的上位语境（前者答「为什么这个相位被叫回来」，后者答「本相位这次错在哪」），MUST NOT 倒置于反馈段之后；单行「回溯原因」形式已退役（窗口段完全取代，单点渲染）。该段序 SHALL 以**两段并存**为前置条件：同源格（写面判据：覆盖当前相位的开放窗口集合中存在 `from_phase == 当前相位`）下失败反馈段整段缺席，序退化为「静态主体（`{{change}}` 已渲染）→ 回溯重做窗口段 →（evaluator）输出协议附录」。反馈段的在场性 SHALL 完全由写面下发的 prompt 文本决定：orchestration MUST NOT 依据 `PhaseNextOutcome.backtrack_window` 自行抑制、裁剪或补回反馈段，MUST NOT 另持一份「同源」判据（判据单源 = desktop-workflow-write-face「回溯重做窗口推导与 prompt 携带」）。窗口段的条目数与裁剪完全由写面下发的集合决定（写面常量 `MAX_BACKTRACK_WINDOWS`：≤ 该上限时全量并集、超限取创建序末位两层；双分支完整表述见「决策协议」与 desktop-workflow-write-face「回溯重做窗口推导与 prompt 携带」），orchestration 侧 MUST NOT 二次裁剪、亦不定义该常量。**verdict 裁决内化后动态面 SHALL NOT 含任何「verdict 解析失败修复注入」**——纠错由 `finish_step` 工具在同一 turn 内闭合，不产生跨轮反馈注入。**协议形状不进 prompt 主体**：`finish_step` 与 `ask_user_question` 的 description / parameters 形状 SHALL 由**工具挂载面**承载（挂载清单 + 动态 schema），MUST NOT 作为 prompt 正文重复一遍——prompt 侧只留「何时收口 / 何时提问」的各一句指引与落账归属红线。`decision_answer_prompt`（ask 应答的唯一再提示面）SHALL 随 ask 停等内移一并退役（应答不再开新一轮，`grep` 零命中）。`WorkerTurnRequest.provenance.source_ref = <change>/<phase>/<role>/<attempt>` 与 `root` / `model_level` 结构化通道不变——phase / attempt 盖戳不依赖 prompt 文本。
 
-#### Scenario: 上下文头在场
+#### Scenario: change 名经模板槽位渲染
 
 - **WHEN** walker 发起 executor / evaluator 会话
-- **THEN** prompt 含一行 `change: <name>`（change 名自写面记录 name 供给）
+- **THEN** prompt 中 `{{change}}` 已渲染为写面记录的 `name`（产物路径 / 命令内为裸名），零 `{{…}}` 残留
 - **AND** prompt 主体为静态角色知识文本，无 `<change>` / `<phase>` 模板替换痕迹
 
 #### Scenario: 反馈注入仍 append
@@ -501,7 +501,7 @@ executor / evaluator 会话 prompt SHALL 以写面下发的静态角色知识文
 #### Scenario: 段序窗口段先于反馈段
 
 - **WHEN** walker 为一个既落在回溯窗口内、又带 fail 重试反馈、且**不是**该窗口发起相位的相位（异源并存格）组装 evaluator prompt
-- **THEN** 序为「上下文头 → 静态主体 → 回溯重做窗口段 → 失败反馈段 → 输出协议附录」；窗口段索引小于失败反馈段索引，输出协议附录仍在最后
+- **THEN** 序为「静态主体（`{{change}}` 已渲染）→ 回溯重做窗口段 → 失败反馈段 → 输出协议附录」；窗口段索引小于失败反馈段索引，输出协议附录仍在最后
 
 #### Scenario: 决策 prompt 指路 ask 工具而非承载其形状
 
@@ -536,7 +536,7 @@ executor / evaluator 会话 prompt SHALL 以写面下发的静态角色知识文
 
 ### Requirement: evaluator 输出协议瘦身
 
-`evaluator_protocol` 输出协议附录 SHALL 要求 evaluator **调用 `finish_step` 工具收口**（形状与落账红线由工具参数给出；MUST NOT 要求在最终消息输出任何 JSON 对象、MUST NOT 说明 `verdict` / `phase` / `attempt` / `skipped` 字段——verdict 由 checklist 推导、其余由 walker 按 provenance 盖戳）。协议 SHALL 声明落账归属红线（评估落账由桌面编排代写，agent 只产结论、不写任何落账数据含 `workflow.json`），MUST NOT 点名插件时代的 MCP 工具（`phase_log` / `phase_next` / `phase_start` / `backtrack`——桌面工具面不存在这些名字，点名只会诱发幻觉调用）；checklist 至少一项、逐项含 `id`（取自 prompt「静态清单」表首列）+ `title`（同表第二列「检查项」原文，见「checklist 项标题的搬运与权威校验」）+ `pass`（布尔）+ `evidence`（事实依据，含 `file:line`）；`report` ≤ `MAX_REPORT_CHARS`。协议附录 MUST NOT 与 schema description 各写一份 `title` 取值措辞（措辞单点落位见「checklist 项标题的搬运与权威校验」的「模型可见的取值要求」条：二者择一，由 design 定稿）。
+`evaluator_protocol` 输出协议附录 SHALL 要求 evaluator **调用 `finish_step` 工具收口**（形状与落账红线由工具参数给出；MUST NOT 要求在最终消息输出任何 JSON 对象、MUST NOT 说明 `verdict` / `phase` / `attempt` / `skipped` 字段——verdict 由 checklist 推导、其余由 walker 按 provenance 盖戳）。协议 SHALL 声明落账归属红线（评估落账由桌面编排代写，agent 只产结论、不写任何落账数据含 `workflow.json`），MUST NOT 点名插件时代的 MCP 工具（`phase_log` / `phase_next` / `phase_start` / `backtrack`——桌面工具面不存在这些名字，点名只会诱发幻觉调用）；checklist 至少一项、逐项含 `id`（取自 prompt `## Check List` 表首列）+ `title`（同表第二列「检查项」原文，见「checklist 项标题的搬运与权威校验」）+ `pass`（布尔）+ `evidence`（事实依据，含 `file:line`）；`report` ≤ `MAX_REPORT_CHARS`。协议附录 MUST NOT 与 schema description 各写一份 `title` 取值措辞（措辞单点落位见「checklist 项标题的搬运与权威校验」的「模型可见的取值要求」条：二者择一，由 design 定稿）。
 
 #### Scenario: 协议改为工具收口
 
@@ -548,7 +548,7 @@ executor / evaluator 会话 prompt SHALL 以写面下发的静态角色知识文
 #### Scenario: 逐项字段枚举含标题
 
 - **WHEN** 读取 evaluator 输出协议附录的 checklist 逐项字段枚举
-- **THEN** 含 `id` / `title` / `pass` / `evidence` 四项，`title` 指明取 prompt「静态清单」表第二列原文
+- **THEN** 含 `id` / `title` / `pass` / `evidence` 四项，`title` 指明取 prompt `## Check List` 表第二列原文
 - **AND** 该附录不重复书写「逐字」等取值措辞的第二份表述（`title` 取值纪律的措辞单点在 schema description 与附录之间只占一处）
 
 #### Scenario: 退役修复注入零命中
@@ -1081,7 +1081,7 @@ change 流程的 ask SHALL 由**阻塞工具** `ask_user_question`（`ToolExec::
 evaluator 形态的 `finish_step` SHALL 让逐项结果自带**检查项标题**，使工具调用载荷（前端唯一可见面）自足可读；标题的权威性 SHALL 由工具校验守住，MUST NOT 在前端、落账面或 orchestration 侧另立第二份真相：
 
 - **schema 面**（`crates/core/orchestration/src/finish.rs::parameters`）：evaluator 形态的 `items[].properties` SHALL 增 `title`（`type: "string"`），并 SHALL 进 `items[].required`（与 `id` / `pass` / `evidence` 平级）——缺席即校验 `Err`，MUST NOT 设为可选（可选则「标题恒在场」不可断言，展示面无法给出确定承诺）。decision 形态 schema MUST NOT 变化。
-- **模型可见的取值要求**：`title` 的取值纪律（取本 prompt `## 静态清单` 表第二列「检查项」原文、逐字）SHALL 在**单点**承载（schema 的 `title.description`，或 `evaluator_protocol` 附录——二者择一，由 design 定稿），MUST NOT 两处各写一份独立措辞（两句措辞一旦分叉，模型按哪句都是「照协议做」）。
+- **模型可见的取值要求**：`title` 的取值纪律（取本 prompt `## Check List` 表第二列「检查项」原文、逐字）SHALL 在**单点**承载（schema 的 `title.description`，或 `evaluator_protocol` 附录——二者择一，由 design 定稿），MUST NOT 两处各写一份独立措辞（两句措辞一旦分叉，模型按哪句都是「照协议做」）。
 - **校验面**（`crates/core/orchestration/src/verdict.rs::validate_checklist`）：逐项 `title` SHALL 与 `checklist_entries(prompt)` 中同 `id` 条目的第二列正文比对；不一致 SHALL `Err` 拒绝并当场回灌（is_error ToolResult，模型在同一 turn 内纠正重试），Err 文案 SHALL 自足（该项 `id` + 期望原文 + 当前值）。`title` 缺失 / 非字符串 SHALL 单独成一条 `Err` 文案（与「ID 缺项 / 清单外 ID / 未知 ID」三类既成文案分列可辨）。比较 MUST NOT 退化为「语义等价」的模糊匹配（丢字的相似度判定即等于承认第二真相）；是否做首尾空白裁剪 / 内部连续空白折叠由 design 定稿为单点规则，MUST NOT 逐项各写。
 - **落账面零变更**：`EvaluatorChecklist.checklist` 的 `ChecklistItem { item, pass, evidence }` 三字段形状与「`item` 取静态清单第二列权威正文」的映射 SHALL 逐字不变；`title` 是**展示搬运字段**，MUST NOT 进 `ChecklistItem`、MUST NOT 落库、MUST NOT 成为 `SystemNotice{finish_step}` 载荷的新字段。
 - **零第二解析面**：`workflow::model::checklist::checklist_entries` 仍是「ID + 权威人读文案」的唯一解析实现；本变更 MUST NOT 在 orchestration 或前端新增 prompt md 解析、MUST NOT 把静态清单复制成代码常量 / 生成物 / 前端映射表。
@@ -1090,7 +1090,7 @@ evaluator 形态的 `finish_step` SHALL 让逐项结果自带**检查项标题**
 
 #### Scenario: 标题一致即通过且落账取权威
 
-- **WHEN** 提交 `{ report, items: [{ id: "R1", title: "问题描述清晰，包含背景和动机", pass: true, evidence: "proposal.md:12" }, …] }`，其中各项 `title` 与该 prompt `## 静态清单` 表第二列逐字一致
+- **WHEN** 提交 `{ report, items: [{ id: "R1", title: "问题描述清晰，包含背景和动机", pass: true, evidence: "proposal.md:12" }, …] }`，其中各项 `title` 与该 prompt `## Check List` 表第二列逐字一致
 - **THEN** `validate_checklist` 返回 `Ok`；`EvaluatorChecklist.checklist` 每项 `item` 为该权威正文、`pass` / `evidence` 原样；载荷序列化后**不含 `title` 键**；`verdict` 仍由 `derive_verdict` 从 checklist 推导
 
 #### Scenario: 标题被改写即拒绝且可当场自纠
@@ -1278,7 +1278,7 @@ evaluator 形态的 `finish_step` SHALL 让逐项结果自带**检查项标题**
 | 项 | 变化 | 描述 |
 |---|---|---|
 | `step_executor` / `step_evaluator` | 零改动 | 会话 prompt 取自写面 `PhaseNextOutcome.executor` / `evaluator`；同源格少一段反馈文本是数据面差异，调用面零分支 |
-| `evaluator_prompt(...)` | 零改动 | 仍只追加输出协议附录；同源格下最终序退化为「上下文头 → 静态主体 → 窗口段 → 输出协议附录」 |
+| `evaluator_prompt(...)` | 零改动 | 仍只追加输出协议附录；同源格下最终序退化为「静态主体（已渲染）→ 窗口段 → 输出协议附录」 |
 | `decision_prompt(...)` | 零改动 | 失败清单段 / `## 失败相位报告` / `## 回溯重做窗口` 三面与段序不变（同源抑制不触达决策面） |
 | `build_decision_input(...)` | 零改动 | 仍透传 `next.backtrack_window`；零 store 读取、零相位表推导 |
 

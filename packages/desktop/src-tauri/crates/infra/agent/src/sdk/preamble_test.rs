@@ -209,49 +209,37 @@ fn agent_md非utf8字节返回none不报错() {
 // freeze：快照正文合成单点（段序 / 空段语义 / 零二次截断）
 // ---------------------------------------------------------------------------
 
-use crate::sdk::preamble::{freeze, GUIDANCE};
+use crate::sdk::preamble::freeze;
 
 const KNOWN_AGENT_MD: &str = "<agent_md path=\"/ws/AGENT.md\">\n约定\n</agent_md>";
 
 #[test]
-fn freeze双段在场时按知识_agent_md_常量序以单空行连接() {
+fn freeze双段在场时按知识_agent_md序以单空行连接() {
     let body = freeze(Some("知识正文"), Some(KNOWN_AGENT_MD));
     assert_eq!(
         body,
-        format!("知识正文\n\n{KNOWN_AGENT_MD}\n\n{GUIDANCE}"),
-        "段序 = 知识 → AGENT.md 段 → 指引常量，段间恰一个空行"
+        format!("知识正文\n\n{KNOWN_AGENT_MD}"),
+        "段序 = 知识 → AGENT.md 段，段间恰一个空行"
     );
-    assert_eq!(body.matches("\n\n").count(), 2, "段间分隔恰两处");
+    assert_eq!(body.matches("\n\n").count(), 1, "段间分隔恰一处");
     assert!(
         body.find("知识正文").unwrap() < body.find(KNOWN_AGENT_MD).unwrap(),
         "知识段在首位"
     );
-    assert!(
-        body.find(KNOWN_AGENT_MD).unwrap() < body.find(GUIDANCE).unwrap(),
-        "AGENT.md 段在常量之前"
-    );
 }
 
 #[test]
-fn freeze单侧在场两形态_末段恒为常量() {
+fn freeze单侧在场两形态() {
     let only_agent_md = freeze(None, Some(KNOWN_AGENT_MD));
-    assert_eq!(
-        only_agent_md,
-        format!("{KNOWN_AGENT_MD}\n\n{GUIDANCE}"),
-        "仅 AGENT.md 段：无空前导"
-    );
+    assert_eq!(only_agent_md, KNOWN_AGENT_MD, "仅 AGENT.md 段：无空前导");
     assert!(!only_agent_md.starts_with('\n'), "首位无空行");
 
     let only_knowledge = freeze(Some("知识正文"), None);
-    assert_eq!(
-        only_knowledge,
-        format!("知识正文\n\n{GUIDANCE}"),
-        "仅知识段：末段恒为常量"
-    );
+    assert_eq!(only_knowledge, "知识正文", "仅知识段");
 }
 
 #[test]
-fn freeze全空四形态均返回空串_常量不单独成文() {
+fn freeze全空四形态均返回空串() {
     for (label, knowledge, agent_md) in [
         ("双 None", None, None),
         ("知识空串", Some(""), None),
@@ -260,10 +248,6 @@ fn freeze全空四形态均返回空串_常量不单独成文() {
     ] {
         let body = freeze(knowledge, agent_md);
         assert_eq!(body, String::new(), "形态「{label}」→ 空串");
-        assert!(
-            !body.contains(GUIDANCE),
-            "形态「{label}」：指引常量 MUST NOT 单独成文"
-        );
     }
 }
 
@@ -277,7 +261,7 @@ fn freeze不trim_段内首尾空白逐字保留() {
 
     assert_eq!(
         body,
-        format!("{knowledge}\n\n{agent_md}\n\n{GUIDANCE}"),
+        format!("{knowledge}\n\n{agent_md}"),
         "段内空白逐字保留，仅在段间插入单空行（AGENT.md 段逐字语义）"
     );
     assert!(
@@ -296,7 +280,7 @@ fn freeze不二次截断_超长agent_md段长度逐字节守恒() {
     let long = "长".repeat(20000);
     let knowledge = "知识";
     let body = freeze(Some(knowledge), Some(&long));
-    let expected = knowledge.len() + 2 + long.len() + 2 + GUIDANCE.len();
+    let expected = knowledge.len() + 2 + long.len();
     assert_eq!(body.len(), expected, "拼接长度逐字节守恒（无二次截断）");
     assert!(
         body.contains(&long),
@@ -312,7 +296,7 @@ fn freeze知识段不截断_超32kb知识原样在首位() {
         body.starts_with(&knowledge),
         "知识段 > 32KB 原样在首位（截断只作用于 AGENT.md 段）"
     );
-    assert_eq!(body.len(), knowledge.len() + 2 + GUIDANCE.len(), "长度守恒");
+    assert_eq!(body.len(), knowledge.len(), "长度守恒");
 }
 
 #[test]
@@ -332,66 +316,6 @@ fn freeze纯函数性_同入参两次相等且任一入参变化即结果变化(
         "AGENT.md 段变即结果变"
     );
     assert_ne!(freeze(Some("知识"), None), first, "段缺席即结果变");
-}
-
-// ---------------------------------------------------------------------------
-// GUIDANCE：冻结指引常量的硬判据
-// ---------------------------------------------------------------------------
-
-#[test]
-fn guidance体量不超512字节且非空不以空白结尾() {
-    assert!(!GUIDANCE.is_empty(), "常量非空");
-    assert!(
-        GUIDANCE.chars().count() <= 512,
-        "char 计不超 512，实际 {}",
-        GUIDANCE.chars().count()
-    );
-    assert!(
-        GUIDANCE.len() <= 512,
-        "字节计不超 512，实际 {}",
-        GUIDANCE.len()
-    );
-    assert!(
-        !GUIDANCE.ends_with(char::is_whitespace),
-        "不以空白结尾（拼进正文不留悬空行）"
-    );
-}
-
-#[test]
-fn guidance零路径字面量与零占位符() {
-    for token in ["/", "\\", "C:", "~"] {
-        assert!(
-            !GUIDANCE.contains(token),
-            "MUST NOT 含路径字面量 {token:?}（worktree 路径逐会话不同）: {GUIDANCE}"
-        );
-    }
-    for token in ["<", ">", "{", "}"] {
-        assert!(
-            !GUIDANCE.contains(token),
-            "MUST NOT 含占位符 {token:?}（装配层静态常量无注入位）: {GUIDANCE}"
-        );
-    }
-}
-
-#[test]
-fn guidance三点语义在场且产物中恰出现一次() {
-    assert!(GUIDANCE.contains("冻结"), "语义一：冻结: {GUIDANCE}");
-    assert!(
-        GUIDANCE.contains("AGENT.md"),
-        "语义二：真身 AGENT.md: {GUIDANCE}"
-    );
-    assert!(GUIDANCE.contains("read"), "语义三：read 重读: {GUIDANCE}");
-    assert!(
-        GUIDANCE.contains("重新读取") || GUIDANCE.contains("重读"),
-        "规则更新时重读的表述在场: {GUIDANCE}"
-    );
-
-    let body = freeze(Some("知识"), Some(KNOWN_AGENT_MD));
-    assert_eq!(
-        body.matches(GUIDANCE).count(),
-        1,
-        "常量在 freeze 产物中恰出现一次"
-    );
 }
 
 // ---------------------------------------------------------------------------

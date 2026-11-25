@@ -16,7 +16,7 @@ use crate::state::{
 
 /// 身份锚字面量（路由入参——一切寻址以 id 为准；prompt 插值取 name）。
 const CHANGE_ID: &str = "0198f7a0-0000-7000-8000-0000000000e6";
-/// change 名（上下文头 `change:` 段供给值——裸名，非身份键）。
+/// change 名（`{{change}}` 模板槽位渲染值——裸名，非身份键）。
 const CHANGE_NAME: &str = "demo-change";
 /// 第二 change（锚点键 id 隔离用例：同 run_id 异 id 两键）。
 const CHANGE_ID_B: &str = "0198f7a0-0000-7000-8000-0000000000e7";
@@ -364,10 +364,10 @@ fn route(
 /// 初始路由：建档零相位行（id 与 name 双值可辨）→ 表头相位 initialize、
 /// round=1、零角色 spec（确定性表头）、白名单为空（idx==0 早退——表首自身无
 /// 前置）；表头 pass 条目在场 → 次相位 proposal、executor / evaluator prompt
-/// 首部上下文头 `change:` 取 `record.name`（id 串不误入 prompt——分辨率单点
-/// 行为锚）。
+/// 的 `{{change}}` 槽位已渲染为 `record.name`（id 串不误入 prompt——分辨率
+/// 单点行为锚）。
 #[test]
-fn 初始路由落首相位且prompt携上下文头change名() {
+fn 初始路由落首相位且prompt携change名() {
     // 零条目形态：路由落 initialize 表头
     let record = requirement_record(CHANGE_ID, CHANGE_NAME);
     let fake = RouteStore::with_record(Some(record), Vec::new());
@@ -402,36 +402,29 @@ fn 初始路由落首相位且prompt携上下文头change名() {
 
     let executor = outcome.executor.expect("proposal 应有 executor");
     let evaluator = outcome.evaluator.expect("proposal 应有 evaluator");
-    let header = format!("change: {CHANGE_NAME}\n\n");
-    assert!(
-        executor.prompt.starts_with(&header),
-        "executor prompt 首部上下文头取 record.name: {}",
-        executor.prompt
-    );
-    assert!(
-        !executor.prompt.contains(CHANGE_ID),
-        "id 串不误入 executor prompt（上下文头单点 = record.name）: {}",
-        executor.prompt
-    );
-    assert!(
-        evaluator.prompt.starts_with(&header),
-        "evaluator prompt 首部上下文头取 record.name"
-    );
-    assert!(
-        !evaluator.prompt.contains(CHANGE_ID),
-        "id 串不误入 evaluator prompt"
-    );
     for (role, prompt) in [
         ("executor", &executor.prompt),
         ("evaluator", &evaluator.prompt),
     ] {
         assert!(
+            prompt.contains(CHANGE_NAME),
+            "{role} prompt 的 {{{{change}}}} 槽位已渲染为 record.name: {prompt}"
+        );
+        assert!(
+            !prompt.contains(CHANGE_ID),
+            "{role} prompt 零 id 串（槽位单点 = record.name）: {prompt}"
+        );
+        assert!(
+            !prompt.contains("{{") && !prompt.contains("}}"),
+            "{role} prompt 零模板占位残留（{{{{change}}}} 已渲染）: {prompt}"
+        );
+        assert!(
             !prompt.contains("<change>") && !prompt.contains("<phase>"),
-            "{role} prompt 零模板占位残留（上下文头取代 <change> / <phase> 插值）: {prompt}"
+            "{role} prompt 零旧占位符: {prompt}"
         );
     }
     assert!(
-        executor.prompt.contains("## 角色自述"),
+        executor.prompt.starts_with("## Role"),
         "executor prompt 主体为静态角色知识文本"
     );
     assert_eq!(
@@ -669,13 +662,15 @@ fn 已决fail放行同相位重跑且round递增() {
         .prompt
         .clone();
     assert!(
-        second_prompt.starts_with(&format!("change: {CHANGE_NAME}\n\n"))
-            && !second_prompt.contains(CHANGE_ID),
-        "executor prompt 上下文头取 record.name（id 串零入 prompt）: {second_prompt}"
+        second_prompt.contains(CHANGE_NAME) && !second_prompt.contains(CHANGE_ID),
+        "executor prompt 的 {{{{change}}}} 槽位已渲染为 record.name（id 串零入 prompt）: {second_prompt}"
     );
     assert!(
-        !second_prompt.contains("<change>") && !second_prompt.contains("<phase>"),
-        "重跑 prompt 零模板占位残留（相位 id 不经模板注入）: {second_prompt}"
+        !second_prompt.contains("{{")
+            && !second_prompt.contains("}}")
+            && !second_prompt.contains("<change>")
+            && !second_prompt.contains("<phase>"),
+        "重跑 prompt 零模板占位残留: {second_prompt}"
     );
     assert!(
         second_prompt.contains("⚠️ 上次评估未通过（attempt 1）")
@@ -688,8 +683,8 @@ fn 已决fail放行同相位重跑且round递增() {
             .as_ref()
             .expect("evaluator 在场")
             .prompt
-            .starts_with(&format!("change: {CHANGE_NAME}\n\n")),
-        "evaluator prompt 上下文头同相位在场"
+            .contains(CHANGE_NAME),
+        "evaluator prompt 同相位 change 名已渲染"
     );
     assert!(
         second
@@ -1109,10 +1104,10 @@ fn backtrack字段落库路由至目标相位() {
         executor.prompt
     );
     assert!(
-        executor
-            .prompt
-            .starts_with(&format!("change: {CHANGE_NAME}\n\n")),
-        "backtrack prompt 上下文头（change: <name>）与窗口段并存: {}",
+        executor.prompt.contains(CHANGE_NAME)
+            && !executor.prompt.contains("{{")
+            && !executor.prompt.contains("}}"),
+        "backtrack prompt change 名已渲染且与窗口段并存: {}",
         executor.prompt
     );
     assert!(
@@ -1161,13 +1156,6 @@ fn backtrack标记与stale同行并存仍路由至目标相位() {
     assert!(
         !executor.prompt.contains("⚠️ 回溯原因"),
         "S2 退役文案零残留: {}",
-        executor.prompt
-    );
-    assert!(
-        executor
-            .prompt
-            .starts_with(&format!("change: {CHANGE_NAME}\n\n")),
-        "backtrack prompt 上下文头（change: <name>）与窗口段并存: {}",
         executor.prompt
     );
     assert_eq!(
@@ -4290,8 +4278,8 @@ fn 回溯第一拍与同源抑制两成因可辨() {
     );
 }
 
-/// 抑制闸位置与段序退化（正向，单次）：同源格 prompt 恰为「上下文头 + 静态角色主体
-/// + 窗口段」——反馈段零长度（插值序不变，仅末段为空串）。
+/// 抑制闸位置与段序退化（正向，单次）：同源格 prompt 恰为「静态角色主体（已渲染
+/// change 名）+ 窗口段」——反馈段零长度（插值序不变，仅末段为空串）。
 #[test]
 fn 同源格prompt段序_静态主体之后窗口段且反馈段零长度() {
     let outcome = route(
@@ -4331,19 +4319,19 @@ fn 同源格prompt段序_静态主体之后窗口段且反馈段零长度() {
                 .as_str(),
         ),
     ] {
-        let prefix = format!("change: {CHANGE_NAME}\n\n{static_body}");
+        let rendered_body = static_body.replace("{{change}}", CHANGE_NAME);
         assert!(
-            resolved.starts_with(&prefix),
-            "{role} prompt 首部为上下文头 + 静态主体（抑制不改插值序）"
+            resolved.starts_with(&rendered_body),
+            "{role} prompt 首部为静态主体（change 名已渲染，抑制不改插值序）"
         );
-        let tail = &resolved[prefix.len()..];
+        let tail = &resolved[rendered_body.len()..];
         assert_eq!(
             tail,
             section.as_str(),
             "{role} prompt 主体之后恰为窗口段（反馈段被抑制为零长度）"
         );
         assert!(
-            resolved.find(static_body).expect("主体在场")
+            resolved.find(rendered_body.as_str()).expect("主体在场")
                 < resolved.find(WINDOW_TITLE).expect("窗口段在场"),
             "{role} 静态主体先于窗口段"
         );

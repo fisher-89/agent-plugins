@@ -2,7 +2,7 @@
 //! 校验入口。纯函数（零 IO、零运行时状态）——infra 只调本模块铸造工具定义并
 //! 执行校验，不认识 verdict / 动作语义。
 //!
-//! evaluator 形态的 `items[].id.enum` 由**本轮 prompt 文本**（`## 静态清单`
+//! evaluator 形态的 `items[].id.enum` 由**本轮 prompt 文本**（`## Check List`
 //! 段落）解析派生，使「校验的 ID 集 == 模型眼前那份 prompt 的 ID 集」天然自一致
 //!（换 prompt 变体、加 ID 自动跟随，零 md 读取依赖）。
 
@@ -34,7 +34,7 @@ pub fn description(spec: FinishSpec) -> &'static str {
     match spec {
         FinishSpec::EvaluatorChecklist => {
             "本步收尾。按下列清单逐项给出结果；report ≤2000 字符。\
-             items[].id 取自本 prompt 的静态清单（枚举已给出全集），逐项给 title、pass 与 \
+             items[].id 取自本 prompt 的 `## Check List` 表（枚举已给出全集），逐项给 title、pass 与 \
              evidence（evidence 须为事实依据）。verdict 由清单推导，无需提交；不得调用 phase_log / \
              phase_next / phase_start / backtrack（落账由桌面编排代写）"
         }
@@ -53,7 +53,7 @@ pub fn parameters(spec: FinishSpec, prompt: &str) -> Value {
         FinishSpec::EvaluatorChecklist => {
             let mut id_schema = json!({
                 "type": "string",
-                "description": "静态清单项 ID（取本 prompt「静态清单」表首列）",
+                "description": "清单项 ID（取本 prompt `## Check List` 表首列）",
             });
             let ids: Vec<String> = checklist_entries(prompt)
                 .into_iter()
@@ -72,14 +72,14 @@ pub fn parameters(spec: FinishSpec, prompt: &str) -> Value {
                     "items": {
                         "type": "array",
                         "minItems": 1,
-                        "description": "静态清单逐项结果（ID 需覆盖 prompt 清单全集）",
+                        "description": "清单逐项结果（ID 需覆盖 prompt 清单全集）",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "id": id_schema,
                                 "title": {
                                     "type": "string",
-                                    "description": "检查项标题：取本 prompt「静态清单」表第二列「检查项」原文，逐字照抄（改写 / 省字会被拒绝）",
+                                    "description": "检查项标题：取本 prompt `## Check List` 表第二列「检查项」原文，逐字照抄（改写 / 省字会被拒绝）",
                                 },
                                 "pass": {
                                     "type": "boolean",

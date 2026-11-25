@@ -3,7 +3,8 @@ use agent::ModelLevel;
 use crate::state::{ArtifactSpec, OnFail, StepDefinition, StepNode};
 
 /// 相位角色的角色知识 prompt 与模型档位：prompt 为编译期静态文本
-///（`include_str!` 显式字面路径装配产物），无 agent_type 字段、无占位符。
+///（`include_str!` 显式字面路径装配产物），无 agent_type 字段；唯一模板槽位
+/// `{{change}}` 由 `build_phase_response` 以记录 name 渲染。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PhaseAgentSpec {
     pub prompt: &'static str,
@@ -72,8 +73,8 @@ pub(crate) const FEEDBACK_LOOP_LIMIT: u32 = 5;
 /// 各按步声明承载，架构违例的修复轮次不挤占静态检查预算）
 pub(crate) const ARCHI_FEEDBACK_LIMIT: u32 = 3;
 
-// --- 相位 prompt 静态装配单源（`include_str!` 显式字面路径；executor /
-// evaluator spec 与计划步 `prompt_ref` 同引本组常量，防两处字面路径漂移）----
+// --- 相位 prompt 静态装配单源（`include_str!` 显式字面路径；文本内 `{{change}}`
+// 由写面运行时渲染）---------------------------------------------------------
 
 const PROPOSAL_EXECUTOR_PROMPT: &str = include_str!("../prompts/proposal-planner.md");
 const PROPOSAL_EVALUATOR_PROMPT: &str = include_str!("../prompts/proposal-evaluator.md");
@@ -115,22 +116,18 @@ const CODE_ANALYZE_DESCRIPTION: &str = "分析代码生成详细设计";
 static INITIALIZE_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::Clean,
-        prompt_ref: None,
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::StaticCheck,
-        prompt_ref: None,
         on_fail: Some(OnFail::Terminal),
     },
     StepDefinition {
         node: StepNode::ArchiCheck,
-        prompt_ref: None,
         on_fail: Some(OnFail::Terminal),
     },
     StepDefinition {
         node: StepNode::TestExecution,
-        prompt_ref: None,
         on_fail: Some(OnFail::Terminal),
     },
 ];
@@ -138,12 +135,10 @@ static INITIALIZE_STEPS: &[StepDefinition] = &[
 static PROPOSAL_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::Executor,
-        prompt_ref: Some(PROPOSAL_EXECUTOR_PROMPT),
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::Evaluator,
-        prompt_ref: Some(PROPOSAL_EVALUATOR_PROMPT),
         on_fail: None,
     },
 ];
@@ -153,12 +148,10 @@ static PROPOSAL_STEPS: &[StepDefinition] = &[
 static CODE_ANALYZE_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::Executor,
-        prompt_ref: Some(CODE_ANALYZE_EXECUTOR_PROMPT),
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::Evaluator,
-        prompt_ref: Some(CODE_ANALYZE_EVALUATOR_PROMPT),
         on_fail: None,
     },
 ];
@@ -166,12 +159,10 @@ static CODE_ANALYZE_STEPS: &[StepDefinition] = &[
 static DEV_DESIGN_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::Executor,
-        prompt_ref: Some(DEV_DESIGN_EXECUTOR_PROMPT),
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::Evaluator,
-        prompt_ref: Some(DEV_DESIGN_EVALUATOR_PROMPT),
         on_fail: None,
     },
 ];
@@ -179,12 +170,10 @@ static DEV_DESIGN_STEPS: &[StepDefinition] = &[
 static TEST_DESIGN_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::Executor,
-        prompt_ref: Some(TEST_DESIGN_EXECUTOR_PROMPT),
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::Evaluator,
-        prompt_ref: Some(TEST_DESIGN_EVALUATOR_PROMPT),
         on_fail: None,
     },
 ];
@@ -192,12 +181,10 @@ static TEST_DESIGN_STEPS: &[StepDefinition] = &[
 static IMPLEMENT_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::Executor,
-        prompt_ref: Some(IMPLEMENT_EXECUTOR_PROMPT),
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::StaticCheck,
-        prompt_ref: None,
         on_fail: Some(OnFail::FeedbackLoop {
             limit: FEEDBACK_LOOP_LIMIT,
         }),
@@ -206,14 +193,12 @@ static IMPLEMENT_STEPS: &[StepDefinition] = &[
     // 独立于 static-check 的 5 次
     StepDefinition {
         node: StepNode::ArchiCheck,
-        prompt_ref: None,
         on_fail: Some(OnFail::FeedbackLoop {
             limit: ARCHI_FEEDBACK_LIMIT,
         }),
     },
     StepDefinition {
         node: StepNode::Evaluator,
-        prompt_ref: Some(IMPLEMENT_EVALUATOR_PROMPT),
         on_fail: None,
     },
 ];
@@ -221,19 +206,16 @@ static IMPLEMENT_STEPS: &[StepDefinition] = &[
 static TEST_GEN_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::Executor,
-        prompt_ref: Some(TEST_GEN_EXECUTOR_PROMPT),
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::StaticCheck,
-        prompt_ref: None,
         on_fail: Some(OnFail::FeedbackLoop {
             limit: FEEDBACK_LOOP_LIMIT,
         }),
     },
     StepDefinition {
         node: StepNode::Evaluator,
-        prompt_ref: Some(TEST_GEN_EVALUATOR_PROMPT),
         on_fail: None,
     },
 ];
@@ -248,13 +230,11 @@ static TEST_EXECUTION_STEPS: &[StepDefinition] = &[
     // 确定性门禁步：首败即升格交决策，零 agent 修复
     StepDefinition {
         node: StepNode::TestExecution,
-        prompt_ref: None,
         on_fail: Some(OnFail::Escalate),
     },
     // 确定性门禁步：首败即升格交决策，零 agent 修复
     StepDefinition {
         node: StepNode::MutationTest,
-        prompt_ref: None,
         on_fail: Some(OnFail::Escalate),
     },
 ];
@@ -266,60 +246,49 @@ static TEST_EXECUTION_STEPS: &[StepDefinition] = &[
 static ARCHIVE_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::Preflight,
-        prompt_ref: None,
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::Commit,
-        prompt_ref: None,
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::Rebase,
-        prompt_ref: None,
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::ResolveConflicts,
-        prompt_ref: None,
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::Merge,
-        prompt_ref: None,
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::SpecSync,
-        prompt_ref: None,
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::Cleanup,
-        prompt_ref: None,
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::Seal,
-        prompt_ref: None,
         on_fail: None,
     },
     StepDefinition {
         node: StepNode::Finalize,
-        prompt_ref: None,
         on_fail: None,
     },
 ];
 
 static CODE_REVIEW_STEPS: &[StepDefinition] = &[StepDefinition {
     node: StepNode::Evaluator,
-    prompt_ref: Some(CODE_REVIEW_EVALUATOR_PROMPT),
     on_fail: None,
 }];
 
 static ACCEPTANCE_STEPS: &[StepDefinition] = &[StepDefinition {
     node: StepNode::Evaluator,
-    prompt_ref: Some(ACCEPTANCE_EVALUATOR_PROMPT),
     on_fail: None,
 }];
 

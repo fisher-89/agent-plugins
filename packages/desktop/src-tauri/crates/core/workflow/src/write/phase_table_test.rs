@@ -324,7 +324,7 @@ fn test_only表复用requirement同名steps与prompt() {
 /// code-analyze 相位声明（正向 / AC-2 / AC-4）：步序 P→E 两步（verdict 裁决已
 /// 内化到 evaluator 步内，`VerdictGate` 的 `Terminal` 声明随之消失）、executor /
 /// evaluator 均 `ModelLevel::High`、产物清单声明 `markdown-doc·design.md`
-/// （源码分析文档）、两常量静态非空零占位。
+/// （源码分析文档）、两常量静态非空且模板槽位仅 `{{change}}`。
 #[test]
 fn code_analyze相位声明_p形态与design清单与双高角色() {
     let test_only = phase_table("test-only").expect("test-only 应返回 Some");
@@ -361,7 +361,8 @@ fn code_analyze相位声明_p形态与design清单与双高角色() {
         );
     }
 
-    // 双角色均 High 档、prompt 静态非空零占位（`include_str!` 编译期装配）
+    // 双角色均 High 档、prompt 静态非空且模板槽位仅 `{{change}}`（`include_str!`
+    // 编译期装配，渲染在写面）
     let executor = code_analyze
         .executor
         .as_ref()
@@ -383,27 +384,22 @@ fn code_analyze相位声明_p形态与design清单与双高角色() {
     for spec in [executor, evaluator] {
         assert!(!spec.prompt.is_empty(), "code-analyze prompt 静态非空");
         assert!(
-            !spec.prompt.contains("<role>") && !spec.prompt.contains("{{"),
-            "code-analyze prompt 零占位"
+            !spec.prompt.contains("<role>")
+                && !spec.prompt.contains("<change>")
+                && !spec.prompt.contains("<phase>"),
+            "code-analyze prompt 零旧占位符"
+        );
+        assert_eq!(
+            spec.prompt.matches("{{change}}").count(),
+            1,
+            "code-analyze prompt 恰一处 {{{{change}}}} 模板槽位"
+        );
+        assert_eq!(
+            spec.prompt.replace("{{change}}", "").matches("{{").count(),
+            0,
+            "code-analyze prompt 模板槽位仅 {{{{change}}}}"
         );
     }
-    // 步 prompt_ref 与角色 spec prompt 同源（防两处字面路径漂移）
-    let executor_step = code_analyze
-        .steps
-        .iter()
-        .find(|step| step.node == StepNode::Executor)
-        .expect("含 Executor 步");
-    let evaluator_step = code_analyze
-        .steps
-        .iter()
-        .find(|step| step.node == StepNode::Evaluator)
-        .expect("含 Evaluator 步");
-    assert_eq!(executor_step.prompt_ref, Some(executor.prompt));
-    assert_eq!(evaluator_step.prompt_ref, Some(evaluator.prompt));
-    assert_ne!(
-        executor.prompt, evaluator.prompt,
-        "executor / evaluator 为两份各异角色知识（planner / evaluator）"
-    );
 
     // 产物清单声明 design.md（分析相位铸源码分析文档，清单外文档零入列）
     let manifest: Vec<(&str, &str)> = code_analyze
@@ -1308,89 +1304,6 @@ fn 计划图产物清单路径面与kind绑定() {
     }
 }
 
-/// prompt 静态化：全部有静态 prompt 的 agent 步（8 路由相位）`prompt_ref` 均为
-/// `&'static str` 且非空；archive 确定性相位的 spec_sync / resolve_conflicts 为
-/// agent 步但 `prompt_ref` 恒 `None`（prompt 由 orchestration 运行时组装——workflow
-/// 零 orchestration 依赖）；全表扫描无 `<role>` 间接读取 / `{{…}}` 占位（零占位
-/// 红线，AC-1 / AC-2）。
-#[test]
-fn 计划图prompt静态非空且零占位() {
-    let table = phase_table("requirement").expect("requirement 应返回 Some");
-
-    let mut agent_step_prompts = 0usize;
-    for def in table {
-        for step in def.steps {
-            match step.node.role() {
-                Some(_) if def.id == "archive" => {
-                    // 归档两会话步的运行时空组装面：workflow 侧恒 None（AC-2）
-                    assert_eq!(
-                        step.prompt_ref, None,
-                        "归档相位 agent 步 prompt_ref 恒 None（运行时组装）"
-                    );
-                }
-                Some(_) => {
-                    let prompt = step
-                        .prompt_ref
-                        .unwrap_or_else(|| panic!("相位 {} agent 步应有静态 prompt", def.id));
-                    let _: &'static str = prompt;
-                    assert!(
-                        !prompt.is_empty(),
-                        "相位 {} agent 步 prompt 静态非空",
-                        def.id
-                    );
-                    assert!(
-                        !prompt.contains("<role>") && !prompt.contains("{{"),
-                        "相位 {} prompt 零占位（无 <role> / {{{{…}}}}）",
-                        def.id
-                    );
-                    agent_step_prompts += 1;
-                }
-                None => {
-                    // 非 agent 步（clean / 检查步 / 归档 git 步）恒 None
-                    assert_eq!(
-                        step.prompt_ref, None,
-                        "相位 {} 非 agent 步 prompt_ref 恒 None",
-                        def.id
-                    );
-                }
-            }
-        }
-        // agent 步 prompt 与角色 spec prompt 同源（防两处字面路径漂移）
-        if let Some(spec) = &def.executor {
-            let executor_step = def
-                .steps
-                .iter()
-                .find(|step| step.node == StepNode::Executor);
-            if let Some(step) = executor_step {
-                assert_eq!(
-                    step.prompt_ref,
-                    Some(spec.prompt),
-                    "相位 {} executor 步与 spec prompt 同源",
-                    def.id
-                );
-            }
-        }
-        if let Some(spec) = &def.evaluator {
-            let evaluator_step = def
-                .steps
-                .iter()
-                .find(|step| step.node == StepNode::Evaluator);
-            if let Some(step) = evaluator_step {
-                assert_eq!(
-                    step.prompt_ref,
-                    Some(spec.prompt),
-                    "相位 {} evaluator 步与 spec prompt 同源",
-                    def.id
-                );
-            }
-        }
-    }
-    // 5 相位 executor 步 + 5 相位 evaluator 步 + code-review / acceptance 两条
-    // 评估-only evaluator 步 = 12 条 agent 步（test-execution / archive 相位无静态
-    // prompt agent 步）
-    assert_eq!(agent_step_prompts, 12, "12 条 agent 步 prompt 齐备");
-}
-
 #[test]
 fn 计划图on_fail语义与步绑定() {
     use super::phase_table::{ARCHI_FEEDBACK_LIMIT, FEEDBACK_LOOP_LIMIT};
@@ -1559,7 +1472,6 @@ fn 计划图类型收敛与const表逐项等值() {
         );
         let StepDefinition {
             node: _,
-            prompt_ref: _,
             on_fail: _,
         } = steps[0];
         // 角色齐备性回归：executor / evaluator 与相位角色绑定一致
@@ -1598,11 +1510,10 @@ fn 计划图类型收敛与const表逐项等值() {
 
 /// 计划步声明的线面镜像（`StepDefinition` 本体为 `&'static str` / const 表静态
 /// 载体，无 serde 派生——往返以同词汇面镜像承载：`node` / `on_fail` 直用封闭
-/// 集类型，`prompt_ref` 以静态文本内容出线）。
+/// 集类型）。
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct StepDefinitionWire {
     node: StepNode,
-    prompt_ref: Option<String>,
     on_fail: Option<OnFail>,
 }
 
@@ -1628,7 +1539,6 @@ fn 计划图类型收敛_序列化往返与const表逐项等值() {
             .iter()
             .map(|step| StepDefinitionWire {
                 node: step.node,
-                prompt_ref: step.prompt_ref.map(str::to_owned),
                 on_fail: step.on_fail,
             })
             .collect();
@@ -1869,41 +1779,6 @@ fn archive步on_fail恒none_失败即终态() {
     }
 }
 
-/// archive 步 `prompt_ref` 语义（边界）：九步 `prompt_ref` 恒 `None`——spec_sync /
-/// resolve_conflicts 的 prompt 由 orchestration 运行时组装（workflow 零
-/// orchestration 依赖），其余步非 agent 面亦恒 None（AC-2 / 数据模型；cleanup
-/// 尽力步同面）。
-#[test]
-fn archive步prompt_ref恒none_运行时空组装() {
-    let table = phase_table("requirement").expect("requirement 应返回 Some");
-    let archive = table
-        .iter()
-        .find(|def| def.id == "archive")
-        .expect("archive 相位应在表内");
-
-    for step in archive.steps {
-        assert_eq!(
-            step.prompt_ref, None,
-            "archive 步 {:?} prompt_ref 恒 None（零静态 prompt 引用）",
-            step.node
-        );
-    }
-    // 归档两会话步虽属 Agent 分组，但静态 prompt 引用仍恒 None（运行时组装）
-    for node in [StepNode::SpecSync, StepNode::ResolveConflicts] {
-        let step = archive
-            .steps
-            .iter()
-            .find(|step| step.node == node)
-            .unwrap_or_else(|| panic!("{node:?} 应在 archive 步序内"));
-        assert_eq!(step.node.group(), crate::state::StepGroup::Agent);
-        assert!(step.node.role().is_some(), "归档会话步携 agent 角色");
-        assert_eq!(
-            step.prompt_ref, None,
-            "{node:?} prompt_ref 恒 None（prompt 归 orchestration 单点）"
-        );
-    }
-}
-
 /// archive 步分组可派生（正向）：archive 步经 `StepNode::group()` 分派
 ///（commit / rebase / merge / cleanup / finalize→Git、preflight / seal→Exec、
 /// spec_sync / resolve_conflicts→Agent），与 orchestration 三分支执行缝分派前置
@@ -2002,11 +1877,11 @@ fn archive_steps类型收敛_封闭集取值且长度九() {
 // ---------------------------------------------------------------------------
 
 /// Cleanup 步 `StepDefinition` 声明形态（边界）：`node=StepNode::Cleanup`、
-/// `prompt_ref=None`、`on_fail=None`（尽力语义驻 walker 执行体，声明面与其余
-/// 步一致——非 agent 步零 prompt、无独立失败语义）；两表（requirement /
-/// test-only）archive 相位同面在案。
+/// `on_fail=None`（尽力语义驻 walker 执行体，声明面与其余步一致——非 agent
+/// 步零 prompt、无独立失败语义）；两表（requirement / test-only）archive
+/// 相位同面在案。
 #[test]
-fn archive_cleanup步声明形态_node与prompt_ref与on_fail() {
+fn archive_cleanup步声明形态_node与on_fail() {
     for workflow_type in ["requirement", "test-only"] {
         let table = phase_table(workflow_type).expect("相位表应可达");
         let archive = table
@@ -2019,10 +1894,6 @@ fn archive_cleanup步声明形态_node与prompt_ref与on_fail() {
             .find(|step| step.node == StepNode::Cleanup)
             .unwrap_or_else(|| panic!("{workflow_type} 表 archive 应含 Cleanup 步"));
         assert_eq!(cleanup.node, StepNode::Cleanup, "{workflow_type} 表节点词");
-        assert_eq!(
-            cleanup.prompt_ref, None,
-            "{workflow_type} 表 Cleanup prompt_ref 恒 None（非 agent 步）"
-        );
         assert_eq!(
             cleanup.on_fail, None,
             "{workflow_type} 表 Cleanup on_fail 恒 None（尽力语义驻 walker）"
@@ -2157,93 +2028,6 @@ fn test_only表产物清单复用与code_analyze清单声明() {
     );
 }
 
-/// test-only 表 prompt 静态面（正向）：有静态 prompt 的 agent 步恒 `&'static str`
-/// 且非空零占位、步 `prompt_ref` 与角色 spec 同源；archive 两会话步 `prompt_ref`
-/// 恒 `None`（运行时组装）；test-execution 无 agent 步（确定性相位）。
-#[test]
-fn test_only表prompt静态非空且步spec同源() {
-    let table = phase_table("test-only").expect("test-only 应返回 Some");
-
-    let mut agent_step_prompts = 0usize;
-    for def in table {
-        for step in def.steps {
-            match step.node.role() {
-                Some(_) if def.id == "archive" => {
-                    assert_eq!(
-                        step.prompt_ref, None,
-                        "归档 agent 步 prompt_ref 恒 None（prompt 归 orchestration）"
-                    );
-                }
-                Some(_) => {
-                    let prompt = step
-                        .prompt_ref
-                        .unwrap_or_else(|| panic!("相位 {} agent 步应有静态 prompt", def.id));
-                    let _: &'static str = prompt;
-                    assert!(
-                        !prompt.is_empty(),
-                        "相位 {} agent 步 prompt 静态非空",
-                        def.id
-                    );
-                    assert!(
-                        !prompt.contains("<role>") && !prompt.contains("{{"),
-                        "相位 {} prompt 零占位",
-                        def.id
-                    );
-                    agent_step_prompts += 1;
-                }
-                None => {
-                    assert_eq!(
-                        step.prompt_ref, None,
-                        "相位 {} 非 agent 步 prompt_ref 恒 None",
-                        def.id
-                    );
-                }
-            }
-        }
-
-        // 步 prompt 与角色 spec prompt 同源（防两处字面路径漂移）
-        if let Some(spec) = &def.executor {
-            if let Some(step) = def
-                .steps
-                .iter()
-                .find(|step| step.node == StepNode::Executor)
-            {
-                assert_eq!(
-                    step.prompt_ref,
-                    Some(spec.prompt),
-                    "相位 {} executor 同源",
-                    def.id
-                );
-            }
-        }
-        if let Some(spec) = &def.evaluator {
-            if let Some(step) = def
-                .steps
-                .iter()
-                .find(|step| step.node == StepNode::Evaluator)
-            {
-                assert_eq!(
-                    step.prompt_ref,
-                    Some(spec.prompt),
-                    "相位 {} evaluator 同源",
-                    def.id
-                );
-            }
-        }
-    }
-    // proposal / code-analyze / test-design / test-gen 各 2 条 = 8 条 agent 步
-    //（test-execution 确定性相位无静态 prompt agent 步、archive 运行时组装）
-    assert_eq!(agent_step_prompts, 8, "8 条 agent 步 prompt 齐备");
-
-    // test-execution 相位无 agent 步且双角色 spec 缺席（确定性相位）
-    let test_execution = phase_of(table, "test-execution");
-    assert!(!test_execution
-        .steps
-        .iter()
-        .any(|step| step.node.role().is_some()));
-    assert!(test_execution.executor.is_none() && test_execution.evaluator.is_none());
-}
-
 #[test]
 fn test_only表steps与on_fail全表扫描() {
     let table = phase_table("test-only").expect("test-only 应返回 Some");
@@ -2368,10 +2152,9 @@ fn test_execution拆步两步序且两表同式() {
 
 /// MutationTest `on_fail` 形态（正向 / AC-6）：`on_fail =
 /// Some(OnFail::FeedbackLoop { limit: FEEDBACK_LOOP_LIMIT })`（独立反馈边②，
-/// 与 test-execution 反馈边①分立计数）；`prompt_ref = None`（确定性工具步零
-/// agent prompt）。
+/// 与 test-execution 反馈边①分立计数）。
 #[test]
-fn mutation_test步on_fail升格与prompt_ref恒none() {
+fn mutation_test步on_fail升格() {
     use super::phase_table::FEEDBACK_LOOP_LIMIT;
 
     assert_eq!(
@@ -2392,7 +2175,6 @@ fn mutation_test步on_fail升格与prompt_ref恒none() {
             Some(OnFail::Escalate),
             "{workflow_type} 表 MutationTest on_fail = Escalate（首败升格交决策）"
         );
-        assert_eq!(mutation.prompt_ref, None, "确定性工具步 prompt_ref 恒 None");
     }
 }
 
@@ -2457,8 +2239,8 @@ fn test_execution拆步序列边界_末位真实步且mutation恰一次() {
 
 /// initialize 表项确定性声明全字段锚（正向，单次）：`description == "基线检查"`、
 /// steps 四步序（Clean → StaticCheck → ArchiCheck → TestExecution；Clean 为
-/// `on_fail=None`，三检查步均 `on_fail=Some(OnFail::Terminal)`，全
-/// `prompt_ref=None`）、artifact_manifest 空、prerequisites=[]、executor=None、
+/// `on_fail=None`，三检查步均 `on_fail=Some(OnFail::Terminal)`）、
+/// artifact_manifest 空、prerequisites=[]、executor=None、
 /// evaluator=None、backtrackable=false。开相与相位收口不在 `steps` 内。
 #[test]
 fn initialize表项确定性声明全字段锚() {
@@ -2485,13 +2267,8 @@ fn initialize表项确定性声明全字段锚() {
             "{workflow_type} initialize 步数恰四（archi 基线检查插在 static 与 test 之间，恰 +1）"
         );
 
-        // 步声明逐字段（on_fail 三态按步绑定、prompt_ref 恒 None）
+        // 步声明逐字段（on_fail 三态按步绑定）
         for step in initialize.steps {
-            assert_eq!(
-                step.prompt_ref, None,
-                "{workflow_type} initialize 步 {:?} prompt_ref 恒 None（零 agent 面非 agent 步）",
-                step.node
-            );
             let expect_on_fail = match step.node {
                 StepNode::StaticCheck | StepNode::ArchiCheck | StepNode::TestExecution => {
                     Some(OnFail::Terminal)
@@ -2686,17 +2463,17 @@ fn 白名单archive零agent步自排除边界() {
     static ZERO_AGENT_ARCHIVE_STEPS: &[StepDefinition] = &[
         StepDefinition {
             node: StepNode::Preflight,
-            prompt_ref: None,
+
             on_fail: None,
         },
         StepDefinition {
             node: StepNode::TestExecution,
-            prompt_ref: None,
+
             on_fail: None,
         },
         StepDefinition {
             node: StepNode::Finalize,
-            prompt_ref: None,
+
             on_fail: None,
         },
     ];
@@ -2865,7 +2642,7 @@ fn 白名单表形态边界三态() {
             description: "表尾（含 agent 步 → 可重做）",
             steps: &[StepDefinition {
                 node: StepNode::Executor,
-                prompt_ref: None,
+
                 on_fail: None,
             }],
             artifact_manifest: &[],
@@ -2904,7 +2681,7 @@ fn 白名单表形态边界三态() {
             description: "零 agent 步相位",
             steps: &[StepDefinition {
                 node: StepNode::TestExecution,
-                prompt_ref: None,
+
                 on_fail: Some(OnFail::Escalate),
             }],
             artifact_manifest: &[],
@@ -3191,16 +2968,17 @@ fn stale_stances() -> Vec<String> {
     ]
 }
 
-/// 矩阵命中面（7 份 md × 五维勾选：`archi_module` / `archi_search` / `archi_api` /
-/// `archi_drift` / `archi_scaffold`——矩阵单源逐文件对拍）。
-const ARCHI_PROMPT_MATRIX: [(&str, [bool; 5]); 7] = [
+/// 矩阵命中面（6 份 md × 五维勾选：`archi_module` / `archi_search` / `archi_api` /
+/// `archi_drift` / `archi_scaffold`——矩阵单源逐文件对拍）。`acceptance-evaluator`
+/// 重写后不点名任何 archi 工具（`archi_module` 仍由注入矩阵下发，prompt 侧不承诺；
+/// 其只读规则行只禁写架构模型）。
+const ARCHI_PROMPT_MATRIX: [(&str, [bool; 5]); 6] = [
     ("proposal-planner", [true, true, false, false, true]),
     ("dev-design-planner", [true, true, false, true, true]),
     ("dev-design-evaluator", [true, true, false, false, false]),
     ("test-design-planner", [false, true, false, false, false]),
     ("implementation-generator", [true, false, true, true, false]),
     ("code-review-evaluator", [true, false, false, false, false]),
-    ("acceptance-evaluator", [true, false, false, false, false]),
 ];
 
 /// 五维工具名（序即矩阵列序）。
@@ -3212,7 +2990,7 @@ const ARCHI_TOOLS: [&str; 5] = [
     "archi_scaffold",
 ];
 
-/// 正向（7 行 × 5 列）：7 份命中 md 逐文件含其勾选工具名、且不含未勾选工具名。
+/// 正向（6 行 × 5 列）：6 份命中 md 逐文件含其勾选工具名、且不含未勾选工具名。
 #[test]
 fn archi工具引用与注入矩阵逐文件一致() {
     for (name, bits) in ARCHI_PROMPT_MATRIX {
@@ -3292,7 +3070,7 @@ fn archi工具表述含何时用与返回什么() {
     }
 }
 
-/// 异常：其余 7 份 md 零 `archi` 字样（不许诺未下发工具面）。
+/// 异常：其余 8 份 md 零 `archi` 字样（不许诺未下发工具面）。
 #[test]
 fn 非命中md零archi字样() {
     let non_matching = [
@@ -3303,6 +3081,7 @@ fn 非命中md零archi字样() {
         "test-gen-evaluator",
         "code-analyze-planner",
         "code-analyze-evaluator",
+        "acceptance-evaluator",
     ];
     for name in non_matching {
         let text = prompt_text(name);
@@ -3313,7 +3092,7 @@ fn 非命中md零archi字样() {
     }
 }
 
-/// 正向：三工具名的并集恰为 7 份命中文件，且不存在矩阵之外的 archi 工具名。
+/// 正向：三工具名的并集恰为 6 份命中文件，且不存在矩阵之外的 archi 工具名。
 #[test]
 fn 三工具名并集与矩阵一致() {
     let hit: Vec<String> = prompt_names()
@@ -3330,7 +3109,7 @@ fn 三工具名并集与矩阵一致() {
         .map(|(name, _)| (*name).to_owned())
         .collect();
     expected.sort();
-    assert_eq!(hit, expected, "命中面恰为矩阵七份（无遗漏 / 无越权）");
+    assert_eq!(hit, expected, "命中面恰为矩阵六份（无遗漏 / 无越权）");
 
     // 越权扫描：`archi_` 系列只出现三个名字（`archi_api` 已入白名单）
     for name in prompt_names() {
@@ -3371,9 +3150,11 @@ fn 命中md零路径模板() {
     }
 }
 
-/// 边界：14 份 md 零占位 / 零 `__MCP:*` 片段（既有扫描随动）。
+/// 边界：14 份 md 模板槽位仅 `{{change}}` / 零 `__MCP:*` 片段（既有扫描随动），
+/// 且逐份经 Tera 以样例 change 名渲染成功、零占位残留（`build_phase_response`
+/// 渲染路径不 panic 的前置守卫）。
 #[test]
-fn 十四份md零占位与零mcp() {
+fn 十四份md模板槽位仅change与零mcp() {
     let names = prompt_names();
     assert_eq!(names.len(), 14, "prompt md 恰 14 份");
     for name in names {
@@ -3381,7 +3162,8 @@ fn 十四份md零占位与零mcp() {
         for placeholder in [
             "<change>",
             "<phase>",
-            "{{",
+            "{%",
+            "{#",
             "__INCLUDE:",
             "__MODEL_",
             "__DEV_TEAM_ROOT__",
@@ -3392,6 +3174,28 @@ fn 十四份md零占位与零mcp() {
                 "{name} 不应含占位片段 {placeholder}"
             );
         }
+        assert!(
+            text.contains("{{change}}"),
+            "{name} 至少一处 {{{{change}}}} 模板槽位"
+        );
+        let stripped = text.replace("{{change}}", "");
+        assert!(
+            !stripped.contains("{{") && !stripped.contains("}}"),
+            "{name} 模板槽位仅允许 {{{{change}}}}"
+        );
+
+        let mut context = tera::Context::new();
+        context.insert("change", "demo-change");
+        let rendered = tera::Tera::one_off(&text, &context, false)
+            .unwrap_or_else(|error| panic!("{name} 模板渲染失败: {error}"));
+        assert!(
+            !rendered.contains("{{") && !rendered.contains("}}"),
+            "{name} 渲染后零占位残留"
+        );
+        assert!(
+            rendered.contains("demo-change"),
+            "{name} 渲染后 change 名在场"
+        );
         assert!(!text.trim().is_empty(), "{name} 静态非空");
     }
 }
@@ -3637,11 +3441,11 @@ fn evaluator语料段落集合等于全文边界集合() {
 #[test]
 fn evaluator语料静态清单表结构三断言() {
     for prompt in evaluator_prompts() {
-        assert_eq!(
-            prompt.matches("## 静态清单").count(),
-            1,
-            "`## 静态清单` 段在场恰 1 处"
-        );
+        let headings = prompt
+            .lines()
+            .filter(|line| line.trim_end() == "## Check List")
+            .count();
+        assert_eq!(headings, 1, "`## Check List` 段标题在场恰 1 行");
         assert!(
             prompt.contains("| ID | 检查项 | 判断依据 |"),
             "三列表头逐字在场"
@@ -3656,32 +3460,30 @@ fn evaluator语料静态清单表结构三断言() {
     }
 }
 
+/// 输出面（正向 / 异常）：8 份 evaluator 语料各含一行 `finish_step` 收口指引
+/// （措辞逐角色自持：既有「工具收口」句与改写后的「工具上传 Check List」句并存），
+/// 旧「最终消息输出 checklist JSON」零命中。
 #[test]
-fn evaluator语料输出面同句改写且旧串零命中() {
-    const NEW_SENTENCE: &str = "调用 finish_step 工具收口";
+fn evaluator语料输出面经finish_step且旧串零命中() {
     const OLD_SENTENCE: &str = "最终消息输出一个 checklist JSON";
     let prompts = evaluator_prompts();
 
     for prompt in &prompts {
         assert_eq!(
-            prompt.matches(NEW_SENTENCE).count(),
+            prompt.matches("finish_step").count(),
             1,
-            "新串恰一处命中（同句改写）"
+            "finish_step 收口指引恰一处"
+        );
+        let line = prompt
+            .lines()
+            .find(|line| line.contains("finish_step"))
+            .expect("收口指引成行");
+        assert!(
+            line.contains("收口") || line.contains("上传"),
+            "收口指引应表达 finish_step 的收口 / 上传语义: {line}"
         );
         assert!(!prompt.contains(OLD_SENTENCE), "旧串零命中（改写彻底）");
     }
-
-    // 8 份之间该行逐字相同
-    let lines: Vec<&str> = prompts
-        .iter()
-        .filter_map(|prompt| prompt.lines().find(|line| line.contains(NEW_SENTENCE)))
-        .collect();
-    assert_eq!(lines.len(), 8, "8 份各命中一行");
-    let first = lines[0];
-    assert!(
-        lines.iter().all(|line| *line == first),
-        "8 份该行逐字相同: {lines:?}"
-    );
 }
 
 #[test]
@@ -3694,7 +3496,7 @@ fn executor语料零finish_step字样与零静态清单段() {
             "executor 语料零 finish_step 字样（不设收口工具）"
         );
         assert!(
-            !prompt.contains("## 静态清单"),
+            !prompt.contains("## Check List"),
             "executor 语料零静态清单段（不设 ID 契约面）"
         );
     }
@@ -3896,10 +3698,13 @@ fn 写权相位两处含写面与自查() {
     }
 }
 
-/// 锁定侧 12 份（14 份去掉两块写权相位）：各含「架构模型已锁」一句、携「写进产物
-/// 交 `dev-design` 落地」指路；该句零 ASCII `archi` 字样、不指示路由 / 落账工具调用。
+/// 锁定侧 12 份（14 份去掉两块写权相位）：各含模型锁定表述——canonical
+/// 「架构模型已锁」句（携 `dev-design` 落地指路），或只读规则行
+/// 「MUST NOT 修改源码、变更文档、配置、架构模型」（重写后的
+/// `code-review-evaluator` / `acceptance-evaluator` 采用后者）；表述零 ASCII
+/// `archi` 字样、不指示路由 / 落账工具调用。
 #[test]
-fn 锁定侧十二份各含锁定句() {
+fn 锁定侧十二份各含锁定表述() {
     let write_phases = ["proposal-planner", "dev-design-planner"];
     let mut locked = 0;
     for name in prompt_names() {
@@ -3909,31 +3714,36 @@ fn 锁定侧十二份各含锁定句() {
         locked += 1;
         let text = prompt_text(&name);
         assert!(
-            text.contains("架构模型已锁"),
-            "{name} 应含「架构模型已锁」一句"
+            !text.contains("架构模型可写"),
+            "{name} 在锁定侧，MUST NOT 声明可写"
         );
         let line = text
             .lines()
             .find(|line| line.contains("架构模型已锁"))
-            .unwrap_or_else(|| panic!("{name} 的锁定句应成行"));
-        assert!(
-            line.contains("dev-design"),
-            "{name} 的锁定句应携落地指路：{line}"
-        );
+            .or_else(|| {
+                text.lines().find(|line| {
+                    line.contains("架构模型") && line.contains("MUST NOT") && line.contains("修改")
+                })
+            })
+            .unwrap_or_else(|| {
+                panic!("{name} 应含模型锁定表述（「架构模型已锁」或只读禁止修改架构模型）")
+            });
+        if line.contains("架构模型已锁") {
+            assert!(
+                line.contains("dev-design"),
+                "{name} 的锁定句应携落地指路：{line}"
+            );
+        }
         assert!(
             !line.contains("archi"),
-            "{name} 的锁定句零 ASCII archi 字样：{line}"
+            "{name} 的锁定表述零 ASCII archi 字样：{line}"
         );
         for forbidden in ["backtrack", "finish_step", "落账"] {
             assert!(
                 !line.contains(forbidden),
-                "{name} 的锁定句不指示路由 / 落账工具（{forbidden}）：{line}"
+                "{name} 的锁定表述不指示路由 / 落账工具（{forbidden}）：{line}"
             );
         }
-        assert!(
-            !text.contains("架构模型可写"),
-            "{name} 在锁定侧，MUST NOT 声明可写"
-        );
     }
     assert_eq!(locked, 12, "锁定侧恰 12 份（14 − 2 写权相位）");
 }
@@ -3992,9 +3802,9 @@ fn archi_scaffold分布恰两份() {
     );
 }
 
-/// 边界：未命中矩阵的 7 份整篇零 archi 工具名（新矩阵下仍成立）。
+/// 边界：未命中矩阵的 8 份整篇零 archi 工具名（新矩阵下仍成立）。
 #[test]
-fn 矩阵外七份整篇零archi工具名() {
+fn 矩阵外八份整篇零archi工具名() {
     let matrix: Vec<&str> = ARCHI_PROMPT_MATRIX.iter().map(|(name, _)| *name).collect();
     let mut outside = 0;
     for name in prompt_names() {
@@ -4007,7 +3817,7 @@ fn 矩阵外七份整篇零archi工具名() {
             assert!(!text.contains(tool), "{name} 未命中矩阵却含 {tool}");
         }
     }
-    assert_eq!(outside, 7, "矩阵外恰 7 份（14 − 7 命中）");
+    assert_eq!(outside, 8, "矩阵外恰 8 份（14 − 6 命中）");
 }
 
 // ---------------------------------------------------------------------------

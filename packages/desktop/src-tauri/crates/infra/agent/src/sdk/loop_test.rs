@@ -5632,7 +5632,7 @@ async fn archi面写坏模型读面is_error带file_line且run不中断() {
 
 /// 两行静态清单 prompt（收口用例的合成语料）。
 fn finish_prompt() -> String {
-    "## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\
+    "## Check List\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\
      | C1 | 变更代码中无安全漏洞 | 检查注入面 |\n\
      | C2 | 变更代码有对应测试 | 检查测试文件 |\n"
         .to_owned()

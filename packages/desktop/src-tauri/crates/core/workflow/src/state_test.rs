@@ -1318,12 +1318,12 @@ fn on_fail三变体表驱动往返() {
 fn step_definition_on_fail缺省形态与copy语义() {
     let default = StepDefinition {
         node: StepNode::PhaseStart,
-        prompt_ref: None,
+
         on_fail: None,
     };
     let escalate = StepDefinition {
         node: StepNode::TestExecution,
-        prompt_ref: None,
+
         on_fail: Some(OnFail::Escalate),
     };
     assert!(default.on_fail.is_none(), "缺省步零失败语义声明");
@@ -1358,26 +1358,22 @@ fn on_fail计数上限u32边界可构造() {
     }
 }
 
-/// `StepDefinition` 三字段两态构造（prompt_ref None / Some、on_fail None /
-/// Some）+ `ArtifactSpec` 三字段声明面（AC-1）。
+/// `StepDefinition` 二字段两态构造（on_fail None / Some）+
+/// `ArtifactSpec` 三字段声明面（AC-1）。
 #[test]
 fn step_definition与artifact_spec声明面() {
-    static PROMPT: &str = "静态角色知识（include_str! 编译期装配）";
     let agent_step = StepDefinition {
         node: StepNode::Executor,
-        prompt_ref: Some(PROMPT),
         on_fail: None,
     };
     let gate_step = StepDefinition {
         node: StepNode::StaticCheck,
-        prompt_ref: None,
+
         on_fail: Some(OnFail::FeedbackLoop { limit: 5 }),
     };
     assert_eq!(agent_step.node, StepNode::Executor);
-    assert_eq!(agent_step.prompt_ref, Some(PROMPT));
     assert_eq!(agent_step.on_fail, None);
     assert_eq!(gate_step.node, StepNode::StaticCheck);
-    assert_eq!(gate_step.prompt_ref, None, "非 agent 步恒 None");
     assert_eq!(gate_step.on_fail, Some(OnFail::FeedbackLoop { limit: 5 }));
     assert_ne!(agent_step, gate_step, "两态构造逐字段可辨");
     assert_eq!(agent_step.clone(), agent_step, "PartialEq 自反");

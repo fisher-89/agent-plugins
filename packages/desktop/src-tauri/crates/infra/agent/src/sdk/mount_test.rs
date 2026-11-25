@@ -50,7 +50,7 @@ fn names(mounts: &[ToolMount]) -> Vec<String> {
 
 /// 两行静态清单 prompt（动态 enum 对拍用例的合成语料）。
 fn prompt_of(ids: &[&str]) -> String {
-    let mut text = String::from("## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n");
+    let mut text = String::from("## Check List\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n");
     for id in ids {
         text.push_str(&format!("| {id} | 检查项 {id} | 依据 |\n"));
     }
@@ -450,7 +450,7 @@ fn definitions的finish位缺席时零追加() {
             protect: None,
             before_done: None,
         };
-        let mounts = definitions(&injections, "## 静态清单\n| C1 | 项 | 据 |\n").expect("合法");
+        let mounts = definitions(&injections, "## Check List\n| C1 | 项 | 据 |\n").expect("合法");
         assert!(
             !names(&mounts).contains(&"finish_step".to_owned()),
             "finish 位缺席零追加，实际: {:?}",
@@ -1565,7 +1565,7 @@ fn definitions_db名下发按registry序且tools_none零db名() {
             &["db_tables", "db_query"],
             Some(agent::FinishSpec::Decision),
         ),
-        "## 静态清单\n",
+        "## Check List\n",
     )
     .expect("合法名 + 收口位");
     assert_eq!(

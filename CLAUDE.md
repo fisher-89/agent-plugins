@@ -15,20 +15,13 @@ This repository is the **WPS AI desktop application** — a Tauri 2 + React app.
 
 ## Architecture
 
-- Backend crates live in `src-tauri/crates/` in three groups. `core/`: `foundation` (layout / path resolution), `config` (workspace config read + validation), `workflow` (phase table, write face), `orchestration` (walker / step loop / report-driven routing), `agent` (session execution), `checks` (report semantics). `infra/`: adapters `agent`, `checks`, `exec`, `store`, `vcs`, `watch`. `tools/export-bindings`: TypeScript type generation. Dependency direction is one-way (infra → core, never core → infra).
+- Backend crates are layered: `src-tauri/crates/core/` holds domain crates, `infra/` holds adapters, `tools/` holds generation tooling. Dependency direction is one-way (infra → core, never core → infra). The crate inventory and per-crate responsibilities are owned by the architecture model and the `desktop-*` specs, not here.
 - `src-tauri/src/` is the Tauri app shell: IPC commands, error mapping, bindings export. It wires core/infra ports and owns no domain rules.
-- Phase role prompts are 16 static markdown files under `crates/core/workflow/src/prompts/` (7 executor + 9 evaluator), assembled at compile time through literal `include_str!` paths — fully static, zero placeholders.
-- `crates/infra/agent/src/sdk/protect/` is the write-protection face (built-in locked files + user globs from `.dev-team/config.json`; shell / node / python write detection), mounted as a segment of the agent loop guard chain.
-- The frontend under `packages/desktop/src/` is React + Vite (vite-plus tooling: `vp check`, `vp test`, `knip` dead-code scan); generated IPC types live in `src/types/generated/` and are refreshed by `bindings:export` (staleness confirmed by reviewing the git diff before commit).
+- Generated artifacts are never hand-edited: architecture `.i.*` / `.schema.json` / `INDEX.toml` and frontend `src/types/generated/` (refresh via `bindings:export`, then review the git diff before commit). Frontend tooling is vite-plus (`vp`) — no bare vite/vitest.
 
 ## 模块 API 契约
 
 - **手写真相只有一份**：`.dev-team/architecture/models/<分层目录…>/<FQN>.md`（目录 = 元素 FQN 段链去掉叶段：`Backend.Core.Foundation` → `Backend/Core/`）。散文 + `json api-op` / `json api-types` / `json api-reexport` 三类 fenced json 块；名字清单的唯一持有者也是这三类 fence——散文段 MUST NOT 用表格复述契约名字（重复持有即装载期契约错误），散文只留语义；与代码一致性由机械闭环守，不靠 review 纪律。模型声明（`NN-<域>.toml`）在 `.dev-team/architecture/graph/model/`，契约资产在 `.dev-team/architecture/models/`——两者按目录分家。
-- **四类生成物勿手改**：`.schema.json`（同目录）、`INDEX.toml`（`.dev-team/architecture/graph/`）、实现入口同级的 `<入口主干>.i.rs` / `<入口主干>.i.ts`。手改已提交即零 diff 门失败，未提交会被下次生成静默覆盖。
-- **两个脚本**：`api:export` 生成、`api:check` 读盘比对（零写入，差异即非零退出）。`check` 链为四段：`server:check` → `bindings:export` → `api:check` → `client:check`。
-- **`api = none` 是显式留白**（模型元素字段，非「还没写」）：断言本模块无公共 API；写了契约文件反而触发 `apiUnexpected`。
-- **`doc` 是入口文档指针**（模型元素字段，单值）：**只有 `api = none` 元素可写**；`declared`（缺省）元素的入口文档 = 派生 `<models>/<分层目录…>/<FQN>.md`，写了即 `apiUnexpected`。
-- **入口文档承诺已成立的 `error` 档判据进 status 与 passed**：漂移报告的并列槽位 `apiFindings`（定义见 `desktop-archi-api-check`）只把「入口文档承诺已成立元素」的判据折算进门禁——`docMissing`（入口文档未就位）是 warn 且永不纳管，`status = errors` 时 `passed = false`；十三值判据与「两支三段首错 + pair 锚点」求值定义见 `desktop-archi-api-check`。索引与计数经 `.dev-team/architecture/graph/INDEX.toml`，两轴（生成物新鲜度 / 契约 vs 代码）经架构页「契约」视图一眼看全。
 
 ## Coding Guidelines
 

@@ -43,7 +43,7 @@ pub fn validate_checklist(args: &Value, prompt: &str) -> Result<EvaluatorCheckli
     let entries = checklist_entries(prompt);
     if entries.is_empty() {
         return Err(
-            "本 prompt 无静态清单 ID（期望非空）：`## 静态清单` 段落未解析出任何 `| <ID> |` 行"
+            "本 prompt 无静态清单 ID（期望非空）：`## Check List` 段落未解析出任何 `| <ID> |` 行"
                 .to_owned(),
         );
     }

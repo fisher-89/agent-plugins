@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use agent::ModelLevel;
+use tera::{Context, Tera};
 
 use crate::model::{ChecklistItem, Verdict};
 use crate::state::{ArtifactSpec, ChangeStateStore, OnFail, PhaseStateRecord, StepDefinition};
@@ -60,9 +61,9 @@ pub struct LastResult {
     pub timestamp: Option<i64>,
 }
 
-/// 路由产出的已组装角色会话规格：静态角色知识主体 + 上下文头
-/// `change:` + 记录 `name`（append）+ 失败反馈段 / 回溯重做窗口段（append）；
-/// 跨 crate 消费方（orchestration）只消费本类型。
+/// 路由产出的已组装角色会话规格：静态角色知识主体（`{{change}}` 已渲染为
+/// 记录 `name`）+ 失败反馈段 / 回溯重做窗口段（append）；跨 crate 消费方
+///（orchestration）只消费本类型。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedPhaseSpec {
     pub prompt: String,
@@ -114,8 +115,8 @@ pub struct PhaseNextOutcome {
 }
 
 /// 只读路由状态机（按 change **id** 寻址）：不改状态库。路由权威唯一——
-/// walker 每步过渡都问本函数，白名单随响应下发；上下文头的 change 段由记录
-/// `name` 供给（id → 记录 → name 分辨率单点）。
+/// walker 每步过渡都问本函数，白名单随响应下发；prompt 的 `{{change}}` 模板
+/// 槽位由记录 `name` 渲染（id → 记录 → name 分辨率单点）。
 pub fn phase_next(
     store: &dyn ChangeStateStore,
     change_id: &str,
@@ -463,10 +464,10 @@ fn fail_feedback_suffix(record: &PhaseStateRecord) -> String {
     )
 }
 
-/// 正常路由响应：上下文头（`change:` + 记录 `name`）+ 静态角色知识主体 +
-/// 回溯重做窗口段（静态主体之后、失败反馈段之前）+ 失败反馈段（fail 重试
-/// 且非同源格时在场——同源格的记录已由窗口段承载，整段省略）+ 白名单随行
-/// （append 组装，零模板替换）。
+/// 正常路由响应：静态角色知识主体（唯一模板槽位 `{{change}}` 经 Tera 渲染为
+/// 记录 name）+ 回溯重做窗口段（静态主体之后、失败反馈段之前）+ 失败反馈段
+///（fail 重试且非同源格时在场——同源格的记录已由窗口段承载，整段省略）+
+/// 白名单随行（窗口段 / 反馈段 append 组装）。
 fn build_phase_response(
     table: &'static [PhaseDefinition],
     def: &PhaseDefinition,
@@ -476,7 +477,6 @@ fn build_phase_response(
     last_result: Option<LastResult>,
     retry_feedback: Option<&PhaseStateRecord>,
 ) -> PhaseNextOutcome {
-    let context_header = format!("change: {name}\n\n");
     let open_windows = open_backtrack_windows(entries, table, def.id);
     // 同源格：当前相位是某开放窗口的发起相位 ⇒ 窗口段与失败反馈段读的是同
     // 一条标记行（`reason` 是决策者的修法方向、`checklist` / `report` 是评估
@@ -489,10 +489,12 @@ fn build_phase_response(
         .filter(|_| !same_origin)
         .map(fail_feedback_suffix)
         .unwrap_or_default();
+    let mut context = Context::new();
+    context.insert("change", name);
     let resolve = |spec: &PhaseAgentSpec| ResolvedPhaseSpec {
         prompt: format!(
-            "{context_header}{}{window_section}{feedback_suffix}",
-            spec.prompt
+            "{}{window_section}{feedback_suffix}",
+            Tera::one_off(spec.prompt, &context, false).unwrap(),
         ),
         model_level: spec.model_level,
     };

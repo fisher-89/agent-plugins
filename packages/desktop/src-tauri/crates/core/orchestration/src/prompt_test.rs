@@ -1237,7 +1237,7 @@ fn evaluator_protocol_title邻域含第二列与检查项指针() {
     for needle in ["第二列", "检查项"] {
         assert!(
             pointer.contains(needle),
-            "title 指向静态清单{needle}（字段指针）: {pointer}"
+            "title 指向 Check List {needle}（字段指针）: {pointer}"
         );
     }
     // id 的来源说明同形（表首列），两字段指针形态一致

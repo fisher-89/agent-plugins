@@ -1019,7 +1019,7 @@ fn route_outcome(phase: &str, allowed: &[&str]) -> PhaseNextOutcome {
 }
 
 /// 预录路由产出装置：executor / evaluator prompt 为**已组装**的静态主体
-/// （`change: c` 上下文头在场——与 phase_next 组装面同形，消费面断言的事实源）；
+/// （`{{change}}` 已在写面渲染、无模板占位——消费面断言的事实源）；
 /// 回溯白名单 fixture（id-only；描述缺省空串、产物清单空——walker 装置只关心
 /// id 路由）。
 fn allowed_options(ids: &[&str]) -> Vec<BacktrackOption> {
@@ -1046,11 +1046,11 @@ fn route_with_round(
         steps: steps_of(phase),
         artifact_manifest: manifest_of(phase),
         executor: Some(workflow::write::ResolvedPhaseSpec {
-            prompt: format!("change: c\n\nImplement the {phase} phase for change \"c\"."),
+            prompt: format!("## Role\n\nImplement the {phase} phase for change \"c\"."),
             model_level: ModelLevel::Low,
         }),
         evaluator: Some(workflow::write::ResolvedPhaseSpec {
-            prompt: format!("change: c\n\nEvaluate the {phase} phase for change \"c\"."),
+            prompt: format!("## Role\n\nEvaluate the {phase} phase for change \"c\"."),
             model_level: ModelLevel::High,
         }),
         backtrack_window: Vec::new(),
@@ -2601,13 +2601,13 @@ async fn verdict截断成因文案可区分() {
     assert_eq!(gate.status, RunStepStatus::Failed);
 }
 
-/// walk_run 上下文头消费面（新增）：executor 分支直出
-/// `ResolvedPhaseSpec.prompt` 静态主体（已携 `change: <name>` 上下文头，零
+/// walk_run 主体直出消费面（新增）：executor 分支直出
+/// `ResolvedPhaseSpec.prompt` 静态主体（`{{change}}` 已在写面渲染、零
 /// `__CALL_AGENT` 令牌残留——不再经 `executor_prompt` 二次包裹）；evaluator
 /// 分支经 `evaluator_prompt` 在静态主体尾部 append 输出协议；两槽位
 /// `model_level` 取自 `ResolvedPhaseSpec` 档位（装置适配的档位保真面——AC-5）。
 #[tokio::test]
-async fn 上下文头消费面_executor直出主体evaluator尾随协议附录() {
+async fn 主体直出消费面_executor直出主体evaluator尾随协议附录() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
     let (tools, _) = FakeTools::new(&timeline)
@@ -2628,8 +2628,8 @@ async fn 上下文头消费面_executor直出主体evaluator尾随协议附录()
         .find(|request| request.role == WorkerRole::Executor)
         .expect("executor 会话在场");
     assert!(
-        executor.prompt.contains("change: c"),
-        "executor prompt 直出静态主体携上下文头 change: <name>: {}",
+        executor.prompt.contains("## Role"),
+        "executor prompt 直出静态主体: {}",
         executor.prompt
     );
     assert!(
@@ -2661,8 +2661,8 @@ async fn 上下文头消费面_executor直出主体evaluator尾随协议附录()
         .find("## 输出协议")
         .expect("协议附录尾随在场");
     assert!(
-        evaluator.prompt[..protocol_at].contains("change: c"),
-        "协议附录仅 append 于静态主体之后（主体携上下文头）: {}",
+        evaluator.prompt[..protocol_at].contains("## Role"),
+        "协议附录仅 append 于静态主体之后（主体在场）: {}",
         evaluator.prompt
     );
     assert!(
@@ -5654,7 +5654,7 @@ async fn test_execution分派漂移与terminal形态() {
     let mut terminal_route = route_outcome("test-execution", &[]);
     terminal_route.steps = vec![StepDefinition {
         node: StepNode::TestExecution,
-        prompt_ref: None,
+
         on_fail: Some(OnFail::Terminal),
     }];
     let (tools, commands) = FakeTools::new(&timeline)
@@ -5686,7 +5686,7 @@ async fn test_execution分派漂移与terminal形态() {
         let mut drifted_route = route_outcome("test-execution", &[]);
         drifted_route.steps = vec![StepDefinition {
             node: StepNode::TestExecution,
-            prompt_ref: None,
+
             on_fail,
         }];
         let (tools, commands) = FakeTools::new(&timeline)
@@ -7690,7 +7690,7 @@ async fn 归档cleanup缺前置载荷_计划漂移failed且terminal() {
     let mut drift = archive_route_outcome();
     drift.steps = vec![StepDefinition {
         node: StepNode::Cleanup,
-        prompt_ref: None,
+
         on_fail: None,
     }];
     let (tools, _commands) = FakeTools::new(&timeline)
@@ -9476,7 +9476,7 @@ async fn mutation_test分派漂移三值() {
         let mut drifted_route = route_outcome("test-execution", &[]);
         drifted_route.steps = vec![StepDefinition {
             node: StepNode::MutationTest,
-            prompt_ref: None,
+
             on_fail,
         }];
         let (tools, commands) = FakeTools::new(&timeline)
@@ -11473,7 +11473,7 @@ async fn feedback_limit_escalate误声明显式漂移err() {
     // PhaseStart，故失败归因落在 Escalate 误声明而非不可达步词）
     drifted_route.steps = vec![StepDefinition {
         node: StepNode::StaticCheck,
-        prompt_ref: None,
+
         on_fail: Some(OnFail::Escalate),
     }];
     let (tools, commands) = FakeTools::new(&timeline)
@@ -11686,7 +11686,7 @@ async fn feedback_limit五值边界透传与漂移err() {
         // 直构 steps：辅助步退场后首步即真实步（不再是 PhaseStart）
         route.steps = vec![StepDefinition {
             node: StepNode::StaticCheck,
-            prompt_ref: None,
+
             on_fail: case.on_fail,
         }];
         let (tools, commands) = FakeTools::new(&timeline)
@@ -16343,7 +16343,7 @@ async fn 决策输入_窗口非空时两早退面仍terminal() {
 }
 
 /// 段序（边界，单次，AC-1 / spec「段序窗口段先于反馈段」）：写面 outcome 的
-/// executor prompt（含窗口段 + 反馈段）直出 → 序为「上下文头 → 主体 → 窗口段 →
+/// executor prompt（含窗口段 + 反馈段）直出 → 序为「主体 → 窗口段 →
 /// 反馈段」；evaluator 经 `evaluator_prompt` append 协议 → 窗口段 < 反馈段 <
 /// 输出协议三者同时在场。
 #[tokio::test]
@@ -16354,11 +16354,11 @@ async fn 决策输入_段序窗口段先于反馈段evaluator协议在末() {
         "\n\n⚠️ 上次评估未通过（attempt 2），请针对以下失败项修复：\n\n- 失败项：缺失目标段";
     let mut route = route_outcome("implement", &["proposal", "implement"]);
     route.executor = Some(ResolvedPhaseSpec {
-        prompt: format!("change: c\n\nImplement the implement phase.{section}{feedback}"),
+        prompt: format!("## Role\n\nImplement the implement phase.{section}{feedback}"),
         model_level: ModelLevel::Low,
     });
     route.evaluator = Some(ResolvedPhaseSpec {
-        prompt: format!("change: c\n\nEvaluate the implement phase.{section}{feedback}"),
+        prompt: format!("## Role\n\nEvaluate the implement phase.{section}{feedback}"),
         model_level: ModelLevel::High,
     });
 
@@ -16380,15 +16380,15 @@ async fn 决策输入_段序窗口段先于反馈段evaluator协议在末() {
         .iter()
         .find(|request| request.role == WorkerRole::Executor)
         .expect("executor 请求在场");
-    let header = executor.prompt.find("change: c").expect("上下文头在场");
+    let body_at = executor.prompt.find("## Role").expect("主体在场");
     let window_at = executor.prompt.find("## 回溯重做窗口").expect("窗口段在场");
     let feedback_at = executor
         .prompt
         .find("⚠️ 上次评估未通过")
         .expect("反馈段在场");
     assert!(
-        header < window_at && window_at < feedback_at,
-        "executor 段序：上下文头 → 主体 → 窗口段 → 反馈段"
+        body_at < window_at && window_at < feedback_at,
+        "executor 段序：主体 → 窗口段 → 反馈段"
     );
 
     let evaluator = captured
@@ -16584,11 +16584,11 @@ fn route_outcome_any_table(phase: &str) -> PhaseNextOutcome {
         steps: definition.steps.to_vec(),
         artifact_manifest: definition.artifact_manifest.to_vec(),
         executor: Some(workflow::write::ResolvedPhaseSpec {
-            prompt: format!("change: c\n\nImplement the {phase} phase for change \"c\"."),
+            prompt: format!("## Role\n\nImplement the {phase} phase for change \"c\"."),
             model_level: ModelLevel::Low,
         }),
         evaluator: Some(workflow::write::ResolvedPhaseSpec {
-            prompt: format!("change: c\n\nEvaluate the {phase} phase for change \"c\"."),
+            prompt: format!("## Role\n\nEvaluate the {phase} phase for change \"c\"."),
             model_level: ModelLevel::High,
         }),
         backtrack_window: Vec::new(),
@@ -17130,7 +17130,7 @@ async fn 计划图漂移六词逐词显式失败() {
         let mut drifted = route_outcome("implement", &["implement"]);
         drifted.steps = vec![StepDefinition {
             node,
-            prompt_ref: None,
+
             on_fail: None,
         }];
         let (tools, _commands) = FakeTools::new(&timeline)
@@ -17217,7 +17217,7 @@ async fn 计划图漂移判据边界_空序列与并列与末位() {
             .iter()
             .map(|node| StepDefinition {
                 node: *node,
-                prompt_ref: None,
+
                 on_fail: None,
             })
             .collect();
@@ -21707,7 +21707,7 @@ async fn archi_check分派escalate与缺声明均漂移() {
         let mut route = route_outcome("implement", &["proposal", "implement"]);
         route.steps = vec![StepDefinition {
             node: StepNode::ArchiCheck,
-            prompt_ref: None,
+
             on_fail,
         }];
         let (tools, commands) = FakeTools::new(&timeline)
@@ -21771,7 +21771,7 @@ async fn archi_check分派terminal单发终态零会话零反馈边() {
     let mut route = route_outcome("implement", &["proposal", "implement"]);
     route.steps = vec![StepDefinition {
         node: StepNode::ArchiCheck,
-        prompt_ref: None,
+
         on_fail: Some(OnFail::Terminal),
     }];
     let (tools, commands) = FakeTools::new(&timeline)
@@ -21887,7 +21887,7 @@ async fn archi_check分派feedback_limit零首败即升格() {
     let mut route = route_outcome("implement", &["proposal", "implement"]);
     route.steps = vec![StepDefinition {
         node: StepNode::ArchiCheck,
-        prompt_ref: None,
+
         on_fail: Some(OnFail::FeedbackLoop { limit: 0 }),
     }];
     let (tools, commands) = FakeTools::new(&timeline)
@@ -21939,7 +21939,7 @@ async fn archi_check分派feedback_limit上限不溢出() {
     let mut route = route_outcome("implement", &["proposal", "implement"]);
     route.steps = vec![StepDefinition {
         node: StepNode::ArchiCheck,
-        prompt_ref: None,
+
         on_fail: Some(OnFail::FeedbackLoop { limit: u32::MAX }),
     }];
     let (tools, commands) = FakeTools::new(&timeline)

@@ -1,11 +1,3 @@
-//! `finish.rs`（`finish_step` 工具协议单点）的单元测试：工具名单点、两形态
-//! description / parameters、`validate` 的臂分派与 `FinishPayload` 线形态。
-//!
-//! 不 mock：`checklist_entries` / `validate_checklist` / `validate_decision` /
-//! `derive_verdict` 全部真实组合（分派语义即被测对象，替身会掩盖臂错配）；
-//! prompt 语料取自 `workflow::write::phase_table` 的 `include_str!` 内嵌文本
-//!（编译期，零文件 IO）。
-
 use agent::FinishSpec;
 use workflow::model::Verdict;
 use workflow::write::{backtrack_options, phase_table};
@@ -52,7 +44,7 @@ fn evaluator_prompt_of(phase: &str) -> &'static str {
 
 /// 两行静态清单 prompt（校验 / 分派用例的合成语料）。
 fn synthetic_prompt() -> String {
-    "## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\
+    "## Check List\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\
      | C1 | 变更代码中无安全漏洞 | 检查注入面 |\n\
      | C2 | 变更代码有对应测试 | 检查测试文件 |\n"
         .to_owned()
@@ -293,8 +285,8 @@ fn parameters的evaluator臂结构六断言() {
     );
 }
 
-/// `title` 段（正向）：`type == "string"`，`description` 是「取静态清单第二列
-/// 原文、逐字照抄」的唯一落位（字段指针可断言）。
+/// `title` 段（正向）：`type == "string"`，`description` 是「取 Check List 表
+/// 第二列原文、逐字照抄」的唯一落位（字段指针可断言）。
 #[test]
 fn parameters的evaluator臂title段_类型与取值纪律单点() {
     let schema = parameters(FinishSpec::EvaluatorChecklist, &synthetic_prompt());
@@ -303,7 +295,7 @@ fn parameters的evaluator臂title段_类型与取值纪律单点() {
     assert_eq!(title["type"], "string", "title 为字符串字段");
     let description = title["description"].as_str().expect("description 为字符串");
     assert!(!description.is_empty(), "description 非空");
-    for pointer in ["静态清单", "第二列"] {
+    for pointer in ["Check List", "第二列"] {
         assert!(
             description.contains(pointer),
             "description 含字段指针 {pointer}: {description}"
@@ -348,7 +340,7 @@ fn parameters的evaluator臂required四值且title紧接id() {
 fn parameters的evaluator臂退化面_空id集省略enum键() {
     for prompt in [
         "",
-        "## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n",
+        "## Check List\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n",
     ] {
         let schema = parameters(FinishSpec::EvaluatorChecklist, prompt);
         let id_schema = &schema["properties"]["items"]["items"]["properties"]["id"];

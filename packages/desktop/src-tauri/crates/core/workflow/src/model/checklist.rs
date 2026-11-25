@@ -1,8 +1,8 @@
-//! 静态清单表解析器（ID 契约面）：evaluator prompt 的 `## 静态清单` 段三列表
+//! 静态清单表解析器（ID 契约面）：evaluator prompt 的 `## Check List` 段三列表
 //!（`ID | 检查项 | 判断依据`）是 checklist 的 ID 与权威人读文案唯一来源。
 //!
 //! 三条规则（缺一即错，三条均有实测反例）：
-//! 1. 只扫 `## 静态清单` 起、下一个 `## ` 标题止的段落——全文扫描会吃到子表
+//! 1. 只扫 `## Check List` 起、下一个 `## ` 标题止的段落——全文扫描会吃到子表
 //!    （`### T8 格式检查详细项` 的 `T8-U1` / `T8-G1` 等子项）；
 //! 2. 行首匹配 `| <ID> |`（`[A-Z]+[0-9]+`，两侧空格约束）才收——无边界匹配会把
 //!    `T8-U1` 切成 `T8` / `U1` / `G1` 三个假 ID；
@@ -20,7 +20,7 @@ pub struct ChecklistEntry {
 }
 
 /// 清单段标题（段落边界的起止判定单点）。
-const SECTION_TITLE: &str = "## 静态清单";
+const SECTION_TITLE: &str = "## Check List";
 
 /// 从 prompt 文本解析静态清单 `(id, 检查项)` 二元组（出现序去重）。
 pub fn checklist_entries(prompt: &str) -> Vec<ChecklistEntry> {

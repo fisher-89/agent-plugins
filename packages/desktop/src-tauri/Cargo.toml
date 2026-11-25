@@ -148,6 +148,7 @@ tauri-specta = { version = "=2.0.0-rc.26", features = ["typescript"] }
 store = { path = "crates/infra/store" }
 tempfile = "3"
 uuid = { version = "1", features = ["v7"] }
+tera = "1.20.1"
 time = { version = "0.3", features = ["parsing", "formatting", "serde"] }
 toml = "1"
 toml_edit = "0.25"

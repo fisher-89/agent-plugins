@@ -216,7 +216,7 @@ pub struct StepCommand {
 }
 
 // --- 计划图（源码单源：由 `write::phase_table` 的 const 表声明，不落库、不经
-// port 缝、无运行时文件 IO / 目录遍历；prompt 仍全静态零占位）--------------
+// port 缝、无运行时文件 IO / 目录遍历；prompt 静态文本 + `{{change}}` 槽位）--
 
 /// 计划步分组四分类（`StepNode::group()` 派生；walker 按本值分派 exec / agent /
 /// git / gate 步执行，MUST NOT 以 step 类型特判实现）。
@@ -436,8 +436,6 @@ pub enum OnFail {
 pub struct StepDefinition {
     /// 步节点词汇（kind / role 经 [`StepNode::group`] / [`StepNode::role`] 派生）
     pub node: StepNode,
-    /// agent 步静态 prompt 引用（`include_str!` 编译期静态文本；非 agent 步 `None`）
-    pub prompt_ref: Option<&'static str>,
     /// 步失败语义（缺省 `None` = 按步失败收场）
     pub on_fail: Option<OnFail>,
 }

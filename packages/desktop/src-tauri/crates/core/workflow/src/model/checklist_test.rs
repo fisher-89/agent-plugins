@@ -1,5 +1,5 @@
 //! `checklist.rs`（静态清单表解析器）的单元测试：三条解析规则的正向 / 边界 /
-//! 反例面——段落边界（只扫 `## 静态清单` 起的段落）、行首 `| <ID> |` 形态约束
+//! 反例面——段落边界（只扫 `## Check List` 起的段落）、行首 `| <ID> |` 形态约束
 //!（两侧空格 + `[A-Z]+[0-9]+`）、出现序去重，以及第二列「检查项」权威正文取值。
 //!
 //! 纯 `&str` 扫描的纯函数，全部输入为测试体内内存字符串字面量；零文件 IO、
@@ -15,9 +15,9 @@ fn ids(prompt: &str) -> Vec<String> {
         .collect()
 }
 
-/// 三列清单表段（`## 静态清单` 标题 + 表头 + 分隔行 + 逐行表项）。
+/// 三列清单表段（`## Check List` 标题 + 表头 + 分隔行 + 逐行表项）。
 fn section(rows: &[(&str, &str, &str)]) -> String {
-    let mut text = String::from("## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n");
+    let mut text = String::from("## Check List\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n");
     for (id, item, basis) in rows {
         text.push_str(&format!("| {id} | {item} | {basis} |\n"));
     }
@@ -109,7 +109,7 @@ fn 段落边界_三态表驱动() {
     );
     assert_eq!(ids(&after), vec!["A1".to_owned()], "标题后表项不收");
 
-    // 形态三：`## 静态清单` 为最后一段（无后续 `## `）→ 正常收，不 panic
+    // 形态三：`## Check List` 为最后一段（无后续 `## `）→ 正常收，不 panic
     let tail = section(&[("B1", "末段项", "依据"), ("B2", "末段项二", "依据")]);
     assert_eq!(
         ids(&tail),
@@ -152,7 +152,7 @@ fn id形态边界_七拒二收() {
         "> | T1 | 非行首 | 依据 |",
     ];
     for line in rejected {
-        let prompt = format!("## 静态清单\n{line}\n");
+        let prompt = format!("## Check List\n{line}\n");
         assert!(
             checklist_entries(&prompt).is_empty(),
             "形态 {line:?} 必须不收，实际: {:?}",
@@ -160,7 +160,7 @@ fn id形态边界_七拒二收() {
         );
     }
 
-    let prompt = "## 静态清单\n| AB12 | 多字母前缀 | 依据 |\n| T1 | 单字母 | 依据 |\n";
+    let prompt = "## Check List\n| AB12 | 多字母前缀 | 依据 |\n| T1 | 单字母 | 依据 |\n";
     assert_eq!(
         ids(prompt),
         vec!["AB12".to_owned(), "T1".to_owned()],
@@ -170,7 +170,7 @@ fn id形态边界_七拒二收() {
 
 #[test]
 fn 表头与分隔行与空行不收() {
-    let prompt = "## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\n说明性段落文字\n";
+    let prompt = "## Check List\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\n说明性段落文字\n";
     assert!(
         checklist_entries(prompt).is_empty(),
         "表头 / 分隔行 / 空行 / 说明段均不收，实际: {:?}",
@@ -220,14 +220,14 @@ fn 空输入与缺席四形态() {
     let no_section = "这是一段很长的说明文本\n".repeat(100);
     assert!(
         checklist_entries(&no_section).is_empty(),
-        "无 `## 静态清单` 标题 → 零项"
+        "无 `## Check List` 标题 → 零项"
     );
-    let title_only = "## 静态清单\n\n说明段落没有表行\n";
+    let title_only = "## Check List\n\n说明段落没有表行\n";
     assert!(
         checklist_entries(title_only).is_empty(),
         "标题在场但段内零表行 → 零项"
     );
-    let title_last = "## 静态清单\n| A1 | 末段项 | 依据 |";
+    let title_last = "## Check List\n| A1 | 末段项 | 依据 |";
     assert_eq!(
         ids(title_last),
         vec!["A1".to_owned()],
@@ -261,7 +261,7 @@ fn 换行与特殊字符四形态() {
     // 形态三：100k 字符超长 prompt（前段填充 + 段内 1000 行表）→ 恰 1000 项
     let mut huge = "填充".repeat(50_000);
     huge.push('\n');
-    huge.push_str("## 静态清单\n");
+    huge.push_str("## Check List\n");
     for index in 0..1000 {
         huge.push_str(&format!("| A{index} | 检查项 {index} | 依据 |\n"));
     }

@@ -101,7 +101,7 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 
 ### Requirement: 相位表与 prompt 模板单源收敛
 
-工作流相位表（相位序、executor / evaluator prompt 模板、**有序 step 序列、artifact 清单、前置依赖、回溯资格**）SHALL 单源驻 core/workflow：prompt 模板 SHALL 为 `core/workflow/src/prompts/` 全静态角色知识 md，经 `phase_table.rs` 编译期 `include_str!("prompts/<role>.md")` 显式字面路径装配，MUST NOT 按 `<role>` 动态读取；step 序列与 artifact 清单 SHALL 以 `PhaseDefinition.steps` / `PhaseDefinition.artifact_manifest` 编译期 const 表承载，MUST NOT 落库、MUST NOT 经 port 缝运行时加载。`phase_table(workflow_type)` SHALL 按类型分派：`"requirement"` → `REQUIREMENT_TABLE`（10 个路由相位：initialize / proposal / dev-design / test-design / implement / test-gen / test-execution / code-review / acceptance / archive）、`"test-only"` → `TEST_ONLY_TABLE`（7 个路由相位：initialize / proposal / code-analyze / test-design / test-gen / test-execution / archive），其余（含空白 / 未知 / bug-fix）→ `None`（**不退化**）。initialize 为两表共有的**表头一次性基线检查相位**（确定性相位：`executor=None` / `evaluator=None`，`INITIALIZE_STEPS` 见「相位定义有序 step 序列与 artifact 清单」，执行语义见 desktop-change-orchestration「initialize 基线检查相位执行体」）；archive 为两表共有的确定性末相位（`PhaseDefinition.executor=None` / `evaluator=None`，11 步序列见「相位定义有序 step 序列与 artifact 清单」）。walker MUST NOT 自持相位转移规则（每步过渡问写面 `phase_next`）；`phase_next` SHALL 覆盖各表末相位（requirement 9 个前序路由相位（initialize + 8）pass 后 next=archive，test-only 6 个前序路由相位（initialize + 5）pass 后 next=archive，archive 空 checklist 落账后 done）。`detail.rs` 相位列保持纯布局身份、列序随 `phase_table` 出线（见 desktop-change-queries），MUST NOT 上位为路由权威；TS 侧相位表冻结，不再是桌面路径依赖。
+工作流相位表（相位序、executor / evaluator prompt 模板、**有序 step 序列、artifact 清单、前置依赖、回溯资格**）SHALL 单源驻 core/workflow：prompt 模板 SHALL 为 `core/workflow/src/prompts/` 的静态角色知识 md（唯一模板槽位 `{{change}}`，渲染在写面），经 `phase_table.rs` 编译期 `include_str!("prompts/<role>.md")` 显式字面路径装配，MUST NOT 按 `<role>` 动态读取；step 序列与 artifact 清单 SHALL 以 `PhaseDefinition.steps` / `PhaseDefinition.artifact_manifest` 编译期 const 表承载，MUST NOT 落库、MUST NOT 经 port 缝运行时加载。`phase_table(workflow_type)` SHALL 按类型分派：`"requirement"` → `REQUIREMENT_TABLE`（10 个路由相位：initialize / proposal / dev-design / test-design / implement / test-gen / test-execution / code-review / acceptance / archive）、`"test-only"` → `TEST_ONLY_TABLE`（7 个路由相位：initialize / proposal / code-analyze / test-design / test-gen / test-execution / archive），其余（含空白 / 未知 / bug-fix）→ `None`（**不退化**）。initialize 为两表共有的**表头一次性基线检查相位**（确定性相位：`executor=None` / `evaluator=None`，`INITIALIZE_STEPS` 见「相位定义有序 step 序列与 artifact 清单」，执行语义见 desktop-change-orchestration「initialize 基线检查相位执行体」）；archive 为两表共有的确定性末相位（`PhaseDefinition.executor=None` / `evaluator=None`，11 步序列见「相位定义有序 step 序列与 artifact 清单」）。walker MUST NOT 自持相位转移规则（每步过渡问写面 `phase_next`）；`phase_next` SHALL 覆盖各表末相位（requirement 9 个前序路由相位（initialize + 8）pass 后 next=archive，test-only 6 个前序路由相位（initialize + 5）pass 后 next=archive，archive 空 checklist 落账后 done）。`detail.rs` 相位列保持纯布局身份、列序随 `phase_table` 出线（见 desktop-change-queries），MUST NOT 上位为路由权威；TS 侧相位表冻结，不再是桌面路径依赖。
 
 #### Scenario: walker 不自持转移规则
 
@@ -153,7 +153,7 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 
 ### Requirement: PhaseAgentSpec 静态化与通配符退役
 
-`PhaseAgentSpec` SHALL 由 `{ agent_type: String, prompt: String, model_level }` 收敛为 `{ prompt: &'static str, model_level }`：`agent_type` 字段随 `__CALL_AGENT:<role>__` 令牌退役删除；prompt SHALL 为编译期静态文本（`include_str!("prompts/<role>.md")` 产物，见 desktop-phase-prompts）。写面 SHALL 删除 `interpolate`（`<change>` / `<phase>` 占位符插值）；`phase_next` 的 `build_phase_response` SHALL 以静态 prompt + 上下文头 `change: <name>`（append）+ 回溯重做窗口段（append，见「回溯重做窗口推导与 prompt 携带」）组装，MUST NOT 做模板替换。回溯场景 MUST NOT 再以「单行回溯原因」形式追加（该行已由窗口段完全取代，单点渲染）。desktop core（workflow + orchestration）SHALL 零残留 `__CALL_AGENT` / `interpolate` / `strip_call_agent` / `role_brief` / `<change>` / `<phase>`。
+`PhaseAgentSpec` SHALL 由 `{ agent_type: String, prompt: String, model_level }` 收敛为 `{ prompt: &'static str, model_level }`：`agent_type` 字段随 `__CALL_AGENT:<role>__` 令牌退役删除；prompt SHALL 为编译期静态文本（`include_str!("prompts/<role>.md")` 产物，见 desktop-phase-prompts），其唯一模板槽位 `{{change}}` SHALL 由写面 `phase_next` 的 `build_phase_response` 以记录 `name` 经 Tera（autoescape=false）渲染；`interpolate`（`<change>` / `<phase>` 占位符插值）仍 SHALL NOT 存在。`build_phase_response` SHALL 以渲染后的角色知识主体 + 回溯重做窗口段（append，见「回溯重做窗口推导与 prompt 携带」）+ 失败反馈段（append）组装。回溯场景 MUST NOT 再以「单行回溯原因」形式追加（该行已由窗口段完全取代，单点渲染）。desktop core（workflow + orchestration）SHALL 零残留 `__CALL_AGENT` / `interpolate` / `strip_call_agent` / `role_brief` / `<change>` / `<phase>`。
 
 #### Scenario: 结构收敛与令牌退役
 
@@ -161,10 +161,10 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 - **THEN** 结构仅含 `prompt: &'static str` 与 `model_level`；无 `agent_type` 字段；无 `__CALL_AGENT` 字样
 - **AND** 相位序 / model_level / 白名单 / 前置依赖语义不变
 
-#### Scenario: 无模板替换
+#### Scenario: change 槽位渲染与 append 组装
 
 - **WHEN** `phase_next` 下发某相位 executor / evaluator prompt
-- **THEN** prompt 主体为静态 md 文本，仅 append 上下文头 `change: <name>` 与（窗口命中时）回溯重做窗口段
+- **THEN** prompt 主体为角色知识 md 文本（`{{change}}` 已渲染为记录 name，零 `{{…}}` 残留），（窗口命中时）append 回溯重做窗口段
 - **AND** 无 `<change>` / `<phase>` 替换行为
 
 #### Scenario: 删除面零残留
@@ -181,7 +181,7 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 
 `PhaseDefinition` SHALL 扩展为计划图节点与产物清单的单源载体：
 
-- `steps: [StepDefinition]`：相位内有序 step 序列；`StepDefinition` SHALL 携 `kind`（`exec` | `agent` | `gate` | `git` 四类封闭集，经 `StepNode::group()` 派生）、`role`（agent 步角色）、`prompt_ref`（指向 `include_str!` 静态 prompt 的引用键，非 agent 步可缺省）、`on_fail` 语义三变体（`FeedbackLoop { limit }` 定向反馈循环、`Terminal` 终态失败停给用户、`Escalate` 零会话落账升格交决策）；
+- `steps: [StepDefinition]`：相位内有序 step 序列；`StepDefinition` SHALL 为 `{ node: StepNode, on_fail: Option<OnFail> }` 两字段——`kind`（`exec` | `agent` | `gate` | `git` 四类封闭集）与 `role`（agent 步角色）经 `StepNode::group()` / `StepNode::role()` 派生，step MUST NOT 另持 prompt 引用字段（角色 prompt 归 `PhaseAgentSpec.prompt`）；`on_fail` 语义三变体（`FeedbackLoop { limit }` 定向反馈循环、`Terminal` 终态失败停给用户、`Escalate` 零会话落账升格交决策）；
 - `prerequisites: &'static [&'static str]`：相位直接前置依赖（表内自描述，stale 传播与 allowed_backtrack 推导的唯一事实源；MUST NOT 存在第二份独立 match）；
 - `backtrackable: bool`：相位回溯资格（表内自描述，沿 `prerequisites` 先例；`allowed_backtrack_phases` SHALL 按本属性过滤——`backtrackable=false` 的相位 MUST NOT 出现在任何相位的回溯白名单中，表头 initialize 恒 false（基线检查不可作为回溯目标），过滤 MUST NOT 以「跳过 idx==0」类位置推导实现——表结构变化即漂移）；白名单 SHALL 另按「可重做」裁定自身：`allowed_backtrack_phases` 中「当前相位自身在列」⟺ 该相位可重做（其 `steps` 含 `role()` 为 `Some` 的 agent 步）；零 agent 步的相位（test-execution / archive）自身 MUST NOT 入白名单——决策 agent 上下文里不存在「重做本相位」这个选项，判断 MUST NOT 以相位名硬编码；
 - `artifact_manifest: [ArtifactSpec]`：相位声明产物清单；archive 相位 SHALL 无 `artifact_manifest`（不产文档）；requirement 表 test-design SHALL 声明 `markdown-doc·test-design.md`、implement SHALL 声明 `tasks-progress·tasks.md`（实现期进度视图，服务 phase_next 下发面——发现面同路径按首命中去重，tasks.md 出列为 dev-design 的 markdown-doc 单候选）；test-only 表 code-analyze SHALL 声明 `markdown-doc·design.md`（源码分析）；
@@ -193,12 +193,12 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 
 各表相位的步数 SHALL 为：requirement 表 initialize 4 / proposal 2 / dev-design 2 / test-design 2 / implement 4 / test-gen 3 / test-execution 2 / code-review 1 / acceptance 1 / archive 9（合计 30）；test-only 表 initialize 4 / proposal 2 / code-analyze 2 / test-design 2 / test-gen 3 / test-execution 2 / archive 9（合计 24）。
 
-`steps` SHALL 全静态声明（const 表内联，`prompt_ref` 经编译期 `include_str!` 映射回静态 prompt 表）；MUST NOT 将 prompt 文本收进 db 定义表、MUST NOT 经 port 缝做运行时定义加载。`artifact_manifest` 为「相对路径 → phase」归属的权威来源，前端 `docColumn` 静态映射退役后 MUST NOT 在 core/workflow 之外再保留第二份 phase 归属表。
+`steps` SHALL 全静态声明（const 表内联；角色 prompt 归 `PhaseAgentSpec.prompt`，step 不携带 prompt 引用）；MUST NOT 将 prompt 文本收进 db 定义表、MUST NOT 经 port 缝做运行时定义加载。`artifact_manifest` 为「相对路径 → phase」归属的权威来源，前端 `docColumn` 静态映射退役后 MUST NOT 在 core/workflow 之外再保留第二份 phase 归属表。
 
 #### Scenario: 步序列全静态声明
 
 - **WHEN** 审查 `phase_table.rs` 的 `PhaseDefinition` 表条目（含 initialize、implement、archive、test-execution 与 code-analyze）
-- **THEN** 每相位 `steps` 为编译期 const 有序序列（kind / role / prompt_ref / on_fail 齐备），initialize 相位 4 步在案（`Clean → StaticCheck → ArchiCheck → TestExecution`，表头 `INITIALIZE_STEPS` 两表共享且指针等值）且 `executor=None` / `evaluator=None` / `backtrackable=false`，implement 相位 4 步在案（`ArchiCheck` 位于 StaticCheck 与 Evaluator 之间、`on_fail=FeedbackLoop{3}`），archive 相位 9 步在案且 `executor=None` / `evaluator=None`，test-execution 2 步在案（TestExecution / MutationTest 两步 `on_fail=Escalate`），code-analyze 2 步在案（P→E）；无 db 定义表、无 port 缝定义读、无运行时文件 IO
+- **THEN** 每相位 `steps` 为编译期 const 有序序列（kind / role 派生齐备、on_fail 声明齐备），initialize 相位 4 步在案（`Clean → StaticCheck → ArchiCheck → TestExecution`，表头 `INITIALIZE_STEPS` 两表共享且指针等值）且 `executor=None` / `evaluator=None` / `backtrackable=false`，implement 相位 4 步在案（`ArchiCheck` 位于 StaticCheck 与 Evaluator 之间、`on_fail=FeedbackLoop{3}`），archive 相位 9 步在案且 `executor=None` / `evaluator=None`，test-execution 2 步在案（TestExecution / MutationTest 两步 `on_fail=Escalate`），code-analyze 2 步在案（P→E）；无 db 定义表、无 port 缝定义读、无运行时文件 IO
 
 #### Scenario: 架构门禁步的两个挂载点
 
@@ -233,7 +233,7 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 #### Scenario: PhaseAgentSpec 静态化不翻案
 
 - **WHEN** 审查 `PhaseDefinition` 扩展后的 executor / evaluator spec
-- **THEN** 仍为 `{ prompt: &'static str, model_level }`（`include_str!` 产物），无 `agent_type` / `__CALL_AGENT__` / `interpolate` 残留；initialize / test-execution / archive 三确定性相位 executor / evaluator 均 None（initialize 多一个检查步不引入任何会话槽位）
+- **THEN** 仍为 `{ prompt: &'static str, model_level }`（`include_str!` 产物；唯一模板槽位 `{{change}}` 在写面渲染），无 `agent_type` / `__CALL_AGENT__` / `interpolate` 残留；initialize / test-execution / archive 三确定性相位 executor / evaluator 均 None（initialize 多一个检查步不引入任何会话槽位）
 
 #### Scenario: 辅助步零声明
 
@@ -315,7 +315,7 @@ step 复用 SHALL 为：initialize 复用 requirement 表头 `INITIALIZE_STEPS`�
 
 同源格的两项信息损失 SHALL 随本条款登记（可接受，MUST NOT 当作缺陷重开）：① `（attempt N）` 消失——失败反馈段是该 prompt 内唯一承载重试次数的位置；② 「上次 checklist 的逐项 pass / fail」消失——同源格只剩决策者的散文修法方向。可接受依据：评估者按「全量重评」语义工作，实证中该清单被消费的比例近零（拿到「12 条已过」仍全量重跑）。
 
-位置 SHALL 为契约而非排版偏好：**两段并存时**，executor / evaluator 的窗口段 SHALL 位于静态主体之后、失败反馈段**之前**，evaluator 的最终序 SHALL 为 `上下文头 → 静态主体 → 窗口段 → 失败反馈段 → 输出协议附录`；**同源格下**失败反馈段整段缺席，序退化为 `上下文头 → 静态主体 → 窗口段 →（evaluator）输出协议附录`。MUST NOT 置于失败反馈段之后（反馈段是「本相位这次的失败清单」，窗口段是「为什么这个相位被叫回来」，后者是前者的上位语境）。
+位置 SHALL 为契约而非排版偏好：**两段并存时**，executor / evaluator 的窗口段 SHALL 位于静态主体之后、失败反馈段**之前**，evaluator 的最终序 SHALL 为 `静态主体（{{change}} 已渲染）→ 窗口段 → 失败反馈段 → 输出协议附录`；**同源格下**失败反馈段整段缺席，序退化为 `静态主体（{{change}} 已渲染）→ 窗口段 →（evaluator）输出协议附录`。MUST NOT 置于失败反馈段之后（反馈段是「本相位这次的失败清单」，窗口段是「为什么这个相位被叫回来」，后者是前者的上位语境）。
 
 体积 SHALL 确定有界：单相位窗口段 ≤ `MAX_BACKTRACK_WINDOWS` ×（标签与说明行 + `MAX_REASON_CHARS`）≈ 2.1K 字符。实现 MUST NOT 因体积顾虑再加截断。
 
@@ -434,7 +434,7 @@ step 复用 SHALL 为：initialize 复用 requirement 表头 `INITIALIZE_STEPS`�
 | `crates/core/orchestration`（消费方，不改面） | walker 经 port 缝进程内直调写面 | 依赖方向 orchestration → workflow；walker 零自持转移规则；LocalToolSteps 直调面签名不变（载体在写面内换血） |
 | `crates/infra/store`（workspace 库实例） | 状态落库载体 | ChangeRecord / PhaseRecord / ChecklistItemRecord / StepRecord（见 desktop-workspace-store / desktop-change-state-store） |
 | `crates/core/workflow/src/state.rs`（StepNode / RunStepKind） | 二十一值词面单点 | `Clean` / `clean` 白名单式入封闭集（20→21）；`StepNode::group()` 将 clean 派生 `StepGroup::Git`、`role()` 为 None；与 `RunStepKind` / `ChangeStepKind` 同词面 1:1 |
-| `crates/core/workflow/src/write/phase_table.rs`（ARCHIVE_STEPS） | 9 步序列静态 | `SpecSync` 与 `Seal` 之间留 `Cleanup`（`prompt_ref=None`、尽力步语义驻 walker 执行体）；`PhaseStart` / `PhaseLog` 两项删除；`ARCHIVE_STEP_ORDER` 断言 11 → 9 |
+| `crates/core/workflow/src/write/phase_table.rs`（ARCHIVE_STEPS） | 9 步序列静态 | `SpecSync` 与 `Seal` 之间留 `Cleanup`（尽力步语义驻 walker 执行体）；`PhaseStart` / `PhaseLog` 两项删除；`ARCHIVE_STEP_ORDER` 断言 11 → 9 |
 | `crates/core/workflow/src/write/phase_table.rs` | 表结构单源 | `PhaseDefinition` 增 `backtrackable: bool`（表内自描述）；`INITIALIZE_STEPS` 静态五步（`PhaseStart → Clean → StaticCheck → TestExecution → PhaseLog`，StaticCheck / TestExecution `on_fail=Terminal`）+ 两表表头 `INITIALIZE` 表项（`executor=None` / `evaluator=None` / `prerequisites=[]` / `backtrackable=false` / 零 artifact_manifest）；`allowed_backtrack_phases` 按 `backtrackable` 过滤（无位置推导跳过）；`REQUIREMENT_TABLE` 10 相位 / `TEST_ONLY_TABLE` 7 相位 |
 | `crates/core/workflow/src/write/phase_next.rs`（零改动） | 路由 | 表驱动「首个未 pass 相位」天然含 initialize 表头，零特判、零新规则 |
 | `crates/core/workflow/src/state.rs` | `OnFail` 变体面 | 增 `Escalate`（无载荷）；三变体 `FeedbackLoop { limit }` / `Terminal` / `Escalate`，与缺省 `None` 各自语义见 `StepDefinition.on_fail` doc |

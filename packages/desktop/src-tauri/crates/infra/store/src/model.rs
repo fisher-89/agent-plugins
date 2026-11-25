@@ -1674,7 +1674,7 @@ pub struct SessionPreambleRecord {
     /// core 铸会话 id（主键，与 `SessionRecord.id` 一对一的逻辑关联，非外键）
     #[primary_key]
     pub session_id: String,
-    /// 快照正文（知识 + `AGENT.md` 段 + 冻结指引常量的合成体，空串 = 快照成立但无正文）
+    /// 快照正文（知识 + `AGENT.md` 段的合成体，空串 = 快照成立但无正文）
     pub content: String,
     /// 拍存时刻（UTC unix 毫秒，由落库侧时钟取）
     pub saved_at: i64,

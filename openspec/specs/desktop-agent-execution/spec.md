@@ -332,23 +332,23 @@ SDK 引擎的系统提示词 SHALL 来自会话级注入位 `SessionInjections.p
 
 `AGENT.md` SHALL 是快照的**成分之一**，读取口径逐条不变：读取根为会话执行根 `SessionCtx.workspace_root`（首轮一次读取，worktree 场景即分支版）；读取范围严格限于 `AGENT.md` 单份文件，MUST NOT 做 `CLAUDE.md` / `AGENTS.md` 等兜底回退；内容**逐字**（不删改、不重排）并以 `<agent_md path="…">…</agent_md>` 标签包裹；体量上限 32KB（char 边界截断，只作用于该文件自身）、嵌套 `AGENT.md` 不级联；文件缺席 → 快照不含该段（与注入机制上线前的语义一致）。
 
-快照正文的合成次序 SHALL 为：会话 preamble 知识（`source = "archi"` 的架构会话知识见 `desktop-archi-agent`「架构会话的系统知识注入」；`source = "config"` 的配置协议知识见 `desktop-config-agent`「配置协议知识的静态 preamble」；其余来源恒无此段，「会话级系统前导不进 MVP」的裁定对它们继续生效）在前，`AGENT.md` 段在后，两段之间以空行分隔；**冻结指引常量**作为末段追加。合成产物即快照正文，单条 System 口径不变（工具面注入位仍自「会话级工具面注入与 explore 笔记工具」起按 provenance 来源装配，与本条的知识段来源判定同源）：
+快照正文的合成次序 SHALL 为：会话 preamble 知识（`source = "archi"` 的架构会话知识见 `desktop-archi-agent`「架构会话的系统知识注入」；`source = "config"` 的配置协议知识见 `desktop-config-agent`「配置协议知识的静态 preamble」；其余来源恒无此段，「会话级系统前导不进 MVP」的裁定对它们继续生效）在前，`AGENT.md` 段在后，两段之间以空行分隔；**指引常量已退役**——快照正文 MUST NOT 追加任何装配层固定段（系统提示词的冻结语义由快照机制本身承担）。合成产物即快照正文，单条 System 口径不变（工具面注入位仍自「会话级工具面注入与 explore 笔记工具」起按 provenance 来源装配，与本条的知识段来源判定同源）：
 
-- **单侧在场**：仅知识在场 → 单条为「知识 + 空行 + 指引常量」；仅 `AGENT.md` 在场 → 单条为「`<agent_md …>` 段 + 空行 + 指引常量」；两者皆无 → 快照正文为空串、不注入 System 消息（也不追加指引常量——无正文可冻结，缺省语义维持不变）。
-- **指引常量**：SHALL 为装配层静态常量（非前端 / 自由字符串供给），语义须表达三点——本会话系统提示词冻结于会话开始时、项目规则真身为 `AGENT.md`、用户提示规则已更新时应以 `read` 重新读取 `AGENT.md` 并按新规则执行。体量 SHALL ≤ 512 B（char 计），MUST NOT 含路径字面量（用文件名 `AGENT.md`）、MUST NOT 含 `<>` 一类占位符；MUST NOT 单独成条（只随非空正文出现）。
-- **截断口径分立**：`AGENT.md` 的 32KB / char 边界截断口径不变；知识段与指引常量不在该截断逻辑内，体量由生产者侧测试锚定上限。
+- **单侧在场**：仅知识在场 → 单条为「知识」；仅 `AGENT.md` 在场 → 单条为「`<agent_md …>` 段」；两者皆无 → 快照正文为空串、不注入 System 消息。
+- **指引常量退役**：原「冻结指引」常量（告知模型系统提示词已冻结、规则真身为 `AGENT.md`、规则更新用 `read` 重读）SHALL NOT 存在；MUST NOT 以任何等价固定段重新引入。规则更新走「用户提示 + `read` 重读」通道（落在史尾，见下方场景）。
+- **截断口径分立**：`AGENT.md` 的 32KB / char 边界截断口径不变；知识段不在该截断逻辑内，体量由生产者侧测试锚定上限。
 - **来源约束**：注入位只由装配层按 provenance 决定并经快照供给，前端 / 自由字符串 MUST NOT 直接供给；本机制仍属引擎 / 装配侧特性（P2 原则：跨会话持久上下文是 agent 产品特性、非协议义务）。`crates/core/agent` 本变更**零结构改动**（六位字段面与词汇不变，`preamble` 仍为 `Option<String>` 不透明承载，仅字段 doc 语义改写为「会话系统提示词快照正文」）。
 - **缓存纪律**：会话内 System 消息 SHALL 逐字恒定——除「本会话首轮拍存」与「存量会话首次补拍」两个时刻外，任何一轮 MUST NOT 因 `AGENT.md` 或二进制内容变化而改变 System 消息。`context` 防线（L2 剪裁 / L3 compaction）改写的是历史消息而非 System 前缀，故剪裁时刻之后的前缀重建属**已承认的既有代价**，不在本条款承诺内。
 
-#### Scenario: 首轮逐字注入与常量末段
+#### Scenario: 首轮逐字注入
 
 - **WHEN** workspace 执行根存在 `AGENT.md`（`source = "debug"`，无知识段）时以 sdk 引擎发起首轮
-- **THEN** 请求系统提示词恰一条 System 消息，内容为「`<agent_md path="…">…</agent_md>` 段（内含文件内容逐字，不删改不重排）+ 空行 + 指引常量」；MUST NOT 出现第二条 System 消息
+- **THEN** 请求系统提示词恰一条 System 消息，内容为「`<agent_md path="…">…</agent_md>` 段（内含文件内容逐字，不删改不重排）」；MUST NOT 出现第二条 System 消息，MUST NOT 追加任何固定尾段
 
 #### Scenario: 缺席维持现状
 
 - **WHEN** 执行根无 `AGENT.md` 且来源无知识段时发起会话
-- **THEN** 请求不注入 System 消息，请求形状与该注入机制上线前一致（指引常量 MUST NOT 单独成条）
+- **THEN** 请求不注入 System 消息，请求形状与该注入机制上线前一致（空正文不产生 System 消息）
 
 #### Scenario: 会话中修改不改前缀
 
@@ -363,17 +363,17 @@ SDK 引擎的系统提示词 SHALL 来自会话级注入位 `SessionInjections.p
 #### Scenario: config 臂同样合为单条 System
 
 - **WHEN** 以 `source = "config"` 发起会话且执行根存在 `AGENT.md`
-- **THEN** chat_history 恰有一条 System 消息，内容为「配置协议知识 + 空行 + `AGENT.md` 段 + 空行 + 指引常量」；MUST NOT 出现第二条 System 消息
+- **THEN** chat_history 恰有一条 System 消息，内容为「配置协议知识 + 空行 + `AGENT.md` 段」；MUST NOT 出现第二条 System 消息
 
 #### Scenario: 会话 preamble 与 AGENT.md 合为单条
 
 - **WHEN** 以 `source = "archi"` 发起会话且执行根存在 `AGENT.md`
-- **THEN** chat_history 恰有一条 System 消息，内容为「架构会话知识 + 空行 + `AGENT.md` 段 + 空行 + 指引常量」；MUST NOT 出现第二条 System 消息
+- **THEN** chat_history 恰有一条 System 消息，内容为「架构会话知识 + 空行 + `AGENT.md` 段」；MUST NOT 出现第二条 System 消息
 
 #### Scenario: 仅单侧在场
 
 - **WHEN** 分别以 `source = "archi"`（无 `AGENT.md`）与 `source = "debug"`（有 `AGENT.md`）发起会话
-- **THEN** 前者 System 消息为「知识 + 空行 + 指引常量」；后者为「`<agent_md …>` 段 + 空行 + 指引常量」；两者皆无时零 System 消息
+- **THEN** 前者 System 消息为「知识」；后者为「`<agent_md …>` 段」；两者皆无时零 System 消息
 
 #### Scenario: 引擎零文件读取
 
@@ -1652,7 +1652,7 @@ SDK 引擎 SHALL 消费 provider 记录的 `efforts{high, low}`，把「同一�
 #### Scenario: 首轮拍存与正文合成
 
 - **WHEN** 以 `source = "archi"` 发起 `New` 会话且 workspace 执行根存在 `AGENT.md`
-- **THEN** 会话行与轮行建立后库中出现该会话的 `session_preamble` 行，正文为「架构会话知识 + 空行 + `<agent_md …>` 段 + 空行 + 冻结指引常量」，`saved_at` 在场；本轮请求的 System 消息逐字等于该正文
+- **THEN** 会话行与轮行建立后库中出现该会话的 `session_preamble` 行，正文为「架构会话知识 + 空行 + `<agent_md …>` 段」，`saved_at` 在场；本轮请求的 System 消息逐字等于该正文
 
 #### Scenario: 续轮逐字复用且零文件读取
 
@@ -1689,7 +1689,7 @@ SDK 引擎 SHALL 消费 provider 记录的 `efforts{high, low}`，把「同一�
 | `crates/infra/agent/src/cli/` | CLI 引擎协议实现 | `session_pump` 一轮一命（单问服务后返回 → 内核 EOF 收口；停止/spawn 失败单轮终止语义不动，agent-turn-eof）；flag 组装 `--disallowedTools ask_user_question` 恒居参数序列末位（`--resume` 之后）；jsonl 泵与 resume flag 行为延续；恢复走 engine_handle 原生 `--resume` |
 | `crates/infra/agent/src/sdk/` | SDK 引擎协议实现 | `normalize.rs` 双层化（Text/ReasoningDelta → delta、轮末密封）；`loop.rs` 密封收口；`resume.rs` 会话全史重建；`runner.rs` 协议实现且 `session_pump` 一轮一命（跨轮史槽不存，会话史唯一源 = store 全史转录重建，agent-turn-eof）；工具面/权限/沙箱语义见 SDK 各专章（AGENT.md 注入 / L1 工具质量 / bash / 三档分化 / L2-L3 防线） |
 | `crates/infra/agent/src/sdk/{loop,normalize,resume,runner,tools,policy,config}.rs` | facade 路径迁移 | `rig_core::` → `rig::`（纯 re-export 同名）；`rig_core::` 路径零残留 |
-| `crates/infra/agent/src/sdk/preamble.rs` | 系统提示词快照合成（**行替换**：原「起播前读 + 每轮重读」表述退役） | `load(root)` 读取 + 32KB char 边界截断 + `<agent_md>` 包装（签名与口径零改动，调用方由引擎改为组合根）；`freeze(knowledge, agent_md)` 合成单点（知识 → 空行 → `AGENT.md` 段 → 空行 → 指引常量）；`GUIDANCE` 常量（≤ 512 B、零路径字面量、零占位符）；零 core 改动 |
+| `crates/infra/agent/src/sdk/preamble.rs` | 系统提示词快照合成（**行替换**：原「起播前读 + 每轮重读」表述退役） | `load(root)` 读取 + 32KB char 边界截断 + `<agent_md>` 包装（签名与口径零改动，调用方由引擎改为组合根）；`freeze(knowledge, agent_md)` 合成单点（知识 → 空行 → `AGENT.md` 段，空段跳过、全空 → 空串）；零 core 改动 |
 | `crates/infra/agent/src/sdk/tools.rs` + `bash.rs` | 七工具面与质量 | `TOOL_NAMES` 七项；read 截断 + offset 翻页 + >100KB 无分页参数时前 100 行预览；grep 正则 + 上下文行；全工具单结果字节上限（`MAX_RESULT_BYTES` 50KB）；bash `tokio::process` + git-bash 探测 / `cmd /C` 兜底 / unix `sh -c`；`kill_on_drop` + `taskkill /T /F` 形状清理；超时活性护栏（缺省 120s、范围校验 [1s, 30min]，越界显式拒绝） |
 | `crates/infra/agent/src/sdk/policy.rs` | 三档决策表（bash 分化） | bash：Default 拒、AcceptEdits / Bypass 放；AcceptEdits ≠ Bypass 首次真实分化锁定测试 |
 | `crates/infra/agent/src/sdk/{context,compact}.rs` | L2 / L3 防线 | 标称窗长 = 该档模型名 `[1m]` 后缀 > provider `context_length` > 128K 启发式（按档独立）；生效窗长 = 标称 × 60% 与 400k 取小（水位一律据此推导）；字节启发式 token 估算（bytes ÷ 4）；prune 占位符（8k 门槛）+ 轮对裁剪 + 保首条 user；LLM compaction（失败降级硬裁，run 不中断）；`context_pruned` / `context_compacted` SystemNotice；调用点 = resume 重建后 + 每请求前；store 转录全量不变 |
@@ -2056,7 +2056,7 @@ SDK 引擎 SHALL 消费 provider 记录的 `efforts{high, low}`，把「同一�
 
 | 模块 | 职责 | 关键契约（Function / Component） |
 |------|------|----------|
-| `crates/infra/agent/src/sdk/preamble.rs` | 系统提示词快照合成（**行替换**：原「起播前读 + 每轮重读」行以本行为准） | `load(root)` 读取 + 32KB char 边界截断 + `<agent_md>` 包装（签名与口径零改动，仅调用方由引擎改为组合根）；`freeze(knowledge, agent_md)` 合成单点（知识 → 空行 → `AGENT.md` 段 → 空行 → 指引常量，空段跳过、全空 → 空串）；`GUIDANCE` 常量（≤ 512 B、零路径字面量、零占位符）；模块可见性保持 `pub(crate)`，零新增第三方依赖 |
+| `crates/infra/agent/src/sdk/preamble.rs` | 系统提示词快照合成（**行替换**：原「起播前读 + 每轮重读」行以本行为准） | `load(root)` 读取 + 32KB char 边界截断 + `<agent_md>` 包装（签名与口径零改动，仅调用方由引擎改为组合根）；`freeze(knowledge, agent_md)` 合成单点（知识 → 空行 → `AGENT.md` 段，空段跳过、全空 → 空串）；模块可见性保持 `pub(crate)`，零新增第三方依赖 |
 | `crates/infra/agent/src/compose.rs` | 快照拍存 / 读回 / 存量补拍单点 | `ComposedTurn::begin`：首轮判据 = `New` ∨ `is_unstarted_session`；首轮读 `ctx.workspace_root` 的 `AGENT.md` → `preamble::freeze` → `kernel.begin_turn` 后经 `self.query.store()` 落库（不扩 `SessionSink`），失败仅日志；续轮 `find_session_preamble` 覆盖 `injections.preamble`（空正文 → `None`）；存量补拍同首轮口径 |
 | `crates/infra/agent/src/sdk/loop.rs` | 系统消息一元消费 | 删 `preamble::load` 调用与二元 `system_prompt(knowledge, agent_md)` 形参；`turn.injections.preamble` 非空 → 恰一条 `Message::system`；`AGENT.md` / `preamble::load` 字样零残留（机械可查） |
 | `crates/core/agent/src/session.rs` | 出线 DTO 扩面 | `SessionPreambleInfo { saved_at, content }`（`specta::Type`）+ `SessionSummary.preamble: Option<SessionPreambleInfo>`；`SessionRow` / `SessionStats` 零变更 |
@@ -2064,5 +2064,5 @@ SDK 引擎 SHALL 消费 provider 记录的 `efforts{high, low}`，把「同一�
 | `crates/infra/store/src/{model,store,envelope}.rs` | 持久载体与操作面 | 见 `desktop-workspace-store`「会话系统提示词快照记录（写一次冻结）」；本能力只作消费者，MUST NOT 另写第二份模型或写面 |
 | `packages/desktop/src/components/agent/agent-session-view.tsx` | 快照只读可见面 | 见 `desktop-agent-chat-infra`「会话系统提示词快照的只读可见面」；本能力只作消费者 |
 | `packages/desktop/src/types/generated/`（生成物） | 再生成 | `bindings.ts` / `bindings.zod.ts` 增 `SessionPreambleInfo` 类型与 `SessionSummary.preamble`（`nullable`）；非手改，`bindings:export` 产出 |
-| `preamble::load` / `truncate` / `freeze` / `GUIDANCE`（`crates/infra/agent/src/sdk/preamble.rs`） | 函数面 | `async fn load(root: &Path) -> Option<String>`（签名与口径逐字不变，调用方由 `loop` 改为 `compose`）/ `fn truncate(text: &str) -> String`（32KB char 边界截断单点，`load` 唯一消费）/ `fn freeze(knowledge: Option<&str>, agent_md: Option<&str>) -> String` / `const GUIDANCE: &str` |
+| `preamble::load` / `truncate` / `freeze`（`crates/infra/agent/src/sdk/preamble.rs`） | 函数面 | `async fn load(root: &Path) -> Option<String>`（签名与口径逐字不变，调用方由 `loop` 改为 `compose`）/ `fn truncate(text: &str) -> String`（32KB char 边界截断单点，`load` 唯一消费）/ `fn freeze(knowledge: Option<&str>, agent_md: Option<&str>) -> String` |
 | `ComposedTurn::begin` 快照分支（`crates/infra/agent/src/compose.rs`） | 内部形态 | 签名零变更（`session` / `question` / `ctx` / `provenance`），内部增首轮 / 续轮 / 补拍三分支；`ctx.workspace_root` 在移入 `TurnRequest` 前读取；首轮 `preamble::load` → `preamble::freeze` → 送入 `injections.preamble` → `begin_turn` 后 `store.stamp_session_preamble` |

@@ -11658,6 +11658,7 @@ dependencies = [
  "specta",
  "store",
  "tempfile",
+ "tera",
  "time",
  "uuid",
 ]

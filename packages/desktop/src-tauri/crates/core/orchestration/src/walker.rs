@@ -878,7 +878,7 @@ fn take_phase_log_input(cursor: &mut PhaseCursor, phase: &str) -> (PhaseLogInput
 }
 
 /// ③ executor 步：本相位 executor 会话（prompt 由写面 phase-next 单点组装——
-/// 上下文头 + 回溯重做窗口段 + 失败反馈段全在写面）。
+/// `{{change}}` 模板渲染 + 回溯重做窗口段 + 失败反馈段全在写面）。
 async fn step_executor(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,

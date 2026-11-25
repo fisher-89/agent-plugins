@@ -3801,14 +3801,13 @@ async fn archi臂调用点链路捕获与直调全等() {
         )
         .expect("archi 来源发起应成功");
 
-    // 装配面（知识段来源）→ 首轮快照合成体（本用例环境无 AGENT.md ⇒ 知识 + 常量）
+    // 装配面（知识段来源）→ 首轮快照合成体（本用例环境无 AGENT.md ⇒ 仅知识段）
     let assembled = injections_of("archi", None);
     let knowledge = assembled.preamble.clone().expect("archi 臂知识段在位");
     let snapshot = expected_body(Some(&knowledge), &env.root());
     assert_eq!(
-        snapshot,
-        format!("{knowledge}\n\n{}", crate::sdk::preamble::GUIDANCE),
-        "无 AGENT.md 时快照正文 = 知识段 + 空行 + 指引常量"
+        snapshot, knowledge,
+        "无 AGENT.md 时快照正文 = 知识段"
     );
 
     let captured = runner.captured_injections();
@@ -5908,7 +5907,7 @@ fn begin首轮拍存new_注入位与库行同源且时刻为正() {
     assert_eq!(
         captured[0].preamble.as_deref(),
         Some(body.as_str()),
-        "本轮注入位 = 冻结正文（含知识段 + AGENT.md 段 + 指引）"
+        "本轮注入位 = 冻结正文（含知识段 + AGENT.md 段）"
     );
 
     let record = store
@@ -6260,7 +6259,7 @@ fn begin存量补拍一次性_首轮补拍后改写文件不改注入位() {
 }
 
 #[test]
-fn begin存量补拍取补拍当轮知识_文件缺席时仅知识与常量() {
+fn begin存量补拍取补拍当轮知识_文件缺席时仅知识() {
     let env = DualEnv::new("preamble-backfill-nofile");
     let stores = env.stores();
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
@@ -6287,11 +6286,10 @@ fn begin存量补拍取补拍当轮知识_文件缺席时仅知识与常量() {
         .expect("补拍应成功");
 
     let knowledge = crate::archi_knowledge::knowledge().expect("archi 知识恒 Some");
-    let expected = format!("{knowledge}\n\n{}", crate::sdk::preamble::GUIDANCE);
     assert_eq!(
         runner.captured_injections()[0].preamble.as_deref(),
-        Some(expected.as_str()),
-        "AGENT.md 缺席 → 快照 = 知识 + 常量（无 AGENT.md 段、无空段占位）"
+        Some(knowledge.as_str()),
+        "AGENT.md 缺席 → 快照 = 知识（无 AGENT.md 段、无空段占位）"
     );
 
     // 补拍后再写文件：本会话快照不随之改变
@@ -6314,7 +6312,7 @@ fn begin存量补拍取补拍当轮知识_文件缺席时仅知识与常量() {
         .expect("第二次续轮应成功");
     assert_eq!(
         runner.captured_injections()[1].preamble.as_deref(),
-        Some(expected.as_str()),
+        Some(knowledge.as_str()),
         "补拍后出现的文件不改本会话快照（AC-7）"
     );
 }
@@ -6609,10 +6607,6 @@ fn begin快照体量超32kb原样落库_只有agent_md段被截断() {
     );
     let knowledge = crate::archi_knowledge::knowledge().expect("archi 知识恒 Some");
     assert!(body.starts_with(&knowledge), "知识段完整在首位");
-    assert!(
-        body.ends_with(crate::sdk::preamble::GUIDANCE),
-        "指引常量完整在末位"
-    );
 }
 
 // ===========================================================================
