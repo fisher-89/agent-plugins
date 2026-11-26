@@ -1704,11 +1704,11 @@ fn archi_api的input_path恒none() {
 // 本变更：两 DB 只读工具的路径沙箱面（`input_path` 恒 `None`）
 // ---------------------------------------------------------------------------
 
-/// 五名统一参数化（三 archi + 两 DB）→ `input_path` 全 `None`；基准对照
+/// 六名统一参数化（三 archi 只读 + 两 DB + 生成物写）→ `input_path` 全 `None`；基准对照
 /// `read` → `Some(path)`、`glob` → `Some(pattern)` 不变（判据是精确名，不是
 /// 「非路径类工具」嗅探）。
 #[test]
-fn 五名专用工具统一不进路径沙箱且基准对照不变() {
+fn 五名扩六名专用工具统一不进路径沙箱且基准对照不变() {
     let input = json!({
         "path": "src/auth/README.md",
         "file": "a.txt",
@@ -1722,7 +1722,8 @@ fn 五名专用工具统一不进路径沙箱且基准对照不变() {
     let mut special: Vec<&str> = ARCHI_NAMES.to_vec();
     special.push(crate::sdk::mount::DB_TABLES_TOOL);
     special.push(crate::sdk::mount::DB_QUERY_TOOL);
-    assert_eq!(special.len(), 5, "五名专用工具");
+    special.push(crate::sdk::mount::ARCHI_GENERATE_TOOL);
+    assert_eq!(special.len(), 6, "六名专用工具");
     for name in &special {
         assert_eq!(
             input_path(name, &input),
@@ -2077,7 +2078,7 @@ fn 非archi分派零变化() {
 }
 
 /// 边界：两常量经 `tools` 再导出可达且逐字等于 `mount` 常量；`input_path` doc 的
-/// 「五个架构只读工具」旧措辞零命中（七个架构工具：五只读 + 两写）。
+/// 「五个架构只读工具」旧措辞零命中（八个 archi 工具：五只读 + 三写：两模型写 + 一生成物写）。
 #[test]
 fn 常量同源且doc随动() {
     assert_eq!(
@@ -2099,8 +2100,20 @@ fn 常量同源且doc随动() {
         "旧措辞「五个架构只读工具」零命中"
     );
     assert!(
-        source.contains("七个架构工具"),
-        "doc 措辞随动为七个架构工具（五只读 + 两写）"
+        source.contains("八个 archi 工具"),
+        "doc 措辞随动为八个 archi 工具"
+    );
+    assert!(
+        source.contains("五只读 + 三写：两模型写 + 一生成物写"),
+        "doc 点名三写的构成（两模型写 + 一生成物写）"
+    );
+    assert!(
+        !source.contains("七个架构工具"),
+        "旧措辞「七个架构工具」零命中"
+    );
+    assert!(
+        !source.contains("五只读 + 两写"),
+        "旧三写口径「五只读 + 两写」零命中"
     );
 }
 
@@ -2538,4 +2551,133 @@ fn 写闸接线单点且对外签名零改() {
         1,
         "edit 侧过闸恰一处（校验的是替换后的候选正文）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：生成物写工具的路径沙箱面（`input_path` 恒 `None`）与常量再导出单点
+// ---------------------------------------------------------------------------
+
+/// 生成物写工具名（本体驻 `mount`，本模块经再导出消费）。
+const GENERATE_TOOL: &str = crate::sdk::mount::ARCHI_GENERATE_TOOL;
+
+/// 正向：`input_path(archi_generate, {})` ⇒ `None`（无参数工具：root 取会话 cwd，入参
+/// 里不带任何路径类字段）；对照 `read` 的基准臂不被改写。
+#[test]
+fn 生成物写工具input_path恒none() {
+    assert_eq!(
+        input_path(GENERATE_TOOL, &json!({})),
+        None,
+        "无参数工具的提取面恒 None（不进路径沙箱改写面）"
+    );
+    assert_eq!(
+        input_path("read", &json!({"path": "a.md"})),
+        Some("a.md"),
+        "基准臂不被改写：read 仍取 path"
+    );
+}
+
+/// 边界：幻觉入参四形态均 `None`——显式 `None` 臂**先于**通用 `path` 提取（否则入参会走
+/// 沙箱改写 / 被拒）。
+#[test]
+fn 生成物写工具幻觉入参恒none() {
+    for input in [
+        json!({ "path": "src/a.ts" }),
+        json!({ "path": 123 }),
+        json!({ "file": "a.txt" }),
+        json!({ "targeT": null, "path": "" }),
+    ] {
+        assert_eq!(
+            input_path(GENERATE_TOOL, &input),
+            None,
+            "幻觉入参不进路径沙箱：{input}"
+        );
+    }
+    // 脏入参面（零 panic）：空对象 / 非对象 / 空串
+    for input in [json!({}), json!(null), json!([]), json!("str"), json!(0)] {
+        assert_eq!(
+            input_path(GENERATE_TOOL, &input),
+            None,
+            "脏入参恒不进路径沙箱：{input}"
+        );
+    }
+}
+
+/// 异常：近名不享豁免——`archi_generate_x` / `archi_generate ` / `ARCHI_GENERATE` /
+/// `archi_generat` 仍走通用臂（含 `path` 时返回 `Some`，即精确名比较、零前缀嗅探）。
+#[test]
+fn 生成物写工具近似名落默认path分支() {
+    let input = json!({ "path": "src/a.ts" });
+    for name in [
+        "archi_generate_x",
+        "archi_generate ",
+        "ARCHI_GENERATE",
+        "archi_generat",
+    ] {
+        assert_eq!(
+            input_path(name, &input),
+            Some("src/a.ts"),
+            "近似名 {name:?} 走默认 path 分支（非精确名不命中专用臂）"
+        );
+        assert_eq!(
+            input_path(name, &json!({})),
+            None,
+            "近似名 {name:?} 无 path 字段 → None"
+        );
+    }
+}
+
+/// 正向：常量同源单点——`crate::sdk::tools::ARCHI_GENERATE_TOOL` 与
+/// `crate::sdk::mount::ARCHI_GENERATE_TOOL` 同值同源（再导出，零第二份字面）。
+#[test]
+fn 生成物写工具常量同源再导出() {
+    assert_eq!(
+        crate::sdk::tools::ARCHI_GENERATE_TOOL,
+        crate::sdk::mount::ARCHI_GENERATE_TOOL,
+        "再导出同源（常量单点）"
+    );
+    assert_eq!(GENERATE_TOOL, "archi_generate", "线值逐字");
+}
+
+/// 异常（源码锚）：`tools.rs` doc 由「七个架构工具（五只读 + 两写）」改「八个 archi 工具
+/// （五只读 + 三写：两模型写 + 一生成物写）」，「七个架构工具」零命中；再导出名单含该名且与
+/// `mount` 名单逐字一致（同名单，零第二份）。
+#[test]
+fn 生成物写工具再导出名单与doc同源() {
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/sdk/tools.rs"),
+    )
+    .expect("读 tools.rs 失败");
+    assert!(
+        !source.contains("七个架构工具"),
+        "旧 doc 措辞「七个架构工具」零命中"
+    );
+    assert!(
+        source.contains("八个 archi 工具"),
+        "doc 措辞随动为八个 archi 工具"
+    );
+
+    let block_start = source
+        .find("pub(crate) use crate::sdk::mount::{")
+        .expect("再导出块在案");
+    let block_end = block_start + source[block_start..].find("};").expect("再导出块收口");
+    let block = &source[block_start..block_end];
+    assert!(
+        block.contains("ARCHI_GENERATE_TOOL"),
+        "再导出名单含生成物写常量：{block}"
+    );
+    for name in [
+        "ARCHI_MODULE_TOOL",
+        "ARCHI_SEARCH_TOOL",
+        "ARCHI_API_TOOL",
+        "ARCHI_DRIFT_TOOL",
+        "ARCHI_SCAFFOLD_TOOL",
+        "ARCHI_ELEMENT_TOOL",
+        "ARCHI_RELATION_TOOL",
+        "ARCHI_GENERATE_TOOL",
+        "DB_TABLES_TOOL",
+        "DB_QUERY_TOOL",
+        "PROPOSE_CONFIG_TOOL",
+    ] {
+        assert!(block.contains(name), "再导出名单含 `{name}`：{block}");
+    }
 }

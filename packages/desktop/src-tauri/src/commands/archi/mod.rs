@@ -17,7 +17,9 @@
 //! `archi::edit::plan_element_upsert`（写回原语族——gate 改档 = `ElementSpec { gate }`
 //! 的一次调用，与 agent 写工具 `archi_element` 共用同一实现 ⇒ 同一份文本）且落盘经
 //! `agent_runtime::write_atomic`（全仓唯一落盘实现，见 `commands::atomic` 的薄委托），
-//! 后者的写盘单点在 `archi_runtime::api_artifacts::write_artifacts`（只增只改、从不删）；
+//! 后者的写盘单点在 `archi_runtime::api_artifacts::write_artifacts`（只增只改、从不删），
+//! agent 工具 `archi_generate` 经本模块的 `ArchiArtifactWriter`（`archi::ArtifactWriter`
+//! 的唯一实现）委托同一写盘单点——同一单点的第二驱动面，不是第二份实现；
 //! 其余七条 MUST NOT 写盘。命令面不暴露 `expect`（乐观锁在 `plan_*` 入参，`None` 即不校验）。
 //!
 //! 空白 / 不可读 root 一律 `Err`（画布无 root 画不出东西；静默空图会与「模型为
@@ -52,6 +54,23 @@ use crate::commands::atomic::write_atomic;
 
 #[cfg(test)]
 mod mod_test;
+
+/// `archi::ArtifactWriter` 的**唯一实现**：薄委托写盘单点（零自有写盘逻辑、零
+/// `fs::write`、零 `create_dir_all`）。
+///
+/// agent 工具 `archi_generate` 经本端口委托同一写盘单点（第二驱动面，新增调用方而非
+/// 新实现）；`agent-runtime` 仍不依赖 `archi-runtime`。
+pub struct ArchiArtifactWriter;
+
+impl archi::ArtifactWriter for ArchiArtifactWriter {
+    fn write(
+        &self,
+        root: &Path,
+        files: &[archi::GeneratedFile],
+    ) -> Result<archi::ArchiApiWriteOutcome, String> {
+        archi_runtime::api_artifacts::write_artifacts(root, files)
+    }
+}
 
 /// root 有效性检查（另四条命令共用）：空白 / 缺失 / 不可读 / 非目录一律 `Err`
 /// （与 code_stats / workspace_config 的无效 root 裁定同口径）。

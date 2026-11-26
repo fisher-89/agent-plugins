@@ -135,14 +135,14 @@ fn 零结构诊断可执行词() {
 // 体量门限
 // ---------------------------------------------------------------------------
 
-/// 边界（矩阵 2 数）：骨架 1808 B ≤ 1831 B、全文 1997 B ≤ 2031 B，两值同批冻结
+/// 边界（矩阵 2 数）：骨架 1823 B ≤ 1831 B、全文 2012 B ≤ 2031 B，两值同批重冻
 /// （抬锚须显式豁免并同批更新四数）。
 #[test]
 fn 骨架与全文双门限冻结() {
     let skeleton_bytes = lf_bytes(skeleton().trim_end());
     assert_eq!(
-        skeleton_bytes, 1808,
-        "骨架体量实测 1808 B（LF 归一，五段骨架 + 三资产分工）已冻结；抬锚须显式豁免并同批\
+        skeleton_bytes, 1823,
+        "骨架体量实测 1823 B（LF 归一，换指后重冻）已冻结；抬锚须显式豁免并同批\
          更新本值与全文锚"
     );
     assert!(
@@ -152,8 +152,8 @@ fn 骨架与全文双门限冻结() {
 
     let full_bytes = lf_bytes(&text());
     assert_eq!(
-        full_bytes, 1997,
-        "全文体量实测 1997 B（LF 归一，派生段含两条资产路径）已冻结；抬锚须显式豁免并同批\
+        full_bytes, 2012,
+        "全文体量实测 2012 B（LF 归一，骨架 1823 + 派生段 189）已冻结；抬锚须显式豁免并同批\
          更新本值与骨架锚"
     );
     assert!(
@@ -487,8 +487,8 @@ fn 判据面事实不进骨架() {
 }
 
 /// 回归（体量与文案随动）：测试模块头写「骨架 ≤ 1831 B / 全文 ≤ 2031 B」，测试 doc 写
-/// 「抬锚须显式豁免并同批更新四数」；两处 `assert_eq!` 失败文案写死 1808 / 1997；退役阈值
-/// 与旧实测值零残留（产品模块零旧门限）。
+/// 「抬锚须显式豁免并同批更新四数」；两处 `assert_eq!` 失败文案写死重冻后的实测值（1823 /
+/// 2012）；退役阈值与旧实测值零残留（产品模块零旧门限）。
 #[test]
 fn 体量门限文案随动() {
     let tests = include_str!("archi_knowledge_test.rs");
@@ -501,14 +501,16 @@ fn 体量门限文案随动() {
         "测试 doc 写抬锚纪律"
     );
     assert!(
-        tests.contains("1808") && tests.contains("1997"),
-        "两条 assert_eq! 失败文案写死实测值"
+        tests.contains("1823") && tests.contains("2012"),
+        "两条 assert_eq! 失败文案写死重冻后的实测值"
     );
 
     let retired = [
         ["≤ ", "1800 B"].concat(),
         ["1", "777"].concat(),
         ["19", "66"].concat(),
+        ["1", "808"].concat(),
+        ["1", "997"].concat(),
     ];
     for phrase in retired {
         assert!(
@@ -517,7 +519,237 @@ fn 体量门限文案随动() {
         );
     }
     let product = include_str!("archi_knowledge.rs");
-    for phrase in [["1800", " B"].concat(), ["2000", " B"].concat()] {
+    for phrase in [
+        ["1800", " B"].concat(),
+        ["2000", " B"].concat(),
+        ["18", "31"].concat(),
+        ["20", "31"].concat(),
+    ] {
         assert!(!product.contains(&phrase), "产品模块零旧门限：`{phrase}`");
     }
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：生成物指路换句（`archi_generate` 取代死指代）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-9）：骨架含新串「生成物过期调 `archi_generate` 重生成」与「MUST NOT 手改生成物」；
+/// 该句与「读五件 / 写两件」行同段（位次不变）。
+#[test]
+fn 生成物指路换句在场且位次不变() {
+    let source = skeleton();
+    assert!(
+        source.contains("生成物过期调 `archi_generate` 重生成"),
+        "换指后的新串在场：{source}"
+    );
+    assert!(
+        source.contains("MUST NOT 手改生成物"),
+        "手改禁令同句在场：{source}"
+    );
+
+    let paragraph = source
+        .split("\n\n")
+        .find(|paragraph| paragraph.contains("生成物过期调"))
+        .unwrap_or_else(|| panic!("换指句未落在任何段落：{source}"));
+    assert!(
+        paragraph.contains("读五件") && paragraph.contains("写两件"),
+        "与工具面「读五件 / 写两件」同段（位次不变）：{paragraph}"
+    );
+}
+
+/// 边界：旧串零残留——needle「生成物过期用既有命令重生成」与「既有命令」零命中；句内的
+/// `archi_generate` 是 `mount::registry()` 在册名（指路不指向不存在工具）。
+#[test]
+fn 生成物指路旧串零残留且在册() {
+    let source = skeleton();
+    let stale = ["生成物过期用", "既有命令", "重生成、MUST NOT 手改；"].join("");
+    assert!(!source.contains(&stale), "旧整串零命中：`{stale}`");
+    assert!(!source.contains("既有命令"), "旧死指代「既有命令」零命中");
+
+    assert!(
+        crate::sdk::mount::registry()
+            .iter()
+            .any(|mount| mount.definition.name == "archi_generate"),
+        "换指的目标名在册（指路不指向不存在工具）"
+    );
+}
+
+/// 异常（反向）：骨架零「本仓的生成命令」死指代、零路径模板；`.schema.json` 仍被写作手写
+/// 真相（换句不得把契约说成生成物）。
+#[test]
+fn 生成物指路零死指代且契约不被说成生成物() {
+    let source = skeleton();
+    for stale in ["本仓的生成命令", "本仓", "生成命令"] {
+        assert!(!source.contains(stale), "骨架零死指代 `{stale}`：{source}");
+    }
+    for template in [".dev-team", "architecture/models", "<>"] {
+        assert!(
+            !source.contains(template),
+            "骨架零路径模板 `{template}`（路径由派生段追加）"
+        );
+    }
+    for sentence in source
+        .split(['。', '\n'])
+        .filter(|sentence| sentence.contains(".schema.json"))
+    {
+        assert!(
+            ["唯一凭据", "write", "edit", "手写"]
+                .iter()
+                .any(|piece| sentence.contains(piece)),
+            "`.schema.json` 所在句须写其手写来源：{sentence}"
+        );
+        assert!(
+            !sentence.contains("生成物"),
+            "`.schema.json` 不得被说成生成物：{sentence}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：体量冻结重冻（门限不抬，实测值随句改写）
+// ---------------------------------------------------------------------------
+
+/// 正向：骨架字节数按 LF 归一后 `<= 1831`、全文 `<= 2031`；两处**精确断言**按实测值重冻
+/// （门限**不抬**）：实测 1823 / 2012 与 `design.md 附录 D` 的字节账一致。
+#[test]
+fn 体量冻结重冻实测值与门限一致() {
+    let skeleton_bytes = lf_bytes(skeleton().trim_end());
+    let full_bytes = lf_bytes(&text());
+    assert_eq!(skeleton_bytes, 1823, "骨架实测值重冻为 1823 B");
+    assert_eq!(full_bytes, 2012, "全文实测值重冻为 2012 B");
+    assert_eq!(
+        full_bytes - skeleton_bytes,
+        189,
+        "增量全在骨架之外（派生段体量固定 189 B）"
+    );
+    assert!(skeleton_bytes <= 1831, "骨架仍在门限内（不抬门限）");
+    assert!(full_bytes <= 2031, "全文仍在门限内（不抬门限）");
+}
+
+/// 边界：派生段仍为追加（`full[..head.len()] == head.trim_end()` 且 `full.len() > head.len()`）；
+/// CRLF 检出不得改变冻结值（`lf_bytes` 归一）。
+#[test]
+fn 体量冻结派生段追加且行尾归一() {
+    let full = text();
+    let head = skeleton().trim_end();
+    assert!(full.starts_with(head), "全文以骨架 trim_end 起手");
+    assert!(full.len() > head.len(), "派生段确为追加");
+    assert_eq!(lf_bytes(&full), 2012, "全文按 LF 归一的体量与冻结值一致");
+
+    // CRLF 检出等价：同一文本的 CRLF 形态归一后与 LF 形态同值
+    let crlf = skeleton().replace('\n', "\r\n");
+    assert_eq!(
+        lf_bytes(&crlf),
+        lf_bytes(skeleton()),
+        "CRLF 检出不得改变冻结值"
+    );
+}
+
+/// 异常：超限时断言文案如实报「超过门限 1831 B / 2031 B」（重冻失败即红，不静默放宽）；零
+/// 其它字节改动的可观测面：五段小节标题与三资产分工三句逐字仍在。
+#[test]
+fn 体量冻结超限文案如实且结构未动() {
+    let tests = include_str!("archi_knowledge_test.rs");
+    assert!(
+        tests.contains("超过门限 1831 B") && tests.contains("超过门限 2031 B"),
+        "超限断言文案如实报门限值"
+    );
+    assert!(
+        tests.contains("骨架体量实测 1823 B") && tests.contains("全文体量实测 2012 B"),
+        "重冻实测值写进失败文案"
+    );
+
+    let source = skeleton();
+    for heading in [
+        "# 架构模型须知",
+        "## 三资产分工",
+        "## 设计顺序",
+        "## 三条不可越界",
+        "## 工具面",
+        "## 留给判断",
+    ] {
+        assert!(source.contains(heading), "五段标题仍在：`{heading}`");
+    }
+    for piece in ["TOML 答拓扑", "schema（唯一凭据）答接触面", "md 答理由"] {
+        assert!(source.contains(piece), "三资产分工句仍在：`{piece}`");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`archi_knowledge.rs` 模块头措辞随动（三写工具口径 + 门限只在测试侧）
+// ---------------------------------------------------------------------------
+
+/// 模块头正文（`//!` 段）：去 `//!` 前缀与行首尾空白后逐行拼接——中文散文在源码里按
+/// 显示宽度折行，「只写三类生成物」一类短语会被行尾切断，故判据落在**去前缀后的连续
+/// 正文**上，而不是原始行。
+fn module_head(source: &str) -> String {
+    source
+        .lines()
+        .take_while(|line| line.trim_start().starts_with("//!"))
+        .map(|line| line.trim_start().trim_start_matches("//!").trim())
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+/// 正向（AC-9）：模块头含生成物写工具的说明——工具面共三写（两模型写 + 一生成物写），第三
+/// 个只写三类生成物、不写模型与契约、不占「写面名单」；既有「写两件」是**模型**写面的口径
+/// 仍在（两者不混同）。
+#[test]
+fn 模块头三写口径随动() {
+    let source = include_str!("archi_knowledge.rs");
+    let head = module_head(source);
+    assert!(!head.is_empty(), "模块头（`//!` 段）在案：{source}");
+    for piece in [
+        "写两件",
+        "三写工具（两模型写 + 一生成物写）",
+        "第三个写工具",
+        "archi_generate",
+        "只写三类生成物",
+        "不占写面名单",
+    ] {
+        assert!(head.contains(piece), "模块头含 `{piece}`：{head}");
+    }
+    assert!(
+        !source.contains("两写工具"),
+        "旧口径「两写工具」零命中（已改三写口径）"
+    );
+}
+
+/// 边界（D-16）：该文件内零数字门限（门限只冻结在测试侧）——`1831` / `2031` 与旧门限
+/// 字面在本文件零命中。
+#[test]
+fn 模块头零数字门限() {
+    let source = include_str!("archi_knowledge.rs");
+    for threshold in [
+        ["18", "31"].concat(),
+        ["20", "31"].concat(),
+        ["18", "00 B"].concat(),
+        ["20", "00 B"].concat(),
+    ] {
+        assert!(
+            !source.contains(&threshold),
+            "产品模块零数字门限 `{threshold}`（门限只冻结在测试侧）"
+        );
+    }
+}
+
+/// 异常（反向）：知识「指路不指向不存在工具」的机制句仍表述为可核对形态（工具面归工具
+/// 定义、路径归代码派生），零新增能力宣称；`knowledge()` 零 `std::fs` / 零环境变量读取。
+#[test]
+fn 模块头机制句未被改写为承诺() {
+    let source = include_str!("archi_knowledge.rs");
+    for mechanism in ["从代码派生", "尽力增强、不炸 run", "字段形态"] {
+        assert!(source.contains(mechanism), "机制句仍在：`{mechanism}`");
+    }
+    for claim in ["自动生成", "保证一致", "永不漂移"] {
+        assert!(
+            !source.contains(claim),
+            "零新增能力宣称 `{claim}`：{source}"
+        );
+    }
+    assert!(
+        !source.contains("std::fs"),
+        "拼装面零文件 IO（`include_str!` 是编译期内嵌）"
+    );
+    assert!(!source.contains("std::env"), "拼装面零环境变量读取");
 }

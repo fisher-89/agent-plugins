@@ -5859,3 +5859,325 @@ fn schema不再由生成器产出() {
         "`render_all` 内零 `.schema.json` 字面"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 写盘端口 `ArtifactWriter`（AC-4）：纯类型声明 + 壳层注入实现
+//
+// 端口是**类型**（`&Path` + `&[GeneratedFile]` → `ArchiApiWriteOutcome`），本 crate 仍
+// 零写盘零 spawn：唯一实现由壳层给出、经 `ArchiContext::with_writer` 注入执行体。故本节
+// 的替身**只记录入参并回传构造值**，不复制渲染 / 比对 / 写盘任一步。
+// ---------------------------------------------------------------------------
+
+use std::sync::{Arc, Mutex};
+
+use crate::dto::ArchiApiWriteOutcome;
+
+use super::{ArtifactWriter, GeneratedFile};
+
+/// 桩的应答形态（`Ok` 回传构造好的两列 / `Err` 回传原文）。
+enum StubResponse {
+    Ok(ArchiApiWriteOutcome),
+    Err(String),
+}
+
+/// test-local 端口桩：`Mutex` 记录每次 `(root, files)`，按预置应答回传。
+struct StubWriter {
+    calls: Mutex<Vec<(PathBuf, Vec<GeneratedFile>)>>,
+    response: Mutex<StubResponse>,
+}
+
+impl StubWriter {
+    fn returning(outcome: ArchiApiWriteOutcome) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            response: Mutex::new(StubResponse::Ok(outcome)),
+        }
+    }
+
+    fn failing(message: &str) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            response: Mutex::new(StubResponse::Err(message.to_owned())),
+        }
+    }
+
+    fn calls(&self) -> Vec<(PathBuf, Vec<GeneratedFile>)> {
+        self.calls.lock().expect("桩锁未中毒").clone()
+    }
+}
+
+impl ArtifactWriter for StubWriter {
+    fn write(&self, root: &Path, files: &[GeneratedFile]) -> Result<ArchiApiWriteOutcome, String> {
+        self.calls
+            .lock()
+            .expect("桩锁未中毒")
+            .push((root.to_path_buf(), files.to_vec()));
+        match &*self.response.lock().expect("桩锁未中毒") {
+            StubResponse::Ok(outcome) => Ok(outcome.clone()),
+            StubResponse::Err(message) => Err(message.clone()),
+        }
+    }
+}
+
+/// 一对应生成物（`path` + `content` 两字段即端口的全部入参形状）。
+fn generated(path: &str, content: &str) -> GeneratedFile {
+    GeneratedFile {
+        path: PathBuf::from(path),
+        content: content.to_owned(),
+    }
+}
+
+/// 构造好的两列回传值（`written` / `unchanged` 各一项，断言「原样转出」不被改写）。
+fn outcome_fixture() -> ArchiApiWriteOutcome {
+    ArchiApiWriteOutcome {
+        written: vec!["crates/api/src/lib.i.rs".to_owned()],
+        unchanged: vec!["INDEX.toml".to_owned()],
+    }
+}
+
+/// 正向：经 `Arc<dyn ArtifactWriter>` 调用后桩收到 `root` 原值、`files` 逐项（`path` /
+/// `content`）相等，回传的两列原样透出——一方法的签名形态与 trait object 均可调用。
+#[test]
+fn 端口桩实现收到root原值与files逐项且回传值原样() {
+    let stub = Arc::new(StubWriter::returning(outcome_fixture()));
+    let writer: Arc<dyn ArtifactWriter> = stub.clone();
+    let root = Path::new("/repo/fixture");
+    let files = [
+        generated("crates/api/src/lib.i.rs", "// 生成物\n"),
+        generated("INDEX.toml", "version = 1\n"),
+    ];
+
+    let outcome = writer.write(root, &files).expect("桩恒 Ok");
+
+    assert_eq!(outcome, outcome_fixture(), "两列原样透出（零改写、零补值）");
+    let calls = stub.calls();
+    assert_eq!(calls.len(), 1, "trait object 调用恰一次");
+    let (received_root, received_files) = &calls[0];
+    assert_eq!(received_root, root, "`root` 原值透传（端口不自造锚点）");
+    assert_eq!(received_files.len(), files.len(), "逐份透传");
+    for (received, expected) in received_files.iter().zip(files.iter()) {
+        assert_eq!(received, expected, "`path` / `content` 逐字段相等");
+    }
+}
+
+/// 边界：`files = &[]`（空批）与不存在的 `root`——桩被调用恰一次、收到零元素；端口不做
+/// 空集裁量（零产出合法性归 `render_all`）、不做 root 有效性判定（判定归壳层实现）。
+#[test]
+fn 端口空批与不存在root零前置校验() {
+    let stub = Arc::new(StubWriter::returning(ArchiApiWriteOutcome {
+        written: Vec::new(),
+        unchanged: Vec::new(),
+    }));
+    let missing = Path::new("/repo/does-not-exist/at/all");
+
+    let outcome = stub.write(missing, &[]).expect("空批 + 不存在 root 仍 Ok");
+
+    assert!(
+        outcome.written.is_empty() && outcome.unchanged.is_empty(),
+        "两列空"
+    );
+    let calls = stub.calls();
+    assert_eq!(calls.len(), 1, "端口不替调用方裁量空集（仍被调用一次）");
+    assert_eq!(calls[0].0, missing, "root 原值透传（零前置校验）");
+    assert!(calls[0].1.is_empty(), "收到零元素");
+}
+
+/// 异常：桩返回 `Err("写入失败（…）")` ⇒ 调用方拿到 `Err` 原文（错误面是 `String`，非
+/// `ApiError`），零 panic、无部分结果泄漏。
+#[test]
+fn 端口err原文透传零panic() {
+    let message =
+        "写入失败（crates/api/src/lib.i.rs）：父路径被同名文件占位，此前已写入 1 份，不回滚";
+    let stub = StubWriter::failing(message);
+
+    let error = stub
+        .write(Path::new("/repo"), &[generated("INDEX.toml", "x\n")])
+        .expect_err("桩的 Err 必须透出");
+
+    assert_eq!(error, message, "错误串原文（零包装、零默认值）");
+    assert!(
+        !error.contains("ApiError"),
+        "错误面是 `String` 而非 `ApiError`（端口不持判定域类型）：{error}"
+    );
+    assert_eq!(
+        stub.calls().len(),
+        1,
+        "Err 路径亦记录了入参（无部分结果泄漏）"
+    );
+}
+
+/// 正向（源码锚，AC-4）：`mod.rs` 全文零 `fs::write` / 零 `create_dir_all` / 零
+/// `std::process` / 零 `Command::new`——端口是纯类型，crate 的「契约面纯读」纪律不因新增
+/// trait 破口。
+#[test]
+fn 端口零写盘纪律源码锚() {
+    let source = include_str!("mod.rs");
+    for forbidden in [
+        "fs::write",
+        "create_dir_all",
+        "std::process",
+        "Command::new",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "`api/mod.rs` 零写盘 / 零 spawn 字面 `{forbidden}`（端口是类型，不是实现）"
+        );
+    }
+}
+
+/// 边界（源码锚）：现存 `fs::` 用法仍**只有读面**（唯一一处 `fs::read_to_string`）；端口
+/// 段落内零 `fs::` 命中；`ArtifactWriter` 定义紧随 `GeneratedFile`（同文件内
+/// `struct GeneratedFile` 之后首个 `pub trait` 即它）。
+#[test]
+fn 端口段落零fs命中且紧随generated_file() {
+    let source = include_str!("mod.rs");
+    let read_only = [
+        "fs::read_to_string",
+        "fs::read(",
+        "fs::metadata",
+        "fs::read_dir",
+    ];
+    for (index, line) in source.lines().enumerate() {
+        if !line.contains("fs::") {
+            continue;
+        }
+        assert!(
+            read_only.iter().any(|allowed| line.contains(allowed)),
+            "第 {} 行的 `fs::` 只允许读面用法：{line}",
+            index + 1
+        );
+    }
+
+    let generated_at = source
+        .find("pub struct GeneratedFile")
+        .expect("GeneratedFile 在案");
+    let writer_at = source
+        .find("pub trait ArtifactWriter")
+        .expect("端口 trait 在案");
+    assert!(writer_at > generated_at, "端口定义在 `GeneratedFile` 之后");
+    let between = &source[generated_at..writer_at];
+    assert!(
+        !between.contains("pub trait"),
+        "`GeneratedFile` 之后的首个 `pub trait` 即 `ArtifactWriter`（相邻落位）"
+    );
+    assert!(
+        !between.contains("fn write("),
+        "端口段落之外无第二份 `write` 签名"
+    );
+}
+
+/// 异常（源码锚，反向禁字面）：文件内零 `write_all` / 零 `OpenOptions` / 零 `remove_file`
+/// （防「换一种写盘 API 绕过字面锚」）；`ArchiApiWriteOutcome` 只经 `use crate::dto::…`
+/// 引入（不自造第二份结果类型）。
+#[test]
+fn 端口反向禁字面与结果类型单一() {
+    let source = include_str!("mod.rs");
+    for forbidden in ["write_all", "OpenOptions", "remove_file", "File::create"] {
+        assert!(
+            !source.contains(forbidden),
+            "防绕过：`api/mod.rs` 零 `{forbidden}`"
+        );
+    }
+    assert_eq!(
+        source.matches("ArchiApiWriteOutcome").count(),
+        2,
+        "结果类型只有两处：`use crate::dto::{{…}}` 名单 + 端口签名的返回位（零第二份定义）"
+    );
+    assert!(
+        !source.contains("struct ArchiApiWriteOutcome")
+            && !source.contains("type ArchiApiWriteOutcome"),
+        "不自造第二份结果类型"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 出口面单点（`lib.rs` 的 `pub use api::{…}`）：`ArtifactWriter` 经 crate 根可达
+// ---------------------------------------------------------------------------
+
+/// 正向：`crate::ArtifactWriter` 可作 `dyn` 使用且可调用——再导出不是第二处定义。
+#[test]
+fn 出口面_crate根端口可作dyn使用() {
+    let stub = StubWriter::returning(outcome_fixture());
+    let writer: Arc<dyn crate::ArtifactWriter> = Arc::new(stub);
+    let outcome = writer
+        .write(Path::new("/repo"), &[generated("INDEX.toml", "x\n")])
+        .expect("经 crate 根的同一 trait 可调用");
+    assert_eq!(
+        outcome,
+        outcome_fixture(),
+        "与 `api::ArtifactWriter` 同实现"
+    );
+}
+
+/// 边界：类型同一性——`Arc<dyn crate::ArtifactWriter>` 与
+/// `Arc<dyn crate::api::ArtifactWriter>` 可互赋值（同一 trait 的两种路径），证明根导出来自
+/// `pub use api::{…}` 而非别名新建。
+#[test]
+fn 出口面两路径互赋值证同一性() {
+    let stub = Arc::new(StubWriter::returning(outcome_fixture()));
+    let from_root: Arc<dyn crate::ArtifactWriter> = stub.clone();
+    let via_api: Arc<dyn crate::api::ArtifactWriter> = from_root;
+    let back_to_root: Arc<dyn crate::ArtifactWriter> = via_api;
+    back_to_root
+        .write(Path::new("/repo"), &[])
+        .expect("两路径互赋值后仍可调用");
+    let calls = stub.calls();
+    assert_eq!(calls.len(), 1, "两条路径指向同一实例（调用落到同一桩）");
+    assert!(
+        calls[0].1.is_empty(),
+        "空批原样透传（同一 trait 的两种路径，零复制、零包装）"
+    );
+}
+
+/// 异常（源码锚）：`lib.rs` 内零 `as ArtifactWriter` / 零二次 `pub trait ArtifactWriter` /
+/// 零 `type ArtifactWriter =`（禁别名与影子定义）；既有 `pub use api::{…}` 名单的其余名字
+/// 逐字不变（出口面只增一名）。
+#[test]
+fn 出口面零别名与既有名单逐字不变() {
+    let source = include_str!("../lib.rs");
+    for forbidden in [
+        "as ArtifactWriter",
+        "pub trait ArtifactWriter",
+        "type ArtifactWriter =",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "`lib.rs` 零别名 / 零影子定义 `{forbidden}`"
+        );
+    }
+
+    let block_start = source
+        .find("pub use api::{")
+        .expect("`pub use api::{…}` 在案");
+    let block_end = block_start + source[block_start..].find("};").expect("再导出块收口");
+    let block = &source[block_start..block_end];
+    assert_eq!(
+        block.matches("ArtifactWriter").count(),
+        1,
+        "再导出块内该名恰一处（只增一名）"
+    );
+    for name in [
+        "api_ref",
+        "api_ref_of",
+        "artifact_check",
+        "bootstrap",
+        "check as api_check",
+        "enabled as api_enabled",
+        "findings",
+        "gating_findings",
+        "load_contracts",
+        "meta",
+        "render_all",
+        "ApiCheckInput",
+        "ApiError",
+        "ApiMeta",
+        "ApiSnapshot",
+        "BootstrapDrafts",
+        "GeneratedFile",
+    ] {
+        assert!(
+            block.contains(name),
+            "既有出口名 `{name}` 逐字不变：{block}"
+        );
+    }
+}

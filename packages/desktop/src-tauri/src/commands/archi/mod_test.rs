@@ -1478,11 +1478,21 @@ fn 命令层零领域规则() {
         source.contains("dto::module_detail"),
         "archi_module 经 dto::module_detail 投影"
     );
-    // 写盘面：唯一落盘点已搬移到 `commands::atomic`——本文件零 `fs::write`
+    // 写盘面：唯一落盘点已搬移到 `commands::atomic`——本文件的**代码面**零 `fs::write`
+    // （模块头的禁令句「零 `fs::write`」是文档，先滤 `//` 行再判）
+    let code = source
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
     assert_eq!(
-        source.matches("fs::write").count(),
+        code.matches("fs::write").count(),
         0,
         "命令层零 `fs::write`（写盘单点 = commands::atomic::write_atomic）"
+    );
+    assert!(
+        !code.contains("create_dir_all"),
+        "生成命令经 `write_artifacts` 建目录（命令层代码面零 `create_dir_all`）"
     );
     assert_eq!(
         source
@@ -1490,10 +1500,6 @@ fn 命令层零领域规则() {
             .count(),
         1,
         "写回经共用原子写单点（搬移后引用恰一处）"
-    );
-    assert!(
-        !source.contains("create_dir_all"),
-        "生成命令经 `write_artifacts` 建目录（命令层零 `create_dir_all`）"
     );
 
     let sync_commands: Vec<&str> = source
@@ -2758,5 +2764,387 @@ fn module出参带fileHash() {
         hex.chars()
             .all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()),
         "小写 hex：{hash}"
+    );
+}
+
+// ===========================================================================
+// 本变更：`ArchiArtifactWriter` —— `archi::ArtifactWriter` 的唯一实现（写盘单点的第二
+// 驱动面）
+//
+// 零 mock：端口实现直接调 `archi_runtime::api_artifacts::write_artifacts`（写盘单点），
+// 判据以「与 `archi_api_generate_inner` 命令臂逐字节同形态」反证「第二驱动面 ≠ 第二份
+// 实现」。
+// ===========================================================================
+
+use archi::ArtifactWriter;
+
+use super::ArchiArtifactWriter;
+
+/// repo 相对路径 → 字节（两 twin 目录可逐项对比；`snapshot` 出的是绝对路径）。
+fn relative_snapshot(root: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut out: Vec<(String, Vec<u8>)> = snapshot(root)
+        .into_iter()
+        .map(|(path, bytes)| {
+            let relative = path
+                .strip_prefix(root)
+                .expect("快照路径在 root 之下")
+                .to_string_lossy()
+                .replace('\\', "/");
+            (relative, bytes)
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// 一份越根目标（`root` 之外）。
+fn outside_file(root: &Path, name: &str) -> archi::GeneratedFile {
+    archi::GeneratedFile {
+        path: root
+            .parent()
+            .expect("root 有父目录")
+            .join("outside")
+            .join(name),
+        content: "// 越根\n".to_owned(),
+    }
+}
+
+/// 正向（AC-4）：两份等价语料的 twin 目录 —— 包装写（本端口）与命令臂写
+/// （`archi_api_generate_inner`）产出的 `written` / `unchanged` 两列逐字段相等、盘上文件集
+/// 与逐份字节相等（同一单点的第二驱动面）。
+#[test]
+fn 包装写与generate命令逐字节同形态() {
+    let wrapper = api_fixture("artifact-writer-wrapper");
+    let command = api_fixture("artifact-writer-command");
+
+    let files = archi::workspace_render(wrapper.path()).expect("渲染应成功");
+    assert!(!files.is_empty(), "夹具应有应生成物");
+    let via_writer = ArchiArtifactWriter
+        .write(wrapper.path(), &files)
+        .expect("端口写应成功");
+    let via_command = archi_api_generate_inner(command.path()).expect("命令写应成功");
+
+    assert_eq!(
+        via_writer, via_command,
+        "两驱动面的 written / unchanged 逐字段相等"
+    );
+    assert_eq!(
+        relative_snapshot(wrapper.path()),
+        relative_snapshot(command.path()),
+        "盘上文件集与逐份字节相等"
+    );
+
+    // 二次：两侧皆零写入、全 unchanged（幂等判据同源）
+    let again_writer = ArchiArtifactWriter
+        .write(wrapper.path(), &files)
+        .expect("二次端口写应成功");
+    let again_command = archi_api_generate_inner(command.path()).expect("二次命令写应成功");
+    assert_eq!(again_writer, again_command, "二次结果亦逐字段相等");
+    assert!(again_writer.written.is_empty(), "二次零写入");
+    assert_eq!(
+        again_writer.unchanged.len(),
+        files.len(),
+        "二次全 unchanged"
+    );
+}
+
+/// 边界：`files = &[]`（空批）⇒ 两列空、盘上零变化、不建任何目录；单份已新鲜（内容相同）
+/// ⇒ `written` 空、`unchanged` 恰含该份。
+#[test]
+fn 端口空批与单份新鲜两边界() {
+    let temp = api_fixture("artifact-writer-boundary");
+    let before = relative_snapshot(temp.path());
+
+    let outcome = ArchiArtifactWriter
+        .write(temp.path(), &[])
+        .expect("空批应 Ok");
+    assert!(
+        outcome.written.is_empty() && outcome.unchanged.is_empty(),
+        "空批两列皆空：{outcome:?}"
+    );
+    assert_eq!(
+        relative_snapshot(temp.path()),
+        before,
+        "空批零写盘（零建目录）"
+    );
+
+    // 单份已新鲜：先写一轮，再以同一份调用
+    let files = archi::workspace_render(temp.path()).expect("渲染应成功");
+    let first = ArchiArtifactWriter
+        .write(temp.path(), &files)
+        .expect("首轮写应成功");
+    assert_eq!(first.written.len(), files.len(), "首轮全部写入");
+    let second = ArchiArtifactWriter
+        .write(temp.path(), &files)
+        .expect("次轮写应成功");
+    assert!(second.written.is_empty(), "已新鲜 ⇒ 零写入");
+    assert_eq!(
+        second.unchanged.len(),
+        files.len(),
+        "已新鲜 ⇒ 全计入 unchanged"
+    );
+}
+
+/// 异常：① 越根目标 ⇒ `Err` 文案含「越出观察根」且该份不写；② 目标被同名**目录**占位 ⇒
+/// `Err` 文案含「写入失败」与「不回滚」（不称全或无）。
+#[test]
+fn 端口越根与被目录占位两异常() {
+    let temp = api_fixture("artifact-writer-error");
+    let before = relative_snapshot(temp.path());
+
+    // ① 越根
+    let escape = outside_file(temp.path(), "outside.i.rs");
+    let error = ArchiArtifactWriter
+        .write(temp.path(), &[escape])
+        .expect_err("越根必须 Err");
+    assert!(
+        error.contains("越出观察根") && error.contains("拒绝写盘"),
+        "文案点名越根并拒绝：{error}"
+    );
+    assert_eq!(relative_snapshot(temp.path()), before, "越根零写盘");
+
+    // ② 目标被同名目录占位（`fs::write` 必失败）
+    let files = archi::workspace_render(temp.path()).expect("渲染应成功");
+    let target = files
+        .iter()
+        .find(|file| archi::display(temp.path(), &file.path).contains(".i."))
+        .expect("应有 `.i.*` 条目")
+        .path
+        .clone();
+    fs::remove_file(&target).ok();
+    fs::create_dir_all(&target).expect("建同名目录失败");
+    let error = ArchiArtifactWriter
+        .write(temp.path(), &files)
+        .expect_err("被目录占位必须 Err");
+    assert!(
+        error.contains("写入失败") && error.contains("不回滚"),
+        "文案如实报非原子：{error}"
+    );
+    assert!(
+        !error.contains("全部成功") && !error.contains("全或无"),
+        "MUST NOT 声称全或无：{error}"
+    );
+}
+
+/// 正向（写盘语义穿透，AC-4）：首次 `written` 与盘上变化一一对应——逐份盘上字节等于
+/// `GeneratedFile.content`，且未列入 `written` 的既有文件字节不变。
+#[test]
+fn 首次写入与盘上变化一一对应() {
+    let temp = api_fixture("artifact-writer-semantics");
+    let before = relative_snapshot(temp.path());
+    let files = archi::workspace_render(temp.path()).expect("渲染应成功");
+
+    let outcome = ArchiArtifactWriter
+        .write(temp.path(), &files)
+        .expect("写应成功");
+
+    assert_eq!(
+        outcome.written.len(),
+        files.len(),
+        "应生成集全数写入（首轮盘上零新鲜份）"
+    );
+    for file in &files {
+        let display = archi::display(temp.path(), &file.path);
+        assert!(
+            outcome.written.contains(&display),
+            "`written` 含 `{display}`"
+        );
+        assert_eq!(
+            fs::read(&file.path).expect("读生成物失败"),
+            file.content.as_bytes(),
+            "盘上字节等于内容单源（`{display}`）"
+        );
+    }
+
+    // 未被写入的既有文件字节不变（模型 / 接口定义 / 文档）
+    let after: Vec<(String, Vec<u8>)> = relative_snapshot(temp.path())
+        .into_iter()
+        .filter(|(relative, _)| {
+            !outcome.written.iter().any(|written| written == relative)
+                && !outcome
+                    .unchanged
+                    .iter()
+                    .any(|unchanged| unchanged == relative)
+        })
+        .collect();
+    assert_eq!(after, before, "非生成物文件零变化");
+}
+
+/// 边界：二次写全 `unchanged` 且生成物的 `mtime` 不变（字节相同即不重写）；孤儿生成物前后
+/// 文件集相同（只增只改、从不删）；混合批的 `written` / `unchanged` 两列互斥。
+#[test]
+fn 二次写mtime不变且孤儿仍在() {
+    let temp = api_fixture("artifact-writer-mtime");
+    // 预置孤儿 + 一份已新鲜的生成物
+    temp.write("crates/api/orphan.i.rs", "// 历史孤儿\n");
+    let files = archi::workspace_render(temp.path()).expect("渲染应成功");
+    let fresh = files.first().expect("非空").clone();
+    temp.write(&archi::display(temp.path(), &fresh.path), &fresh.content);
+    let fresh_mtime = fs::metadata(&fresh.path)
+        .expect("元数据")
+        .modified()
+        .expect("mtime");
+
+    let outcome = ArchiArtifactWriter
+        .write(temp.path(), &files)
+        .expect("混合批写应成功");
+
+    assert!(
+        outcome
+            .unchanged
+            .contains(&archi::display(temp.path(), &fresh.path)),
+        "已新鲜份计入 unchanged：{outcome:?}"
+    );
+    assert!(
+        !outcome
+            .written
+            .contains(&archi::display(temp.path(), &fresh.path)),
+        "两列互斥：{outcome:?}"
+    );
+    assert_eq!(
+        fs::metadata(&fresh.path)
+            .expect("元数据")
+            .modified()
+            .expect("mtime"),
+        fresh_mtime,
+        "字节相同即不重写（mtime 不变）"
+    );
+    assert!(
+        temp.path().join("crates/api/orphan.i.rs").is_file(),
+        "孤儿仍在盘（只增只改、从不删）"
+    );
+}
+
+/// 异常：单份写失败 ⇒ `Err` 文案含「此前已写入 N 份，不回滚」且前序份确已落盘（非原子如实）。
+#[test]
+fn 单份失败文案点数已写份数() {
+    let temp = api_fixture("artifact-writer-partial");
+    let files = archi::workspace_render(temp.path()).expect("渲染应成功");
+    let mut batch = files.clone();
+    // 末位追加一个被目录占位的目标：前序全部成功后才失败
+    let blocked = temp.path().join("crates/api/blocked.i.rs");
+    fs::create_dir_all(&blocked).expect("建同名目录失败");
+    batch.push(archi::GeneratedFile {
+        path: blocked,
+        content: "// 写不进去\n".to_owned(),
+    });
+
+    let error = ArchiArtifactWriter
+        .write(temp.path(), &batch)
+        .expect_err("单份失败必须 Err");
+    assert!(
+        error.contains(&format!("此前已写入 {} 份，不回滚", files.len())),
+        "文案点数已写份数（不回滚）：{error}"
+    );
+    for file in &files {
+        assert!(
+            file.path.is_file(),
+            "前序份已落盘（非原子）：{}",
+            file.path.display()
+        );
+    }
+}
+
+// ===========================================================================
+// 源码锚：薄委托、唯一实现、零第二份写盘
+// ===========================================================================
+
+/// 实现体（`impl archi::ArtifactWriter for ArchiArtifactWriter` 的花括号区间）：文档注释里
+/// 提到的字面量不计入「实现体零自有写盘」判据。
+fn writer_impl_body(source: &str) -> String {
+    source
+        .split_once("impl archi::ArtifactWriter for ArchiArtifactWriter")
+        .expect("实现在案")
+        .1
+        .lines()
+        .take_while(|line| *line != "}")
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 正向（AC-4）：`impl archi::ArtifactWriter for ArchiArtifactWriter` 恰一处；函数体只调
+/// `archi_runtime::api_artifacts::write_artifacts(root, files)`（唯一调用点、零参数变换、
+/// 零其它语句分支）。
+#[test]
+fn 端口实现是薄委托单点() {
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source
+            .matches("impl archi::ArtifactWriter for ArchiArtifactWriter")
+            .count(),
+        1,
+        "唯一实现恰一处（零第二份 impl）"
+    );
+    assert_eq!(
+        source
+            .matches("archi_runtime::api_artifacts::write_artifacts(root, files)")
+            .count(),
+        1,
+        "唯一调用点、零参数变换"
+    );
+
+    let body = writer_impl_body(source);
+    for forbidden in [
+        "fs::write",
+        "create_dir_all",
+        "remove_file",
+        "OpenOptions",
+        "std::process",
+        "workspace_render",
+        "read_to_string",
+    ] {
+        assert!(
+            !body.contains(forbidden),
+            "实现体零自有写盘 / 零渲染 / 零比对：`{forbidden}`"
+        );
+    }
+    assert_eq!(
+        body.matches("write_artifacts(root, files)").count(),
+        1,
+        "实现体恰一次单点调用：{body}"
+    );
+}
+
+/// 边界：`pub struct ArchiArtifactWriter` 是单元结构体（无字段、零状态）；`mod mod_test`
+/// 声明仍在且该实现无 `#[cfg(test)]` 条件编译分支（生产与测试同一份实现）。
+#[test]
+fn 端口零状态且无测试分支() {
+    let source = include_str!("mod.rs");
+    assert!(
+        source.contains("pub struct ArchiArtifactWriter;"),
+        "单元结构体（无字段、零状态）"
+    );
+    assert!(
+        !source.contains("pub struct ArchiArtifactWriter {"),
+        "零字段形态（带花括号即状态）"
+    );
+    assert!(
+        source.contains("#[cfg(test)]\nmod mod_test;"),
+        "测试模块声明在案"
+    );
+    let impl_body = writer_impl_body(source);
+    assert!(
+        !impl_body.contains("#[cfg(test)]"),
+        "实现无测试分支：{impl_body}"
+    );
+}
+
+/// 异常（反向禁字面）：`agent-runtime` 侧零实现类型字面（`ArchiArtifactWriter` 只出现在本
+/// crate，agent 侧只持 `dyn archi::ArtifactWriter`），零 `archi-runtime` 依赖。
+#[test]
+fn 实现类型不进agent_side() {
+    let agent_tool = include_str!("../../../crates/infra/agent/src/sdk/archi_tool.rs");
+    assert!(
+        !agent_tool.contains("ArchiArtifactWriter"),
+        "agent 侧零实现类型字面（只持 trait object）"
+    );
+    assert!(
+        agent_tool.contains("dyn archi::ArtifactWriter"),
+        "agent 侧以 trait object 持有"
+    );
+    let agent_cargo = include_str!("../../../crates/infra/agent/Cargo.toml");
+    assert!(
+        !agent_cargo.contains("archi-runtime"),
+        "agent-runtime 不依赖 archi-runtime（零反向依赖）"
     );
 }

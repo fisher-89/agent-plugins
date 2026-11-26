@@ -33,8 +33,9 @@
 - 沿既有代码库约定，不自造新约定。
 - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行。
 - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root，不依赖插件侧工具面。
-- 额外可用 archi 工具：读四件——`archi_search`（发现：还不知道这功能归谁管时先搜元素与资产路径）、`archi_module`（定位：给出该元素的邻接、直接子元素、三份资产与声明位置 `modelFile` + `modelLine`）、`archi_api`（接口三动作：`bootstrap` 取双草稿 / `link` 算 `$ref` / `check` 查两轴）、`archi_scaffold`（取新元素的 TOML 字段模板）；写两件——`archi_element`（元素 upsert / 删除，可内联出边）、`archi_relation`（单条关系 upsert / 删除）。
+- 额外可用 archi 工具：读四件——`archi_search`（发现：还不知道这功能归谁管时先搜元素与资产路径）、`archi_module`（定位：给出该元素的邻接、直接子元素、三份资产与声明位置 `modelFile` + `modelLine`）、`archi_api`（接口三动作：`bootstrap` 取双草稿 / `link` 算 `$ref` / `check` 查两轴）、`archi_scaffold`（取新元素的 TOML 字段模板）；写两件——`archi_element`（元素 upsert / 删除，可内联出边）、`archi_relation`（单条关系 upsert / 删除）；生成物写一件——`archi_generate`（按当前契约渲染并写入三类生成物，幂等、只增只改；入口不在盘 / 接口面留白的新模块零产出是正常的，MUST NOT 手改生成物）。
 - 架构模型可写：用 `archi_element` / `archi_relation` 写（工具表达不了的才手改 `write` / `edit`）。只为已确定的元素与关系落笔——设计未定的留到 `dev-design`；写完用 `archi_module` 自查结构诊断（元素与关系的落位逐条核对）。
 - 落笔顺序：**先拓扑、后接触面、最后理由**（先画边界与依赖，再定接口的 `properties` / `$defs` 键，最后写文档散文）——顺序倒置会让文档反复重写。
 - 接口面纪律：接口写在接口定义文件里，用 `archi_api` 的 `bootstrap` 取双草稿、`link` 算跨元素 `$ref`；**接口面留白（无对外约定）就写一个空 schema（`$defs {}` + `properties {}`），MUST NOT 编造导出**；改完导出面就同批改接口定义。
+- 理由文档的落点：本 change 涉及元素的 `<叶段>.md` 由本相位写——路径经 `archi_module` 的 `contractPath` 取（勿手拼目录），且文档 MUST NOT 列接口（导出名归 `.schema.json`）。
 - 叙事内容用简体中文；代码标识符 / 文件路径 / CLI 命令 / 通用技术缩写 / spec 头 / scenario 标记 / 规范关键词保持英文。

@@ -2598,7 +2598,8 @@ async fn explore铸造判据按名字包含四形态() {
     }
 }
 
-/// archi 铸造判据（正向，AC-1 表驱动）：七名（五只读 + 两写）任一在场 → `Some`；
+/// archi 铸造判据（正向，AC-1 表驱动）：八名（五只读 + 三写：两模型写 + 一生成物写）任一
+/// 在场 → `Some`；
 /// 全不在场（`tools: None` / 空清单）→ `None`；近名（`archi` / `archi_module_x` /
 /// `archi_api_typo` / 大写 / 尾空格）→ `None`（精确名比较）。
 #[tokio::test]
@@ -2681,6 +2682,14 @@ async fn archi铸造判据精确名表驱动() {
             expect_present: true,
         },
         Case {
+            tag: "含 archi_generate（生成物写）",
+            names: vec![
+                "read".to_owned(),
+                crate::sdk::mount::ARCHI_GENERATE_TOOL.to_owned(),
+            ],
+            expect_present: true,
+        },
+        Case {
             tag: "脏名（archi_api_typo / 尾空格 / 大写）",
             names: vec![
                 "archi_api_typo".to_owned(),
@@ -2697,6 +2706,16 @@ async fn archi铸造判据精确名表驱动() {
         Case {
             tag: "近名（archi / archi_module_x）",
             names: vec!["archi".to_owned(), "archi_module_x".to_owned()],
+            expect_present: false,
+        },
+        Case {
+            tag: "生成物写近名（archi_generate_x / 尾空格 / 大写 / 截断）",
+            names: vec![
+                "archi_generate_x".to_owned(),
+                "archi_generate ".to_owned(),
+                "ARCHI_GENERATE".to_owned(),
+                "archi_generat".to_owned(),
+            ],
             expect_present: false,
         },
     ];
@@ -4694,12 +4713,498 @@ fn 接线形态源码锚() {
         1,
         "写臂保护闸接线恰一处"
     );
-    assert!(
-        source.contains("archi.map(|context| context.with_protect(protect.clone()))"),
-        "接线形态：装配后的同一 `ProtectRules` 注入"
+    assert_eq!(
+        source.matches(".with_protect(protect.clone())").count(),
+        1,
+        "接线形态：装配后的同一 `ProtectRules` 注入（`with_writer` 链上仍恰一处）"
     );
     assert!(
         source.contains("ProtectRules::load("),
         "规则集来源仍是唯一装配点"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`archi_generate` 的铸造判据位（`generate`）与写盘端口的泵内接线
+//
+// 观测口径：`ArchiContext.generate` / `.writer` 为私有面，行为面经两条通路取证——
+// ① `archi_api` 的 `remedy`（`generate` 位的唯一消费者，三态投影）；
+// ② 泵内模型的 `archi_generate` 调用结果（writer 接线的结果面）。
+// ---------------------------------------------------------------------------
+
+/// 桩写盘端口：记录每次 `(root, files)` 并回传「全部写入」的构造值（不碰盘、不复制
+/// 渲染 / 比对 / 写盘）。
+#[derive(Default)]
+struct RecordingArtifactWriter {
+    calls: std::sync::Mutex<Vec<(PathBuf, Vec<archi::GeneratedFile>)>>,
+}
+
+impl RecordingArtifactWriter {
+    fn calls(&self) -> Vec<(PathBuf, Vec<archi::GeneratedFile>)> {
+        self.calls.lock().expect("桩锁未中毒").clone()
+    }
+}
+
+impl archi::ArtifactWriter for RecordingArtifactWriter {
+    fn write(
+        &self,
+        root: &Path,
+        files: &[archi::GeneratedFile],
+    ) -> Result<archi::ArchiApiWriteOutcome, String> {
+        self.calls
+            .lock()
+            .expect("桩锁未中毒")
+            .push((root.to_path_buf(), files.to_vec()));
+        Ok(archi::ArchiApiWriteOutcome {
+            written: files
+                .iter()
+                .map(|file| archi::display(root, &file.path))
+                .collect(),
+            unchanged: Vec::new(),
+        })
+    }
+}
+
+/// 生成物面「有差异」的根（单元素带 `path`、无 `<叶段>.schema.json`）：`artifact_check`
+/// 恒报 `INDEX.toml` 缺失 ⇒ `remedy` 的第二 / 第三态判据成立。
+fn generate_differing_root(tag: &str) -> tempfile::TempDir {
+    let dir = workspace_root(tag);
+    archi_write_model(
+        dir.path(),
+        "01-generate.toml",
+        concat!(
+            "[element.\"Gamma\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"Gamma.Auth\"]\n",
+            "kind = \"module\"\n",
+            "path = [\"./src/auth/\"]\n",
+        ),
+    );
+    dir
+}
+
+/// `archi_api(check)` 的 `remedy`（`generate` 位的唯一消费者）。
+async fn remedy_of(context: &crate::sdk::archi_tool::ArchiContext) -> serde_json::Value {
+    let text = context
+        .execute(
+            crate::sdk::mount::ARCHI_API_TOOL,
+            &serde_json::json!({ "action": "check" }),
+        )
+        .await
+        .expect("check 应成功");
+    let payload: serde_json::Value = serde_json::from_str(&text).expect("check 结果为 JSON 串");
+    payload
+        .get("remedy")
+        .cloned()
+        .unwrap_or_else(|| panic!("`remedy` 键恒在场：{payload}"))
+}
+
+/// 正向：仅 `archi_generate` 在清单内 ⇒ 仍铸上下文（`Some`）且 `generate` 位为真
+/// （`remedy` 指向该工具）；仅 `archi_api` 而清单无 `archi_generate` ⇒ 铸上下文但
+/// `generate` 位为假（`remedy` 指向架构页会话，`implement/executor` 形态）。
+#[tokio::test]
+async fn 生成物写判据位按名字清单置位() {
+    use crate::sdk::mount::{ARCHI_API_TOOL, ARCHI_GENERATE_TOOL};
+
+    let dir = generate_differing_root("mint-generate-bit");
+    let root = dir.path().to_path_buf();
+
+    let with_generate = mint_archi_context(&[ARCHI_GENERATE_TOOL.to_owned()], &root)
+        .expect("仅含生成物写名亦铸上下文（否则 remedy 第二态与生成臂同时不可达）");
+    let remedy = remedy_of(&with_generate).await;
+    let remedy = remedy.as_str().expect("有差异 ⇒ remedy 非 null");
+    assert!(
+        remedy.contains("调 `archi_generate`"),
+        "第二态指向专用写工具：{remedy}"
+    );
+    assert!(
+        remedy.contains("MUST NOT 手改生成物"),
+        "第二态仍载手改禁令：{remedy}"
+    );
+
+    let without_generate =
+        mint_archi_context(&[ARCHI_API_TOOL.to_owned()], &root).expect("只读名在场亦铸上下文");
+    let remedy = remedy_of(&without_generate).await;
+    let remedy = remedy.as_str().expect("有差异 ⇒ remedy 非 null");
+    assert!(
+        remedy.contains("架构页会话"),
+        "第三态指向架构页会话：{remedy}"
+    );
+    assert!(
+        !remedy.contains("调 `archi_generate`"),
+        "第三态不许诺未下发工具：{remedy}"
+    );
+    assert!(
+        remedy.contains("MUST NOT 手改生成物"),
+        "第三态仍载手改禁令：{remedy}"
+    );
+}
+
+/// 边界：八名同时在 ⇒ `generate` 位仍为真（不因名单变长而失真）；零差异根 ⇒ `remedy`
+/// 为 `null`（三态第一态，与 `generate` 位无关）。
+#[tokio::test]
+async fn 生成物写判据位八名同在仍为真() {
+    use crate::sdk::mount::{
+        ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_ELEMENT_TOOL, ARCHI_GENERATE_TOOL,
+        ARCHI_MODULE_TOOL, ARCHI_RELATION_TOOL, ARCHI_SCAFFOLD_TOOL, ARCHI_SEARCH_TOOL,
+    };
+
+    let dir = generate_differing_root("mint-generate-all-names");
+    let root = dir.path().to_path_buf();
+    let names: Vec<String> = [
+        ARCHI_MODULE_TOOL,
+        ARCHI_SEARCH_TOOL,
+        ARCHI_API_TOOL,
+        ARCHI_DRIFT_TOOL,
+        ARCHI_SCAFFOLD_TOOL,
+        ARCHI_ELEMENT_TOOL,
+        ARCHI_RELATION_TOOL,
+        ARCHI_GENERATE_TOOL,
+    ]
+    .iter()
+    .map(|name| (*name).to_owned())
+    .collect();
+    let context = mint_archi_context(&names, &root).expect("八名任一在场即铸");
+    let remedy = remedy_of(&context).await;
+    assert!(
+        remedy
+            .as_str()
+            .is_some_and(|text| text.contains("调 `archi_generate`")),
+        "八名同在时 generate 位仍置位：{remedy}"
+    );
+
+    // 零元素的根：应生成集只差 `INDEX.toml` ⇒ 有差异面照旧（`remedy` 非 null），键恒在场的
+    // 判据由下面的存在性断言承担（null 亦出键）
+    let sparse = workspace_root("mint-generate-sparse");
+    archi_write_model(
+        sparse.path(),
+        "01-empty.toml",
+        concat!("[element.\"Gamma\"]\n", "kind = \"package\"\n"),
+    );
+    let context =
+        mint_archi_context(&[ARCHI_GENERATE_TOOL.to_owned()], sparse.path()).expect("铸上下文");
+    let payload_text = context
+        .execute(ARCHI_API_TOOL, &serde_json::json!({ "action": "check" }))
+        .await
+        .expect("check 应成功");
+    let payload: serde_json::Value = serde_json::from_str(&payload_text).expect("JSON 串");
+    assert!(
+        payload.get("remedy").is_some(),
+        "`remedy` 键恒在场（null 亦出键）：{payload}"
+    );
+}
+
+/// 异常（反向，位间解耦）：`generate` 位与 writer 位解耦——仅含生成物写名且**未**注入
+/// writer 时上下文仍在（`generate` 仍为真），执行体以装配缺失 `Err` 回灌（MUST NOT 静默
+/// 降为 false）。
+#[tokio::test]
+async fn 生成物写判据位与writer位解耦() {
+    use crate::sdk::mount::{ARCHI_API_TOOL, ARCHI_GENERATE_TOOL};
+
+    let dir = generate_differing_root("mint-generate-decoupled");
+    let root = dir.path().to_path_buf();
+    let context = mint_archi_context(&[ARCHI_GENERATE_TOOL.to_owned()], &root)
+        .expect("未注入 writer 亦铸上下文（两判据解耦）");
+
+    let remedy = remedy_of(&context).await;
+    assert!(
+        remedy
+            .as_str()
+            .is_some_and(|text| text.contains("调 `archi_generate`")),
+        "generate 位不因 writer 缺席静默降为 false：{remedy}"
+    );
+
+    let error = context
+        .execute(ARCHI_GENERATE_TOOL, &serde_json::json!({}))
+        .await
+        .expect_err("未注入 writer ⇒ 装配缺失 Err");
+    assert!(
+        error.contains("写盘端口未装配") && error.contains(ARCHI_GENERATE_TOOL),
+        "文案点名装配缺失与工具名：{error}"
+    );
+
+    // 对照：同一个上下文里 `archi_api` 仍可用（解耦的正面证据）
+    assert!(
+        context
+            .execute(ARCHI_API_TOOL, &serde_json::json!({ "action": "check" }))
+            .await
+            .is_ok(),
+        "只读臂不受 writer 位影响"
+    );
+}
+
+/// 注入面：`archi_generate` 名在清单内即可铸（铸造判据八名之一），下发面由
+/// `mount::definitions` 按清单序给出该定义。
+#[tokio::test]
+async fn 生成物写名在清单内即铸上下文() {
+    use crate::sdk::mount::{ARCHI_GENERATE_TOOL, TOOL_NAMES};
+
+    let dir = workspace_root("mint-generate-names");
+    let mut names: Vec<String> = TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
+    names.push(ARCHI_GENERATE_TOOL.to_owned());
+    let context = mint_archi_context(&names, dir.path()).expect("含生成物写名即铸");
+    drop(context);
+    assert!(
+        mint_archi_context(&names[..TOOL_NAMES.len()], dir.path()).is_none(),
+        "七内建名不含 archi 名 ⇒ None（判据不被新名放宽）"
+    );
+}
+
+/// 正向（泵内接线）：`with_artifact_writer(Some(桩))` → 模型调 `archi_generate` 时端口收到
+/// 本会话 cwd 的应生成集（`files` 非空），工具响应三键齐备且 `conflicts` 空。
+#[tokio::test]
+async fn 泵内铸archi上下文携带注入的写盘端口() {
+    use crate::sdk::mount::ARCHI_GENERATE_TOOL;
+
+    let provider = ScriptedProvider::new(
+        "pump-generate",
+        vec![
+            sse_generic_tool_call(
+                "tu_generate_pump",
+                ARCHI_GENERATE_TOOL,
+                serde_json::json!({}),
+            ),
+            sse_stop("已生成"),
+        ],
+    );
+    let dir = generate_differing_root("pump-generate-root");
+    let writer = Arc::new(RecordingArtifactWriter::default());
+    let runner = SdkRunner::new(provider.config(), None, None, None)
+        .with_artifact_writer(Some(writer.clone() as Arc<dyn archi::ArtifactWriter>));
+
+    let open = open_with_injections(
+        SessionInjections {
+            preamble: None,
+            tools: Some(vec![ARCHI_GENERATE_TOOL.to_owned()]),
+            finish: None,
+            ask: None,
+            protect: None,
+            before_done: None,
+        },
+        dir.path().to_path_buf(),
+    );
+    let mut session = runner.open_session(open).expect("open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "生成一次".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+    let events = drain_session_events(&mut session).await;
+
+    let (content, is_error) =
+        tool_result_of(&events, "tu_generate_pump").expect("该调用有配对结果");
+    assert!(!is_error, "上下文装配到位（非装配缺失错误面）：{content}");
+    let payload: serde_json::Value = serde_json::from_str(&content).expect("结果为 JSON 串");
+    for key in ["written", "unchanged", "conflicts"] {
+        assert!(
+            payload.get(key).is_some(),
+            "响应三键齐备（含 `{key}`）：{payload}"
+        );
+    }
+    assert_eq!(
+        payload["conflicts"],
+        serde_json::json!([]),
+        "无保护命中 ⇒ 冲突空"
+    );
+
+    let calls = writer.calls();
+    assert_eq!(calls.len(), 1, "端口恰被调用一次");
+    assert_eq!(
+        calls[0].0,
+        dir.path(),
+        "端口收到的 root = 会话 cwd（change 会话即 worktree）"
+    );
+    assert!(
+        !calls[0].1.is_empty(),
+        "应生成集非空（INDEX.toml 至少一份）"
+    );
+}
+
+/// 异常（泵内）：未调 builder ⇒ 上下文 writer 缺席，模型硬调 `archi_generate` 得装配缺失
+/// `is_error`（open 不 panic、`None` 不被变成「写盘关闭」的静默成功）。
+#[tokio::test]
+async fn 未注入写盘端口时泵内执行体装配缺失() {
+    use crate::sdk::mount::ARCHI_GENERATE_TOOL;
+
+    let provider = ScriptedProvider::new(
+        "pump-generate-absent",
+        vec![
+            sse_generic_tool_call(
+                "tu_generate_absent",
+                ARCHI_GENERATE_TOOL,
+                serde_json::json!({}),
+            ),
+            sse_stop("已收口"),
+        ],
+    );
+    let dir = generate_differing_root("pump-generate-absent-root");
+    let runner = SdkRunner::new(provider.config(), None, None, None);
+    let open = open_with_injections(
+        SessionInjections {
+            preamble: None,
+            tools: Some(vec![ARCHI_GENERATE_TOOL.to_owned()]),
+            finish: None,
+            ask: None,
+            protect: None,
+            before_done: None,
+        },
+        dir.path().to_path_buf(),
+    );
+    let mut session = runner.open_session(open).expect("缺省缺 writer 不 panic");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "未装配也要能跑".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+    let events = drain_session_events(&mut session).await;
+
+    let (content, is_error) =
+        tool_result_of(&events, "tu_generate_absent").expect("该调用有配对结果");
+    assert!(is_error, "装配缺失为错误面：{content}");
+    assert!(
+        content.contains("写盘端口未装配"),
+        "文案点名装配缺失：{content}"
+    );
+}
+
+/// 边界：`with_artifact_writer` 两形态（`Some` / `None`）均可构造且 `open()` 成功；与
+/// `with_ask_port` / `with_max_tokens` 双向续链后两载荷互不覆盖。
+#[tokio::test]
+async fn with_artifact_writer两形态均可构造并open() {
+    let writer = Arc::new(RecordingArtifactWriter::default());
+    for (label, payload) in [
+        (
+            "Some",
+            Some(writer.clone() as Arc<dyn archi::ArtifactWriter>),
+        ),
+        ("None", None),
+    ] {
+        let runner =
+            SdkRunner::new(complete_config(), None, None, None).with_artifact_writer(payload);
+        let first = first_event_with_injections(runner, open_new()).await;
+        assert!(
+            matches!(first, agent::AgentEventKind::RunStarted { .. }),
+            "{label} 形态 open 成功"
+        );
+    }
+
+    // 双向续链：两种顺序都可构造且两载荷不互相覆盖（`max_tokens` 面行为一致）
+    for (label, runner) in [
+        (
+            "writer → max_tokens",
+            SdkRunner::new(complete_config(), None, None, None)
+                .with_artifact_writer(Some(writer.clone() as Arc<dyn archi::ArtifactWriter>))
+                .with_max_tokens(Some(8_192)),
+        ),
+        (
+            "max_tokens → writer",
+            SdkRunner::new(complete_config(), None, None, None)
+                .with_max_tokens(Some(8_192))
+                .with_artifact_writer(Some(writer.clone() as Arc<dyn archi::ArtifactWriter>)),
+        ),
+    ] {
+        let first = first_event_with_injections(runner, open_new()).await;
+        assert!(
+            matches!(first, agent::AgentEventKind::RunStarted { .. }),
+            "{label}：续链后 open 成功"
+        );
+    }
+}
+
+/// 正向（源码锚，注入链第 3/4 跳）：`runner.rs` 内 `PumpPayload` 含 `artifact_writer`
+/// 字段、`open_session` 载荷字面量填 `self.artifact_writer.clone()`、`session_pump` 链
+/// `.with_writer(…)` 各恰一处。
+#[test]
+fn 注入链源码锚_三处接线各恰一处() {
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/sdk/runner.rs"),
+    )
+    .expect("读取 runner.rs");
+    assert_eq!(
+        source
+            .matches("artifact_writer: self.artifact_writer.clone(),")
+            .count(),
+        1,
+        "open_session 载荷字面量恰一处"
+    );
+    assert_eq!(
+        source
+            .matches(".with_writer(payload.artifact_writer.clone())")
+            .count(),
+        1,
+        "session_pump 链的 with_writer 恰一处"
+    );
+    assert_eq!(
+        source
+            .matches("artifact_writer: Option<Arc<dyn archi::ArtifactWriter>>,")
+            .count(),
+        2,
+        "两处字段（runner 与泵载荷）皆 trait object 形态"
+    );
+    assert!(
+        !source.contains("ArchiArtifactWriter"),
+        "具体实现类型在本文件零命中（只持 trait object）"
+    );
+}
+
+/// 边界（源码锚）：铸造调用的 root 取 `open.ctx.workspace_root`（会话 cwd；change 会话 =
+/// worktree），**不取** `PumpPayload.workspace_root`（主仓根）——生成落点与会话 cwd 同源。
+#[test]
+fn 注入链源码锚_root取会话cwd() {
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/sdk/runner.rs"),
+    )
+    .expect("读取 runner.rs");
+    let call_at = source
+        .find("let archi = mint_archi_context(")
+        .expect("铸造调用在案");
+    let call = source[call_at..]
+        .lines()
+        .take(5)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        call.contains("&open.ctx.workspace_root"),
+        "铸造 root 取会话 cwd：{call}"
+    );
+    assert!(
+        !call.contains("payload.workspace_root"),
+        "铸造 root 不取主仓根：{call}"
+    );
+}
+
+/// 异常（源码锚，反向）：该字段路径零 `unwrap()` / 零 `expect(` / 零 `#[cfg(test)]` 分支
+/// （absent 走 `Option` 语义，不 panic）。
+#[test]
+fn 注入链源码锚_零unwrap且零cfg分支() {
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/sdk/runner.rs"),
+    )
+    .expect("读取 runner.rs");
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        if !trimmed.contains("artifact_writer") {
+            continue;
+        }
+        assert!(
+            !trimmed.contains("unwrap()") && !trimmed.contains("expect("),
+            "端口字段行零 unwrap / expect：{line}"
+        );
+        assert!(
+            !trimmed.contains("#[cfg(test)]"),
+            "端口字段行零测试分支：{line}"
+        );
+        assert!(
+            !trimmed.contains("ArchiArtifactWriter"),
+            "具体实现类型不出现在 runner：{line}"
+        );
+    }
 }

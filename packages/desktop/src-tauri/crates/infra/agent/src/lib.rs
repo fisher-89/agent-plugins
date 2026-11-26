@@ -75,6 +75,10 @@ pub struct EngineFacade {
     ask_registry: Arc<agent::AskRegistry>,
     /// ask 编排状态面（组合根注入缝）：仅 `Flow` 档消费
     ask_port: Option<Arc<dyn orchestration::port::AskPort>>,
+    /// 生成物写盘端口（组合根注入缝）：`archi::ArtifactWriter` 的唯一实现由壳层
+    /// 给出（委托 `write_artifacts` 单点），per-turn 铸造 archi 工具上下文时下传；
+    /// `None` = 未注入（`archi_generate` 执行体以装配缺失 is_error 回灌）
+    artifact_writer: Option<Arc<dyn archi::ArtifactWriter>>,
 }
 
 impl EngineFacade {
@@ -92,6 +96,7 @@ impl EngineFacade {
             db_workspace: None,
             ask_registry: Arc::new(agent::AskRegistry::default()),
             ask_port: None,
+            artifact_writer: None,
         }
     }
 
@@ -109,6 +114,7 @@ impl EngineFacade {
             db_workspace: None,
             ask_registry: Arc::new(agent::AskRegistry::default()),
             ask_port: None,
+            artifact_writer: None,
         }
     }
 
@@ -129,6 +135,7 @@ impl EngineFacade {
             db_workspace: self.db_workspace,
             ask_registry: self.ask_registry,
             ask_port: self.ask_port,
+            artifact_writer: self.artifact_writer,
         }
     }
 
@@ -148,6 +155,7 @@ impl EngineFacade {
             db_workspace: self.db_workspace,
             ask_registry: self.ask_registry,
             ask_port: self.ask_port,
+            artifact_writer: self.artifact_writer,
         }
     }
 
@@ -168,6 +176,7 @@ impl EngineFacade {
             db_workspace: self.db_workspace,
             ask_registry: self.ask_registry,
             ask_port: self.ask_port,
+            artifact_writer: self.artifact_writer,
         }
     }
 
@@ -188,6 +197,7 @@ impl EngineFacade {
             db_workspace: self.db_workspace,
             ask_registry: self.ask_registry,
             ask_port: self.ask_port,
+            artifact_writer: self.artifact_writer,
         }
     }
 
@@ -213,6 +223,16 @@ impl EngineFacade {
     pub fn with_ask_port(self, port: Option<Arc<dyn orchestration::port::AskPort>>) -> Self {
         Self {
             ask_port: port,
+            ..self
+        }
+    }
+
+    /// 携生成物写盘端口的门面（builder 缝，与 `with_ask_port` 同型）：组合根注入
+    /// `archi::ArtifactWriter` 的**唯一实现**（壳层对 `write_artifacts` 的薄委托）；
+    /// `None` = 未注入（`archi_generate` 执行体以装配缺失 is_error 回灌）。
+    pub fn with_artifact_writer(self, writer: Option<Arc<dyn archi::ArtifactWriter>>) -> Self {
+        Self {
+            artifact_writer: writer,
             ..self
         }
     }
@@ -261,7 +281,8 @@ impl EngineFacade {
                 .with_web_search(self.web_search)
                 .with_efforts(self.efforts.clone())
                 .with_ask_registry(Arc::clone(&self.ask_registry))
-                .with_ask_port(self.ask_port.clone());
+                .with_ask_port(self.ask_port.clone())
+                .with_artifact_writer(self.artifact_writer.clone());
                 if let Some(root) = &self.workspace_root {
                     runner = runner.with_workspace_root(root.clone());
                 }

@@ -1,0 +1,82 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --fix --allow-dirty --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\core\agent)
+    Checking watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\infra\watch)
+    Checking specta-zod v0.0.4 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\tools\specta-zod-patched)
+    Checking checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\core\checks)
+    Checking archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\core\archi)
+    Checking exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\infra\exec)
+    Checking config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\core\config)
+    Checking foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\core\foundation)
+    Checking notification v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\core\notification)
+    Checking workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\core\workflow)
+    Checking orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\core\orchestration)
+    Checking store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\infra\store)
+    Checking archi-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\infra\archi)
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\infra\agent)
+    Checking vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\infra\vcs)
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\infra\checks)
+    Checking archi-api-gen v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\tools\archi-api-gen)
+warning: this boolean expression can be simplified
+    --> crates\infra\agent\src\compose_test.rs:7053:17
+     |
+7053 |                 !(has_model_write && !unlocked),
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `!has_model_write || unlocked`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#nonminimal_bool
+     = note: `#[warn(clippy::nonminimal_bool)]` on by default
+
+warning: this boolean expression can be simplified
+    --> crates\infra\agent\src\compose_test.rs:7057:17
+     |
+7057 |                 !(unlocked && !has_model_write),
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `!unlocked || has_model_write`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#nonminimal_bool
+
+warning: `agent-runtime` (lib test) generated 2 warnings
+warning: doc list item without indentation
+    --> crates\core\workflow\src\write\phase_table_test.rs:4303:5
+     |
+4303 | /// `backtrack` 回 `dev-design` 或架构页会话维护）；工具清单行仍只有 `archi_module` /
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#doc_lazy_continuation
+     = note: `#[warn(clippy::doc_lazy_continuation)]` on by default
+help: indent this line
+     |
+4303 | ///   `backtrack` 回 `dev-design` 或架构页会话维护）；工具清单行仍只有 `archi_module` /
+     |     ++
+
+warning: doc list item without indentation
+    --> crates\core\workflow\src\write\phase_table_test.rs:4304:5
+     |
+4304 | /// `archi_api` / `archi_drift`。
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+4304 | ///   `archi_api` / `archi_drift`。
+     |     ++
+
+warning: `workflow` (lib test) generated 2 warnings
+    Checking dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri)
+    Checking export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-generator-access-gap\packages\desktop\src-tauri\crates\tools\export-bindings)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 38.61s
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml && pnpm run bindings:zod-check
+[zod-bindings] degraded: agentStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: agentSessionWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: watchSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: notificationSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+$ tsc --noEmit -p tsconfig.zod.json
+$ cargo run -q --manifest-path src-tauri/Cargo.toml -p archi-api-gen -- --check
+$ vp check --fix && knip
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(3.3s)[0m
+[1m[94mpass:[39m[0m Found no warnings, lint errors, or type errors in 281 files [2m(1.6s, 16 threads)[0m
+Configuration hints (1)
+src/**/*.i.ts    knip.json  Remove from ignore

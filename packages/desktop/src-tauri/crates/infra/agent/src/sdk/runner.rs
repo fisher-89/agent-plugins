@@ -23,9 +23,9 @@ use crate::sdk::model_spec::{
     parse_model_spec, ModelSpec, BETA_CONTEXT_1M, MILLION_CONTEXT_WINDOW,
 };
 use crate::sdk::mount::{
-    ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_ELEMENT_TOOL, ARCHI_MODULE_TOOL, ARCHI_RELATION_TOOL,
-    ARCHI_SCAFFOLD_TOOL, ARCHI_SEARCH_TOOL, DB_QUERY_TOOL, DB_TABLES_TOOL, EXPLORE_NOTE_TOOL,
-    PROPOSE_CONFIG_TOOL,
+    ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_ELEMENT_TOOL, ARCHI_GENERATE_TOOL, ARCHI_MODULE_TOOL,
+    ARCHI_RELATION_TOOL, ARCHI_SCAFFOLD_TOOL, ARCHI_SEARCH_TOOL, DB_QUERY_TOOL, DB_TABLES_TOOL,
+    EXPLORE_NOTE_TOOL, PROPOSE_CONFIG_TOOL,
 };
 use crate::sdk::protect::ProtectRules;
 use crate::sdk::{before_done::BeforeDoneHook, context, preclose, r#loop, reasoning, resume};
@@ -94,6 +94,9 @@ pub struct SdkRunner {
     ask_registry: Arc<agent::AskRegistry>,
     /// ask 编排状态面（组合根注入缝；仅 `Flow` 档消费）
     ask_port: Option<Arc<dyn orchestration::port::AskPort>>,
+    /// 生成物写盘端口（组合根注入缝）：`archi_generate` 的唯一写盘通路
+    /// （`None` = 未注入——执行体以装配缺失 is_error 回灌，生产不可达）
+    artifact_writer: Option<Arc<dyn archi::ArtifactWriter>>,
 }
 
 impl SdkRunner {
@@ -118,6 +121,17 @@ impl SdkRunner {
             db_workspace: None,
             ask_registry: Arc::new(agent::AskRegistry::default()),
             ask_port: None,
+            artifact_writer: None,
+        }
+    }
+
+    /// 生成物写盘端口旁路注入（builder 缝，与 `with_ask_port` 同型）：组合根注入
+    /// `archi::ArtifactWriter` 的实现（唯一实现是壳层对 `write_artifacts` 的薄委托）；
+    /// `None` = 未注入（`archi_generate` 执行体以装配缺失 is_error 回灌）。
+    pub fn with_artifact_writer(self, writer: Option<Arc<dyn archi::ArtifactWriter>>) -> Self {
+        Self {
+            artifact_writer: writer,
+            ..self
         }
     }
 
@@ -298,6 +312,7 @@ impl AgentRunner for SdkRunner {
                 workspace_root: self.workspace_root.clone(),
                 ask_registry: Arc::clone(&self.ask_registry),
                 ask_port: self.ask_port.clone(),
+                artifact_writer: self.artifact_writer.clone(),
                 db_global: self.db_global.clone(),
                 db_workspace: self.db_workspace.clone(),
             },
@@ -447,6 +462,9 @@ struct PumpPayload {
     ask_registry: Arc<agent::AskRegistry>,
     /// ask 编排状态面（组合根注入缝）：仅 `Flow` 档随上下文携带
     ask_port: Option<Arc<dyn orchestration::port::AskPort>>,
+    /// 生成物写盘端口（组合根注入缝）：per-turn 铸造 `ArchiContext` 的一把原料
+    /// （`None` = 未注入——`archi_generate` 执行体以装配缺失 is_error 回灌）
+    artifact_writer: Option<Arc<dyn archi::ArtifactWriter>>,
     /// 全局库句柄（per-turn 铸造 `DbContext` 的原料；`None` = 未注入）
     db_global: Option<Arc<Store>>,
     /// 会话 workspace 库句柄（同上；另一把原料）
@@ -454,9 +472,11 @@ struct PumpPayload {
 }
 
 /// 架构工具执行上下文 per-turn 铸造（单点；`session_pump` 唯一调用处）：
-/// 本轮名字清单含七名任一 archi 工具名即铸（轮 root = 会话 cwd——change 会话即
+/// 本轮名字清单含八名任一 archi 工具名即铸（轮 root = 会话 cwd——change 会话即
 /// worktree），否则 `None`。铸造值随 `LoopTurn` 携带、loop 侧路由，不经
-/// `tools::execute`；写入保护规则由 `session_pump` 在装配之后经 `with_protect` 接线。
+/// `tools::execute`；写入保护规则由 `session_pump` 在装配之后经 `with_protect` 接线，
+/// 生成物写盘端口同处经 `with_writer` 接线。`generate` 判据位（`archi_api` 的 `remedy`
+/// 第二 / 第三态）在此按同一名字清单一次置位，执行体零回读注入面。
 pub(crate) fn mint_archi_context(names: &[String], workspace_root: &Path) -> Option<ArchiContext> {
     let present = names.iter().any(|name| {
         name == ARCHI_MODULE_TOOL
@@ -466,8 +486,12 @@ pub(crate) fn mint_archi_context(names: &[String], workspace_root: &Path) -> Opt
             || name == ARCHI_SCAFFOLD_TOOL
             || name == ARCHI_ELEMENT_TOOL
             || name == ARCHI_RELATION_TOOL
+            || name == ARCHI_GENERATE_TOOL
     });
-    present.then(|| ArchiContext::new(workspace_root.to_path_buf()))
+    present.then(|| {
+        ArchiContext::new(workspace_root.to_path_buf())
+            .with_generate(names.iter().any(|name| name == ARCHI_GENERATE_TOOL))
+    })
 }
 
 /// 两只 DB 只读工具执行上下文 per-turn 铸造（单点；`session_pump` 唯一调用处）：
@@ -627,9 +651,14 @@ async fn session_pump(
     // （相位锁）与内置规则同一次装配、同一结构参与判定——不是第五段闸
     let protect = ProtectRules::load(payload.workspace_root.as_deref())
         .with_session(open.injections.protect.clone());
-    // 写模型工具的保护闸接线：写臂在 `plan_*` 解析落点之后以**同一**规则集判定
-    // （同一规则序、同一拒串族；读臂零消费）
-    let archi = archi.map(|context| context.with_protect(protect.clone()));
+    // 写模型工具与生成物写工具的保护闸接线：写臂在 `plan_*` 解析落点之后、生成臂在
+    // 写盘之前以**同一**规则集判定（同一规则序、同一拒串族；读臂零消费）；生成物写盘
+    // 端口同处接线（唯一实现由组合根注入，执行体只持 trait object）
+    let archi = archi.map(|context| {
+        context
+            .with_protect(protect.clone())
+            .with_writer(payload.artifact_writer.clone())
+    });
     let turn = r#loop::LoopTurn {
         question: question.prompt,
         cwd: open.ctx.workspace_root.clone(),

@@ -13,8 +13,10 @@
 //! 4. **判定单源**：架构漂移对账 / 定级 / 豁免 / `status` 推导只有一处实现
 //!    （[`drift::check`]）——命令面与门禁面都调它，MUST NOT 各写一份；
 //! 5. **契约面纯读**：模块 API 契约面（[`api`] 全族）零写盘零 spawn——判定域只出
-//!    应生成物与三类差异；写盘单点在 `crates/infra/archi::api_artifacts`（CLI 与两条
-//!    IPC 两个驱动面同源），判定域不得反向持写盘能力。
+//!    应生成物与三类差异；写盘单点在 `crates/infra/archi::api_artifacts`（CLI、两条
+//!    IPC 与 agent 生成工具三个驱动面同源），判定域不得反向持写盘能力。写生成物的
+//!    agent 工具只消费本 crate 的写盘端口类型（[`ArtifactWriter`]）——**端口是类型，
+//!    不破本 crate 只读盘**。
 //!
 //! 边界：零 UI 框架 / 零库句柄 / 零子进程 / 零工作流与编排 crate 依赖 / 零工作区
 //! 配置读取（工作区配置唯一出口纪律零变化）；本 crate 只读盘不写盘（唯一写动作
@@ -41,7 +43,7 @@ pub use api::schema::validate_schema;
 pub use api::{
     api_ref, api_ref_of, artifact_check, bootstrap, check as api_check, enabled as api_enabled,
     findings, gating_findings, load_contracts, meta, render_all, ApiCheckInput, ApiError, ApiMeta,
-    ApiSnapshot, BootstrapDrafts, GeneratedFile,
+    ApiSnapshot, ArtifactWriter, BootstrapDrafts, GeneratedFile,
 };
 // 跨 crate 单点出口：工具 crate 的唯一调用面（AC-32 的判据锚这一行形态）。
 pub use api::display;

@@ -5335,3 +5335,112 @@ fn 接线结构锚_walk_run注入与壳层零终态判定() {
         .count();
     assert_eq!(delivers, 1, "投影 → 投递组合点只在 ask_started 一行");
 }
+
+// ===========================================================================
+// 本变更：change 流程组合根的生成物写盘端口注入点（相位会话 = 本变更的受益者）
+// ===========================================================================
+
+/// 正向（AC-4）：`compose_turn(…, artifact_writer)` 的实参表末位为
+/// `Some(Arc::new(ArchiArtifactWriter) as Arc<dyn archi::ArtifactWriter>)`（恰一处），
+/// 且**在** `Some(Arc::clone(&ask_port))` 之后（末位序）。
+#[test]
+fn 流程组合根注入生成物写盘端口恰一处() {
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source
+            .matches("Some(Arc::new(ArchiArtifactWriter) as Arc<dyn archi::ArtifactWriter>)")
+            .count(),
+        1,
+        "端口注入恰一处"
+    );
+    assert_eq!(
+        source
+            .matches("use crate::commands::archi::ArchiArtifactWriter;")
+            .count(),
+        1,
+        "导入单点"
+    );
+
+    let call_start = source.find("let composed: ComposedTurn = compose_turn(");
+    let call_start = call_start.expect("组合调用在案");
+    let call = &source[call_start..];
+    let call = &call[..call.find(")?;").expect("实参表收口")];
+    let ask_at = call
+        .find("Some(Arc::clone(&ask_port))")
+        .expect("ask 端口实参");
+    let writer_at = call
+        .find("Some(Arc::new(ArchiArtifactWriter)")
+        .expect("写盘端口实参");
+    assert!(writer_at > ask_at, "写盘端口在 ask 端口之后（末位序）");
+}
+
+/// 边界：第 8 位（写入保护规则根）仍取**主仓 root**、与本端口无耦合——写盘端口的 root 由
+/// 执行体取会话 cwd（`ArchiContext.root`），两者不是同一参数；该实参表零运行时开关。
+#[test]
+fn 端口与保护规则根两参数不混同() {
+    let source = include_str!("mod.rs");
+    let call_start = source
+        .find("let composed: ComposedTurn = compose_turn(")
+        .expect("组合调用在案");
+    let call = &source[call_start..];
+    let call = &call[..call.find(")?;").expect("实参表收口")];
+    assert!(
+        call.contains("Path::new(&root),"),
+        "第 8 位仍是主仓 root（保护规则装配根）"
+    );
+    assert!(
+        !call.contains("Path::new(&exec_root)"),
+        "保护规则根不得取 worktree 路径"
+    );
+    assert!(
+        !call.contains("artifact_writer:") && !call.contains("writer_root"),
+        "端口不新增具名 root 实参（root 归会话 cwd）"
+    );
+    assert_eq!(
+        source.matches("compose_turn(").count(),
+        1,
+        "本文件恰一处 compose_turn 调用（零重复构造）"
+    );
+    assert!(
+        !source.contains("archi_runtime::api_artifacts"),
+        "本文件零写盘单点直引（写盘单点只经端口）"
+    );
+    assert!(
+        !source.contains("write_artifacts("),
+        "本文件零 write_artifacts 调用（写盘单点只经端口）"
+    );
+    for switch in ["cfg!(", "std::env::var", "option_env!"] {
+        assert!(!call.contains(switch), "实参表零运行时开关 `{switch}`");
+    }
+}
+
+/// 异常（反向锚）：组合根零第二份写盘实现 / 零直接写盘；端口类型逐字为
+/// `Arc<dyn archi::ArtifactWriter>`（非具体实现类型泄漏到组合根其余位置）。
+#[test]
+fn 流程组合根零第二份写盘() {
+    let source = include_str!("mod.rs");
+    for forbidden in [
+        "fs::write",
+        "create_dir_all",
+        "write_artifacts(",
+        "impl archi::ArtifactWriter",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "组合根零第二份写盘实现：`{forbidden}`"
+        );
+    }
+    for line in source.lines() {
+        if !line.contains("ArchiArtifactWriter") {
+            continue;
+        }
+        let is_import = line.contains("use crate::commands::archi::ArchiArtifactWriter;");
+        let is_injection =
+            line.contains("Some(Arc::new(ArchiArtifactWriter) as Arc<dyn archi::ArtifactWriter>)");
+        let is_comment = line.trim_start().starts_with("//");
+        assert!(
+            is_import || is_injection || is_comment,
+            "该类型只出现在导入与注入两处：{line}"
+        );
+    }
+}

@@ -2971,12 +2971,13 @@ fn stale_stances() -> Vec<String> {
 /// 矩阵命中面（6 份 md × 五维勾选：`archi_module` / `archi_search` / `archi_api` /
 /// `archi_drift` / `archi_scaffold`——矩阵单源逐文件对拍）。`acceptance-evaluator`
 /// 重写后不点名任何 archi 工具（`archi_module` 仍由注入矩阵下发，prompt 侧不承诺；
-/// 其只读规则行只禁写架构模型）。
+/// 其只读规则行只禁写架构模型）。`test-design-planner` 的 `archi_module` 勾选与本变更
+/// 的注入矩阵同步打开（核对接口定义键名要用它）。
 const ARCHI_PROMPT_MATRIX: [(&str, [bool; 5]); 6] = [
     ("proposal-planner", [true, true, true, false, true]),
     ("dev-design-planner", [true, true, true, true, true]),
     ("dev-design-evaluator", [true, true, false, false, false]),
-    ("test-design-planner", [false, true, false, false, false]),
+    ("test-design-planner", [true, true, false, false, false]),
     ("implementation-generator", [true, false, true, true, false]),
     ("code-review-evaluator", [true, false, false, false, false]),
 ];
@@ -3021,7 +3022,10 @@ fn implementation_generator含archi_api自检句() {
     );
     assert!(text.contains("archi_module"), "既有 archi_module 仍在");
     assert!(!text.contains("archi_search"), "不含未下发的 archi_search");
-    assert!(text.contains("MUST NOT 手改生成物"), "含生成物禁手改硬线");
+    assert!(
+        text.contains("MUST NOT 手改"),
+        "含生成物禁手改硬线（本相位口径不带「生成物」后缀，硬线仍在）"
+    );
 }
 
 /// 异常（AC-16 / spec「其余相位 prompt 零 diff」）：13 份 md 逐份零 `archi_api`；矩阵
@@ -4008,32 +4012,37 @@ fn 两份写权相位留白纪律句在场() {
     }
 }
 
-/// 正向（AC-10 第三份）：`implementation-generator` 的接口同步句——「导出面」+「同批」+
-/// `.schema.json` + `archi_api` 的 `check` 四要素齐备，且句内零路径模板。
+/// 正向（AC-10 第三份）：`implementation-generator` 的契约纪律句——「不改契约」+
+/// `.schema.json` + 相位锁保护 + `check` / `remedy` 指路齐备，且句内零路径模板。
 ///
-/// 句长门限按实测冻结：该句（去列表前缀）86 字符，故取 ≤ 100——它防的是「把三资产分工
-/// 全文复制进 prompt」，不是逐字长度。
+/// 句长门限随句改写按实测重冻：该句（去列表前缀）131 字符——它防的是「把三资产分工
+/// 全文复制进 prompt」，不是逐字长度；改写即重冻，MUST NOT 直接删断言。
 #[test]
-fn implementation_generator接口同步句在场() {
+fn implementation_generator契约纪律句在场() {
     let text = prompt_text("implementation-generator");
     let line = text
         .lines()
-        .find(|line| line.contains("导出面"))
-        .expect("接口同步句在场");
-    for piece in ["导出面", "同批", ".schema.json", "archi_api"] {
-        assert!(line.contains(piece), "接口同步句含 `{piece}`：{line}");
+        .find(|line| line.contains("**不改契约**") && line.contains(".schema.json"))
+        .expect("契约纪律句在场");
+    for piece in [
+        "不改契约",
+        "`.schema.json`",
+        "相位锁保护",
+        "写入会被拒",
+        "只实现契约",
+        "check",
+        "remedy",
+    ] {
+        assert!(line.contains(piece), "契约纪律句含 `{piece}`：{line}");
     }
-    assert!(
-        line.contains("check"),
-        "同步句点名 `archi_api` 的 `check` 自查动作：{line}"
-    );
     assert!(
         !line.contains(".dev-team") && !line.contains("openspec/"),
         "句内零路径模板：{line}"
     );
-    assert!(
-        line.trim_start_matches("- ").chars().count() <= 100,
-        "一句不带知识段（实测冻结 ≤ 100 字符）：{}",
+    assert_eq!(
+        line.trim_start_matches("- ").chars().count(),
+        131,
+        "句长按实测冻结（去列表前缀 131 字符；改写须同批重冻）：{}",
         line.chars().count()
     );
     assert!(
@@ -4100,10 +4109,12 @@ fn 三序句在场() {
 fn 留白不用编() {
     for name in ["proposal-planner", "dev-design-planner"] {
         let text = prompt_text(name);
+        // 锚取「接口面纪律」行：工具清单行也含「接口面留白」四字（零产出说明），按
+        // 「接口面留白」定位会落到工具行而非纪律句
         let line = text
             .lines()
-            .find(|line| line.contains("接口面留白"))
-            .unwrap_or_else(|| panic!("{name} 应含接口面留白纪律句"));
+            .find(|line| line.contains("接口面纪律"))
+            .unwrap_or_else(|| panic!("{name} 应含接口面纪律句"));
         assert!(line.contains("$defs {}"), "{name} 含空 `$defs`：{line}");
         assert!(
             line.contains("properties {}"),
@@ -4173,26 +4184,451 @@ fn 读五件() {
     );
 }
 
-/// 正向（改导出即改接口）：`implementation-generator` 的接口同步句含四要素——「导出面」、
-/// 「同批」或「同步」、`.schema.json`、`archi_api` 的 `check`；句内零路径模板。
+/// 异常（AC-10 反转）：`implementation-generator` 的旧正句全部零命中——「同批同步接口定义」
+/// 「改了导出面就同批同步」「生成物过期用既有命令重生成」「本仓的生成命令」，以及把改契约
+/// 写成纪律的「必须能同步契约」类表述；反转为「不改契约 + 两条出路」后工具面仍无写权名。
 #[test]
-fn 改导出即改接口() {
+fn 实现相位零旧契约正句() {
     let text = prompt_text("implementation-generator");
-    let line = text
-        .lines()
-        .find(|line| line.contains("导出面") && line.contains(".schema.json"))
-        .unwrap_or_else(|| panic!("implementation-generator 应含接口同步句"));
-    assert!(
-        line.contains("同批") || line.contains("同步"),
-        "含同批 / 同步语义：{line}"
-    );
-    assert!(
-        line.contains("`archi_api`") && line.contains("check"),
-        "含 `archi_api` 的 `check` 自查：{line}"
-    );
-    assert!(!line.contains(".dev-team/"), "句内零路径模板：{line}");
+    for stale in [
+        "同批同步接口定义",
+        "改了导出面就同批同步",
+        "生成物过期用既有命令重生成",
+        "既有命令",
+        "本仓的生成命令",
+        "必须能同步契约",
+        "导出面就同批",
+    ] {
+        assert!(!text.contains(stale), "旧正句零命中 `{stale}`：{text}");
+    }
+    // 反转后的两个正句在场（契约纪律三要素的落脚点）
+    assert!(text.contains("**不改契约**"), "「不改契约」句在场");
+    assert!(text.contains("**两条出路**"), "「两条出路」句在场");
     assert!(
         !text.contains("archi_element") && !text.contains("archi_relation"),
         "无写权相位零写工具字面"
+    );
+    assert!(
+        !text.contains("本相位可改契约"),
+        "零「本相位可改契约」越权表述"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：四份 prompt 的相位角色改写（生成权限与自检面按相位分配）
+// ---------------------------------------------------------------------------
+
+/// 生成物写工具在 prompt 面的三个边界读点（两份起草相位共用同一组字面）。
+const GENERATE_BOUNDARY_PIECES: [&str; 4] =
+    ["幂等", "只增只改", "零产出是正常的", "MUST NOT 手改生成物"];
+
+/// 正向（AC-13）：`dev-design-planner` 的工具清单行含生成物写一件（`archi_generate`）与其
+/// 三句边界；接口面纪律句改口径为「本相位是契约作者」。
+#[test]
+fn 起草相位含生成权限与契约作者口径() {
+    let text = prompt_text("dev-design-planner");
+    assert!(
+        text.contains("生成物写一件——`archi_generate`"),
+        "工具清单行含生成物写一件：{text}"
+    );
+    for piece in GENERATE_BOUNDARY_PIECES {
+        assert!(text.contains(piece), "工具行含边界句 `{piece}`");
+    }
+    assert!(
+        text.contains("本相位是契约作者"),
+        "接口面纪律改口径为契约作者"
+    );
+    assert!(
+        !text.contains("实现相位同一条纪律"),
+        "旧「实现相位同一条纪律」零命中（两侧纪律已分岔）"
+    );
+    // 写面口径：两模型写 + 一生成物写（写面名单不扩成三个模型写工具）
+    assert!(text.contains("写两件——`archi_element`"), "模型写仍两件");
+    assert!(
+        !text.contains("写三件"),
+        "MUST NOT 把生成物写并入模型写名单"
+    );
+}
+
+/// 边界：`proposal-planner` 的工具行与 `dev-design-planner` 的三句边界**逐字同源**（同一组
+/// 字面，不各写一份）；新增的理由文档落点句含 `contractPath` 与两条禁令。
+#[test]
+fn 两起草相位生成三句同源() {
+    let proposal = prompt_text("proposal-planner");
+    let design = prompt_text("dev-design-planner");
+    for piece in GENERATE_BOUNDARY_PIECES {
+        assert!(
+            proposal.contains(piece) && design.contains(piece),
+            "两句共用同一组边界字面 `{piece}`"
+        );
+    }
+    assert!(
+        proposal.contains("三份资产与声明位置") || proposal.contains("`archi_module`"),
+        "起草相位的定位工具仍在"
+    );
+    assert!(proposal.contains("理由文档的落点"), "理由文档落点句在场");
+    assert!(
+        proposal.contains("`contractPath`"),
+        "落点路径经工具取得（勿手拼目录）"
+    );
+    assert!(
+        proposal.contains("MUST NOT 列接口"),
+        "文档不列接口的禁令随句在场"
+    );
+}
+
+/// 异常：两份起草相位零「删除孤儿」「清理生成物」类承诺（生成器只增只改，删除权不在会话），
+/// 也零「可改契约」的自相矛盾（契约写入禁令与生成权限并存）。
+#[test]
+fn 起草相位零删除与自相矛盾承诺() {
+    for name in ["proposal-planner", "dev-design-planner"] {
+        let text = prompt_text(name);
+        for stale in [
+            "删除孤儿",
+            "清理生成物",
+            "移除生成物",
+            "可改契约（写入不受限）",
+        ] {
+            assert!(
+                !text.contains(stale),
+                "{name} 零删除 / 零越权承诺 `{stale}`"
+            );
+        }
+        assert!(text.contains("MUST NOT 手改生成物"), "{name} 手改禁令仍在");
+    }
+}
+
+/// 正向（AC-13 / AC-14）：`implementation-generator` 的契约纪律改写——只读自检（`check` 两轴
+/// + `remedy` 指路）、「不改契约」（相位锁保护、写入会被拒）、「两条出路」（改代码追上契约 /
+/// `backtrack` 回 `dev-design` 或架构页会话维护）；工具清单行仍只有 `archi_module` /
+/// `archi_api` / `archi_drift`。
+#[test]
+fn 实现相位契约纪律三句齐备() {
+    let text = prompt_text("implementation-generator");
+    for piece in [
+        "改完代码用 `check` 看两轴",
+        "据响应的 `remedy` 指路转告用户",
+        "**不改契约**",
+        "相位锁保护",
+        "写入会被拒",
+        "本相位只实现契约、不改契约",
+        "**两条出路**",
+        "契约对就改代码追上它",
+        "`backtrack` 回 `dev-design` 修订",
+        "架构页会话维护",
+        "MUST NOT 手改",
+    ] {
+        assert!(text.contains(piece), "实现相位缺 `{piece}`：{text}");
+    }
+    for tool in ["`archi_module`", "`archi_api`", "`archi_drift`"] {
+        assert!(text.contains(tool), "工具清单行仍含 {tool}");
+    }
+    assert!(
+        !text.contains("archi_search"),
+        "仍不含未下发的 archi_search"
+    );
+}
+
+/// 边界：实现相位的 `archi_api` 只以只读自检语义出现（`（接口面自检）` 标注在位）；旧句
+/// 「生成物过期用既有命令重生成」零命中；零 `archi_generate` 承诺（该相位不下发写生成物）。
+#[test]
+fn 实现相位只读自检且零生成权限() {
+    let text = prompt_text("implementation-generator");
+    assert!(
+        text.contains("`archi_api`（接口面自检）"),
+        "只读自检标注在位：{text}"
+    );
+    assert!(!text.contains("生成物过期用既有命令重生成"), "旧句零命中");
+    assert!(
+        !text.contains("archi_generate"),
+        "不下发即不承诺（零 archi_generate 字样）"
+    );
+    for write_tool in ["`archi_element`", "`archi_relation`"] {
+        assert!(
+            !text.contains(write_tool),
+            "实现相位零模型写工具承诺：{write_tool}"
+        );
+    }
+}
+
+/// 异常：实现相位零「本相位可改契约 / 有写工具可用」类表述；两条出路句 MUST 同时点明
+/// 「停下来说明冲突」与用户裁决（不得自行改契约绕过）。
+#[test]
+fn 实现相位零越权表述且出路交用户裁决() {
+    let text = prompt_text("implementation-generator");
+    for stale in [
+        "本相位可改契约",
+        "可直接改 `.schema.json`",
+        "自行改契约",
+        "绕过相位锁",
+    ] {
+        assert!(!text.contains(stale), "零越权表述 `{stale}`：{text}");
+    }
+    let sentence = text
+        .split('。')
+        .find(|sentence| sentence.contains("两条出路"))
+        .unwrap_or_else(|| panic!("两条出路句在案：{text}"));
+    assert!(
+        sentence.contains("停下来说明冲突"),
+        "出路句要求停下来说明冲突：{sentence}"
+    );
+    assert!(
+        sentence.contains("由用户决定"),
+        "出路句交用户裁决：{sentence}"
+    );
+}
+
+/// 正向（AC-14）：`test-design-planner` 的只读工具行含 `archi_module`（取
+/// `assets.interface` 的 `ops` / `types` 键名摘要核对 design 的公共 API），并明写「接口定义是
+/// 手写真相」；`archi_search` 原句仍在（只增一句、不改既有句）。
+#[test]
+fn 测试设计相位取接口键名摘要() {
+    let text = prompt_text("test-design-planner");
+    assert!(
+        text.contains("另一只只读工具 `archi_module`（定位）"),
+        "工具行新增句形态：{text}"
+    );
+    for piece in [
+        "`assets.interface`",
+        "`ops` / `types`",
+        "接口定义是手写真相",
+    ] {
+        assert!(text.contains(piece), "含 `{piece}`：{text}");
+    }
+    assert!(
+        text.contains("额外可用只读工具 `archi_search`（发现）"),
+        "archi_search 原句仍在（只增一句）"
+    );
+}
+
+/// 边界：过程 4b 的「不得 grep 源文件导出声明或虚构条目」条款仍在，且新增句显式说明两者不
+/// 冲突（禁令管「凭空虚构」、读接口定义属正路）。
+#[test]
+fn 测试设计相位两禁令不冲突显式化() {
+    let text = prompt_text("test-design-planner");
+    assert!(
+        text.contains("不得 grep 源文件导出声明或虚构条目"),
+        "4b 禁令仍在"
+    );
+    assert!(text.contains("与读接口定义不冲突"), "冲突面显式说明在案");
+    assert!(
+        text.contains("MUST NOT 用 grep 源码导出的方式替代"),
+        "以接口定义替代 grep 导出的禁令在案"
+    );
+}
+
+/// 异常：该相位零模型写工具 / 零生成物写工具承诺（只读面不越权）；工具行不出现
+/// `archi_element` / `archi_relation` / `archi_generate`。
+#[test]
+fn 测试设计相位零写工具承诺() {
+    let text = prompt_text("test-design-planner");
+    for write_tool in ["`archi_element`", "`archi_relation`", "archi_generate"] {
+        assert!(
+            !text.contains(write_tool),
+            "只读面零写工具承诺 `{write_tool}`"
+        );
+    }
+    assert!(text.contains("架构模型已锁"), "架构模型已锁条款仍在");
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：工具行与纪律句的逐份核对（八名集合 / 死指代 / 路径模板）
+// ---------------------------------------------------------------------------
+
+/// 一份 md 中「含 needle 的那一行」（prompt 的工具行是单行长文本）。
+fn line_with(name: &str, needle: &str) -> String {
+    prompt_text(name)
+        .lines()
+        .find(|line| line.contains(needle))
+        .unwrap_or_else(|| panic!("{name} 缺含 `{needle}` 的行"))
+        .to_owned()
+}
+
+/// 边界（AC-10）：两份起草相位的工具行恰含五只读 + 两模型写 + 一生成物写（`dev-design`
+/// 五名全量、`proposal` 无 `archi_drift`），零新增第四个只读名，且工具行不是字段形态长表。
+#[test]
+fn 起草相位工具行名字集合逐份一致() {
+    let design = line_with("dev-design-planner", "`archi_generate`");
+    for name in [
+        "`archi_module`",
+        "`archi_search`",
+        "`archi_api`",
+        "`archi_drift`",
+        "`archi_scaffold`",
+        "`archi_element`",
+        "`archi_relation`",
+        "`archi_generate`",
+    ] {
+        assert!(design.contains(name), "dev-design 工具行含 {name}");
+    }
+    assert!(
+        !design.contains("`archi_elementx`") && !design.contains("`archi_searchx`"),
+        "零编造工具名"
+    );
+    assert!(
+        !design.contains('|') && !design.contains("maxLength"),
+        "工具行不是字段形态长表"
+    );
+
+    let proposal = line_with("proposal-planner", "`archi_generate`");
+    for name in [
+        "`archi_module`",
+        "`archi_search`",
+        "`archi_api`",
+        "`archi_scaffold`",
+    ] {
+        assert!(proposal.contains(name), "proposal 工具行含 {name}");
+    }
+    assert!(
+        !proposal.contains("`archi_drift`"),
+        "proposal 本相位无 archi_drift（矩阵一致性）"
+    );
+    assert!(
+        proposal.contains("`archi_element`") && proposal.contains("`archi_relation`"),
+        "proposal 工具行含两模型写"
+    );
+    assert!(!proposal.contains('|'), "工具行不是字段形态长表");
+}
+
+/// 异常（AC-9 / AC-10）：两份起草相位的工具行零「本仓的生成命令」/「既有命令重生成」死指代、
+/// 零架构域路径模板（不以字面路径教模型定位生成物）。
+#[test]
+fn 起草相位工具行零死指代与路径模板() {
+    for name in ["proposal-planner", "dev-design-planner"] {
+        let line = line_with(name, "`archi_generate`");
+        for stale in ["本仓的生成命令", "既有命令", "生成命令"] {
+            assert!(!line.contains(stale), "{name} 工具行零死指代 `{stale}`");
+        }
+        for template in [".dev-team", "architecture/models", "graph/model"] {
+            assert!(
+                !line.contains(template),
+                "{name} 工具行零路径模板 `{template}`"
+            );
+        }
+    }
+}
+
+/// 正向（AC-10）：`dev-design-planner` 的错纪律括注整串「（实现相位同一条纪律）」零命中，
+/// 接口面纪律句仅保留本相位口径。
+#[test]
+fn 起草相位错纪律括注已删() {
+    let text = prompt_text("dev-design-planner");
+    assert!(
+        !text.contains("（实现相位同一条纪律）"),
+        "错纪律括注整串零命中"
+    );
+    assert!(
+        text.contains("本相位是契约作者"),
+        "接口面纪律句保留本相位口径"
+    );
+    assert!(
+        text.contains("改完导出面就同批改接口定义"),
+        "同批改接口定义的纪律仍在"
+    );
+}
+
+/// 边界（回归）：`dev-design-planner` 的写面与自查句仍齐备（两模型写 + 手改出口 + 两自查口）。
+#[test]
+fn 起草相位写面与自查句齐备() {
+    let text = prompt_text("dev-design-planner");
+    for piece in [
+        "`archi_element`（元素 upsert / 删除，可内联出边）",
+        "`archi_relation`（单条关系 upsert / 删除）",
+        "工具表达不了的才手改",
+        "`archi_drift` 与 `archi_module` 自查",
+    ] {
+        assert!(text.contains(piece), "写面 / 自查句仍在：`{piece}`");
+    }
+}
+
+/// 异常（回归）：两份起草相位零「无专用写工具」一类失效绝对表述、零「重排文件」类表述。
+#[test]
+fn 起草相位零失效绝对表述() {
+    let stale = ["无专用", "写工具"].concat();
+    for name in ["proposal-planner", "dev-design-planner"] {
+        let text = prompt_text(name);
+        assert!(!text.contains(&stale), "{name} 零「{stale}」");
+        assert!(!text.contains("重排文件"), "{name} 零「重排文件」");
+        assert!(
+            !text.contains("把整份文件排序"),
+            "{name} 零「把整份文件排序」"
+        );
+    }
+}
+
+/// 边界（AC-10）：`proposal-planner` 的 md 责任句零手拼路径模板，`contractPath` 拼写与
+/// 工具响应的 `api.contractPath` 键名逐字一致。
+#[test]
+fn 起草相位md责任句零手拼路径() {
+    let text = prompt_text("proposal-planner");
+    let sentence = text
+        .split('。')
+        .find(|sentence| sentence.contains("contractPath"))
+        .unwrap_or_else(|| panic!("md 责任句在案：{text}"));
+    assert!(
+        sentence.contains("`contractPath`"),
+        "键名逐字为 contractPath（拼错即指向不存在字段）：{sentence}"
+    );
+    assert!(!sentence.contains("contract_path"), "零蛇形拼写");
+    for template in [".dev-team", "architecture/models", "models/"] {
+        assert!(
+            !sentence.contains(template),
+            "零手拼路径模板 `{template}`：{sentence}"
+        );
+    }
+    assert!(
+        sentence.contains("勿手拼"),
+        "同句点明勿手拼目录：{sentence}"
+    );
+}
+
+/// 异常（AC-10）：md 责任句只属本相位——零「implement 同步文档」类表述，零「（实现相位
+/// 同一条纪律）」。
+#[test]
+fn 起草相位md责任句不越相位() {
+    let text = prompt_text("proposal-planner");
+    for stale in [
+        "implement 同步文档",
+        "实现相位同步文档",
+        "（实现相位同一条纪律）",
+    ] {
+        assert!(!text.contains(stale), "零越相位表述 `{stale}`");
+    }
+}
+
+/// 边界（AC-10）：`test-design-planner` 的 archi 工具名集合恰 `archi_search` + `archi_module`
+/// 两名（矩阵该格逐名一致），零 `archi_api` / `archi_drift` / 写工具 / `archi_generate`。
+#[test]
+fn 测试设计相位archi名集合恰两名() {
+    let text = prompt_text("test-design-planner");
+    for present in ["`archi_search`", "`archi_module`"] {
+        assert!(text.contains(present), "含 {present}");
+    }
+    for absent in [
+        "archi_api",
+        "archi_drift",
+        "`archi_element`",
+        "`archi_relation`",
+        "archi_generate",
+    ] {
+        assert!(!text.contains(absent), "零 {absent}（矩阵该格无该名）");
+    }
+}
+
+/// 异常（AC-10）：`test-design-planner` 零路径模板、零字段形态长表（键名归
+/// `assets.interface` 返回值，不进 prompt）；模型锁定表述仍在。
+#[test]
+fn 测试设计相位零路径模板与字段长表() {
+    let text = prompt_text("test-design-planner");
+    for template in [".dev-team", "architecture/models", "graph/model"] {
+        assert!(!text.contains(template), "零路径模板 `{template}`");
+    }
+    for table in ["| ops |", "maxLength", "INTEGER"] {
+        assert!(!text.contains(table), "零字段形态长表 `{table}`");
+    }
+    assert!(text.contains("架构模型已锁"), "模型锁定表述仍在");
+    assert!(
+        !text.contains("接口还没写也可以从源码导出反推"),
+        "零把侧门写正的表述"
     );
 }

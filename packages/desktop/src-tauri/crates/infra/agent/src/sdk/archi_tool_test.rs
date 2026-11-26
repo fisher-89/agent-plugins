@@ -8,6 +8,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::{json, Value};
 
@@ -780,12 +781,23 @@ async fn archi_api零写盘与判据来源单点() {
         "/src/sdk/archi_tool.rs"
     ))
     .expect("读 archi_tool.rs 失败");
+    // 模块头的禁令句（「MUST NOT 出现第二份生成物 `fs::write`」）是文档、不是写盘，先滤
+    // 注释行再判代码面（代码面仍须零命中）
+    let code = source
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
     for forbidden in ["fs::write", "create_dir", "create_dir_all"] {
         assert!(
-            !source.contains(forbidden),
-            "`archi_tool.rs` 零 `{forbidden}`（零写盘）"
+            !code.contains(forbidden),
+            "`archi_tool.rs` 代码面零 `{forbidden}`（零写盘）"
         );
     }
+    assert!(
+        source.contains("fs::write"),
+        "禁令句仍以文档形态在案（判据是代码面零命中，不是删句）"
+    );
     assert_eq!(
         source.matches("archi::api::findings(").count(),
         1,
@@ -3868,5 +3880,1132 @@ async fn 组合链路盘上文本等于计划文本且重放零搬迁() {
         fs::read_to_string(&file).expect("读模型失败"),
         after,
         "重放零字节变化"
+    );
+}
+
+// ===========================================================================
+// 本变更：`archi_generate` 执行链（渲染 → 逐份保护 → 端口写盘）
+//
+// 零框架级 mock：渲染（`archi::workspace_render`）、保护判定（真实 `ProtectRules`）与
+// 模型 / 接口 / 入口源文全为真件；**唯一替身是端口 `archi::ArtifactWriter`**（显式注入
+// 依赖，只记录入参与回传构造值，不复制渲染 / 比对 / 写盘）。
+// ===========================================================================
+
+/// 端口应答形态（`Ok` 两列按需构造 / `Err` 原文）。
+enum WriterResponse {
+    /// `written` = 全部应生成物
+    WrittenAll,
+    /// `unchanged` = 全部应生成物
+    UnchangedAll,
+    /// 预置结果（越根错 / 写盘失败等）
+    Fixed(Result<archi::ArchiApiWriteOutcome, String>),
+}
+
+/// 记录型端口替身：`Mutex` 记录每次 `(root, files)`，按应答队列回传（队列空 = `WrittenAll`）。
+struct RecordingWriter {
+    calls: std::sync::Mutex<Vec<(PathBuf, Vec<archi::GeneratedFile>)>>,
+    responses: std::sync::Mutex<std::collections::VecDeque<WriterResponse>>,
+}
+
+impl RecordingWriter {
+    fn new() -> Self {
+        Self {
+            calls: std::sync::Mutex::new(Vec::new()),
+            responses: std::sync::Mutex::new(std::collections::VecDeque::new()),
+        }
+    }
+
+    fn with_responses(responses: Vec<WriterResponse>) -> Self {
+        Self {
+            calls: std::sync::Mutex::new(Vec::new()),
+            responses: std::sync::Mutex::new(responses.into()),
+        }
+    }
+
+    fn calls(&self) -> Vec<(PathBuf, Vec<archi::GeneratedFile>)> {
+        self.calls.lock().expect("替身锁未中毒").clone()
+    }
+
+    fn call_count(&self) -> usize {
+        self.calls.lock().expect("替身锁未中毒").len()
+    }
+
+    /// 交出的应生成物（repo 相对 POSIX 串，序即端口收到序）。
+    fn handed(&self) -> Vec<String> {
+        self.calls()
+            .into_iter()
+            .flat_map(|(root, files)| {
+                files
+                    .into_iter()
+                    .map(move |file| archi::display(&root, &file.path))
+                    .collect::<Vec<String>>()
+            })
+            .collect()
+    }
+}
+
+impl archi::ArtifactWriter for RecordingWriter {
+    fn write(
+        &self,
+        root: &Path,
+        files: &[archi::GeneratedFile],
+    ) -> Result<archi::ArchiApiWriteOutcome, String> {
+        self.calls
+            .lock()
+            .expect("替身锁未中毒")
+            .push((root.to_path_buf(), files.to_vec()));
+        let relative = |file: &archi::GeneratedFile| archi::display(root, &file.path);
+        let response = self
+            .responses
+            .lock()
+            .expect("替身锁未中毒")
+            .pop_front()
+            .unwrap_or(WriterResponse::WrittenAll);
+        match response {
+            WriterResponse::WrittenAll => Ok(archi::ArchiApiWriteOutcome {
+                written: files.iter().map(relative).collect(),
+                unchanged: Vec::new(),
+            }),
+            WriterResponse::UnchangedAll => Ok(archi::ArchiApiWriteOutcome {
+                written: Vec::new(),
+                unchanged: files.iter().map(relative).collect(),
+            }),
+            WriterResponse::Fixed(result) => result,
+        }
+    }
+}
+
+/// 接入替身端口的上下文（真实规则集 + 显式注入的端口）。
+fn with_writer(root: &Path, writer: &Arc<RecordingWriter>) -> ArchiContext {
+    with_protect(root).with_writer(Some(writer.clone() as Arc<dyn archi::ArtifactWriter>))
+}
+
+/// 接口定义语料（1 op `file_stem` + 1 类型 `LocalGate`，带自我镜像 `$ref`：可过九道闸）。
+const GENERATE_SCHEMA: &str = r##"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "App.Api.Subject.schema.json",
+  "title": "App.Api.Subject",
+  "$comment": "手写接口真相：本文件是接口的唯一凭据，不是生成物",
+  "$defs": { "LocalGate": { "type": "object", "properties": {} } },
+  "properties": {
+    "file_stem": {
+      "x-function": {
+        "owner": "LocalGate",
+        "params": [{ "name": "timestamp", "schema": { "type": "string" } }],
+        "returns": { "type": "string" }
+      }
+    },
+    "LocalGate": { "$ref": "#/$defs/LocalGate" }
+  }
+}
+"##;
+
+/// 接口面留白的接口定义（`$defs` 与 `properties` 皆空 ⇒ 零 `.i.*` 产出）。
+const EMPTY_SCHEMA: &str = concat!(
+    "{\n",
+    "  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n",
+    "  \"$id\": \"App.Api.Subject.schema.json\",\n",
+    "  \"title\": \"App.Api.Subject\",\n",
+    "  \"$defs\": {},\n",
+    "  \"properties\": {}\n",
+    "}\n",
+);
+
+/// 入口源文（`pub fn file_stem` 与接口的 op 同名 ⇒ 抽取面与接口面可对拍）。
+const GENERATE_ENTRY: &str = "pub fn file_stem(timestamp: &str) -> String { String::new() }\n";
+
+/// 健康生成根：模型（容器 + 域 + 叶元素带 `path`）+ 接口定义 + 入口源文。
+fn generate_root(tag: &str) -> tempfile::TempDir {
+    let dir = tempdir(tag);
+    write_model(
+        dir.path(),
+        "01-api.toml",
+        concat!(
+            "[element.\"App\"]\nkind = \"package\"\n\n",
+            "[element.\"App.Api\"]\nkind = \"domain\"\ngate = \"off\"\n\n",
+            "[element.\"App.Api.Subject\"]\nkind = \"module\"\ngate = \"warn\"\n",
+            "path = [\"./crates/api/subject/\"]\n",
+        ),
+    );
+    write_file(dir.path(), "crates/api/subject/src/lib.rs", GENERATE_ENTRY);
+    write_file(
+        dir.path(),
+        ".dev-team/architecture/models/App/Api/Subject.schema.json",
+        GENERATE_SCHEMA,
+    );
+    dir
+}
+
+/// 落一份用户写保护规则（绝对 glob：相对 glob 会按 `**/` 前缀归一，跨平台匹配面不稳）。
+fn write_user_rules(root: &Path, rules: &[(&str, &str)]) {
+    let root_text = root.to_string_lossy().replace('\\', "/");
+    let files: Vec<Value> = rules
+        .iter()
+        .map(|(relative, reason)| {
+            json!({ "glob": format!("{root_text}/{relative}"), "reason": reason })
+        })
+        .collect();
+    let config = json!({ "write_protection": { "files": files } });
+    let config_path = foundation::layout::config_path(root);
+    fs::create_dir_all(config_path.parent().expect("配置有父目录")).expect("建配置目录失败");
+    fs::write(
+        &config_path,
+        serde_json::to_string_pretty(&config).expect("配置序列化"),
+    )
+    .expect("写配置文件失败");
+}
+
+/// 生成物写工具名（本体驻挂载清单）。
+const GENERATE_TOOL: &str = crate::sdk::mount::ARCHI_GENERATE_TOOL;
+
+/// 正向（AC-3）：健康根 → 响应三键齐备；替身端口收到的 `root` 与 `files` 与
+/// `archi::workspace_render(root)` 的产出**逐字相等**（执行体零重渲染 / 零改写 / 零重排），
+/// `written` 与端口回传值相等、`conflicts` 空。
+#[tokio::test]
+async fn 生成物写执行链三键齐备且渲染同源() {
+    let dir = generate_root("generate-ok");
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(dir.path(), &writer);
+    let expected = archi::workspace_render(dir.path()).expect("渲染应成功");
+    assert!(!expected.is_empty(), "健康根应有应生成物");
+
+    let value = execute_json(&context, GENERATE_TOOL, json!({})).await;
+
+    for key in ["written", "unchanged", "conflicts"] {
+        assert!(
+            value.get(key).is_some(),
+            "响应三键齐备（含 `{key}`）：{value}"
+        );
+    }
+    assert_eq!(value["conflicts"], json!([]), "无规则命中 ⇒ 冲突空");
+
+    let calls = writer.calls();
+    assert_eq!(calls.len(), 1, "端口恰被调用一次");
+    assert_eq!(
+        calls[0].0,
+        dir.path(),
+        "端口收到的 root = 上下文 root（会话 cwd）"
+    );
+    assert_eq!(
+        calls[0].1, expected,
+        "交端口的应生成物与 workspace_render 逐项逐字相等"
+    );
+
+    let expected_written: Vec<String> = expected
+        .iter()
+        .map(|file| archi::display(dir.path(), &file.path))
+        .collect();
+    assert_eq!(
+        value["written"],
+        json!(expected_written),
+        "written 与端口回传值相等（执行体零改写）"
+    );
+    assert_eq!(value["unchanged"], json!([]), "首轮零 unchanged");
+}
+
+/// 边界（AC-5 校准口径的形态面）：① 无 `.schema.json` 的模型根 ⇒ `files` 仅 `INDEX.toml`
+/// 一份；② 三元素模型（一元素有 op / 一元素 `path` 空 / 一元素接口留白）⇒ `files` 恰
+/// `1 + N` 份且 `path` 空的元素零条目；两例端口均被调用一次。
+#[tokio::test]
+async fn 生成物应生成集两形态() {
+    // ① 无接口文件
+    let bare = tempdir("generate-bare");
+    write_model(
+        bare.path(),
+        "01-api.toml",
+        concat!(
+            "[element.\"App\"]\nkind = \"package\"\n\n",
+            "[element.\"App.Api\"]\nkind = \"domain\"\ngate = \"off\"\n\n",
+            "[element.\"App.Api.Subject\"]\nkind = \"module\"\n",
+            "path = [\"./crates/api/subject/\"]\n",
+        ),
+    );
+    write_file(bare.path(), "crates/api/subject/src/lib.rs", GENERATE_ENTRY);
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(bare.path(), &writer);
+    let value = execute_json(&context, GENERATE_TOOL, json!({})).await;
+    assert_eq!(writer.call_count(), 1, "端口被调用一次");
+    let handed = writer.handed();
+    assert_eq!(handed.len(), 1, "应生成集只一份：{handed:?}");
+    assert!(handed[0].ends_with("INDEX.toml"), "该份是索引：{handed:?}");
+    assert_eq!(value["conflicts"], json!([]), "无规则命中");
+
+    // ② 三元素：有 op / path 空 / 接口留白
+    let mixed = tempdir("generate-mixed");
+    write_model(
+        mixed.path(),
+        "01-api.toml",
+        concat!(
+            "[element.\"App\"]\nkind = \"package\"\n\n",
+            "[element.\"App.One\"]\nkind = \"module\"\npath = [\"./crates/api/one/\"]\n\n",
+            "[element.\"App.Two\"]\nkind = \"module\"\npath = [\"./crates/api/two/\"]\n\n",
+            "[element.\"App.Three\"]\nkind = \"module\"\npath = [\"./crates/api/three/\"]\n",
+        ),
+    );
+    for name in ["one", "two", "three"] {
+        write_file(
+            mixed.path(),
+            &format!("crates/api/{name}/src/lib.rs"),
+            GENERATE_ENTRY,
+        );
+    }
+    // One：有 op 的接口（产 `.i.rs`）；Two：接口留白（零 `.i.*`）；Three：无接口文件
+    write_file(
+        mixed.path(),
+        ".dev-team/architecture/models/App/One.schema.json",
+        &GENERATE_SCHEMA.replace("App.Api.Subject", "App.One"),
+    );
+    write_file(
+        mixed.path(),
+        ".dev-team/architecture/models/App/Two.schema.json",
+        &EMPTY_SCHEMA.replace("App.Api.Subject", "App.Two"),
+    );
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(mixed.path(), &writer);
+    let _ = context.execute(GENERATE_TOOL, &json!({})).await;
+    let handed = writer.handed();
+    assert_eq!(handed.len(), 2, "恰 1 份 `.i.rs` + 1 份索引：{handed:?}");
+    assert_eq!(
+        handed
+            .iter()
+            .filter(|path| path.contains("/src/lib.i.rs"))
+            .count(),
+        1,
+        "只有有 op 的元素产 `.i.rs`：{handed:?}"
+    );
+    assert!(
+        handed
+            .iter()
+            .any(|path| path.ends_with("crates/api/one/src/lib.i.rs")),
+        "有 op 的元素产 `.i.rs`：{handed:?}"
+    );
+    assert!(
+        !handed.iter().any(|path| path.contains("api/two/")),
+        "接口留白的元素零条目：{handed:?}"
+    );
+    assert!(
+        !handed.iter().any(|path| path.contains("api/three/")),
+        "无接口文件的元素零条目：{handed:?}"
+    );
+}
+
+/// 异常：装配缺失两态——① `with_writer(None)` ⇒ `Err` 且文案点名装配缺失；②
+/// `protect == None` ⇒ `Err`（fail-closed：无规则集不等于无规则）；两例端口零调用、磁盘
+/// 零变化。
+#[tokio::test]
+async fn 生成物写装配缺失两态() {
+    let dir = generate_root("generate-unwired");
+    let before = snapshot(dir.path());
+
+    // ① 端口缺席（规则集仍在）
+    let error = with_protect(dir.path())
+        .execute(GENERATE_TOOL, &json!({}))
+        .await
+        .expect_err("端口未装配必须 Err");
+    assert!(
+        error.contains("写盘端口未装配") && error.contains(GENERATE_TOOL),
+        "文案点名装配缺失与工具名：{error}"
+    );
+
+    // ② 规则集缺席（端口仍在）
+    let writer = Arc::new(RecordingWriter::new());
+    let unwired = ArchiContext::new(dir.path().to_path_buf())
+        .with_writer(Some(writer.clone() as Arc<dyn archi::ArtifactWriter>));
+    let error = unwired
+        .execute(GENERATE_TOOL, &json!({}))
+        .await
+        .expect_err("规则集缺席必须 Err（fail-closed）");
+    assert!(
+        error.contains("写入保护规则未装配"),
+        "文案点名规则集缺失：{error}"
+    );
+    assert_eq!(writer.call_count(), 0, "两例端口零调用");
+    assert_eq!(snapshot(dir.path()), before, "两例磁盘零变化");
+}
+
+/// 正向（AC-15）：同一根连续两次 `execute`——两次交给端口的 `files` 逐项字节相等（执行体零
+/// 缓存、零跨调用状态）；替身第一次回 `written = all`、第二次回 `unchanged = all`，两轮响应
+/// 如实转出（幂等判据单点归写盘实现，执行体不做第二份字节比对）。
+#[tokio::test]
+async fn 生成物写两次调用字节相同且幂等如实转出() {
+    let dir = generate_root("generate-idempotent");
+    let writer = Arc::new(RecordingWriter::with_responses(vec![
+        WriterResponse::WrittenAll,
+        WriterResponse::UnchangedAll,
+    ]));
+    let context = with_writer(dir.path(), &writer);
+    let expected = archi::workspace_render(dir.path()).expect("渲染应成功");
+
+    let first = execute_json(&context, GENERATE_TOOL, json!({})).await;
+    let second = execute_json(&context, GENERATE_TOOL, json!({})).await;
+
+    let calls = writer.calls();
+    assert_eq!(calls.len(), 2, "两次调用各交端口一次");
+    assert_eq!(calls[0].1, calls[1].1, "两次交给端口的 files 逐项相等");
+    assert_eq!(calls[0].1, expected, "执行体零重渲染（与渲染单点同源）");
+
+    assert!(
+        !first["written"].as_array().expect("数组").is_empty(),
+        "第一轮如实转出 written：{first}"
+    );
+    assert_eq!(first["unchanged"], json!([]), "第一轮零 unchanged");
+    assert_eq!(second["written"], json!([]), "第二轮零 written（如实转出）");
+    assert!(
+        !second["unchanged"].as_array().expect("数组").is_empty(),
+        "第二轮全部 unchanged：{second}"
+    );
+}
+
+/// 边界（AC-15）：生成物已被手改成旧内容（盘上字节 ≠ 应生成物）⇒ 执行体不预判「已新鲜」、
+/// 仍整批交端口（比对权只在写盘单点）。
+#[tokio::test]
+async fn 生成物写不预判新鲜度仍整批交端口() {
+    let dir = generate_root("generate-stale");
+    let stale = "// 手改过的旧内容\n";
+    write_file(dir.path(), "crates/api/subject/src/lib.i.rs", stale);
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(dir.path(), &writer);
+
+    let expected = archi::workspace_render(dir.path()).expect("渲染应成功");
+    let _ = execute_json(&context, GENERATE_TOOL, json!({})).await;
+
+    let calls = writer.calls();
+    assert_eq!(calls.len(), 1, "仍整批交端口一次");
+    assert_eq!(calls[0].1, expected, "旧内容的文件亦在批内（零预判）");
+    assert!(
+        calls[0]
+            .1
+            .iter()
+            .any(|file| file.path.ends_with("lib.i.rs")),
+        "旧内容的该份在批内"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("crates/api/subject/src/lib.i.rs"))
+            .expect("读生成物失败"),
+        stale,
+        "执行体不写盘（写盘归端口实现）"
+    );
+}
+
+/// 异常（AC-15）：端口返回 `Err("写入失败（…）不回滚")` ⇒ 工具 `Err`（`is_error`）、响应不
+/// 出现三键；端口恰一次调用（`Err` 前无第二次写盘尝试）。
+#[tokio::test]
+async fn 生成物写端口err原文透传且零重试() {
+    let dir = generate_root("generate-port-err");
+    let message = "写入失败（crates/api/subject/src/lib.i.rs）：父路径被同名文件占位，此前已写入 1 份，不回滚";
+    let writer = Arc::new(RecordingWriter::with_responses(vec![
+        WriterResponse::Fixed(Err(message.to_owned())),
+    ]));
+    let context = with_writer(dir.path(), &writer);
+
+    let error = context
+        .execute(GENERATE_TOOL, &json!({}))
+        .await
+        .expect_err("端口 Err ⇒ 工具 Err（不吞、不改写成 Ok 冲突）");
+    assert_eq!(error, message, "Err 原文透传（执行体零包装）");
+    assert!(
+        !error.contains("conflicts"),
+        "Err 路径不产出三键响应：{error}"
+    );
+    assert_eq!(writer.call_count(), 1, "Err 前无第二次写盘尝试");
+}
+
+// ---------------------------------------------------------------------------
+// 逐份保护判定与整批拒绝
+// ---------------------------------------------------------------------------
+
+/// 正向：用户规则命中应生成的一份 `.i.rs` ⇒ `conflicts` 恰含该项（`path` 为 repo 相对
+/// POSIX、`reason` 取用户规则文案且 `%t` = 工具名），`written` / `unchanged` 皆空数组、端口
+/// 零调用、工具仍 `Ok`、磁盘零变化。
+#[tokio::test]
+async fn 生成物写命中保护即整批拒绝() {
+    let dir = generate_root("generate-conflict");
+    write_user_rules(
+        dir.path(),
+        &[("crates/api/subject/src/lib.i.rs", "生成物只经 %t 写（%s）")],
+    );
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(dir.path(), &writer);
+    let before = snapshot(dir.path());
+
+    let value = execute_json(&context, GENERATE_TOOL, json!({})).await;
+
+    let conflicts = value["conflicts"].as_array().expect("冲突为数组");
+    assert_eq!(conflicts.len(), 1, "恰一条冲突：{value}");
+    assert_eq!(
+        conflicts[0]["path"],
+        json!("crates/api/subject/src/lib.i.rs"),
+        "路径为 repo 相对 POSIX"
+    );
+    let reason = conflicts[0]["reason"].as_str().expect("reason 为字符串");
+    assert!(
+        reason.contains("生成物只经") && reason.contains(GENERATE_TOOL),
+        "拒串取用户文案且 %t 已替换为工具名：{reason}"
+    );
+    assert!(
+        reason.contains("crates/api/subject/src/lib.i.rs"),
+        "拒串含被拒路径（%s 已替换）：{reason}"
+    );
+    assert!(
+        !reason.contains("%s") && !reason.contains("%t"),
+        "零占位残留"
+    );
+    assert_eq!(value["written"], json!([]), "written 空数组");
+    assert_eq!(value["unchanged"], json!([]), "unchanged 空数组");
+    assert_eq!(writer.call_count(), 0, "整批拒绝 ⇒ 端口零调用");
+    assert_eq!(snapshot(dir.path()), before, "磁盘零变化");
+}
+
+/// 边界：两份命中 ⇒ `conflicts` 两条且序与 `files` 序一致（不排序、不去重）；唯一一份
+/// `INDEX.toml` 命中 ⇒ 同款整批拒绝（零 `.i.*` 写盘）；同 fixture 去规则 ⇒ 零 `conflicts`、
+/// 端口被调用（射程不误伤）。
+#[tokio::test]
+async fn 生成物写冲突序与索引单份形态() {
+    let dir = generate_root("generate-conflict-order");
+    write_user_rules(
+        dir.path(),
+        &[
+            ("crates/api/subject/src/lib.i.rs", "写保护甲"),
+            (".dev-team/architecture/graph/INDEX.toml", "写保护乙"),
+        ],
+    );
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(dir.path(), &writer);
+    let value = execute_json(&context, GENERATE_TOOL, json!({})).await;
+    let paths: Vec<String> = value["conflicts"]
+        .as_array()
+        .expect("数组")
+        .iter()
+        .map(|entry| entry["path"].as_str().expect("path").to_owned())
+        .collect();
+    assert_eq!(
+        paths,
+        vec![
+            "crates/api/subject/src/lib.i.rs".to_owned(),
+            ".dev-team/architecture/graph/INDEX.toml".to_owned(),
+        ],
+        "冲突序与 files 序一致（不排序、不去重）"
+    );
+    assert_eq!(writer.call_count(), 0, "两份命中 ⇒ 整批零写盘");
+
+    // 唯一一份 INDEX.toml 命中：同款整批拒绝
+    let only_index = generate_root("generate-conflict-index");
+    write_user_rules(
+        only_index.path(),
+        &[(".dev-team/architecture/graph/INDEX.toml", "索引只经工具写")],
+    );
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(only_index.path(), &writer);
+    let value = execute_json(&context, GENERATE_TOOL, json!({})).await;
+    assert_eq!(
+        value["conflicts"].as_array().expect("数组").len(),
+        1,
+        "索引单份命中即整批拒绝：{value}"
+    );
+    assert_eq!(writer.call_count(), 0, "零 `.i.*` 写盘（整批拒绝）");
+
+    // 同 fixture 去规则：射程不误伤
+    let clean = generate_root("generate-conflict-clean");
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(clean.path(), &writer);
+    let value = execute_json(&context, GENERATE_TOOL, json!({})).await;
+    assert_eq!(value["conflicts"], json!([]), "无规则 ⇒ 零冲突");
+    assert_eq!(writer.call_count(), 1, "无规则 ⇒ 端口被调用");
+}
+
+/// 异常（反向锚）：`archi_generate` 无 `path` 入参仍须在保护射程内——拒绝串含工具名与路径
+/// （证明判定不靠入参 `path`）；保护判定零第二份规则集（源码锚：执行体内只出现
+/// `evaluate_target`，零自建 glob / 零自拼 reason）。
+#[tokio::test]
+async fn 生成物写保护判定不靠入参且单点() {
+    let dir = generate_root("generate-conflict-tool-name");
+    write_user_rules(
+        dir.path(),
+        &[("crates/api/subject/src/lib.i.rs", "仅 %t 可写：%s")],
+    );
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(dir.path(), &writer);
+
+    let value = execute_json(&context, GENERATE_TOOL, json!({})).await;
+    let reason = value["conflicts"][0]["reason"]
+        .as_str()
+        .expect("reason 为字符串")
+        .to_owned();
+    assert!(
+        reason.contains(GENERATE_TOOL) && reason.contains("crates/api/subject/src/lib.i.rs"),
+        "拒串含工具名与路径（判定不靠入参 path）：{reason}"
+    );
+
+    let source = include_str!("archi_tool.rs");
+    let start = source.find("fn generate_payload(").expect("生成臂在案");
+    let body = source[start..]
+        .split("\n    /// ")
+        .next()
+        .expect("函数体收口");
+    assert_eq!(
+        body.matches("evaluate_target(").count(),
+        1,
+        "保护判定只经单点 evaluate_target"
+    );
+    for stray in ["globset", "Glob::new", "match_glob", "%s", "%t"] {
+        assert!(
+            !body.contains(stray),
+            "零第二份规则集 / 零自拼 reason：`{stray}`"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 零产出三成因（AC-5 校准口径）+ 响应形状 + `remedy` 三态 + 写作范围封闭
+// ---------------------------------------------------------------------------
+
+/// 判定「应生成集里零 `.i.*` 条目」（零产出的唯一可断言形态；`INDEX.toml` 恒产出）。
+fn assert_no_incremental_generated(written: &Value, unchanged: &Value) {
+    for column in [written, unchanged] {
+        for entry in column.as_array().expect("两列恒为数组") {
+            let path = entry.as_str().expect("条目为字符串");
+            assert!(
+                !path.contains(".i.rs") && !path.contains(".i.ts"),
+                "零产出成因下 `.i.*` 零条目：{path}"
+            );
+        }
+    }
+}
+
+/// 正向（AC-5 校准口径）：三例各自调用——① 未写 `.schema.json`；② 接口面留白
+/// （`$defs {}` + `properties {}`）；③ 有 op 但入口不在盘：三例 `is_error` 均为假、两列零
+/// `.i.*` 条目（`INDEX.toml` 按端口回传落位）、磁盘零变化（替身不触盘）。
+#[tokio::test]
+async fn 零产出三成因均为正常() {
+    // ① 未写接口定义
+    let no_schema = tempdir("generate-zero-no-schema");
+    write_model(
+        no_schema.path(),
+        "01-api.toml",
+        "[element.\"App\"]\nkind = \"package\"\n\n\
+         [element.\"App.Api\"]\nkind = \"domain\"\ngate = \"off\"\n\n\
+         [element.\"App.Api.Subject\"]\nkind = \"module\"\npath = [\"./crates/api/subject/\"]\n",
+    );
+    write_file(
+        no_schema.path(),
+        "crates/api/subject/src/lib.rs",
+        GENERATE_ENTRY,
+    );
+
+    // ② 接口面留白
+    let blank = generate_root("generate-zero-blank");
+    write_file(
+        blank.path(),
+        ".dev-team/architecture/models/App/Api/Subject.schema.json",
+        EMPTY_SCHEMA,
+    );
+
+    // ③ 有 op 但入口不在盘
+    let no_entry = tempdir("generate-zero-no-entry");
+    write_model(
+        no_entry.path(),
+        "01-api.toml",
+        "[element.\"App\"]\nkind = \"package\"\n\n\
+         [element.\"App.Api\"]\nkind = \"domain\"\ngate = \"off\"\n\n\
+         [element.\"App.Api.Subject\"]\nkind = \"module\"\npath = [\"./crates/api/subject/\"]\n",
+    );
+    write_file(
+        no_entry.path(),
+        ".dev-team/architecture/models/App/Api/Subject.schema.json",
+        GENERATE_SCHEMA,
+    );
+
+    for (label, dir) in [
+        ("未写 .schema.json", no_schema),
+        ("接口面留白", blank),
+        ("入口不在盘", no_entry),
+    ] {
+        let writer = Arc::new(RecordingWriter::new());
+        let context = with_writer(dir.path(), &writer);
+        let before = snapshot(dir.path());
+        let value = execute_json(&context, GENERATE_TOOL, json!({})).await;
+
+        assert_eq!(
+            value["conflicts"],
+            json!([]),
+            "{label}：零冲突（零产出不是冲突）"
+        );
+        assert_no_incremental_generated(&value["written"], &value["unchanged"]);
+        assert_eq!(writer.call_count(), 1, "{label}：端口被调用一次");
+        assert_eq!(
+            snapshot(dir.path()),
+            before,
+            "{label}：磁盘零变化（替身不触盘）"
+        );
+        let handed = writer.handed();
+        assert_eq!(handed.len(), 1, "{label}：应生成集只一份索引：{handed:?}");
+        assert!(
+            handed[0].ends_with("INDEX.toml"),
+            "{label}：该份即索引：{handed:?}"
+        );
+    }
+}
+
+/// 边界：三类成因同株并存（三元素各占一因）⇒ 一份 `.i.*` 都不产生、零 `Err`、`conflicts`
+/// 空；零元素模型根 ⇒ `files` 恰一份 `INDEX.toml`。
+#[tokio::test]
+async fn 零产出同株并存与零元素根() {
+    let dir = tempdir("generate-zero-mixed");
+    write_model(
+        dir.path(),
+        "01-api.toml",
+        concat!(
+            "[element.\"App\"]\nkind = \"package\"\n\n",
+            // ① 未写接口定义
+            "[element.\"App.One\"]\nkind = \"module\"\npath = [\"./crates/api/one/\"]\n\n",
+            // ② 接口面留白
+            "[element.\"App.Two\"]\nkind = \"module\"\npath = [\"./crates/api/two/\"]\n\n",
+            // ③ 有 op 但入口不在盘
+            "[element.\"App.Three\"]\nkind = \"module\"\npath = [\"./crates/api/three/\"]\n",
+        ),
+    );
+    for name in ["one", "two"] {
+        write_file(
+            dir.path(),
+            &format!("crates/api/{name}/src/lib.rs"),
+            GENERATE_ENTRY,
+        );
+    }
+    write_file(
+        dir.path(),
+        ".dev-team/architecture/models/App/Two.schema.json",
+        &EMPTY_SCHEMA.replace("App.Api.Subject", "App.Two"),
+    );
+    write_file(
+        dir.path(),
+        ".dev-team/architecture/models/App/Three.schema.json",
+        &GENERATE_SCHEMA.replace("App.Api.Subject", "App.Three"),
+    );
+
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(dir.path(), &writer);
+    let value = execute_json(&context, GENERATE_TOOL, json!({})).await;
+    assert_no_incremental_generated(&value["written"], &value["unchanged"]);
+    assert_eq!(value["conflicts"], json!([]), "零冲突");
+    let handed = writer.handed();
+    assert_eq!(handed.len(), 1, "只一份索引：{handed:?}");
+
+    // 零元素模型根
+    let empty = tempdir("generate-zero-empty");
+    write_model(
+        empty.path(),
+        "01-api.toml",
+        "[element.\"App\"]\nkind = \"package\"\n",
+    );
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(empty.path(), &writer);
+    let _ = execute_json(&context, GENERATE_TOOL, json!({})).await;
+    let handed = writer.handed();
+    assert_eq!(handed.len(), 1, "零元素根也只一份索引：{handed:?}");
+    assert!(handed[0].ends_with("INDEX.toml"), "{handed:?}");
+}
+
+/// 异常：坏模型（TOML 语法错）⇒ `Err` 且诊断带 `file:line`（与「零产出」严格可分）、端口
+/// 零调用、磁盘零变化。
+#[tokio::test]
+async fn 坏模型与零产出严格可分() {
+    let dir = tempdir("generate-broken-model");
+    write_model(
+        dir.path(),
+        "01-broken.toml",
+        "[element.\"App]\nkind = \"package\"\n",
+    );
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(dir.path(), &writer);
+    let before = snapshot(dir.path());
+
+    let error = context
+        .execute(GENERATE_TOOL, &json!({}))
+        .await
+        .expect_err("坏模型必须 Err（零产出才是正常）");
+    assert!(
+        error.contains("01-broken.toml:") || error.contains("01-broken.toml @ "),
+        "诊断带 file:line：{error}"
+    );
+    assert_eq!(writer.call_count(), 0, "渲染失败 ⇒ 端口零调用");
+    assert_eq!(snapshot(dir.path()), before, "磁盘零变化");
+}
+
+/// 正向：三键恒在场（`conflicts` 非空时 `written` / `unchanged` 仍在且为 `[]`）；
+/// `written` / `unchanged` 串均 repo 相对 POSIX（无 root 前缀、无反斜杠、无 `./` 前缀）。
+#[test]
+fn 响应形状三字段且路径相对形态() {
+    // 该用例的断言面纯字符串形态（不触盘）：以渲染单点的产出形态为准
+    let dir = generate_root("generate-shape");
+    let files = archi::workspace_render(dir.path()).expect("渲染应成功");
+    assert!(!files.is_empty(), "夹具应有应生成物");
+    for file in &files {
+        let display = archi::display(dir.path(), &file.path);
+        assert!(!display.contains('\\'), "无正斜杠归一后的反斜杠：{display}");
+        assert!(!display.starts_with("./"), "无 `./` 前缀：{display}");
+        let root_text = dir.path().to_string_lossy().replace('\\', "/");
+        assert!(
+            !display.starts_with(&root_text),
+            "无 root 前缀（repo 相对）：{display}"
+        );
+        assert!(
+            display.ends_with("INDEX.toml")
+                || display.ends_with(".i.rs")
+                || display.ends_with(".i.ts"),
+            "条目恒为三类生成物之一：{display}"
+        );
+    }
+}
+
+/// 边界：空结果序列化为 `[]` 而非 `null`；`conflicts` 每项恒含 `path` + `reason` 两键（零
+/// 第三键、零嵌套 DTO）。
+#[tokio::test]
+async fn 响应形状空数组与冲突两键() {
+    let dir = generate_root("generate-shape-empty");
+    write_user_rules(
+        dir.path(),
+        &[("crates/api/subject/src/lib.i.rs", "形状面拒绝串")],
+    );
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(dir.path(), &writer);
+    let text = context
+        .execute(GENERATE_TOOL, &json!({}))
+        .await
+        .expect("冲突不是 Err");
+    let value: Value = serde_json::from_str(&text).expect("JSON 串");
+    assert!(
+        text.contains("\"written\":[]") && text.contains("\"unchanged\":[]"),
+        "空结果序列化为 `[]` 而非 `null`：{text}"
+    );
+    let conflict = value["conflicts"][0].as_object().expect("冲突为对象");
+    let mut keys: Vec<&str> = conflict.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, vec!["path", "reason"], "冲突项恒两键（零第三键）");
+    assert!(
+        conflict.values().all(|value| !value.is_object()),
+        "零嵌套 DTO：{conflict:?}"
+    );
+}
+
+/// 异常：端口返回越根错（`Err`）⇒ 工具 `Err` 原文透传（执行体不吞错、不改写为 `Ok` 冲突）；
+/// 输出仍过 `tools::cap_result` 单点（源码锚：零第二份截断实现）。
+#[tokio::test]
+async fn 响应形状越根错透传且过同一收口() {
+    let dir = generate_root("generate-shape-escape");
+    let message = "写入失败（../outside.i.rs）：目标越出观察根（/repo），零写盘";
+    let writer = Arc::new(RecordingWriter::with_responses(vec![
+        WriterResponse::Fixed(Err(message.to_owned())),
+    ]));
+    let context = with_writer(dir.path(), &writer);
+
+    let error = context
+        .execute(GENERATE_TOOL, &json!({}))
+        .await
+        .expect_err("越根错必须 Err");
+    assert_eq!(error, message, "原文透传（零改写为 Ok 冲突）");
+    assert!(!error.contains("conflicts"), "不被包装成三键响应：{error}");
+
+    let source = include_str!("archi_tool.rs");
+    assert_eq!(
+        source.matches("tools::cap_result(").count(),
+        1,
+        "输出收口单点（零第二份截断实现）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// `archi_api(check)` 的 `remedy` 三态（AC-6）
+// ---------------------------------------------------------------------------
+
+/// 正向：三列全空（零差异根）⇒ 响应含顶层 `remedy` 键且值为 `null`；`artifacts` /
+/// `findings` 两轴键与值逐字不受影响。
+#[tokio::test]
+async fn 复检零差异时remedy为null且两轴不变() {
+    let dir = generate_root("generate-remedy-none");
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(dir.path(), &writer);
+    // 先把应生成物落到盘上（测试侧直接写文件——本 crate 无写盘单点），再复检得零差异
+    let files = archi::workspace_render(dir.path()).expect("渲染应成功");
+    for file in &files {
+        let target = dir.path().join(archi::display(dir.path(), &file.path));
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).expect("建生成物目录失败");
+        }
+        fs::write(&target, &file.content).expect("写生成物失败");
+    }
+
+    let value = execute_json(
+        &context,
+        crate::sdk::mount::ARCHI_API_TOOL,
+        json!({ "action": "check" }),
+    )
+    .await;
+    assert!(value.get("remedy").is_some(), "`remedy` 键恒在场：{value}");
+    assert_eq!(value["remedy"], Value::Null, "三列全空 ⇒ null");
+    assert_eq!(
+        value["artifacts"]["mismatched"],
+        json!([]),
+        "artifacts 轴内容不受 remedy 影响：{value}"
+    );
+    assert!(
+        value["findings"].get("total").is_some(),
+        "findings 轴键齐备：{value}"
+    );
+}
+
+/// 边界：有差异 ∧ `generate == true` ⇒ `remedy` 为短串，含 `archi_generate` 与「MUST NOT 手改
+/// 生成物」；同一根换 `generate == false` ⇒ 短串指向架构页会话且含「MUST NOT 手改生成物」、
+/// 不承诺调用（无「调 `archi_generate`」字样）；两例 `artifacts` 三列内容相同。
+#[tokio::test]
+async fn remedy两态按generate位切换() {
+    let dir = generate_root("generate-remedy-two");
+    let available = with_writer(dir.path(), &Arc::new(RecordingWriter::new())).with_generate(true);
+    let unavailable =
+        with_writer(dir.path(), &Arc::new(RecordingWriter::new())).with_generate(false);
+
+    let first = execute_json(
+        &available,
+        crate::sdk::mount::ARCHI_API_TOOL,
+        json!({ "action": "check" }),
+    )
+    .await;
+    let second = execute_json(
+        &unavailable,
+        crate::sdk::mount::ARCHI_API_TOOL,
+        json!({ "action": "check" }),
+    )
+    .await;
+
+    let remedy = first["remedy"].as_str().expect("有差异 ⇒ 非 null");
+    assert!(
+        remedy.contains("archi_generate"),
+        "第二态指向该工具：{remedy}"
+    );
+    assert!(
+        remedy.contains("MUST NOT 手改生成物"),
+        "第二态载手改禁令：{remedy}"
+    );
+
+    let remedy = second["remedy"].as_str().expect("有差异 ⇒ 非 null");
+    assert!(
+        remedy.contains("架构页会话"),
+        "第三态指向架构页会话：{remedy}"
+    );
+    assert!(
+        remedy.contains("MUST NOT 手改生成物"),
+        "第三态载手改禁令：{remedy}"
+    );
+    assert!(
+        !remedy.contains("调 `archi_generate`"),
+        "第三态不承诺未下发工具：{remedy}"
+    );
+
+    assert_eq!(
+        first["artifacts"], second["artifacts"],
+        "两态 artifacts 三列内容相同（remedy 不改两轴）"
+    );
+    assert_eq!(first["findings"], second["findings"], "两态 findings 相同");
+}
+
+/// 异常：三态之外的输入面——`artifacts.enabled = false`（接口面未启用）时 `remedy` 仍按
+/// 「三列是否全空」判定（不新造第四态）；响应体长度不因 `remedy` 触发截断（短串）。
+#[tokio::test]
+async fn remedy不新造第四态且不触发截断() {
+    // 未启用接口面（无任何 `<叶段>.schema.json`）⇒ 差异只有索引缺失
+    let dir = tempdir("generate-remedy-disabled");
+    write_model(
+        dir.path(),
+        "01-api.toml",
+        "[element.\"App\"]\nkind = \"package\"\n\n\
+         [element.\"App.Api\"]\nkind = \"domain\"\ngate = \"off\"\n\n\
+         [element.\"App.Api.Subject\"]\nkind = \"module\"\npath = [\"./crates/api/subject/\"]\n",
+    );
+    write_file(dir.path(), "crates/api/subject/src/lib.rs", GENERATE_ENTRY);
+    let context = with_writer(dir.path(), &Arc::new(RecordingWriter::new())).with_generate(true);
+    let value = execute_json(
+        &context,
+        crate::sdk::mount::ARCHI_API_TOOL,
+        json!({ "action": "check" }),
+    )
+    .await;
+    assert_eq!(value["artifacts"]["enabled"], json!(false), "接口面未启用");
+    assert!(
+        value["remedy"].as_str().is_some(),
+        "有差异 ⇒ 第二态（不新造第四态）：{value}"
+    );
+
+    let text = serde_json::to_string(&value).expect("序列化");
+    assert!(
+        text.len() < crate::sdk::tools::MAX_RESULT_BYTES,
+        "响应体未被截断（remedy 是短串）"
+    );
+    assert!(!text.contains("已截断"), "零截断留痕");
+}
+
+// ---------------------------------------------------------------------------
+// 写作范围封闭与零第二份实现（源码锚）
+// ---------------------------------------------------------------------------
+
+/// 正向：`archi_tool.rs` 内零 `fs::write` / 零 `create_dir_all` / 零 `std::process`；生成臂只
+/// 串接 `archi::workspace_render` → `ProtectRules::evaluate_target` → `writer.write` 三个既有
+/// 单点（零 TOML 拼接、零模型写回、零契约写入）。
+#[test]
+fn 生成臂写作范围封闭源码锚() {
+    let source = include_str!("archi_tool.rs");
+    // 文档注释里的禁令句（「MUST NOT 出现第二份生成物 `fs::write`」）不计入代码面判据
+    let code = source
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for forbidden in [
+        "fs::write",
+        "create_dir_all",
+        "std::process",
+        "std::fs::",
+        "Command::new",
+    ] {
+        assert!(
+            !code.contains(forbidden),
+            "执行体零写盘 / 零 spawn：`{forbidden}`"
+        );
+    }
+    let start = source.find("fn generate_payload(").expect("生成臂在案");
+    let body = source[start..]
+        .split("\n    /// ")
+        .next()
+        .expect("函数体收口");
+    for single_point in [
+        "archi::workspace_render(",
+        ".evaluate_target(",
+        "writer.write(",
+    ] {
+        assert_eq!(
+            body.matches(single_point).count(),
+            1,
+            "三个既有单点各恰一处：`{single_point}`"
+        );
+    }
+    for stray in [
+        "plan_element_upsert",
+        "plan_relation_upsert",
+        "toml::",
+        "validate_schema(",
+    ] {
+        assert!(
+            !body.contains(stray),
+            "零 TOML 拼接 / 零模型写回 / 零契约写入：`{stray}`"
+        );
+    }
+}
+
+/// 边界：模块头与 `execute` doc 的臂清单计数由「七支 / 五只读 + 两写」改「八支 / 五只读 +
+/// 三写（两模型写 + 一生成物写）」，且与 `execute` match 的实际臂数一致（八臂 + `other` 兜底）。
+#[test]
+fn 生成臂计数与doc一致() {
+    let source = include_str!("archi_tool.rs");
+    assert!(
+        source.contains("五只读 + 三写（两模型写 + 一生成物写）"),
+        "模块头口径随动"
+    );
+    assert!(
+        source.contains("八支共用同一 per-turn 上下文"),
+        "模块头臂数随动"
+    );
+    assert!(
+        !source.contains("五只读 + 两写"),
+        "旧口径「五只读 + 两写」零命中"
+    );
+
+    let start = source
+        .find("pub(crate) async fn execute(")
+        .expect("execute 在案");
+    let body = source[start..]
+        .split("\n    /// ")
+        .next()
+        .expect("函数体收口");
+    assert_eq!(
+        body.matches("=> self.").count(),
+        8,
+        "match 实际八臂（五只读 + 三写）：{body}"
+    );
+    assert!(
+        body.contains("other => return Err("),
+        "未知名兜底臂在场：{body}"
+    );
+}
+
+/// 异常：未知名仍 `Err`（第八臂不吞 `archi_generate_x` / 空串）；`archi_generate` 不写
+/// `<叶段>.schema.json` / `<叶段>.md`（写前写后两文件字节与 `mtime` 逐字不变）。
+#[tokio::test]
+async fn 生成物写不动契约资产且未知名仍err() {
+    let dir = generate_root("generate-scope");
+    let writer = Arc::new(RecordingWriter::new());
+    let context = with_writer(dir.path(), &writer);
+
+    for unknown in ["archi_generate_x", "", "archi_generat"] {
+        let error = context
+            .execute(unknown, &json!({}))
+            .await
+            .expect_err("未知名必须 Err");
+        assert!(
+            error.contains("未知架构工具") && error.contains(unknown),
+            "文案含未知名 `{unknown}`：{error}"
+        );
+    }
+    assert_eq!(writer.call_count(), 0, "未知名零端口调用");
+
+    let schema = dir
+        .path()
+        .join(".dev-team/architecture/models/App/Api/Subject.schema.json");
+    let doc = dir
+        .path()
+        .join(".dev-team/architecture/models/App/Api/Subject.md");
+    write_file(
+        dir.path(),
+        ".dev-team/architecture/models/App/Api/Subject.md",
+        "# App.Api.Subject\n\n## 职能\n\n生成器械语料。\n",
+    );
+    let schema_before = fs::read(&schema).expect("读接口定义失败");
+    let doc_before = fs::read(&doc).expect("读文档失败");
+    let schema_mtime = fs::metadata(&schema)
+        .expect("接口元数据")
+        .modified()
+        .expect("mtime");
+    let doc_mtime = fs::metadata(&doc)
+        .expect("文档元数据")
+        .modified()
+        .expect("mtime");
+
+    let _ = context
+        .execute(GENERATE_TOOL, &json!({}))
+        .await
+        .expect("生成应 Ok");
+
+    assert_eq!(
+        fs::read(&schema).expect("读接口定义失败"),
+        schema_before,
+        "接口字节不变"
+    );
+    assert_eq!(
+        fs::read(&doc).expect("读文档失败"),
+        doc_before,
+        "文档字节不变"
+    );
+    assert_eq!(
+        fs::metadata(&schema)
+            .expect("接口元数据")
+            .modified()
+            .expect("mtime"),
+        schema_mtime,
+        "接口 mtime 不变"
+    );
+    assert_eq!(
+        fs::metadata(&doc)
+            .expect("文档元数据")
+            .modified()
+            .expect("mtime"),
+        doc_mtime,
+        "文档 mtime 不变"
     );
 }

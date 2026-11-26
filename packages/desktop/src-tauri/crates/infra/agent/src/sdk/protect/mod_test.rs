@@ -1385,7 +1385,8 @@ fn 判定不查盘() {
 }
 
 /// 异常：`evaluate` 的三路分派零变化——`write` / `edit` 走路径、`bash` 走命令面、
-/// 其余（含七个 archi 工具名）恒 `None`（写模型工具**不经** `evaluate`）。
+/// 其余（含八个 archi 工具名，本变更的生成物写亦在内）恒 `None`（写工具**不经**
+/// `evaluate`；`archi_generate` 的落点由执行体内 `evaluate_target` 逐份判）。
 #[test]
 fn evaluate分派逐字不变() {
     let dir = tempdir("target-dispatch");
@@ -1402,6 +1403,7 @@ fn evaluate分派逐字不变() {
         "archi_scaffold",
         "archi_element",
         "archi_relation",
+        "archi_generate",
     ] {
         assert_eq!(
             rules.evaluate(tool, &input, dir.path()),

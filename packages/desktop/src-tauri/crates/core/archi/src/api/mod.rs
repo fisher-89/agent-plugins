@@ -9,7 +9,8 @@
 //! 装配、声明抽取、判据求值、渲染与比对全在这里。生成物写盘单点在
 //! `crates/infra/archi::api_artifacts`（与报告落盘并列的第二处 dumb IO 面），CLI
 //! （`archi-api-gen`）与两条 IPC（检查 / 生成）两个驱动面同源；本 crate 零写盘
-//! 纪律 MUST NOT 反向稀释。
+//! 纪律 MUST NOT 反向稀释。写生成物的 agent 工具经 [`ArtifactWriter`] 端口委托
+//! 同一写盘单点——**端口是类型，不是实现**，不破「本 crate 只读盘」。
 //!
 //! **零 md 回落**：读面只从 `.schema.json` 取接口事实，MUST NOT 解析文档正文（历史
 //! `api-*` fence 视为普通内容）。接口文件不在盘 ⇒ 该元素「接口未写」（零判据）；在盘但
@@ -41,7 +42,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::drift::report::ArchiApiFinding;
-use crate::dto::{ApiStatus, ArchiApiCheck, ArchiApiMeta, ArchiApiRef, ArchiElement};
+use crate::dto::{
+    ApiStatus, ArchiApiCheck, ArchiApiMeta, ArchiApiRef, ArchiApiWriteOutcome, ArchiElement,
+};
 
 // 出口面只留 `lib.rs` 的逐名 `pub use`（D60）：本文件只 `use` 自己消费的名字。
 use contract::Contract;
@@ -114,6 +117,16 @@ pub struct GeneratedFile {
     pub path: PathBuf,
     /// 全文内容（含末尾换行）
     pub content: String,
+}
+
+/// 生成物写盘端口（**纯类型**：本 crate 仍零写盘、零 spawn、零 IO，实现由壳层注入）。
+///
+/// 它只声明「把一批应生成物写到某个 root」这一动作，使 `agent-runtime` 面无需依赖
+/// `infra/archi`——写盘单点仍是 `crates/infra/archi::api_artifacts::write_artifacts`，
+/// 唯一实现（`src-tauri` 的薄委托）由组合根注入到 agent 工具执行体。
+pub trait ArtifactWriter: Send + Sync {
+    /// 写一批应生成物（字节相同者计入 `unchanged` 且不重写；只增只改、从不删）。
+    fn write(&self, root: &Path, files: &[GeneratedFile]) -> Result<ArchiApiWriteOutcome, String>;
 }
 
 /// 起草的两段文本（**唯一返回形**，CLI 与 agent 工具两个出口共用同一份内容）。

@@ -54,7 +54,7 @@ mod reason;
 mod rules;
 mod shell;
 
-pub(crate) use reason::session_lock_template;
+pub(crate) use reason::{contract_lock_template, session_lock_template};
 
 /// 保护规则集（装配产出的纯数据；位次即优先级——内置在前、首个命中即定）。
 /// 字段私有：只由 [`ProtectRules::load`] 构造。

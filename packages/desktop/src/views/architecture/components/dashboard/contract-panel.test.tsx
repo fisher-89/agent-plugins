@@ -492,7 +492,8 @@ describe('ContractPanel：生成交互', () => {
     expect(screen.queryByTestId('archi-contract-generate')).toBeNull();
     const readonly = screen.getByTestId('archi-contract-readonly').textContent ?? '';
     expect(readonly).toContain('生成需开 change');
-    expect(readonly).toContain('本仓的生成命令');
+    expect(readonly).toContain('或让左侧会话生成');
+    expect(readonly).not.toContain('本仓的生成命令');
     expect(callsOf('archi_api_generate')).toHaveLength(0);
   });
 
@@ -751,5 +752,339 @@ describe('ContractPanel：写契约成功的通知门面旁路', () => {
     // 面板状态零变化：复检后生成物轴仍是同一条不符、零错误块（落库失败是旁路）
     expect(itemsIn('artifacts')).toHaveLength(1);
     expect(screen.queryByTestId('archi-contract-error')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 本变更：`full` 模式的只读提示文案（生成能力归会话后不再承诺本仓命令）
+// ---------------------------------------------------------------------------
+
+describe('ContractPanel：只读提示文案', () => {
+  it('应在 full 模式下提示先开 change 或由会话生成', async () => {
+    renderPanel({ mode: 'full' });
+    await waitFor(() => expect(screen.getByTestId('archi-contract-check')).toBeTruthy());
+
+    const readonly = screen.getByTestId('archi-contract-readonly');
+    expect(readonly.textContent).toContain('生成需开 change');
+    expect(readonly.textContent).toContain('或让左侧会话生成');
+    // 旧死指代（本仓命令名）零残留
+    expect(readonly.textContent).not.toContain('本仓的生成命令');
+    expect(readonly.textContent).not.toContain('生成命令');
+  });
+
+  it('应在文案内零命令名与路径字面且保持一行短句', async () => {
+    renderPanel({ mode: 'full' });
+    await waitFor(() => expect(screen.getByTestId('archi-contract-readonly')).toBeTruthy());
+
+    const readonly = screen.getByTestId('archi-contract-readonly');
+    const text = readonly.textContent ?? '';
+    for (const literal of ['api:export', 'pnpm', 'cargo', 'bindings', '.dev-team', 'archi_']) {
+      expect(text).not.toContain(literal);
+    }
+    // 一行短句：无内联元素、无换行（单一文本节点）
+    expect(readonly.children).toHaveLength(0);
+    expect(text).not.toContain('\n');
+    expect(text.length).toBeLessThanOrEqual(20);
+
+    // 位次与类名零改动：仍是 header 之后、meta 行之前的首个提示位
+    const panel = screen.getByTestId('archi-contract-panel');
+    const ordered = Array.from(panel.querySelectorAll('[data-testid]'));
+    expect(ordered.indexOf(readonly)).toBeGreaterThanOrEqual(0);
+    expect(readonly.className).toContain('text-[11px]');
+    expect(readonly.className).toContain('text-muted-foreground');
+
+    // 旧串片段零命中（整页文本）
+    expect(document.body.textContent ?? '').not.toContain('本仓的生成命令');
+    expect(document.body.textContent ?? '').not.toContain('执行本仓');
+  });
+
+  it('应在 incremental 模式下零只读提示且生成入口可用', async () => {
+    renderPanel({ mode: 'incremental' });
+    await waitFor(() =>
+      expect((screen.getByTestId('archi-contract-generate') as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+
+    expect(screen.queryByTestId('archi-contract-readonly')).toBeNull();
+  });
+
+  it('应在 full 模式下零生成按钮且零生成调用（入口契约不因文案改写）', async () => {
+    renderPanel({ mode: 'full' });
+    await waitFor(() => expect(screen.getByTestId('archi-contract-readonly')).toBeTruthy());
+
+    expect(screen.queryByTestId('archi-contract-generate')).toBeNull();
+    expect(callsOf('archi_api_generate')).toHaveLength(0);
+    // 复检入口仍在（只读模式不是死面板）
+    expect(screen.getByTestId('archi-contract-check')).toBeTruthy();
+  });
+
+  it('应在 check 未就绪时仍渲只读提示且无额外第二行', async () => {
+    serve(new Error('检查失败：网络不可达'));
+    renderPanel({ mode: 'full' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-contract-error').getAttribute('data-source')).toBe('check'),
+    );
+    const readonly = screen.getByTestId('archi-contract-readonly');
+    expect(readonly.textContent).toBe('生成需开 change，或让左侧会话生成');
+    expect(screen.getAllByTestId('archi-contract-readonly')).toHaveLength(1);
+  });
+
+  it('应在源码面为 full 分支零生成调用（文案行不含任何动作）', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/views/architecture/components/dashboard/contract-panel.tsx'),
+      'utf8',
+    );
+    const marker = 'data-testid="archi-contract-readonly"';
+    const start = source.indexOf(marker);
+    expect(start).toBeGreaterThanOrEqual(0);
+    // 只取该 `div` 的元素与文本窗口（属性起点之后 120 字符），不含上方 header 的 props
+    const block = source.slice(start, start + 120);
+    expect(block).not.toContain('archiApiGenerate');
+    expect(block).not.toContain('onGenerate');
+    expect(block).not.toContain('onClick');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 两向断言：每个判据两侧都钉住（只钉一侧会放过另一半突变体）——状态词 / 条目文案 /
+// chip 选中态 / 生成钮复原 / chip 计数随动
+// ---------------------------------------------------------------------------
+
+describe('ContractPanel：状态词两向', () => {
+  it('应在三类差异非零且 findings 空时零状态词（合计非零不得误判为最新）', async () => {
+    serve(
+      apiCheck({
+        mismatched: ['m.i.rs'],
+        orphaned: ['o.i.ts'],
+        missing: ['x.schema.json', 'y.schema.json'],
+      }),
+    );
+    renderPanel({ findings: [] });
+    await waitFor(() => expect(itemsIn('artifacts')).toHaveLength(4));
+
+    expect(axis('artifacts').textContent).toContain('生成物差异（4）');
+    expect(screen.queryByTestId('archi-contract-status')).toBeNull();
+  });
+
+  it('应在孤儿数多于两列之和时仍零状态词（合计对每一列敏感）', async () => {
+    serve(
+      apiCheck({
+        mismatched: ['m.i.rs'],
+        orphaned: ['o1.i.ts', 'o2.i.ts', 'o3.i.ts'],
+        missing: ['x.schema.json', 'y.schema.json'],
+      }),
+    );
+    renderPanel({ findings: [] });
+    await waitFor(() => expect(itemsIn('artifacts')).toHaveLength(6));
+
+    expect(axis('artifacts').textContent).toContain('生成物差异（6）');
+    expect(screen.queryByTestId('archi-contract-status')).toBeNull();
+  });
+
+  it('应在差异全 0 而判据非空时零状态词（不得谎称判据 0 条）', async () => {
+    renderPanel({ findings: [finding()] });
+    await waitFor(() => expect(itemsIn('findings')).toHaveLength(1));
+
+    expect(axis('artifacts').textContent).toContain('生成物差异（0）');
+    expect(screen.queryByTestId('archi-contract-status')).toBeNull();
+  });
+});
+
+describe('ContractPanel：判据条目文案两向', () => {
+  it('应在 element / target 四组合下逐字呈现（缺项不留分隔符、不渲 null）', async () => {
+    renderPanel({
+      findings: [
+        finding({ element: 'App.Auth', target: 'login' }),
+        finding({ element: null, target: 'login' }),
+        finding({ element: 'App.Auth', target: null }),
+        finding({ element: null, target: null }),
+      ],
+    });
+    await waitFor(() => expect(itemsIn('findings')).toHaveLength(4));
+
+    expect(itemsIn('findings').map((row) => row.firstElementChild?.textContent)).toEqual([
+      'apiSignatureMismatch · App.Auth · login',
+      'apiSignatureMismatch · login',
+      'apiSignatureMismatch · App.Auth',
+      'apiSignatureMismatch',
+    ]);
+  });
+
+  it('应在 element 非空时带 cursor-pointer、为 null 时零交互类（类名逐 token 对拍）', async () => {
+    renderPanel({
+      findings: [finding({ element: 'App.Auth' }), finding({ element: null })],
+    });
+    await waitFor(() => expect(itemsIn('findings')).toHaveLength(2));
+
+    const [withElement, withoutElement] = itemsIn('findings');
+    const tokensOf = (row: HTMLElement | undefined): string[] =>
+      (row?.className ?? '').split(/\s+/).filter((token) => token.length > 0);
+
+    expect(tokensOf(withElement)).toEqual([
+      'flex',
+      'flex-col',
+      'gap-0.5',
+      'rounded-md',
+      'px-1',
+      'py-0.5',
+      'cursor-pointer',
+      'hover:bg-muted',
+    ]);
+    expect(tokensOf(withoutElement)).toEqual([
+      'flex',
+      'flex-col',
+      'gap-0.5',
+      'rounded-md',
+      'px-1',
+      'py-0.5',
+    ]);
+    expect(tokensOf(withoutElement)).not.toContain('cursor-pointer');
+  });
+});
+
+describe('ContractPanel：chip 选中态两向', () => {
+  function chips(): HTMLElement[] {
+    return within(axis('findings')).queryAllByTestId('archi-contract-chip');
+  }
+
+  function chipOf(category: string): HTMLElement {
+    return chips().find((chip) => chip.getAttribute('data-category') === category)!;
+  }
+
+  it('应未选中片 aria-pressed=false 且 border-transparent、选中片两者反转', async () => {
+    renderPanel({
+      findings: [finding({ category: 'entry' }), finding({ category: 'signature' })],
+    });
+    await waitFor(() => expect(itemsIn('findings')).toHaveLength(2));
+
+    for (const category of ['entry', 'signature']) {
+      expect(chipOf(category).getAttribute('aria-pressed')).toBe('false');
+      expect(chipOf(category).className).toContain('border-transparent');
+      expect(chipOf(category).className).not.toContain('border-primary/40');
+    }
+
+    fireEvent.click(chipOf('entry'));
+    await waitFor(() => expect(itemsIn('findings')).toHaveLength(1));
+
+    expect(chipOf('entry').getAttribute('aria-pressed')).toBe('true');
+    expect(chipOf('entry').className).toContain('border-primary/40');
+    expect(chipOf('entry').className).not.toContain('border-transparent');
+    // 未选中片仍保持未选中形态（选中态只落一片）
+    expect(chipOf('signature').getAttribute('aria-pressed')).toBe('false');
+    expect(chipOf('signature').className).toContain('border-transparent');
+    expect(chipOf('signature').className).not.toContain('border-primary/40');
+  });
+
+  it('应在 findings = [] 时渲「无契约判据」占位且零 chip', async () => {
+    renderPanel({ findings: [] });
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-contract-status').textContent).toContain('判据 0 条'),
+    );
+
+    expect(chips()).toHaveLength(0);
+    expect(axis('findings').textContent).toContain('无契约判据');
+  });
+
+  it('应在判据非空时零「无契约判据」占位（占位与列表互斥）', async () => {
+    renderPanel({ findings: [finding()] });
+    await waitFor(() => expect(itemsIn('findings')).toHaveLength(1));
+
+    expect(axis('findings').textContent).not.toContain('无契约判据');
+  });
+});
+
+describe('ContractPanel：生成钮可用性两向', () => {
+  async function generateOnce(): Promise<void> {
+    fireEvent.click(screen.getByTestId('archi-contract-generate'));
+    await waitFor(() => expect(screen.getByRole('button', { name: '提交' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+    await waitFor(() => expect(callsOf('archi_api_generate')).toHaveLength(1));
+  }
+
+  it('应在生成成功后「生成」与「检查」双钮复原可点（忙态只属于进行中）', async () => {
+    serve(apiCheck({ mismatched: ['m.i.rs'] }));
+    renderPanel();
+    await waitFor(() => expect(itemsIn('artifacts')).toHaveLength(1));
+
+    await generateOnce();
+
+    await waitFor(() =>
+      expect((screen.getByTestId('archi-contract-generate') as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    await waitFor(() =>
+      expect((screen.getByTestId('archi-contract-check') as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    // 复检仍回同一条差异 ⇒ 钮可用性与「结果是否为空」无关
+    expect(itemsIn('artifacts')).toHaveLength(1);
+  });
+
+  it('应在生成失败后「生成」钮复原可点且错误块在场（失败不永久禁用）', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_api_check')
+        return Promise.resolve(apiCheck({ mismatched: ['m.i.rs'] }));
+      if (command === 'archi_api_generate') {
+        return Promise.reject(new Error('写入失败（已写 1 份，不回滚）'));
+      }
+      return Promise.reject(new Error(`未预期命令: ${command}`));
+    });
+    renderPanel();
+    await waitFor(() => expect(itemsIn('artifacts')).toHaveLength(1));
+
+    await generateOnce();
+
+    await waitFor(() => expect(screen.getByTestId('archi-contract-error')).toBeTruthy());
+    await waitFor(() =>
+      expect((screen.getByTestId('archi-contract-generate') as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    expect((screen.getByTestId('archi-contract-check') as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe('ContractPanel：chip 计数随 findings 入参随动', () => {
+  function chipsText(): (string | null)[] {
+    return within(axis('findings'))
+      .queryAllByTestId('archi-contract-chip')
+      .map((chip) => chip.textContent);
+  }
+
+  it('应在 findings 换新后 chip 计数随之重算（派生面依赖入参而非常量）', async () => {
+    const onFocus = vi.fn();
+    const { rerender } = render(
+      <ContractPanel
+        root={ROOT}
+        mode="incremental"
+        findings={[finding({ category: 'entry' })]}
+        onFocus={onFocus}
+      />,
+    );
+    await waitFor(() => expect(itemsIn('findings')).toHaveLength(1));
+    expect(chipsText()).toEqual(['entry 1']);
+
+    rerender(
+      <ContractPanel
+        root={ROOT}
+        mode="incremental"
+        findings={[
+          finding({ category: 'entry' }),
+          finding({ category: 'signature' }),
+          finding({ category: 'signature' }),
+        ]}
+        onFocus={onFocus}
+      />,
+    );
+    await waitFor(() => expect(itemsIn('findings')).toHaveLength(3));
+    expect(chipsText()).toEqual(['entry 1', 'signature 2']);
+
+    rerender(<ContractPanel root={ROOT} mode="incremental" findings={[]} onFocus={onFocus} />);
+    await waitFor(() => expect(itemsIn('findings')).toHaveLength(0));
+    expect(chipsText()).toEqual([]);
   });
 });

@@ -372,6 +372,7 @@ async fn change来源与permission装配入会话行_engine恒sdk携实例id() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -456,6 +457,7 @@ async fn continue会话复用既有行不重复建() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -505,6 +507,7 @@ fn 空库缺省解析err引导管理页且零落库() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     ) {
         Err(error) => error,
         Ok(_) => panic!("空库缺省解析必须 Err"),
@@ -541,6 +544,7 @@ async fn open段配置缺失显式err传播且零半成品记录() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -594,6 +598,7 @@ async fn 泵收集密封转录并透传会话事件_拒连一轮一命收敛() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -900,6 +905,7 @@ async fn finalized恒等于转录提取单点结果() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -982,6 +988,7 @@ async fn 中途停止收敛stopped并保留已收集事件() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -1049,6 +1056,7 @@ async fn 三角色provenance定式逐段落库且精确反查命中() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -1212,6 +1220,7 @@ fn worker_with_ask_port(
         None,
         Path::new(&env.root()),
         ask_port,
+        None,
     )
     .expect("解析应成功");
     KernelWorkerPort::new(composed, sink)

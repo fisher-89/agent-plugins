@@ -23,6 +23,8 @@ use store::WorkspaceStores;
 
 use agent::AgentRunMessage;
 
+use crate::commands::archi::ArchiArtifactWriter;
+
 /// change chat 会话清单的来源词（读侧词汇收在命令层，前端零来源词汇；写侧同
 /// 词由面板的受控常量给出——`source` 是自由字符串，无枚举可耦合）
 const CHANGE_CHAT_SOURCE: &str = "change";
@@ -172,6 +174,9 @@ pub(crate) async fn agent_start_with<R: tauri::Runtime>(
         Path::new(&root),
         // 通用侧无编排停等面（change-chat 例外见 `ChatAskPort` doc）
         Some(Arc::new(ChatAskPort)),
+        // 生成物写盘端口：写盘单点的唯一实现，本处是通用会话（含 `/architecture`
+        // 页内会话）的注入点
+        Some(Arc::new(ArchiArtifactWriter) as Arc<dyn archi::ArtifactWriter>),
     )?;
     let running = composed.begin(session, prompt, ctx, provenance)?;
     // 后台转发任务：内核泵输出 → Channel（事件与终态同构流出）；提前 resolve

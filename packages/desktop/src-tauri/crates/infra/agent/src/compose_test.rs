@@ -255,6 +255,7 @@ async fn 缺省解析默认sdk实例_快照承接provider组装与high档模型(
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("缺省解析应成功");
 
@@ -301,6 +302,7 @@ async fn 快照模型按轮级档位定型_low轮取低档high轮取高档() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -362,6 +364,7 @@ async fn 显式cli实例解析_逐字拒收退役文案且零落库() {
         Some(cli_id),
         Path::new(&env.root()),
         None,
+        None,
     ));
 
     assert_eq!(
@@ -394,6 +397,7 @@ fn 缺省发起默认实例为存量cli_同臂同文案拒且不清默认标记�
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     ));
 
@@ -434,6 +438,7 @@ fn 空库缺省解析err引导管理页且零落库() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     ));
 
     assert!(
@@ -465,6 +470,7 @@ fn 显式不存在agent的id解析err携id记因() {
         env.store(),
         Some(404),
         Path::new(&env.root()),
+        None,
         None,
     ));
     assert!(error.contains("404"), "Err 携 id 记因，实际: {error}");
@@ -500,6 +506,7 @@ async fn provider引用完整性守卫使悬空成因不可达_解析照常成�
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("provider 完好时缺省解析应成功");
@@ -547,6 +554,7 @@ async fn continue快照校验通过时begin成功且会话行不重复建() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -589,6 +597,7 @@ fn continue会话不存在时显式失败() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -642,6 +651,7 @@ fn continue跨引擎续会话被快照比对拒绝() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("解析应成功");
     let error = err_of(composed.begin(
@@ -677,6 +687,7 @@ async fn continue未开轮会话首轮放行并定型快照() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -729,6 +740,7 @@ async fn continue已开轮但句柄未上报仍走续会话治理() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -784,6 +796,7 @@ async fn 续会话缺引擎句柄不再硬拒_prior_handle透传none照常续接
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -832,6 +845,7 @@ async fn 装配产物真实驱动_sdk轮失败收敛且会话行轮行转录齐�
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -900,6 +914,7 @@ async fn 装配产物含查询面_continue校验经真实库行成立() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("解析应成功");
     composed
@@ -952,6 +967,7 @@ fn sdk实例缺provider_id的存量形态解析err引导管理页() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     ));
 
@@ -1065,6 +1081,7 @@ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
         std::sync::Arc::clone(&injected),
         Some(sdk_id),
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -1563,6 +1580,7 @@ fn 显式agent_id边界零与负数与i64max均miss记因() {
             Some(id),
             Path::new(&env.root()),
             None,
+            None,
         ));
         assert!(
             error.contains("agent 不存在") && error.contains(&id.to_string()),
@@ -1586,6 +1604,7 @@ fn 续会话id边界空串与超长与特殊字符均走会话不存在分支不
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -1626,6 +1645,7 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
         Some(sdk_id),
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("显式解析应成功");
     let running = composed
@@ -1663,6 +1683,7 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("缺省解析应成功");
@@ -1962,6 +1983,7 @@ async fn 装配产物真实驱动_explore来源runstarted报六工具加专用�
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -2025,6 +2047,7 @@ async fn 装配产物真实驱动_debug来源runstarted报七名() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -2075,6 +2098,7 @@ async fn explore装配不破坏失败收敛语义() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -2244,6 +2268,7 @@ async fn compose_turn注入缝生效_begin后会话在传入streams中可订阅(
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -2280,6 +2305,7 @@ async fn exec轨真实驱动_注册表订阅端收failed终态且started_at与�
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -2343,6 +2369,7 @@ async fn change轨真实驱动_同一streams收终态且run_update出口照常()
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -2534,6 +2561,7 @@ fn 解析失败不构造内核且零注册表条目() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     ));
     assert!(
         error.contains("默认 agent"),
@@ -2549,6 +2577,7 @@ fn 解析失败不构造内核且零注册表条目() {
         env.store(),
         Some(404),
         Path::new(&env.root()),
+        None,
         None,
     ));
     assert!(error.contains("404"), "显式不存在 id Err，实际: {error}");
@@ -2581,6 +2610,7 @@ async fn stop与streams两表互不串台_收口后两表同时除名() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -2632,6 +2662,7 @@ async fn 两次compose_turn共享同一streams_条目并存互不覆盖() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("exec 轨解析应成功");
     let change_track = compose_turn(
@@ -2643,6 +2674,7 @@ async fn 两次compose_turn共享同一streams_条目并存互不覆盖() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("change 轨解析应成功");
@@ -2953,6 +2985,7 @@ async fn compose_turn尾参在场装配照常_引擎快照与既有口径一致(
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("尾参在场解析应成功");
 
@@ -3011,6 +3044,7 @@ async fn compose_turn尾参root形态不校验() {
             None,
             &root,
             None,
+            None,
         )
         .unwrap_or_else(|error| panic!("root 形态 {root:?} 只透传不校验（仍 Ok）: {error}"));
         drop(composed);
@@ -3040,6 +3074,7 @@ async fn compose_turn尾参与store的root不同源_双root不变量成立() {
         std::sync::Arc::clone(&injected),
         None,
         main_root.path(),
+        None,
         None,
     )
     .expect("尾参与 store 不同源仍应成功");
@@ -3532,7 +3567,7 @@ fn 其余来源恒显式generic且零archi与零收口() {
 // ---------------------------------------------------------------------------
 
 /// 正向：archi 臂全字段——`preamble` 与 `knowledge()` 逐字相等、名字清单为七
-/// 工具名 + 七 archi 名、`finish = None`，返回 `Ok`（零 `Err` 路径）。
+/// 工具名 + 八 archi 名、`finish = None`，返回 `Ok`（零 `Err` 路径）。
 #[test]
 fn archi臂全字段() {
     let injections = injections_of("archi", None);
@@ -3548,7 +3583,7 @@ fn archi臂全字段() {
     assert_eq!(
         injections.tools,
         Some(expected_names),
-        "archi 臂名字清单 = 七工具名 + 七 archi 名（五只读 + 两写）"
+        "archi 臂名字清单 = 七工具名 + 八 archi 名（五只读 + 三写）"
     );
     assert_eq!(injections.finish, None, "archi 臂无收口档位");
     assert_eq!(
@@ -3612,8 +3647,8 @@ fn archi臂source_ref形态无关() {
         );
         assert_eq!(
             injections.tools.as_ref().map(Vec::len),
-            Some(14),
-            "工具面十四名（七内建 + 七 archi 名）"
+            Some(15),
+            "工具面十五名（七内建 + 八 archi 名）"
         );
     }
 
@@ -3726,7 +3761,7 @@ fn 降级范围单字段preamble独立() {
     assert_eq!(
         injections.tools.as_ref().map(Vec::len),
         Some(TOOL_NAMES.len() + archi_names().len()),
-        "七内建 + 七 archi 名（五只读 + 两写）"
+        "七内建 + 八 archi 名（五只读 + 三写）"
     );
     assert_eq!(
         archi_bits(&injections),
@@ -4009,10 +4044,10 @@ fn 装配explore臂ask位generic且清单零ask工具名() {
     );
 }
 
-/// archi 臂（正向，参数化 2 形态 source_ref）：`ask == Some(Generic)`；十四名（七内建 +
-/// 七 archi 工具）+ `preamble` 在场；`source_ref` 取任意值不改变该臂。
+/// archi 臂（正向，参数化 2 形态 source_ref）：`ask == Some(Generic)`；十五名（七内建 +
+/// 八 archi 工具）+ `preamble` 在场；`source_ref` 取任意值不改变该臂。
 #[test]
-fn 装配archi臂ask位generic且十四名与preamble在场() {
+fn 装配archi臂ask位generic且十五名与preamble在场() {
     for source_ref in [None, Some("add-feature/dev-design/executor/1")] {
         let injections = injections_of("archi", source_ref);
         assert_eq!(
@@ -4022,7 +4057,7 @@ fn 装配archi臂ask位generic且十四名与preamble在场() {
         );
         assert!(injections.preamble.is_some(), "archi 臂 preamble 在场");
         let names = injections.tools.as_deref().expect("archi 臂下发名字清单");
-        assert_eq!(names.len(), 14, "七件 + 七 archi 名（五只读 + 两写）");
+        assert_eq!(names.len(), 15, "七件 + 八 archi 名（五只读 + 三写）");
         assert_eq!(
             archi_bits(&injections),
             Some((true, true)),
@@ -4228,6 +4263,7 @@ async fn compose_turn的注册表经双通道注入为同一张表() {
         None,
         Path::new(&env.root()),
         Some(Arc::new(RecordingAskPort::default())),
+        None,
     )
     .expect("解析应成功");
 
@@ -4295,6 +4331,7 @@ async fn compose_turn的ask_port两形态均贯通执行体() {
         None,
         Path::new(&env.root()),
         Some(Arc::clone(&port) as Arc<dyn orchestration::port::AskPort>),
+        None,
     )
     .expect("Some 形态组合成功");
     let running = composed
@@ -4357,6 +4394,7 @@ async fn compose_turn的ask_port两形态均贯通执行体() {
         None,
         Path::new(&env_none.root()),
         None,
+        None,
     )
     .expect("None 形态组合成功");
     let running_none = composed_none
@@ -4413,6 +4451,7 @@ async fn 装配产物真实驱动_change来源runstarted含ask工具() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -4522,6 +4561,7 @@ async fn compose_turn透传steer实例_begin后同一实例可请求() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -4564,6 +4604,7 @@ async fn compose_turn注入实例随轮收口除名() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("解析应成功");
@@ -4619,6 +4660,7 @@ async fn 两次compose_turn各自的steer实例互不串表() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("左表解析应成功");
     let right_turn = compose_turn(
@@ -4630,6 +4672,7 @@ async fn 两次compose_turn各自的steer实例互不串表() {
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("右表解析应成功");
@@ -4701,6 +4744,7 @@ fn 解析失败时steer表零触点() {
             env.store(),
             agent,
             Path::new(&env.root()),
+            None,
             None,
         ));
         assert!(
@@ -4789,13 +4833,13 @@ fn change臂全矩阵每行恒含两db名各恰一次() {
     assert_eq!(db_name_counts(names), (1, 1), "source_ref 缺席亦含两名");
 }
 
-/// 异常（AC-9 / AC-11）：archi 臂十四名与 debug 臂（`tools = None`）**都不含**两 DB
+/// 异常（AC-9 / AC-11）：archi 臂十五名与 debug 臂（`tools = None`）**都不含**两 DB
 /// 名（archi / debug 会话调 db_query 走成员校验拒绝臂）。
 #[test]
 fn archi臂与debug臂均不含两db名() {
     let archi = injections_of("archi", None);
     let archi_names = archi.tools.as_ref().expect("archi 臂 tools 在场");
-    assert_eq!(archi_names.len(), 14, "archi 臂十四名（七内建 + 七 archi）");
+    assert_eq!(archi_names.len(), 15, "archi 臂十五名（七内建 + 八 archi）");
     assert_eq!(db_name_counts(archi_names), (0, 0), "archi 臂不含两 DB 名");
     assert!(
         archi.preamble.is_some(),
@@ -4867,6 +4911,7 @@ async fn compose_turn双库原料齐备后begin成功且会话行落workspace库
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("双库原料齐备 → 解析应成功");
@@ -4989,6 +5034,7 @@ async fn compose_turn身份锚恒主仓root不随会话cwd的worktree派生() {
         Arc::clone(&store),
         None,
         Path::new(&env.root()),
+        None,
         None,
     )
     .expect("双库原料齐备 → 解析应成功");
@@ -5267,6 +5313,7 @@ async fn compose_turn门面链接入efforts后_new会话open照常成功() {
         None,
         Path::new(&env.root()),
         None,
+        None,
     )
     .expect("装配应成功（.with_efforts 链接入不塌 runner_for）");
 
@@ -5285,8 +5332,9 @@ async fn compose_turn门面链接入efforts后_new会话open照常成功() {
 // 本变更：五 archi 工具面（矩阵扩维 / 相位锁 / 第五位 protect）
 // ===========================================================================
 
-/// archi 工具名的完整清单（七值 = 五只读 + 两写，序即 archi 臂下发序）。
-fn archi_names() -> [&'static str; 7] {
+/// archi 工具名的完整清单（八值 = 五只读 + 三写：两模型写 + 一生成物写，序即 archi 臂
+/// 下发序）。
+fn archi_names() -> [&'static str; 8] {
     [
         crate::sdk::mount::ARCHI_MODULE_TOOL,
         crate::sdk::mount::ARCHI_SEARCH_TOOL,
@@ -5295,6 +5343,7 @@ fn archi_names() -> [&'static str; 7] {
         crate::sdk::mount::ARCHI_SCAFFOLD_TOOL,
         crate::sdk::mount::ARCHI_ELEMENT_TOOL,
         crate::sdk::mount::ARCHI_RELATION_TOOL,
+        crate::sdk::mount::ARCHI_GENERATE_TOOL,
     ]
 }
 
@@ -5331,6 +5380,7 @@ fn 注入矩阵八行逐行命中() {
                 crate::sdk::mount::ARCHI_SCAFFOLD_TOOL,
                 crate::sdk::mount::ARCHI_ELEMENT_TOOL,
                 crate::sdk::mount::ARCHI_RELATION_TOOL,
+                crate::sdk::mount::ARCHI_GENERATE_TOOL,
             ],
         ),
         (
@@ -5344,6 +5394,7 @@ fn 注入矩阵八行逐行命中() {
                 crate::sdk::mount::ARCHI_SCAFFOLD_TOOL,
                 crate::sdk::mount::ARCHI_ELEMENT_TOOL,
                 crate::sdk::mount::ARCHI_RELATION_TOOL,
+                crate::sdk::mount::ARCHI_GENERATE_TOOL,
             ],
         ),
         (
@@ -5357,7 +5408,10 @@ fn 注入矩阵八行逐行命中() {
         (
             "test-design",
             "executor",
-            &[crate::sdk::mount::ARCHI_SEARCH_TOOL],
+            &[
+                crate::sdk::mount::ARCHI_SEARCH_TOOL,
+                crate::sdk::mount::ARCHI_MODULE_TOOL,
+            ],
         ),
         (
             "implement",
@@ -5410,10 +5464,10 @@ fn 注入矩阵八行逐行命中() {
     }
 }
 
-/// 正向（表驱动）：archi 臂 = 七内建 + 五 archi 名（12 名，序 = module / search /
-/// api / drift / scaffold）；不含 `create_explore_note` 与两 DB 工具。
+/// 正向（表驱动）：archi 臂 = 七内建 + 八 archi 名（15 名，序 = module / search / api /
+/// drift / scaffold / element / relation / generate）；不含 `create_explore_note` 与两 DB 工具。
 #[test]
-fn archi臂七内建加七archi名() {
+fn archi臂七内建加八archi名() {
     for source_ref in [None, Some(""), Some("chg-1/implement/executor/1")] {
         let injections = injections_of("archi", source_ref);
         let mut expected = seven();
@@ -5421,7 +5475,7 @@ fn archi臂七内建加七archi名() {
         assert_eq!(
             injections.tools,
             Some(expected),
-            "archi 臂名字清单 = 七内建 + 七 archi 名（五只读 + 两写；source_ref = {source_ref:?}）"
+            "archi 臂名字清单 = 七内建 + 八 archi 名（五只读 + 三写；source_ref = {source_ref:?}）"
         );
         let names = injections.tools.clone().unwrap_or_default();
         assert!(
@@ -5456,7 +5510,7 @@ fn 模型写权无锁格() {
 
 /// 异常（表驱动）：挂锁格——`dev-design/evaluator`、`implement/executor`、
 /// `test-design/executor`、`code-review/evaluator`、`acceptance/evaluator`、
-/// `explore`、`debug`、未知 source → `Some(恰一条)`。
+/// `explore`、`debug`、未知 source → `Some(恰两条：模型 + 契约)。
 #[test]
 fn 模型写权挂锁格() {
     let mut cases: Vec<(&str, Option<String>)> =
@@ -5475,7 +5529,7 @@ fn 模型写权挂锁格() {
         let protect = injections
             .protect
             .unwrap_or_else(|| panic!("挂锁格 {source} / {source_ref:?} 应 protect = Some"));
-        assert_eq!(protect.len(), 1, "恰一条会话规则");
+        assert_eq!(protect.len(), 2, "恰两条会话规则（模型 + 契约）");
     }
 }
 
@@ -5498,28 +5552,45 @@ fn 模型写权畸形source_ref即挂锁() {
     }
 }
 
-/// 正向：锁规则内容——`glob` 指向 `graph/model` 目录（经 layout 复算）、
-/// `reason` 与 `protect::session_lock_template()` 逐字相等。
+/// 正向（AC-7）：锁规则内容恰**两条**——`glob` 分别由 `archi_graph_model_rel_dir()` /
+/// `archi_models_rel_dir()` 派生（`**/<dir>/**`，序 = 规则优先级，模型目录在前），`reason`
+/// 分别取 `session_lock_template()` / `contract_lock_template()`（两条文案各自单点）。
 #[test]
 fn 模型写权锁规则内容() {
     let injections = injections_of("explore", None);
     let protect = injections.protect.expect("explore 恒挂锁");
+    assert_eq!(protect.len(), 2, "锁面恰两条（模型 + 契约）");
     assert_eq!(
         protect[0].glob,
         format!("**/{}/**", foundation::layout::archi_graph_model_rel_dir()),
-        "glob 由 layout 派生"
+        "模型目录 glob 由 layout 派生"
     );
     assert_eq!(
         protect[0].reason,
         crate::sdk::protect::session_lock_template().to_owned(),
-        "reason 取文案单点"
+        "模型串取文案单点"
+    );
+    assert_eq!(
+        protect[1].glob,
+        format!("**/{}/**", foundation::layout::archi_models_rel_dir()),
+        "契约资产目录 glob 由 layout 派生"
+    );
+    assert_eq!(
+        protect[1].reason,
+        crate::sdk::protect::contract_lock_template().to_owned(),
+        "契约串取文案单点"
+    );
+    assert_ne!(
+        protect[0].reason, protect[1].reason,
+        "两串逐字不同（不互换、不拼接）"
     );
 }
 
-/// 边界（AC-5）：该 glob 只锁模型声明目录——契约资产 md / 索引生成物 / 架构域看护
-/// 配置三条路径不在锁面（经真实 glob 匹配面判定）。
+/// 边界（AC-7 / AC-8）：生成物与模型锁面分离——模型声明目录与契约资产目录（`.schema.json` /
+/// `.md`）被拒；`<archi_dir>/graph/INDEX.toml`、`<archi_dir>/config.json`、`.i.*` 仍放行（经
+/// 真实 glob 匹配面判定）。
 #[test]
-fn 模型写权锁面只覆盖模型声明目录() {
+fn 锁面覆盖模型与契约且生成物放行() {
     let injections = injections_of("explore", None);
     let protect = injections.protect.expect("explore 恒挂锁");
     let rules = crate::sdk::protect::ProtectRules::load(None)
@@ -5539,10 +5610,28 @@ fn 模型写权锁面只覆盖模型声明目录() {
     );
     assert!(blocked.is_some(), "模型声明文件被拒");
 
+    // 契约资产两面（接口定义 + 模块文档）皆在锁面
     for relative in [
+        format!(
+            "{}/App/Auth.schema.json",
+            foundation::layout::archi_models_rel_dir()
+        ),
         format!("{}/App/Auth.md", foundation::layout::archi_models_rel_dir()),
+    ] {
+        let verdict = rules.evaluate(
+            "write",
+            &serde_json::json!({ "path": format!("/repo/{relative}") }),
+            root,
+        );
+        assert!(verdict.is_some(), "契约资产在锁面：{relative}");
+    }
+
+    // 生成物与架构域看护配置不在锁面
+    for relative in [
         format!("{}/INDEX.toml", foundation::layout::archi_graph_rel_dir()),
         format!("{}/config.json", foundation::layout::archi_rel_dir()),
+        "crates/api/src/lib.i.rs".to_owned(),
+        "crates/api/src/lib.i.ts".to_owned(),
     ] {
         let verdict = rules.evaluate(
             "write",
@@ -5596,8 +5685,9 @@ fn 端到端写权拒绝串含指路与禁止绕过() {
 
 /// 边界（源码自证，AC-5 / AC-7）：三个单点骨架——`archi_graph_model_rel_dir` 在
 /// `compose.rs` 恰一处；`"proposal"` / `"dev-design"` 两个写权相位字面量只落在
-/// `archi_matrix` 与 `model_write_lock` 两区；会话规则构造
-/// （`Some(vec![agent::SessionProtectRule`）只在 `model_write_lock` 内。
+/// `archi_matrix` 与 `model_write_lock` 两区；会话规则构造（`agent::SessionProtectRule {`）
+/// 恰两份且只在 `model_write_lock` 内（`vec![` 与结构名分行书写，故锚取结构名而非
+/// `Some(vec![agent::SessionProtectRule` 的单行形态）。
 #[test]
 fn 写权与矩阵单点源码骨架() {
     let source = std::fs::read_to_string(
@@ -5633,21 +5723,27 @@ fn 写权与矩阵单点源码骨架() {
         }
     }
 
-    // ③ 会话规则构造只在 model_write_lock 内（锁规则单点，矩阵不造规则）。
+    // ③ 会话规则构造只在 model_write_lock 内（锁规则单点，矩阵不造规则）：函数体里
+    //    `Some(vec![` 与 `agent::SessionProtectRule {` 分行书写，故按结构名逐处定位——
+    //    模型串与契约串两份构造，逐处都须落在锁函数区间内。
     assert_eq!(
-        source
-            .matches("Some(vec![agent::SessionProtectRule")
-            .count(),
-        1,
-        "会话规则构造单点"
+        source.matches("agent::SessionProtectRule {").count(),
+        2,
+        "会话规则构造恰两份（模型串 + 契约串）"
     );
-    let rule_at = source
-        .find("Some(vec![agent::SessionProtectRule")
-        .expect("规则构造在场");
-    assert!(
-        rule_at >= lock_start && rule_at < lock_end,
-        "会话规则构造在 model_write_lock 内"
-    );
+    let mut rule_at = Vec::new();
+    let mut from = 0;
+    while let Some(offset) = source[from..].find("agent::SessionProtectRule {") {
+        let at = from + offset;
+        rule_at.push(at);
+        from = at + 1;
+    }
+    for at in rule_at {
+        assert!(
+            at >= lock_start && at < lock_end,
+            "会话规则构造只允许出现在 model_write_lock 内，实际偏移 {at}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -6656,7 +6752,7 @@ fn 矩阵与写权锁同集() {
         }
     }
 
-    // archi 臂：恒无锁且七 archi 名全在（含两写名）——同一判据的另一半。
+    // archi 臂：恒无锁且八 archi 名全在（含两模型写与生成物写）——同一判据的另一半。
     let injections = injections_of("archi", None);
     assert!(injections.protect.is_none(), "archi 臂恒无锁");
     assert_eq!(
@@ -6665,20 +6761,24 @@ fn 矩阵与写权锁同集() {
             .iter()
             .map(|name| (*name).to_owned())
             .collect::<Vec<_>>(),
-        "archi 臂下发七 archi 名（含两写名）"
+        "archi 臂下发八 archi 名（含两模型写与生成物写）"
     );
 }
 
-/// 异常（矩阵 3 形态）：未命中写权相位不下发两写名——`test-design/executor` 只
-/// `archi_search`、`code-review/evaluator` 只 `archi_module`、`explore` / `debug` 来源
-/// 零 archi 名；未下发即 loop 侧成员校验必拒（机制由既有 `sdk/loop_test.rs` 背书）。
+/// 异常（矩阵 3 形态）：未命中写权相位不下发两**模型**写名（也不下发生成物写名）——
+/// `test-design/executor` 恰 `search` + `module`、`code-review/evaluator` 只 `archi_module`、
+/// `explore` / `debug` 来源零 archi 名；未下发即 loop 侧成员校验必拒（机制由既有
+/// `sdk/loop_test.rs` 背书）。
 #[test]
 fn 未命中相位零下发写工具() {
     for (source, source_ref, expected) in [
         (
             "change",
             Some("chg-1/test-design/executor/1"),
-            vec![crate::sdk::mount::ARCHI_SEARCH_TOOL],
+            vec![
+                crate::sdk::mount::ARCHI_SEARCH_TOOL,
+                crate::sdk::mount::ARCHI_MODULE_TOOL,
+            ],
         ),
         (
             "change",
@@ -6727,12 +6827,517 @@ fn 矩阵形状不变且锁面零改动() {
         source[lock_start..lock_end]
             .matches("agent::SessionProtectRule {")
             .count(),
-        1,
-        "会话规则构造只在 model_write_lock 内一处（带 `{{` 的构造字面量区分签名与构造）"
+        2,
+        "会话规则构造只在 model_write_lock 内两处（模型串 + 契约串）"
     );
     assert_eq!(
         source.matches("fn model_write_lock").count(),
         1,
         "写权锁实现恰一处"
     );
+}
+
+// ===========================================================================
+// 本变更：`compose_turn` 末位新增参数（生成物写盘端口，注入链第 1 跳）
+// ===========================================================================
+
+/// 桩写盘端口：零字段计数（组合根只做透传与注入，替身不触盘）。
+#[derive(Default)]
+struct NullArtifactWriter;
+
+impl archi::ArtifactWriter for NullArtifactWriter {
+    fn write(
+        &self,
+        root: &std::path::Path,
+        files: &[archi::GeneratedFile],
+    ) -> Result<archi::ArchiApiWriteOutcome, String> {
+        Ok(archi::ArchiApiWriteOutcome {
+            written: files
+                .iter()
+                .map(|file| archi::display(root, &file.path))
+                .collect(),
+            unchanged: Vec::new(),
+        })
+    }
+}
+
+/// 装配底座（一份 provider + 一份 sdk 实例 + 双库句柄）。
+fn compose_env(tag: &str) -> DualEnv {
+    let env = DualEnv::new(tag);
+    let stores = env.stores();
+    let provider_id = seed_provider_with_efforts(
+        stores,
+        "端口装配供应",
+        AgentProviderProtocol::Anthropic,
+        efforts_of("max", "low"),
+        false,
+        None,
+        None,
+    );
+    seed_sdk_instance(stores, "端口装配实例", Some(provider_id));
+    env
+}
+
+/// 以给定末位实参组装一轮（其余九参形态固定）。
+fn compose_with_writer(
+    env: &DualEnv,
+    writer: Option<Arc<dyn archi::ArtifactWriter>>,
+) -> Result<ComposedTurn, String> {
+    compose_turn(
+        env.stores(),
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
+        env.store(),
+        None,
+        Path::new(&env.root()),
+        None,
+        writer,
+    )
+}
+
+/// 正向：末位传 `Some(替身)` 组装成功，`ComposedTurn` 四件（`kernel` / `runner` / `query` /
+/// `model` 双档）与既有九参语义不变；`begin` 后本轮工具面与写权位不受新参数影响。
+#[tokio::test]
+async fn compose_turn末位传端口组装成功() {
+    let env = compose_env("compose-writer-some");
+    let composed = compose_with_writer(
+        &env,
+        Some(Arc::new(NullArtifactWriter) as Arc<dyn archi::ArtifactWriter>),
+    )
+    .expect("末位传 Some 应组装成功");
+
+    // 四件照旧可用：begin 走通（内核 + runner + query + 模型双档全部参与）
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "端口装配一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("begin 应成功（新参数不改变既有九参语义）");
+    drop(running);
+
+    // 对照：None 形态同口径可用
+    let env_none = compose_env("compose-writer-none");
+    let composed = compose_with_writer(&env_none, None).expect("末位传 None 应组装成功");
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "端口装配一轮".to_owned(),
+            ctx(&env_none.root()),
+            debug_provenance(),
+        )
+        .expect("None 形态 begin 应成功");
+    drop(running);
+
+    // 工具面与写权位与该参数无关：装配单点的入参表里没有它（只有 provenance）
+    let source = include_str!("compose.rs");
+    assert!(
+        source.contains("fn assemble_injections(provenance: &SessionProvenance)"),
+        "装配单点入参仍只有 provenance（端口不进注入面）"
+    );
+    assert!(
+        !source.contains("fn assemble_injections(provenance: &SessionProvenance, artifact"),
+        "装配单点不得吞下端口实参"
+    );
+}
+
+/// 异常（源码锚）：签名末位类型逐字为 `Option<Arc<dyn archi::ArtifactWriter>>`；门面链上
+/// `.with_artifact_writer(artifact_writer)` 恰一处；零 `Some(Arc::new(` 具体实现出现在
+/// `compose.rs`（实现归壳层组合根）。
+#[test]
+fn compose_turn末位参数源码锚() {
+    let source = include_str!("compose.rs");
+    let signature_start = source
+        .find("pub fn compose_turn(")
+        .expect("compose_turn 在案");
+    let signature = source[signature_start..]
+        .split('\n')
+        .take(16)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        signature.contains("    artifact_writer: Option<Arc<dyn archi::ArtifactWriter>>,"),
+        "末位形参类型逐字：{signature}"
+    );
+    assert_eq!(
+        source
+            .matches(".with_artifact_writer(artifact_writer)")
+            .count(),
+        1,
+        "门面链上该载荷恰一处"
+    );
+    assert!(
+        !source.contains("Some(Arc::new("),
+        "compose.rs 零具体实现构造（实现归壳层组合根）"
+    );
+    assert!(
+        !source.contains("ArchiArtifactWriter"),
+        "compose.rs 零实现类型字面（只持 trait object）"
+    );
+}
+
+// ===========================================================================
+// 本变更：矩阵与写权锁的同集不变式（收窄为两**模型**写工具）
+// ===========================================================================
+
+/// 边界：`archi_generate` 不在对拍集——显式断言比对集合与该名无交集，且两起草相位「有
+/// generate」与「不挂锁」互不作为对方的判据（不因 generate 凑同集）。
+#[test]
+fn 写权对拍集不含生成物写() {
+    use super::archi_matrix;
+
+    for write in write_names() {
+        assert_ne!(
+            write,
+            crate::sdk::mount::ARCHI_GENERATE_TOOL,
+            "对拍集不含生成物写"
+        );
+    }
+    // 两起草相位各自独立成立：generate 在 ✓ 且不挂锁 ✓，但 generate 的存在不出现在任何
+    // 对拍判据的计算里（matrices 全组合上「含 generate」≠「不挂锁」的充要关系不成立）
+    let generate = crate::sdk::mount::ARCHI_GENERATE_TOOL;
+    let mut generate_and_locked = Vec::new();
+    for phase in ["proposal", "dev-design", "implement", "test-design"] {
+        for role in ["executor", "evaluator"] {
+            let names = archi_matrix(phase, role).unwrap_or_default();
+            if names.contains(&generate) {
+                let locked = super::model_write_lock(&SessionProvenance {
+                    source: "change".to_owned(),
+                    source_ref: Some(format!("chg-1/{phase}/{role}/1")),
+                })
+                .is_some();
+                if locked {
+                    generate_and_locked.push(format!("{phase}/{role}"));
+                }
+            }
+        }
+    }
+    assert!(
+        generate_and_locked.is_empty(),
+        "生成物写只落在不挂锁的两起草相位（不是对拍关系的产物）：{generate_and_locked:?}"
+    );
+}
+
+/// 异常（反向两方向）：① 无「矩阵给模型写工具但挂锁」；② 无「不挂锁但零模型写工具」。
+/// MUST NOT 通过把 generate 下发给 implement 或从起草相位撤掉来凑对拍。
+#[test]
+fn 同集不变式双向断言() {
+    use super::{archi_matrix, model_write_lock};
+
+    for phase in [
+        "proposal",
+        "dev-design",
+        "test-design",
+        "implement",
+        "code-review",
+        "acceptance",
+        "test-gen",
+        "test-execution",
+        "archive",
+        "initialize",
+        "code-analyze",
+        "unknown-phase",
+    ] {
+        for role in ["executor", "evaluator"] {
+            let names = archi_matrix(phase, role).unwrap_or_default();
+            let has_model_write = write_names().iter().any(|write| names.contains(write));
+            let unlocked = model_write_lock(&SessionProvenance {
+                source: "change".to_owned(),
+                source_ref: Some(format!("chg-1/{phase}/{role}/1")),
+            })
+            .is_none();
+            assert!(
+                !(has_model_write && !unlocked),
+                "{phase}/{role}：矩阵给模型写工具但挂锁（错配一）"
+            );
+            assert!(
+                !(unlocked && !has_model_write),
+                "{phase}/{role}：不挂锁但零模型写工具（错配二）"
+            );
+        }
+    }
+
+    // 生成物写的下发面不因对拍被挪动：implement 仍零 generate，两起草相位仍在
+    assert!(
+        !archi_matrix("implement", "executor")
+            .unwrap_or_default()
+            .contains(&crate::sdk::mount::ARCHI_GENERATE_TOOL),
+        "implement 仍零生成物写（不为凑对拍而扩面）"
+    );
+    for phase in ["proposal", "dev-design"] {
+        assert!(
+            archi_matrix(phase, "executor")
+                .unwrap_or_default()
+                .contains(&crate::sdk::mount::ARCHI_GENERATE_TOOL),
+            "{phase}/executor 仍有生成物写（不为凑对拍而撤掉）"
+        );
+    }
+}
+
+// ===========================================================================
+// 本变更：写面判定行为（相位锁端到端，模型串 / 契约串各司其职）
+// ===========================================================================
+
+/// 相位锁端到端底座：`ProtectRules::load(None)` + 装配面产出的会话规则。
+fn phase_lock_rules(provenance: &SessionProvenance) -> crate::sdk::protect::ProtectRules {
+    let injections = super::assemble_injections(provenance).expect("装配应成功");
+    crate::sdk::protect::ProtectRules::load(None).with_session(injections.protect)
+}
+
+/// 正向（AC-7）：`<id>/implement/executor/1` 会话以 `write` / `edit` 落
+/// `<archi_dir>/models/<分层…>/<叶段>.schema.json` 与同名 `.md` ⇒ 一律拒，拒串取**契约串**
+/// （含路径、`%t`、「实现相位只实现契约、不改契约」、三条出路、不得绕过）；archi 臂与两起草
+/// 相位 ⇒ `evaluate` 返回 `None` 放行。
+#[test]
+fn 相位锁端到端拒契约写且起草相位放行() {
+    let root = std::path::Path::new("/repo");
+    let models = foundation::layout::archi_models_rel_dir();
+    let schema = format!("/repo/{models}/App/Auth.schema.json");
+    let doc = format!("/repo/{models}/App/Auth.md");
+
+    let rules = phase_lock_rules(&SessionProvenance {
+        source: "change".to_owned(),
+        source_ref: Some("chg-1/implement/executor/1".to_owned()),
+    });
+    for tool in ["write", "edit"] {
+        for path in [&schema, &doc] {
+            let reason = rules
+                .evaluate(tool, &serde_json::json!({ "path": path }), root)
+                .unwrap_or_else(|| panic!("{tool} 落 {path} 应被拒"));
+            for piece in [
+                path.as_str(),
+                "接口定义（.schema.json）与模块文档（.md）",
+                "实现相位只实现契约、不改契约",
+                "契约对就改代码追上它",
+                "backtrack 回到 dev-design 修订",
+                "或请用户改用架构页会话直接维护",
+                "不要改用其他命令或工具尝试绕过",
+                tool,
+            ] {
+                assert!(reason.contains(piece), "拒串含 `{piece}`：{reason}");
+            }
+            assert!(
+                !reason.contains("%s") && !reason.contains("%t"),
+                "占位已替换：{reason}"
+            );
+        }
+    }
+
+    // 放行格：archi 臂与两起草相位
+    for (source, source_ref) in [
+        ("archi", None),
+        ("change", Some("chg-1/proposal/executor/1")),
+        ("change", Some("chg-1/dev-design/executor/1")),
+    ] {
+        let rules = phase_lock_rules(&SessionProvenance {
+            source: source.to_owned(),
+            source_ref: source_ref.map(str::to_owned),
+        });
+        for path in [&schema, &doc] {
+            assert!(
+                rules
+                    .evaluate("write", &serde_json::json!({ "path": path }), root)
+                    .is_none(),
+                "{source} / {source_ref:?} 应放行 {path}"
+            );
+        }
+    }
+}
+
+/// 边界（AC-8 分离面）：同轮写 `<archi_dir>/graph/INDEX.toml`、`<archi_dir>/config.json`、
+/// `.i.rs` / `.i.ts` ⇒ 全部放行；模型目录同轮仍被拒且取**模型串**（两串不互换、不拼接）。
+#[test]
+fn 相位锁分离生成物与模型面() {
+    let root = std::path::Path::new("/repo");
+    let rules = phase_lock_rules(&SessionProvenance {
+        source: "change".to_owned(),
+        source_ref: Some("chg-1/implement/executor/1".to_owned()),
+    });
+
+    for relative in [
+        format!("{}/INDEX.toml", foundation::layout::archi_graph_rel_dir()),
+        format!("{}/config.json", foundation::layout::archi_rel_dir()),
+        "crates/api/src/lib.i.rs".to_owned(),
+        "crates/api/src/lib.i.ts".to_owned(),
+    ] {
+        assert!(
+            rules
+                .evaluate(
+                    "write",
+                    &serde_json::json!({ "path": format!("/repo/{relative}") }),
+                    root
+                )
+                .is_none(),
+            "生成物 / 配置放行：{relative}"
+        );
+    }
+
+    let model_reason = rules
+        .evaluate(
+            "write",
+            &serde_json::json!({
+                "path": format!(
+                    "/repo/{}/01-core.toml",
+                    foundation::layout::archi_graph_model_rel_dir()
+                )
+            }),
+            root,
+        )
+        .expect("模型目录仍被拒");
+    assert!(
+        model_reason.contains("架构模型") && model_reason.contains("元素与关系"),
+        "模型面取模型串：{model_reason}"
+    );
+    assert!(
+        !model_reason.contains(".schema.json"),
+        "模型串不掺契约措辞：{model_reason}"
+    );
+}
+
+/// 异常：两串彻底不同（逐字 `assert_ne!`），且 `%s` / `%t` 全量替换后无占位符残留；系统通知
+/// 载荷与 `is_error` 内容为同一串（单串双面：`evaluate` 的返回值即两者来源）。
+#[test]
+fn 两串逐字不同且单串双面() {
+    let model = crate::sdk::protect::session_lock_template();
+    let contract = crate::sdk::protect::contract_lock_template();
+    assert_ne!(model, contract, "两串逐字不同");
+
+    let root = std::path::Path::new("/repo");
+    let rules = phase_lock_rules(&SessionProvenance {
+        source: "change".to_owned(),
+        source_ref: Some("chg-1/implement/executor/1".to_owned()),
+    });
+    let model_reason = rules
+        .evaluate(
+            "write",
+            &serde_json::json!({
+                "path": format!(
+                    "/repo/{}/01-core.toml",
+                    foundation::layout::archi_graph_model_rel_dir()
+                )
+            }),
+            root,
+        )
+        .expect("模型面拒串");
+    let contract_reason = rules
+        .evaluate(
+            "write",
+            &serde_json::json!({
+                "path": format!(
+                    "/repo/{}/App/Auth.schema.json",
+                    foundation::layout::archi_models_rel_dir()
+                )
+            }),
+            root,
+        )
+        .expect("契约面拒串");
+    assert_ne!(model_reason, contract_reason, "两路拒串不互换、不拼接");
+    for reason in [&model_reason, &contract_reason] {
+        assert!(
+            !reason.contains("%s") && !reason.contains("%t"),
+            "全量替换后零占位残留：{reason}"
+        );
+    }
+    // 单串双面：同一 `evaluate` 返回值即通知与 is_error 的共同来源（此处以两次同参调用
+    // 逐字相等取证，零第二份文案拼装）
+    let again = rules
+        .evaluate(
+            "write",
+            &serde_json::json!({
+                "path": format!(
+                    "/repo/{}/App/Auth.schema.json",
+                    foundation::layout::archi_models_rel_dir()
+                )
+            }),
+            root,
+        )
+        .expect("契约面拒串");
+    assert_eq!(again, contract_reason, "同一入参两次调用逐字相等（单串）");
+}
+
+// ===========================================================================
+// 本变更：成因注释与 doc 改写（源码锚）
+// ===========================================================================
+
+/// 正向：`model_write_lock` 成因注释含「判据在 `implement` 内不再可自愈 / 唯一出路是
+/// backtrack」的代价句；旧句「契约资产 md 不锁（`implement/executor` 持有 `archi_api`，改代码
+/// 相位必须能同步契约）」零命中。
+#[test]
+fn 锁函数成因注释记账代价() {
+    let source = include_str!("compose.rs");
+    for piece in ["不再可自愈", "唯一出路", "backtrack"] {
+        assert!(source.contains(piece), "成因注释含代价句 `{piece}`");
+    }
+    assert!(
+        !source.contains("契约资产 md 不锁"),
+        "旧句「契约资产 md 不锁」零命中"
+    );
+    assert!(
+        !source.contains("改代码相位必须能同步契约"),
+        "旧句「改代码相位必须能同步契约」零命中"
+    );
+}
+
+/// 边界：模块头 doc 的 archi 臂「七 archi 名」→「八」、`protect` 位「`Some(一条)`」→
+/// 「`Some(两条)`」与实现一致；矩阵 doc 与向量序一致。
+#[test]
+fn 模块头doc与实现一致() {
+    let source = include_str!("compose.rs");
+    assert!(
+        source.contains("七工具名 + 八 archi 名"),
+        "模块头 archi 臂口径为八名"
+    );
+    assert!(!source.contains("七 archi 名"), "零旧口径「七 archi 名」");
+    assert!(
+        source.contains("`Some(两条：模型 + 契约)`"),
+        "protect 位口径随动为两条"
+    );
+    assert!(!source.contains("`Some(一条)`"), "旧 protect 位口径零命中");
+}
+
+/// 边界（AC-8）：两条会话规则的 glob 零新路径字面量——`compose.rs` 内零 `.dev-team` 字面、
+/// 零 `"models` 形态的裸路径串（全经 `foundation::layout` 派生，与 `TEST_ONLY` 路径口径一致）。
+#[test]
+fn 锁面glob零路径字面量() {
+    let source = include_str!("compose.rs");
+    for literal in [".dev-team", "\"models", "\"graph/model", "architecture/"] {
+        assert!(
+            !source.contains(literal),
+            "锁面 glob 零路径字面量 `{literal}`（全经 layout 派生）"
+        );
+    }
+    assert!(
+        source.contains("foundation::layout::archi_graph_model_rel_dir()")
+            && source.contains("foundation::layout::archi_models_rel_dir()"),
+        "两条 glob 分别经 layout 两派生入口"
+    );
+}
+
+/// 异常（反向）：`model_write_lock` 函数体仍只有一种规则构造表达式形态（
+/// `reason: <template>()` 两处），零第二份文案字面（拒串全取模板出口）。
+#[test]
+fn 锁函数零文案副本() {
+    let source = include_str!("compose.rs");
+    let start = source
+        .find("fn model_write_lock")
+        .expect("model_write_lock 在场");
+    let body = source[start..]
+        .split("\nstruct ResolvedEngine")
+        .next()
+        .expect("函数体收口");
+    assert_eq!(
+        body.matches("reason: crate::sdk::protect::").count(),
+        2,
+        "两处 reason 皆取模板出口：{body}"
+    );
+    for stray in [
+        "该路径受相位锁保护",
+        "接口定义（.schema.json）",
+        "架构模型只允许",
+    ] {
+        assert!(!body.contains(stray), "零第二份文案字面 `{stray}`");
+    }
 }

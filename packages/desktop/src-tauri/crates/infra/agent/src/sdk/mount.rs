@@ -50,7 +50,8 @@ pub(crate) const ARCHI_SEARCH_TOOL: &str = "archi_search";
 
 /// `archi_api` 专用只读工具名（契约面自检：`check` 两轴 / `bootstrap` 草稿）。执行体
 /// 同上；**只读零写盘**——生成物写盘单点对 agent 面不可达（`archi-runtime` 不被
-/// `agent-runtime` 依赖），重生成仍由会话经既有 `bash` 命令完成。
+/// `agent-runtime` 依赖），过期重生成改由专用写工具 [`ARCHI_GENERATE_TOOL`] 经
+/// `core/archi` 的写盘端口委托同一单点完成。
 pub(crate) const ARCHI_API_TOOL: &str = "archi_api";
 
 /// `archi_drift` 专用只读工具名（漂移判据读数：写完模型 / 改完代码后自查覆盖、归属
@@ -68,6 +69,11 @@ pub(crate) const ARCHI_ELEMENT_TOOL: &str = "archi_element";
 
 /// `archi_relation` 专用**写**工具名（单条关系 upsert / delete）。执行体同上。
 pub(crate) const ARCHI_RELATION_TOOL: &str = "archi_relation";
+
+/// `archi_generate` 专用**写**工具名：只写三类生成物（`INDEX.toml` / `.i.rs` /
+/// `.i.ts`），不写模型、不写契约。执行体在 [`crate::sdk::archi_tool`]（渲染 → 逐份写入
+/// 保护 → 写盘端口委托），下发面单源在注入矩阵。
+pub(crate) const ARCHI_GENERATE_TOOL: &str = "archi_generate";
 
 /// 两写工具的入参上限（**数字单点**：schema 键值与执行体 E1 硬闸取自同一组常量，
 /// MUST NOT 在两处各写一份）。
@@ -126,7 +132,8 @@ pub(crate) enum ToolTier {
     /// 只读面（read / grep / glob / ls / archi_module / archi_search / archi_api /
     /// archi_drift / archi_scaffold / propose_config）
     Read,
-    /// 写面（write / edit / create_explore_note / archi_element / archi_relation）
+    /// 写面（write / edit / create_explore_note / archi_element / archi_relation /
+    /// archi_generate）
     Write,
     /// 执行面（bash）
     Execute,
@@ -141,7 +148,7 @@ pub(crate) enum ToolExec {
     Pure,
     /// `create_explore_note`：`LoopTurn.explore_note` 上下文
     ExploreNote,
-    /// 七个 archi 工具（五只读 + 两写）：`LoopTurn.archi` 上下文
+    /// 八个 archi 工具（五只读 + 三写：两模型写 + 一生成物写）：`LoopTurn.archi` 上下文
     Archi,
     /// 两个 DB 只读工具：`LoopTurn.db` 上下文（两工具共用一个执行体，工具名
     /// 由 loop 侧传入——与 `Archi` 同形）
@@ -167,20 +174,20 @@ pub(crate) struct ToolMount {
 /// 构造）。
 static REGISTRY: OnceLock<Vec<ToolMount>> = OnceLock::new();
 
-/// 十八项静态挂载清单（唯一工具事实源）。**前七项仍是七内建**——`tools: None`
+/// 十九项静态挂载清单（唯一工具事实源）。**前七项仍是七内建**——`tools: None`
 /// 的语义载体（[`definitions`] 直接取前七项）。
 pub(crate) fn registry() -> &'static [ToolMount] {
     REGISTRY.get_or_init(build_registry)
 }
 
-/// 十八个字面构造项按序：七内建（Read ×4 / Write ×2 / Execute ×1 + `Pure`）→
+/// 十九个字面构造项按序：七内建（Read ×4 / Write ×2 / Execute ×1 + `Pure`）→
 /// `create_explore_note`（Write / `ExploreNote`）→ 五 archi 只读（Read / `Archi`）
-/// → 两 archi 写（Write / `Archi`，定义见 [`archi_element_definition`] /
-/// [`archi_relation_definition`]）→ 两 DB 只读（Read / `Db`，定义见
-/// [`db_tables_definition`] / [`db_query_definition`]）→ `propose_config`（Read /
+/// → 三 archi 写（Write / `Archi`，定义见 [`archi_element_definition`] /
+/// [`archi_relation_definition`] / [`archi_generate_definition`]）→ 两 DB 只读（Read / `Db`，
+/// 定义见 [`db_tables_definition`] / [`db_query_definition`]）→ `propose_config`（Read /
 /// `Config`，定义见 [`crate::sdk::config_propose::definition`]）。
 fn build_registry() -> Vec<ToolMount> {
-    let mut mounts: Vec<ToolMount> = Vec::with_capacity(18);
+    let mut mounts: Vec<ToolMount> = Vec::with_capacity(19);
     for name in TOOL_NAMES {
         mounts.push(ToolMount {
             definition: generic_definition(name),
@@ -229,6 +236,11 @@ fn build_registry() -> Vec<ToolMount> {
     });
     mounts.push(ToolMount {
         definition: archi_relation_definition(),
+        tier: ToolTier::Write,
+        exec: ToolExec::Archi,
+    });
+    mounts.push(ToolMount {
+        definition: archi_generate_definition(),
         tier: ToolTier::Write,
         exec: ToolExec::Archi,
     });
@@ -384,7 +396,7 @@ fn archi_api_definition() -> ToolDefinition {
             "write 落盘并过写闸）与文档骨架（只有 H1 与一句指引），新建 / 补接口的第一步就取它；",
             "`link` 算一条 `$ref` 串（跨元素给 from + to + name、本文件给 element + name），",
             "MUST NOT 手拼 `../` 层数。三个动作都零写盘。",
-            "生成物三类：架构域 `INDEX.toml`、入口同级 `.i.rs` / `.i.ts`——过期用既有生成命令重生成，",
+            "生成物三类：架构域 `INDEX.toml`、入口同级 `.i.rs` / `.i.ts`——过期调 `archi_generate` 重生成，",
             "MUST NOT 手改生成物（`.schema.json` 是手写真相，不是生成物）。",
             "`check` 的 `artifacts.enabled = false` 即接口面未启用（此时 `findings` 恒空，",
             "不等于零问题）。模型结构错时返回诊断清单（先修模型）"
@@ -637,6 +649,35 @@ fn archi_relation_definition() -> ToolDefinition {
                 }
             },
             "required": ["action", "from", "to"]
+        }),
+    }
+}
+
+/// `archi_generate` 定义（无参数：root 取 per-turn 会话 cwd）。
+///
+/// 五句描述针对五类误用：① 用法与响应三字段（幂等）+ ② 零产出三成因不是失败 +
+/// ③ 孤儿永不删除、`orphaned` 非空属常态 + ④ 覆盖同名 `<入口主干>.i.*` 的风险与
+/// `git status` 止损 + ⑤ `conflicts` 非空的处置（报告用户、不得换路）。零本仓命令名
+/// （生成命令归属各仓文档面）、零「`.schema.json` 是生成物」表述。
+fn archi_generate_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: ARCHI_GENERATE_TOOL.to_owned(),
+        description: concat!(
+            "按当前模型的契约渲染并写入三类生成物（架构域 `INDEX.toml`、入口同级 `.i.rs` / `.i.ts`）：",
+            "幂等（字节相同即不重写、`mtime` 不动），无参数（root 取本会话 cwd），",
+            "返回 `{ written, unchanged, conflicts }`。",
+            "入口未解析 / 接口面留白（`$defs` 与 `properties` 皆空）/ 未写 `.schema.json` 的元素",
+            "不产生生成物——零产出是正常，不是失败。",
+            "生成器从不删除孤儿生成物，`orphaned` 非空属常态；MUST NOT 为了清空它去手改生成物。",
+            "生成会覆盖同名 `<入口主干>.i.*`（含手写文件）：调用前先 `git status` 确认工作树干净，",
+            "以便意外可 `git restore` 回滚。",
+            "`conflicts` 非空即被写入保护拒绝、整批零写盘；把冲突（路径 + reason）报告给用户处置，",
+            "MUST NOT 换工具重试、MUST NOT 手改生成物绕过"
+        )
+        .to_owned(),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {}
         }),
     }
 }

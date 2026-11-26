@@ -27,6 +27,7 @@ use vcs_runtime::ProcessArchiveVcs;
 use workflow::state::ChangeStateStore;
 use workflow::write::{phase_table, SessionAnchors};
 
+use crate::commands::archi::ArchiArtifactWriter;
 use crate::commands::notifications::{NotificationBridge, NotificationBus};
 
 /// 归档停止点相位名（归档为独立手动执行门：run 走完全部前序路由相位（requirement
@@ -206,6 +207,8 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         // MUST NOT 传 `exec_root` / worktree 路径
         Path::new(&root),
         Some(Arc::clone(&ask_port)),
+        // 生成物写盘端口：写盘单点的唯一实现，本处是 change 流程相位会话的注入点
+        Some(Arc::new(ArchiArtifactWriter) as Arc<dyn archi::ArtifactWriter>),
     )?;
     let worker: Arc<dyn WorkerAgentPort> = Arc::new(KernelWorkerPort::new(composed, sink));
     let anchors = Arc::new(SessionAnchors::new());

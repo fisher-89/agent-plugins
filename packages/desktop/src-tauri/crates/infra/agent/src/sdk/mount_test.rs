@@ -1,4 +1,4 @@
-//! `mount.rs`（工具挂载单源）的单元测试：十八项静态清单 / 名字查表 / 非法名
+//! `mount.rs`（工具挂载单源）的单元测试：十九项静态清单 / 名字查表 / 非法名
 //! `Err` / `finish` 位置位铸造 / `lookup` 单点 / 夹具形态 / 类型派生面。
 //!
 //! 不 mock：`registry()` / `definitions` / `lookup` 全为进程内纯函数
@@ -12,14 +12,14 @@ use archi::dto::{ApiStatus, ElementKind, GateTier};
 use crate::sdk::archi_tool::ArchiContext;
 use crate::sdk::mount::{
     builtin, definitions, injected, injected_finish, lookup, registry, ToolExec, ToolMount,
-    ToolTier, ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_ELEMENT_TOOL, ARCHI_MODULE_TOOL,
-    ARCHI_RELATION_TOOL, ARCHI_SCAFFOLD_TOOL, ARCHI_SEARCH_TOOL, DB_QUERY_TOOL, DB_TABLES_TOOL,
-    EXPLORE_NOTE_TOOL, TOOL_NAMES, WRITE_LIMITS,
+    ToolTier, ARCHI_API_TOOL, ARCHI_DRIFT_TOOL, ARCHI_ELEMENT_TOOL, ARCHI_GENERATE_TOOL,
+    ARCHI_MODULE_TOOL, ARCHI_RELATION_TOOL, ARCHI_SCAFFOLD_TOOL, ARCHI_SEARCH_TOOL, DB_QUERY_TOOL,
+    DB_TABLES_TOOL, EXPLORE_NOTE_TOOL, TOOL_NAMES, WRITE_LIMITS,
 };
 
-/// 十八项名字的期望序（前七恰七内建，五 archi 只读居中，两 archi 写随后，
+/// 十九项名字的期望序（前七恰七内建，五 archi 只读居中，三 archi 写随后，
 /// 末三项为两只只读 DB 工具 + 提案工具）。
-const EXPECTED_NAMES: [&str; 18] = [
+const EXPECTED_NAMES: [&str; 19] = [
     "read",
     "grep",
     "glob",
@@ -35,6 +35,7 @@ const EXPECTED_NAMES: [&str; 18] = [
     "archi_scaffold",
     "archi_element",
     "archi_relation",
+    "archi_generate",
     "db_tables",
     "db_query",
     "propose_config",
@@ -74,19 +75,19 @@ fn stale_stances() -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------
-// 正向：registry 十八项
+// 正向：registry 十九项
 // ---------------------------------------------------------------------------
 
 #[test]
-fn registry十八项名字唯一且有序且前七恰内建() {
+fn registry十九项名字唯一且有序且前七恰内建() {
     let names = names(registry());
-    assert_eq!(names, EXPECTED_NAMES.to_vec(), "十八项名字逐值有序");
-    assert_eq!(names.len(), 18, "十八项");
+    assert_eq!(names, EXPECTED_NAMES.to_vec(), "十九项名字逐值有序");
+    assert_eq!(names.len(), 19, "十九项");
 
     let mut unique = names.clone();
     unique.sort();
     unique.dedup();
-    assert_eq!(unique.len(), 18, "无重复名: {names:?}");
+    assert_eq!(unique.len(), 19, "无重复名: {names:?}");
 
     assert_eq!(
         registry()[..7]
@@ -101,7 +102,7 @@ fn registry十八项名字唯一且有序且前七恰内建() {
 
 #[test]
 fn registry的tier归属逐项对应改造前三张常量表() {
-    let expected: [(&str, ToolTier); 18] = [
+    let expected: [(&str, ToolTier); 19] = [
         ("read", ToolTier::Read),
         ("grep", ToolTier::Read),
         ("glob", ToolTier::Read),
@@ -117,6 +118,7 @@ fn registry的tier归属逐项对应改造前三张常量表() {
         ("archi_scaffold", ToolTier::Read),
         ("archi_element", ToolTier::Write),
         ("archi_relation", ToolTier::Write),
+        ("archi_generate", ToolTier::Write),
         ("db_tables", ToolTier::Read),
         ("db_query", ToolTier::Read),
         ("propose_config", ToolTier::Read),
@@ -128,7 +130,7 @@ fn registry的tier归属逐项对应改造前三张常量表() {
             .unwrap_or_else(|| panic!("挂载清单应含 {name}"));
         assert_eq!(mount.tier, tier, "工具 {name} 的 tier 归属");
     }
-    // 计数面：Read 十二 / Write 五 / Execute 一 / Protocol 零
+    // 计数面：Read 十二 / Write 六 / Execute 一 / Protocol 零
     let count = |tier: ToolTier| registry().iter().filter(|mount| mount.tier == tier).count();
     assert_eq!(
         count(ToolTier::Read),
@@ -137,8 +139,8 @@ fn registry的tier归属逐项对应改造前三张常量表() {
     );
     assert_eq!(
         count(ToolTier::Write),
-        5,
-        "Write 五项（两内建 + 探索笔记 + 两写工具）"
+        6,
+        "Write 六项（两内建 + 探索笔记 + 两模型写 + 一生成物写）"
     );
     assert_eq!(count(ToolTier::Execute), 1, "Execute 一项");
     assert_eq!(
@@ -169,8 +171,11 @@ fn registry的exec归属且finish_step不入静态表() {
         ARCHI_MODULE_TOOL,
         ARCHI_SEARCH_TOOL,
         ARCHI_API_TOOL,
+        ARCHI_DRIFT_TOOL,
+        ARCHI_SCAFFOLD_TOOL,
         ARCHI_ELEMENT_TOOL,
         ARCHI_RELATION_TOOL,
+        ARCHI_GENERATE_TOOL,
     ] {
         assert_eq!(
             registry()
@@ -210,7 +215,7 @@ fn registry的exec归属且finish_step不入静态表() {
 }
 
 #[test]
-fn registry定义面完整十八项定义形状与非空() {
+fn registry定义面完整十九项定义形状与非空() {
     for mount in registry() {
         let definition = &mount.definition;
         assert!(
@@ -606,7 +611,7 @@ fn definitions非法名与finish并存时err优先() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn lookup十八项命中四类未命中() {
+fn lookup十九项命中四类未命中() {
     for name in EXPECTED_NAMES {
         let definition = lookup(name).unwrap_or_else(|| panic!("{name} 应命中"));
         assert_eq!(definition.name, name, "命中项名与入参相等");
@@ -1118,7 +1123,7 @@ fn mount_rs零ask工具名字面量且不在静态清单() {
     );
     assert!(
         !TOOL_NAMES.contains(&"ask_user_question"),
-        "ask_user_question 不在十八项静态清单（按位追加的基线工具）"
+        "ask_user_question 不在十九项静态清单（按位追加的基线工具）"
     );
 }
 
@@ -1127,7 +1132,8 @@ fn mount_rs零ask工具名字面量且不在静态清单() {
 // ---------------------------------------------------------------------------
 
 /// 正向（AC-15 / D14 / AC-1）：`lookup("archi_api")` 命中且 `tier == Read` / `exec == Archi`；
-/// 执行体 `ToolExec::Archi` 的成员恰七工具（五只读 + 两写），分发臂在 loop 侧单处。
+/// 执行体 `ToolExec::Archi` 的成员恰八工具（五只读 + 三写：两模型写 + 一生成物写），分发臂在
+/// loop 侧单处。
 #[test]
 fn archi_api的档位与执行路由() {
     let mount = registry()
@@ -1138,7 +1144,7 @@ fn archi_api的档位与执行路由() {
     assert_eq!(mount.exec, ToolExec::Archi, "执行路由 Archi");
     assert_eq!(ARCHI_API_TOOL, "archi_api", "常量值");
 
-    // 执行路由面：恰七工具走 `ToolExec::Archi`（名字清单即七常量），
+    // 执行路由面：恰八工具走 `ToolExec::Archi`（名字清单即八常量），
     // 分发臂在 loop 侧按执行体路由（零按名分支）
     let archi_mounts: Vec<&str> = registry()
         .iter()
@@ -1155,8 +1161,9 @@ fn archi_api的档位与执行路由() {
             ARCHI_SCAFFOLD_TOOL,
             ARCHI_ELEMENT_TOOL,
             ARCHI_RELATION_TOOL,
+            ARCHI_GENERATE_TOOL,
         ],
-        "`ToolExec::Archi` 的成员恰七工具（序即静态表序）"
+        "`ToolExec::Archi` 的成员恰八工具（序即静态表序）"
     );
 
     let loop_source = source_of("src/sdk/loop.rs");
@@ -1926,24 +1933,34 @@ fn 提案工具在末项且档位与路由与定义同源() {
     );
 }
 
-/// 边界：源码结构锚——`Vec::with_capacity(18)` 恰一处、两段 doc 的「十八项」在场。
+/// 边界：源码结构锚——`Vec::with_capacity(19)` 恰一处、两段 doc 的「十九项」在场。
 #[test]
 fn 提案工具挂载面的源码结构锚() {
     let source = source_of("src/sdk/mount.rs");
     assert_eq!(
-        source.matches("Vec::with_capacity(18)").count(),
+        source.matches("Vec::with_capacity(19)").count(),
         1,
         "构造容量随末项随动（恰一处）"
     );
     assert_eq!(
-        source.matches("十八项静态挂载清单").count(),
-        1,
-        "registry 段 doc 的「十八项静态挂载清单」在场"
+        source.matches("with_capacity(18)").count(),
+        0,
+        "旧容量字面零命中"
     );
     assert_eq!(
-        source.matches("十八个字面构造项按序").count(),
+        source.matches("十九项静态挂载清单").count(),
         1,
-        "build_registry 段 doc 的项数随动（十八个字面构造项）"
+        "registry 段 doc 的「十九项静态挂载清单」在场"
+    );
+    assert_eq!(
+        source.matches("十九个字面构造项按序").count(),
+        1,
+        "build_registry 段 doc 的项数随动（十九个字面构造项）"
+    );
+    assert_eq!(
+        source.matches("十八项").count(),
+        0,
+        "旧项数措辞「十八项」零命中"
     );
     assert_eq!(
         source.matches("PROPOSE_CONFIG_TOOL").count(),
@@ -2469,7 +2486,7 @@ fn scaffold文档句改写() {
     );
 }
 
-/// 边界（矩阵 2 形态）：未知名查空（`archi_elementx` / 空串）且十八项名字零重复登记。
+/// 边界（矩阵 2 形态）：未知名查空（`archi_elementx` / 空串）且十九项名字零重复登记。
 #[test]
 fn 未知名查空且零重复() {
     for unknown in ["archi_elementx", "", "archi_relation ", "Archi_Element"] {
@@ -2479,7 +2496,7 @@ fn 未知名查空且零重复() {
     let mut unique = all.clone();
     unique.sort();
     unique.dedup();
-    assert_eq!(unique.len(), all.len(), "十八项零重复登记：{all:?}");
+    assert_eq!(unique.len(), all.len(), "十九项零重复登记：{all:?}");
 }
 
 /// 正向（AC-6 / C12）：`archi_module` 描述面的三资产三句在场——① 三份资产一次给全且三段
@@ -2644,4 +2661,542 @@ fn 旧句零正面表述() {
             "描述面零「重排」措辞：{description}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`archi_generate` 挂载面（档位 / 执行体 / 定义 / 连续成组与插入位）
+// ---------------------------------------------------------------------------
+
+/// `archi_generate` 的挂载项（静态表真值，零替身）。
+fn generate_mount() -> &'static ToolMount {
+    registry()
+        .iter()
+        .find(|mount| mount.definition.name == ARCHI_GENERATE_TOOL)
+        .unwrap_or_else(|| panic!("{ARCHI_GENERATE_TOOL} 应在挂载清单内"))
+}
+
+/// 生成物写工具在清单内的下标（插入位与连续性的判据锚）。
+fn generate_index() -> usize {
+    registry()
+        .iter()
+        .position(|mount| mount.definition.name == ARCHI_GENERATE_TOOL)
+        .expect("生成物写工具在表内")
+}
+
+/// 正向：该挂载项 `tier == ToolTier::Write`、`exec == ToolExec::Archi`——与 `write` /
+/// `edit` / 两模型写同档（写档的准入读数由 policy 单点给出：`default` 拒、其余两档放行）。
+#[test]
+fn 生成物写工具写档且archi执行体() {
+    let mount = generate_mount();
+    assert_eq!(ARCHI_GENERATE_TOOL, "archi_generate", "常量值单点");
+    assert_eq!(mount.tier, ToolTier::Write, "生成物写属写档");
+    assert_eq!(mount.exec, ToolExec::Archi, "走 archi 执行体");
+
+    use agent::AgentPermissionMode;
+
+    use crate::sdk::policy;
+
+    let readings = [
+        AgentPermissionMode::Default,
+        AgentPermissionMode::AcceptEdits,
+        AgentPermissionMode::BypassPermissions,
+    ]
+    .map(|mode| policy::allows(mode, mount.tier));
+    assert_eq!(readings, [false, true, true], "写档三档读数（default 拒）");
+
+    for name in ["write", "edit", ARCHI_ELEMENT_TOOL, ARCHI_RELATION_TOOL] {
+        let peer = registry()
+            .iter()
+            .find(|mount| mount.definition.name == name)
+            .unwrap_or_else(|| panic!("{name} 在表内"));
+        assert_eq!(peer.tier, mount.tier, "{name} 与生成物写同档");
+    }
+}
+
+/// 边界：五 archi 只读项档位逐字不变（全 `Read`）、两模型写仍 `Write`；`ToolExec::Archi`
+/// 成员由七项变八项，其余分类（`Pure` / `ExploreNote` / `Db` / `Config`）成员数不变。
+#[test]
+fn 生成物写工具不扰动其余档位与执行体分类() {
+    for name in [
+        ARCHI_MODULE_TOOL,
+        ARCHI_SEARCH_TOOL,
+        ARCHI_API_TOOL,
+        ARCHI_DRIFT_TOOL,
+        ARCHI_SCAFFOLD_TOOL,
+    ] {
+        let mount = registry()
+            .iter()
+            .find(|mount| mount.definition.name == name)
+            .expect("只读 archi 工具在表内");
+        assert_eq!(mount.tier, ToolTier::Read, "{name} 仍 Read");
+    }
+    for name in [ARCHI_ELEMENT_TOOL, ARCHI_RELATION_TOOL] {
+        let mount = registry()
+            .iter()
+            .find(|mount| mount.definition.name == name)
+            .expect("模型写在表内");
+        assert_eq!(mount.tier, ToolTier::Write, "{name} 仍 Write");
+    }
+
+    let count = |exec: ToolExec| registry().iter().filter(|mount| mount.exec == exec).count();
+    assert_eq!(count(ToolExec::Archi), 8, "Archi 成员八项（七 → 八）");
+    assert_eq!(count(ToolExec::Pure), 7, "Pure 成员数不变");
+    assert_eq!(count(ToolExec::ExploreNote), 1, "ExploreNote 成员数不变");
+    assert_eq!(count(ToolExec::Db), 2, "Db 成员数不变");
+    assert_eq!(count(ToolExec::Config), 1, "Config 成员数不变");
+}
+
+/// 异常（反向锚）：该名不得落 `Read`（`archi_api` 仍 `Read`，两者不同臂）、不得落
+/// `Protocol`（收口 / ask 位专属）。
+#[test]
+fn 生成物写工具不落只读与协议臂() {
+    let mount = generate_mount();
+    assert_ne!(mount.tier, ToolTier::Read, "写工具不得落只读臂");
+    assert_ne!(mount.tier, ToolTier::Protocol, "不得落协议臂（收口专属）");
+    let api = registry()
+        .iter()
+        .find(|mount| mount.definition.name == ARCHI_API_TOOL)
+        .expect("archi_api 在表内");
+    assert_eq!(api.tier, ToolTier::Read, "archi_api 仍只读");
+    assert_ne!(api.tier, mount.tier, "只读与生成物写分属两臂");
+    assert!(
+        !registry()
+            .iter()
+            .any(|mount| mount.tier == ToolTier::Protocol),
+        "静态表零 Protocol 成员"
+    );
+}
+
+/// 正向：`lookup("archi_generate")` 的 `parameters` 为 `{"type":"object","properties":{}}`
+/// （零属性、零 `required` 键）；描述五句逐句在场——① 用法与三字段 + 幂等 + 无参数；
+/// ② 零产出三成因 + 「零产出是正常，不是失败」；③ 孤儿永不删除 + `orphaned` 非空属常态；
+/// ④ 覆盖同名 `<入口主干>.i.*` + 调用前先 `git status`；⑤ `conflicts` 非空即整批零写盘。
+#[test]
+fn 生成物写工具定义零属性且五句齐备() {
+    let definition = lookup(ARCHI_GENERATE_TOOL).expect("定义在案");
+    assert_eq!(
+        definition.parameters,
+        serde_json::json!({ "type": "object", "properties": {} }),
+        "零属性（无参数：root 取会话 cwd）"
+    );
+    assert!(
+        definition.parameters.get("required").is_none(),
+        "零 `required` 键：{}",
+        definition.parameters
+    );
+
+    let description = &definition.description;
+    for piece in [
+        // ① 用法与三字段 + 幂等 + 无参数
+        "written, unchanged, conflicts",
+        "幂等",
+        "mtime",
+        "无参数",
+        "root 取本会话 cwd",
+        // ② 零产出三成因不是失败
+        "入口未解析",
+        "接口面留白",
+        ".schema.json",
+        "零产出是正常，不是失败",
+        // ③ 孤儿永不删除
+        "从不删除孤儿生成物",
+        "`orphaned` 非空属常态",
+        "MUST NOT 为了清空它去手改生成物",
+        // ④ 覆盖风险与 git 止损
+        "生成会覆盖同名",
+        ".i.*",
+        "`git status`",
+        "`git restore` 回滚",
+        // ⑤ 冲突处置
+        "conflicts",
+        "整批零写盘",
+        "报告给用户处置",
+        "MUST NOT 换工具重试",
+    ] {
+        assert!(
+            description.contains(piece),
+            "描述含要点 `{piece}`：{description}"
+        );
+    }
+}
+
+/// 边界：描述零本仓命令名（`api:export` / `pnpm` / `bindings:export` 一类零命中）；
+/// `.schema.json` 出现处均与「未写 / 手写 / 不是生成物」同句（MUST NOT 说成生成物）；三类
+/// 生成物点名齐备（`INDEX.toml` / `.i.rs` / `.i.ts`）。
+#[test]
+fn 生成物写工具描述零本仓命令名与schema同句纪律() {
+    let definition = lookup(ARCHI_GENERATE_TOOL).expect("定义在案");
+    let description = &definition.description;
+    for command in [
+        "api:export",
+        "pnpm",
+        "bindings:export",
+        "api:check",
+        "cargo run",
+    ] {
+        assert!(
+            !description.contains(command),
+            "描述零本仓命令名 `{command}`：{description}"
+        );
+    }
+    for sentence in description
+        .split('。')
+        .filter(|sentence| sentence.contains(".schema.json"))
+    {
+        assert!(
+            ["未写", "手写", "不是生成物"]
+                .iter()
+                .any(|piece| sentence.contains(piece)),
+            "`.schema.json` 所在句须与「未写 / 手写 / 不是生成物」同句：{sentence}"
+        );
+    }
+    for kind in ["INDEX.toml", ".i.rs", ".i.ts"] {
+        assert!(
+            description.contains(kind),
+            "三类生成物点名 `{kind}`：{description}"
+        );
+    }
+}
+
+/// 异常（反向禁句）：描述内零「MUST NOT 存在专用写生成物工具」一类旧绝对句、零「本仓」/
+/// 「生成命令」死指代；该名不进 `TOOL_NAMES` 七通用封闭集（长度与逐值不变）。
+#[test]
+fn 生成物写工具描述零旧绝对句且不入通用封闭集() {
+    let definition = lookup(ARCHI_GENERATE_TOOL).expect("定义在案");
+    let description = &definition.description;
+    for stale in [
+        ["MUST NOT 存在", "专用写"].concat().as_str(),
+        "无专用写工具",
+        "不设专用写工具",
+        "本仓",
+        "生成命令",
+        "重排文件",
+    ] {
+        assert!(
+            !description.contains(stale),
+            "描述零旧绝对句 / 死指代 `{stale}`：{description}"
+        );
+    }
+    assert_eq!(TOOL_NAMES.len(), 7, "七通用封闭集长度不变");
+    assert_eq!(
+        TOOL_NAMES.to_vec(),
+        vec!["read", "grep", "glob", "ls", "write", "edit", "bash"],
+        "七通用封闭集逐值不变"
+    );
+    assert!(
+        !TOOL_NAMES.contains(&ARCHI_GENERATE_TOOL),
+        "生成物写不属七通用封闭集"
+    );
+}
+
+/// 正向：`registry()` 中 archi 八项在序列上连续（无 DB / config 项插入其间）：连续区间
+/// 长度 8、首项 `archi_module`、末项 `archi_generate`。
+#[test]
+fn archi八项连续成组且首尾() {
+    let all = names(registry());
+    let first = all
+        .iter()
+        .position(|name| name == ARCHI_MODULE_TOOL)
+        .expect("首项在案");
+    let archi: Vec<&str> = all[first..]
+        .iter()
+        .take_while(|name| name.starts_with("archi_"))
+        .map(String::as_str)
+        .collect();
+    assert_eq!(archi.len(), 8, "连续区间长度 8：{archi:?}");
+    assert_eq!(archi.first(), Some(&ARCHI_MODULE_TOOL), "首项 archi_module");
+    assert_eq!(
+        archi.last(),
+        Some(&ARCHI_GENERATE_TOOL),
+        "末项 archi_generate"
+    );
+    assert_eq!(
+        archi,
+        vec![
+            ARCHI_MODULE_TOOL,
+            ARCHI_SEARCH_TOOL,
+            ARCHI_API_TOOL,
+            ARCHI_DRIFT_TOOL,
+            ARCHI_SCAFFOLD_TOOL,
+            ARCHI_ELEMENT_TOOL,
+            ARCHI_RELATION_TOOL,
+            ARCHI_GENERATE_TOOL,
+        ],
+        "八项按序"
+    );
+}
+
+/// 边界：插入位 = `archi_relation` 之后、`db_tables` 之前；`definitions(Some(names))` 按
+/// 清单序过滤时新名随位次出线（序即 `RunStarted.tools` 序）。
+#[test]
+fn archi八项插入位在relation之后db之前() {
+    let all = names(registry());
+    let index_of = |name: &str| {
+        all.iter()
+            .position(|candidate| candidate == name)
+            .unwrap_or_else(|| panic!("{name} 在表内"))
+    };
+    assert_eq!(
+        index_of(ARCHI_GENERATE_TOOL),
+        index_of(ARCHI_RELATION_TOOL) + 1,
+        "紧随 archi_relation"
+    );
+    assert_eq!(
+        index_of(DB_TABLES_TOOL),
+        index_of(ARCHI_GENERATE_TOOL) + 1,
+        "紧接 db_tables"
+    );
+
+    // 下发面：入参序不生效，序恒随静态清单序（生成物写落在 archi 段末、DB 段前）
+    let mounts = definitions(
+        &injected_ask(
+            &[
+                DB_QUERY_TOOL,
+                ARCHI_GENERATE_TOOL,
+                ARCHI_MODULE_TOOL,
+                DB_TABLES_TOOL,
+            ],
+            None,
+            None,
+        ),
+        "",
+    )
+    .expect("名字清单合法");
+    assert_eq!(
+        names(&mounts),
+        vec![
+            ARCHI_MODULE_TOOL.to_owned(),
+            ARCHI_GENERATE_TOOL.to_owned(),
+            DB_TABLES_TOOL.to_owned(),
+            DB_QUERY_TOOL.to_owned(),
+        ],
+        "下发序 = 静态清单序（生成物写在 archi 段末、DB 段前）"
+    );
+}
+
+/// 异常（反向）：不得落在七内建之前（`definitions(tools: None)` 仍取前七项）；不得落在
+/// `propose_config` 之后（末项单一性）。
+#[test]
+fn archi八项不落内建段与提案之后() {
+    let index = generate_index();
+    assert!(index >= 7, "不得落在七内建之前（下标 {index}）");
+    let all = names(registry());
+    assert_eq!(
+        all.last().map(String::as_str),
+        Some(crate::sdk::config_propose::PROPOSE_CONFIG_TOOL),
+        "末项仍是提案工具"
+    );
+    assert!(
+        index < all.len() - 1,
+        "不得落在 propose_config 之后（下标 {index}）"
+    );
+
+    // `tools: None` 语义载体仍是前七项（内建七件）
+    let builtin_only = definitions(
+        &SessionInjections {
+            preamble: None,
+            tools: None,
+            finish: None,
+            ask: None,
+            protect: None,
+            before_done: None,
+        },
+        "",
+    )
+    .expect("tools: None 合法");
+    assert_eq!(
+        names(&builtin_only),
+        TOOL_NAMES.to_vec(),
+        "`tools: None` 仍取前七项（新名不侵入内建段）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`archi_api` 描述换指（生成物过期调 `archi_generate` 重生成）
+// ---------------------------------------------------------------------------
+
+/// 正向：`lookup("archi_api")` 描述第 ③ 句含 `archi_generate`（「过期调 `archi_generate`
+/// 重生成」）与「MUST NOT 手改生成物」，三类生成物点名仍在。
+#[test]
+fn archi_api描述换指生成物写工具() {
+    let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
+    let description = &definition.description;
+    let sentence = description
+        .split('。')
+        .find(|sentence| sentence.contains("生成物三类"))
+        .unwrap_or_else(|| panic!("描述缺第 ③ 句：{description}"));
+    assert!(
+        sentence.contains("archi_generate") && sentence.contains("重生成"),
+        "第 ③ 句换指专用写工具：{sentence}"
+    );
+    assert!(
+        sentence.contains("MUST NOT 手改生成物"),
+        "手改禁令仍在同句：{sentence}"
+    );
+    for kind in ["INDEX.toml", ".i.rs", ".i.ts"] {
+        assert!(
+            sentence.contains(kind),
+            "三类生成物点名 `{kind}`：{sentence}"
+        );
+    }
+}
+
+/// 边界：描述内零「既有生成命令」/「本仓的生成命令」字面；`archi_api` 仍
+/// `ToolTier::Read` 且换指后零写盘条款仍在。
+#[test]
+fn archi_api描述零旧生成命令措辞且仍只读() {
+    let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
+    for stale in ["既有生成命令", "本仓的生成命令", "既有命令"] {
+        assert!(
+            !definition.description.contains(stale),
+            "描述零旧指代 `{stale}`：{}",
+            definition.description
+        );
+    }
+    let mount = registry()
+        .iter()
+        .find(|mount| mount.definition.name == ARCHI_API_TOOL)
+        .expect("archi_api 在表内");
+    assert_eq!(mount.tier, ToolTier::Read, "换指不改档位");
+    assert!(
+        definition.description.contains("三个动作都零写盘"),
+        "零写盘条款仍在：{}",
+        definition.description
+    );
+}
+
+/// 异常：`.schema.json` 仍被明写为手写真相（不得因换指变成生成物）；三动作封闭
+/// （`check` / `bootstrap` / `link`）enum 与 `required: ["action"]` 逐字不变（零第 4 动作）。
+#[test]
+fn archi_api换指不改手写真相与动作封闭() {
+    let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
+    assert!(
+        definition.description.contains("手写真相"),
+        "`.schema.json` 仍写作手写真相：{}",
+        definition.description
+    );
+    assert!(
+        definition.description.contains("不是生成物"),
+        "明写它不是生成物：{}",
+        definition.description
+    );
+    assert_eq!(
+        definition.parameters["properties"]["action"]["enum"],
+        serde_json::json!(["check", "bootstrap", "link"]),
+        "三动作封闭（零第 4 动作）"
+    );
+    assert_eq!(
+        definition.parameters["required"],
+        serde_json::json!(["action"]),
+        "仅 action 必填"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：源码锚（计数、doc 措辞与名字字面单点）
+// ---------------------------------------------------------------------------
+
+/// 正向：`include_str!("mount.rs")`——`Vec::with_capacity(19)` 恰一处、`with_capacity(18)`
+/// 零命中；两段 doc 的「十九项静态挂载清单」「十九个字面构造项」在场、含「十八项」者零命中。
+#[test]
+fn 源码锚计数与doc措辞随动() {
+    let source = include_str!("mount.rs");
+    assert_eq!(
+        source.matches("Vec::with_capacity(19)").count(),
+        1,
+        "构造容量恰一处"
+    );
+    assert_eq!(
+        source.matches("with_capacity(18)").count(),
+        0,
+        "旧容量零命中"
+    );
+    for piece in ["十九项静态挂载清单", "十九个字面构造项按序"] {
+        assert!(source.contains(piece), "doc 措辞随动：`{piece}`");
+    }
+    assert_eq!(source.matches("十八项").count(), 0, "零旧项数措辞");
+    assert_eq!(source.matches("十八个字面").count(), 0, "零旧构造项数措辞");
+}
+
+/// 边界：`ToolTier::Write` doc 名单含 `archi_generate`（三写：两模型写 + 一生成物写）、
+/// `ToolTier::Read` doc 名单逐字不变；`ToolExec::Archi` doc 由「七个 archi 工具（五只读 +
+/// 两写）」改「八个（五只读 + 三写）」且计数与成员一致。
+#[test]
+fn 源码锚tier与exec的doc名单随动() {
+    let source = include_str!("mount.rs");
+    let write_doc_start = source.find("/// 写面（write").expect("Write doc 在案");
+    let write_doc = source[write_doc_start..]
+        .lines()
+        .take(3)
+        .collect::<Vec<_>>()
+        .join("\n");
+    for name in [
+        "write",
+        "edit",
+        "create_explore_note",
+        "archi_element",
+        "archi_relation",
+    ] {
+        assert!(
+            write_doc.contains(name),
+            "Write doc 仍点名 `{name}`：{write_doc}"
+        );
+    }
+    assert!(
+        write_doc.contains("archi_generate"),
+        "Write doc 含生成物写：{write_doc}"
+    );
+
+    assert!(
+        source.contains(
+            "只读面（read / grep / glob / ls / archi_module / archi_search / archi_api /"
+        ),
+        "Read doc 名单逐字不变"
+    );
+
+    assert_eq!(
+        source
+            .matches("八个 archi 工具（五只读 + 三写：两模型写 + 一生成物写）")
+            .count(),
+        1,
+        "ToolExec::Archi doc 计数与成员一致"
+    );
+    assert_eq!(
+        source.matches("七个 archi 工具（五只读 + 两写）").count(),
+        0,
+        "旧计数零命中"
+    );
+    assert_eq!(
+        registry()
+            .iter()
+            .filter(|mount| mount.exec == ToolExec::Archi)
+            .count(),
+        8,
+        "doc 的「八」与成员数一致"
+    );
+}
+
+/// 异常（反向）：`ARCHI_API_TOOL` 常量 doc 内「重生成仍由会话经既有 `bash` 命令完成」整句
+/// 零命中（已换指 `archi_generate`）；`mount.rs` 零第二份名字字面（除常量定义处外无
+/// `"archi_generate"` 硬编码）。
+#[test]
+fn 源码锚旧重生成措辞零残留与名字字面单点() {
+    let source = include_str!("mount.rs");
+    assert!(
+        !source.contains("重生成仍由会话经既有"),
+        "旧句整句零命中（换指完成）"
+    );
+    assert!(source.contains("委托同一单点完成"), "常量 doc 改指端口委托");
+    assert_eq!(
+        source.matches("\"archi_generate\"").count(),
+        1,
+        "带引号的名字字面恰一处（常量定义处）"
+    );
+    assert_eq!(
+        source
+            .matches("pub(crate) const ARCHI_GENERATE_TOOL")
+            .count(),
+        1,
+        "常量定义恰一处"
+    );
 }

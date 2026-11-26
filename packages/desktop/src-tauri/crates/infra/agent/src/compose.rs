@@ -33,9 +33,9 @@ const CONFIG_SOURCE: &str = "config";
 /// 不命中矩阵，收口档位不得随矩阵 `None` 一并丢）：
 /// - `explore` 来源 = 六工具名（write 移除）+ `create_explore_note` + 两只只读
 ///   DB 工具（单源见 desktop-agent-db-tools）；
-/// - `archi` 来源 = 七工具名 + 七 archi 名（读五 + 写两）+ 架构会话知识 preamble；该臂以
-///   `source` 短路命中，零 `source_ref` 读取（不碰相位解析，`source_ref` 取任意
-///   值下发面不变）；
+/// - `archi` 来源 = 七工具名 + 八 archi 名（读五 + 三写：两模型写 + 一生成物写）+ 架构
+///   会话知识 preamble；该臂以 `source` 短路命中，零 `source_ref` 读取（不碰相位解析，
+///   `source_ref` 取任意值下发面不变）；
 /// - `config` 来源 = 六工具名（只读探测面 + 唯一提案出口，**无** `write` / `edit`、
 ///   无 db 工具）+ 配置协议知识 preamble + `ask = Generic` + `finish = None`；该臂以
 ///   `source` 判定，不进 `source_ref` 相位解析；
@@ -48,9 +48,9 @@ const CONFIG_SOURCE: &str = "config";
 ///   七件）+ 零 archi 工具 + `ask = Some(Generic)`——MUST NOT 以默认构造兜底（默认值
 ///   的 `ask = None` 即静默禁用，通用会话会失去 ask）。
 ///
-/// `protect` 位由单点 [`model_write_lock`] 逐臂置位（模型写权的相位锁；判定矩阵归
-/// `desktop-write-protection`）：archi 臂与两处写权相位 `None`（不挂锁），其余一切
-/// `Some(一条)`。
+/// `protect` 位由单点 [`model_write_lock`] 逐臂置位（模型与契约资产的相位锁；判定矩阵
+/// 归 `desktop-write-protection`）：archi 臂与两处写权相位 `None`（不挂锁），其余一切
+/// `Some(两条：模型 + 契约)`。
 ///
 /// `before_done` 位（收口前钩子档位）只由 archi 臂置位 `Some(ArchiPreclose)`——
 /// 自检装配的判据是**来源**，与 `preamble`（知识，尽力增强项）及工具名清单解耦；
@@ -94,6 +94,7 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
         names.push(mount::ARCHI_SCAFFOLD_TOOL);
         names.push(mount::ARCHI_ELEMENT_TOOL);
         names.push(mount::ARCHI_RELATION_TOOL);
+        names.push(mount::ARCHI_GENERATE_TOOL);
         // 知识为尽力增强项：拼装失败（`None`）只丢 preamble 位，工具面与收口前
         // 自检装配（`before_done` 档位）不受影响
         return injected(
@@ -218,15 +219,25 @@ fn change_phase_role(source_ref: &str) -> Option<(&str, &str)> {
 /// archi 工具面注入矩阵单源（8 行含兜底行，`(phase, role)` → 下发工具名清单；
 /// 未命中即零 archi 工具）。矩阵只决定**下发面**，不决定 prompt 文本。
 ///
-/// `drift` 只给两处**直接产出漂移**的相位（写完模型 / 改完代码）；`scaffold` 与两写工具
-/// 只给两处写权相位与 archi 臂——两写工具的下发集合 MUST 与 [`model_write_lock`] 的不挂锁
-/// 集合逐格相等（「有工具但锁着」与「锁开了却没工具」都是错配）。`code-review` /
-/// `acceptance` 仍只读模型面（保守案：时机差是理由，不是给 evaluator 发读数工具的充分理由）。
+/// `drift` 只给两处**直接产出漂移**的相位（写完模型 / 改完代码）；`scaffold` 与两**模型**
+/// 写工具只给两处写权相位与 archi 臂——两模型写工具的下发集合 MUST 与
+/// [`model_write_lock`] 的不挂锁集合逐格相等（「有工具但锁着」与「锁开了却没工具」都是
+/// 错配）。`code-review` / `acceptance` 仍只读模型面（保守案：时机差是理由，不是给
+/// evaluator 发读数工具的充分理由）。
 ///
-/// **`api` 给两处写权相位**（本变更扩面）：接口定义成了手写真相，`bootstrap` 双草稿与
+/// **`api` 给两处写权相位**（前一变更扩面）：接口定义成了手写真相，`bootstrap` 双草稿与
 /// `link` 算 `$ref` 的价值恰在起草相位；`scaffold` 的描述也指向它（不补即「指向一个未下发
-/// 的工具」）。`api` 是**只读**档，扩面不扩写权——两写工具的矩阵集与 `model_write_lock` 的
-/// 同集纪律逐字不变。两行的向量序即 spec 所列。
+/// 的工具」）。`api` 是**只读**档，扩面不扩写权——两模型写工具的矩阵集与
+/// [`model_write_lock`] 的同集纪律逐字不变（`generate` 不在该对拍集，见下）。
+///
+/// **`generate` 只给两处契约起草相位与 archi 臂**（本变更）：生成物的渲染输入只有
+/// schema，代码变化不影响生成物 ⇒ 契约冻结的 `implement` 期生成物恒新鲜，不给即正确；
+/// 而通用工作区没有「本仓生成命令」，起草相位与架构页会话是唯一可行落点。它是写工具但
+/// **不写模型**（只写三类生成物），故不进写权对拍集、不因对拍而改下发面。
+///
+/// **`test-design` 加 `module`**：契约在 `dev-design` 定死之后，「对着接口协议设计测试」
+/// 需要 `assets.interface` 的 `ops` / `types` 键名，而 `search` 只给发现面——该格恒为
+/// `search` + `module`，MUST NOT 追加其它 archi 工具。两行的向量序即 spec 所列。
 fn archi_matrix(phase: &str, role: &str) -> Option<Vec<&'static str>> {
     match (phase, role) {
         ("proposal", "executor") => Some(vec![
@@ -236,6 +247,7 @@ fn archi_matrix(phase: &str, role: &str) -> Option<Vec<&'static str>> {
             mount::ARCHI_SCAFFOLD_TOOL,
             mount::ARCHI_ELEMENT_TOOL,
             mount::ARCHI_RELATION_TOOL,
+            mount::ARCHI_GENERATE_TOOL,
         ]),
         ("dev-design", "executor") => Some(vec![
             mount::ARCHI_MODULE_TOOL,
@@ -245,11 +257,14 @@ fn archi_matrix(phase: &str, role: &str) -> Option<Vec<&'static str>> {
             mount::ARCHI_SCAFFOLD_TOOL,
             mount::ARCHI_ELEMENT_TOOL,
             mount::ARCHI_RELATION_TOOL,
+            mount::ARCHI_GENERATE_TOOL,
         ]),
         ("dev-design", "evaluator") => {
             Some(vec![mount::ARCHI_MODULE_TOOL, mount::ARCHI_SEARCH_TOOL])
         }
-        ("test-design", "executor") => Some(vec![mount::ARCHI_SEARCH_TOOL]),
+        ("test-design", "executor") => {
+            Some(vec![mount::ARCHI_SEARCH_TOOL, mount::ARCHI_MODULE_TOOL])
+        }
         ("implement", "executor") => Some(vec![
             mount::ARCHI_MODULE_TOOL,
             mount::ARCHI_API_TOOL,
@@ -261,17 +276,23 @@ fn archi_matrix(phase: &str, role: &str) -> Option<Vec<&'static str>> {
     }
 }
 
-/// 模型写权的装配单点（相位锁）：`None` = 不挂锁（允许写模型），`Some(一条)` = 挂
-/// 会话级禁区规则。
+/// 模型与契约写权的装配单点（相位锁）：`None` = 不挂锁（允许写模型与契约资产），
+/// `Some(两条)` = 挂会话级禁区规则（模型声明目录 + 契约资产目录，两串模板各自单源）。
 ///
 /// 政策：可写 ⟺ 架构页会话（`source = "archi"`） ∨ (`source = "change"` ∧
 /// `(phase, role) = (proposal|dev-design, executor)`)。其余一切锁定——含
 /// `dev-design/evaluator` 与 `explore` / `debug`。fail-closed 方向：畸形
 /// `source_ref` / 未知 phase / 非 change 来源一律挂锁。
 ///
-/// 锁面只 `graph/model/**`：契约资产 md 不锁（`implement/executor` 持有
-/// `archi_api`，改代码相位必须能同步契约）、索引生成物（「MUST NOT 手改」已足够）、
-/// 架构域看护配置（不是模型）不锁。
+/// **锁面恰两条：`graph/model/**` 与 `models/**`**（规则序 = 优先级，模型目录在前）。
+/// 契约资产（`.schema.json` + `.md`）入锁的理由：`apiMissing` / `apiSignatureMismatch`
+/// 是唯二 `error` 档判据（能阻断归档），若实现相位能改契约，最省事的修法恒为「改 schema
+/// 迎合代码」，`error` 档随即名不副实。**代价如实记账**：判据在 `implement` 内不再可自愈
+/// ——实现相位发现契约写错或不可实现的唯一出路是 `backtrack` 回 `dev-design` 修订（或请
+/// 用户改用架构页会话），「飘到 backtrack 为止」是本次政策的显式选择，不是遗漏。
+///
+/// 生成物（索引 `INDEX.toml` / `.i.rs` / `.i.ts`）与架构域看护配置**不在锁面**
+/// （「MUST NOT 手改」已足够；生成物由 `archi_generate` 写，配置不是模型也不是契约）。
 fn model_write_lock(provenance: &SessionProvenance) -> Option<Vec<agent::SessionProtectRule>> {
     if provenance.source == ARCHI_SOURCE {
         return None;
@@ -284,10 +305,16 @@ fn model_write_lock(provenance: &SessionProvenance) -> Option<Vec<agent::Session
             }
         }
     }
-    Some(vec![agent::SessionProtectRule {
-        glob: format!("**/{}/**", foundation::layout::archi_graph_model_rel_dir()),
-        reason: crate::sdk::protect::session_lock_template().to_owned(),
-    }])
+    Some(vec![
+        agent::SessionProtectRule {
+            glob: format!("**/{}/**", foundation::layout::archi_graph_model_rel_dir()),
+            reason: crate::sdk::protect::session_lock_template().to_owned(),
+        },
+        agent::SessionProtectRule {
+            glob: format!("**/{}/**", foundation::layout::archi_models_rel_dir()),
+            reason: crate::sdk::protect::contract_lock_template().to_owned(),
+        },
+    ])
 }
 
 /// 解析产物（组合根内聚）：引擎 kind + 组装好的连接配置 + 快照定型双面 +
@@ -348,7 +375,9 @@ pub struct ComposedTurn {
 /// `ask_registry` 为壳层托管的 ask 应答注册表（透传内核 + 门面，两侧同一张表）；
 /// `steer_registry` 为壳层托管的 steer 注入注册表（两张会话级注册表成组注入
 /// 内核；引擎门面不参与——登记发生在内核）；`ask_port` 仅门面（编排侧状态面的
-/// 实现方是壳层 sink，内核侧不需要它）。
+/// 实现方是壳层 sink，内核侧不需要它）。`artifact_writer` 是生成物写盘端口（仅门面）：
+/// 唯一实现由组合根给出、经门面 → runner → per-turn 上下文透传，`agent-runtime` 仍不依赖
+/// `archi-runtime`（写盘单点对 agent 面不可达，只持 `core/archi` 的端口类型）。
 #[allow(clippy::too_many_arguments)]
 pub fn compose_turn(
     stores: &WorkspaceStores,
@@ -360,6 +389,7 @@ pub fn compose_turn(
     agent: Option<i64>,
     workspace_root: &Path,
     ask_port: Option<Arc<dyn orchestration::port::AskPort>>,
+    artifact_writer: Option<Arc<dyn archi::ArtifactWriter>>,
 ) -> Result<ComposedTurn, String> {
     // 解析语义自命令层原样平移（缺省 / 显式 / sdk provider 组装 / high 档 /
     // 无默认 Err 引导管理页）
@@ -408,6 +438,7 @@ pub fn compose_turn(
             .with_efforts(resolved.efforts)
             .with_ask_registry(ask_registry)
             .with_ask_port(ask_port)
+            .with_artifact_writer(artifact_writer)
             .with_explore_note_store(explore_note_store)
             .with_db_stores(db_global, db_workspace)
             .with_workspace_root(workspace_root.to_path_buf())

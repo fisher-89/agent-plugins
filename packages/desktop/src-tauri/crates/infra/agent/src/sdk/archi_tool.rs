@@ -1,4 +1,4 @@
-//! 架构工具执行体：五只读 + 两写。
+//! 架构工具执行体：五只读 + 三写（两模型写 + 一生成物写）。
 //!
 //! 只读面：`archi_module`（定位：两形态——指定元素 / 省略元素薄概览）、`archi_search`（发现：
 //! 三 scope）、`archi_api`（接口面三动作：`check` 两轴 / `bootstrap` 双草稿 / `link` 算
@@ -10,13 +10,20 @@
 //! 任一前置失败即零落盘。写面 MUST NOT 自拼 TOML、MUST NOT 重实现任一判据（`path` 形态 /
 //! `kind × path` 基数 / `apis` 值面全归 parser 与 `archi::edit` 的自证链）。
 //!
-//! 七支共用同一 per-turn 上下文（组合根铸造，轮 root = 会话 cwd；change 会话即 worktree），
+//! 生成物写面：`archi_generate` 串接三个既有单点——`archi::workspace_render`（渲染，纯读）→
+//! 逐份 `ProtectRules::evaluate_target`（同一规则集，任一份命中即整批零写盘）→
+//! `archi::ArtifactWriter` 端口（壳层注入的唯一实现委托 `write_artifacts` 写盘单点）。执行体
+//! MUST NOT 重实现渲染、比对或写盘，MUST NOT 出现第二份生成物 `fs::write`。
+//!
+//! 八支共用同一 per-turn 上下文（组合根铸造，轮 root = 会话 cwd；change 会话即 worktree），
 //! 经 `LoopTurn` 携带。响应经 `archi::dto` / `archi::edit` 单点投影（MUST NOT 在此另拼一份
-//! JSON）；坏模型 / 参数缺失一律 `Err`（loop 侧 is_error 回灌，不 panic），命中既有 L1
-//! 单结果上限收口（禁第二份上限实现）。
+//! JSON；`archi_generate` 的三字段响应与 `archi_api` 的 `remedy` 是工具响应层的拼装，不进
+//! DTO / bindings）；坏模型 / 参数缺失一律 `Err`（loop 侧 is_error 回灌，不 panic），命中既有
+//! L1 单结果上限收口（禁第二份上限实现）。
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use archi::dto::{ApiStatus, ElementKind, GateTier, SearchScope};
 use archi::edit::{ElementSpec, RelationSpec, WriteAction, WriteOutcome};
@@ -27,11 +34,16 @@ use crate::sdk::mount::WRITE_LIMITS;
 use crate::sdk::protect::ProtectRules;
 use crate::sdk::{atomic, tools};
 
-/// 架构工具执行上下文（per-turn 铸造：轮 root + 写入保护规则）。
+/// 架构工具执行上下文（per-turn 铸造：轮 root + 写入保护规则 + 生成物写盘端口）。
 pub(crate) struct ArchiContext {
     root: PathBuf,
-    /// 写入保护规则（写臂在落点解析后判定；读臂零消费）
+    /// 写入保护规则（写臂在落点解析后判定、生成臂在写盘前逐份判定；读臂零消费）
     protect: Option<ProtectRules>,
+    /// 生成物写盘端口（`archi_generate` 的唯一写盘通路；读臂零消费）
+    writer: Option<Arc<dyn archi::ArtifactWriter>>,
+    /// 本轮是否下发 `archi_generate`（`archi_api` 的 `remedy` 第二 / 第三态判据位；
+    /// mint 时按名字清单一次置位，执行体零回读注入面）
+    generate: bool,
 }
 
 impl ArchiContext {
@@ -40,21 +52,37 @@ impl ArchiContext {
         Self {
             root,
             protect: None,
+            writer: None,
+            generate: false,
         }
     }
 
     /// 接线写入保护规则（装配侧单点：`session_pump` 在 `ProtectRules` 装配之后调用）。
     pub(crate) fn with_protect(self, rules: ProtectRules) -> Self {
         Self {
-            root: self.root,
             protect: Some(rules),
+            ..self
+        }
+    }
+
+    /// 接线生成物写盘端口（与 `with_protect` 同型：同一处装配、同一次铸造）。
+    pub(crate) fn with_writer(self, writer: Option<Arc<dyn archi::ArtifactWriter>>) -> Self {
+        Self { writer, ..self }
+    }
+
+    /// 置 `remedy` 判据位（本轮名字清单是否含 `archi_generate`）。
+    pub(crate) fn with_generate(self, available: bool) -> Self {
+        Self {
+            generate: available,
+            ..self
         }
     }
 
     /// 执行体：`archi_module`（有 / 无 `element` 两形态）、`archi_search`（`query` +
     /// `scope`）、`archi_api`（`action` + `element` / `from` / `to` / `name`）、`archi_drift`、
     /// `archi_scaffold`、
-    /// `archi_element`、`archi_relation`；未知名 `Err`。输出紧凑 JSON 后过 L1 收口。
+    /// `archi_element`、`archi_relation`、`archi_generate`；未知名 `Err`。输出紧凑 JSON 后过
+    /// L1 收口。
     pub(crate) async fn execute(&self, name: &str, input: &Value) -> Result<String, String> {
         let payload = match name {
             tools::ARCHI_MODULE_TOOL => self.module_payload(input)?,
@@ -64,6 +92,7 @@ impl ArchiContext {
             tools::ARCHI_SCAFFOLD_TOOL => self.scaffold_payload(input)?,
             tools::ARCHI_ELEMENT_TOOL => self.element_payload(input)?,
             tools::ARCHI_RELATION_TOOL => self.relation_payload(input)?,
+            tools::ARCHI_GENERATE_TOOL => self.generate_payload()?,
             other => return Err(format!("未知架构工具: {other}")),
         };
         let text = serde_json::to_string(&payload)
@@ -146,8 +175,10 @@ impl ArchiContext {
     ///
     /// - `check`：元素表（`graph_view`，结构诊断 → `is_error`）→ 三类差异
     ///   （`api::artifact_check`）→ 接口判据（`api::findings`，与漂移判定同源）；
-    ///   响应 = `{ artifacts, findings: { total, byCategory, items } }`（摘要优先，
-    ///   `cap_result` 截断时计数仍在）。
+    ///   响应 = `{ artifacts, findings: { total, byCategory, items }, remedy }`（摘要优先，
+    ///   `cap_result` 截断时计数仍在）。`remedy` 是**工具响应层**的处置结论三态（键恒在场，
+    ///   `null` 也出键）：三列全空 ⇒ `null`；有差异且本轮下发 `archi_generate` ⇒ 指向该工具；
+    ///   有差异且无该工具 ⇒ 指向架构页会话。它 MUST NOT 进 DTO / bindings。
     /// - `bootstrap`：`element` 必填，出**双草稿** `{ schema, doc }`（schema 骨架可直接
     ///   落盘并过写闸；doc 只有 H1 与一句指引），零写盘。
     /// - `link`：算跨元素 `$ref` 串（`from` + `to` + `name`）或本文件 `$ref` 串
@@ -177,6 +208,7 @@ impl ArchiContext {
                 for finding in &items {
                     *by_category.entry(finding.category.clone()).or_insert(0) += 1;
                 }
+                let remedy = self.artifact_remedy(&artifacts);
                 Ok(serde_json::json!({
                     "artifacts": artifacts,
                     "findings": {
@@ -184,6 +216,7 @@ impl ArchiContext {
                         "byCategory": by_category,
                         "items": items,
                     },
+                    "remedy": remedy,
                 }))
             }
             "bootstrap" => {
@@ -270,6 +303,75 @@ impl ArchiContext {
         checked_fqn(&element, "element")?;
         Ok(serde_json::json!({ "ref": format!("#/$defs/{name}") }))
     }
+
+    /// `check` 的处置结论 `remedy`（三态；`None` ⇒ 响应里是 `null`，键恒在场）。
+    ///
+    /// 判据只有两个：三类差异是否全空 + 本轮是否下发 `archi_generate`（`ArchiContext` 在
+    /// mint 时按名字清单置位）。它**只活在工具响应层**——`ArchiApiCheck` 是 specta 出线
+    /// 类型，加字段要连带改 bindings / 前端 / 键集断言，而 agent 面与人类面本就不同源。
+    fn artifact_remedy(&self, artifacts: &archi::ArchiApiCheck) -> Option<&'static str> {
+        let differing = !(artifacts.mismatched.is_empty()
+            && artifacts.orphaned.is_empty()
+            && artifacts.missing.is_empty());
+        if !differing {
+            return None;
+        }
+        if self.generate {
+            return Some(
+                "生成物有差异：调 `archi_generate` 重生成（幂等、只写三类生成物）；MUST NOT 手改生成物",
+            );
+        }
+        Some("生成物有差异：本相位无 `archi_generate`——请用户在架构页会话生成；MUST NOT 手改生成物")
+    }
+
+    /// `archi_generate`：渲染（纯读）→ 逐份过同一 `ProtectRules` → 端口委托写盘。
+    ///
+    /// 三步任一步失败即零写盘；端口 / `protect` 缺席即 `Err`（装配缺失，生产不可达——
+    /// 装配侧恒接线，MUST NOT panic、MUST NOT 静默成功）。任一份命中保护即整批零写盘、
+    /// 冲突进 `conflicts`（工具仍 `Ok`：冲突要 agent 转告用户处置）；零产出是正常
+    /// （`render_all` 对无 schema / 接口面留白 / 入口未解析的元素一律跳过）。
+    fn generate_payload(&self) -> Result<Value, String> {
+        let writer = self.writer.as_deref().ok_or_else(|| {
+            format!(
+                "生成物写盘端口未装配（{} 仅在装配侧接线后可用；生产不可达）",
+                tools::ARCHI_GENERATE_TOOL
+            )
+        })?;
+        let files = archi::workspace_render(&self.root).map_err(|error| error.message())?;
+        let rules = self.protect.as_ref().ok_or_else(|| {
+            format!(
+                "写入保护规则未装配（{} 仅在装配侧接线后可用；生产不可达）",
+                tools::ARCHI_GENERATE_TOOL
+            )
+        })?;
+        let conflicts: Vec<Value> = files
+            .iter()
+            .filter_map(|file| {
+                rules
+                    .evaluate_target(tools::ARCHI_GENERATE_TOOL, &file.path)
+                    .map(|reason| {
+                        serde_json::json!({
+                            "path": archi::display(&self.root, &file.path),
+                            "reason": reason,
+                        })
+                    })
+            })
+            .collect();
+        if !conflicts.is_empty() {
+            return Ok(serde_json::json!({
+                "written": [],
+                "unchanged": [],
+                "conflicts": conflicts,
+            }));
+        }
+        let outcome = writer.write(&self.root, &files)?;
+        Ok(serde_json::json!({
+            "written": outcome.written,
+            "unchanged": outcome.unchanged,
+            "conflicts": [],
+        }))
+    }
+
     /// `archi_element`：E1 入参解析与硬闸 → E2 诊断前置 → `plan_*`（零写盘）→ 保护闸 →
     /// 原子落盘 → 三通道响应装配。
     fn element_payload(&self, input: &Value) -> Result<Value, String> {

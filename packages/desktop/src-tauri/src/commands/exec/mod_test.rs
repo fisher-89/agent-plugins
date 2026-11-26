@@ -4515,3 +4515,103 @@ fn config_chat_source词面与compose同值() {
         "字面量无前后空白（受控词精确匹配）"
     );
 }
+
+// ===========================================================================
+// 本变更：组合根的生成物写盘端口注入点（`exec` 会话 = 通用 / `/architecture` 页内会话）
+// ===========================================================================
+
+/// 正向（AC-4）：`compose_turn(…, artifact_writer)` 的实参表末位为
+/// `Some(Arc::new(ArchiArtifactWriter) as Arc<dyn archi::ArtifactWriter>)`（恰一处）；
+/// 该端口是写盘单点的唯一实现（`archi_runtime::api_artifacts::write_artifacts` 的唯一
+/// 驱动面之一），本处零第二份写盘实现。
+#[test]
+fn 组合根注入生成物写盘端口恰一处() {
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source
+            .matches("Some(Arc::new(ArchiArtifactWriter) as Arc<dyn archi::ArtifactWriter>)")
+            .count(),
+        1,
+        "端口注入恰一处"
+    );
+    assert_eq!(
+        source
+            .matches("use crate::commands::archi::ArchiArtifactWriter;")
+            .count(),
+        1,
+        "导入单点"
+    );
+    assert_eq!(
+        source.matches("let composed = compose_turn(").count(),
+        1,
+        "本文件恰一处 compose_turn 调用（零重复构造）"
+    );
+    for forbidden in [
+        "fs::write",
+        "create_dir_all",
+        "write_artifacts(",
+        "toml::",
+        "impl archi::ArtifactWriter",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "组合根零第二份写盘实现 / 零直接写盘：`{forbidden}`"
+        );
+    }
+}
+
+/// 边界：该实参严格位于 `compose_turn(` 实参表**末位**——在 `Some(Arc::new(ChatAskPort))`
+/// 之后、`)?` 收口之前；零新增运行时开关（无 `cfg!` / 环境变量分支）。
+#[test]
+fn 端口实参在组合根实参表末位() {
+    let source = include_str!("mod.rs");
+    let call_start = source
+        .find("let composed = compose_turn(")
+        .expect("组合调用在案");
+    let call = &source[call_start..];
+    let call = &call[..call.find(")?;").expect("实参表收口")];
+
+    let ask_at = call
+        .find("Some(Arc::new(ChatAskPort))")
+        .expect("ask 端口实参在案");
+    let writer_at = call
+        .find("Some(Arc::new(ArchiArtifactWriter)")
+        .expect("写盘端口实参在案");
+    assert!(writer_at > ask_at, "写盘端口在 ask 端口之后");
+    assert_eq!(
+        call[writer_at..].matches("ArchiArtifactWriter").count(),
+        1,
+        "末位恰一次（零重复形参）"
+    );
+    for switch in ["cfg!(", "std::env::var", "option_env!"] {
+        assert!(
+            !call.contains(switch),
+            "实参表零运行时开关 `{switch}`：{call}"
+        );
+    }
+}
+
+/// 异常（反向锚）：该端口与 `ChatAskPort` 严格分列（不合并为一个「会话端口」参数）；
+/// `compose_turn` 十参实参个数不被压成九参（末位缺席即编译期发现，零默认值兜底）。
+#[test]
+fn 端口实参不与ask端口合并() {
+    let source = include_str!("mod.rs");
+    let call_start = source
+        .find("let composed = compose_turn(")
+        .expect("组合调用在案");
+    let call = &source[call_start..];
+    let call = &call[..call.find(")?;").expect("实参表收口")];
+    assert_eq!(
+        call.matches("Some(Arc::new(").count(),
+        2,
+        "两个可选缝对象各一处（ask 端口 + 写盘端口）：{call}"
+    );
+    assert!(
+        !source.contains("None,\n    )?;"),
+        "末位不得省略（编译期强制，零默认值兜底）"
+    );
+    assert!(
+        !source.contains("Some(Arc::new(SessionPorts"),
+        "不新增合并型端口包装"
+    );
+}

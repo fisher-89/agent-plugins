@@ -325,7 +325,7 @@ export function ContractPanel({
         />
         {mode === 'full' && (
           <div className="text-[11px] text-muted-foreground" data-testid="archi-contract-readonly">
-            生成需开 change（或让左侧会话执行本仓的生成命令）
+            生成需开 change，或让左侧会话生成
           </div>
         )}
         {check !== null && (

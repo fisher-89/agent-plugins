@@ -1,0 +1,21 @@
+
+=== packages_desktop_vite-plus (vite-plus) · files=1 ===
+[32m19:30:57 (32584) INFO ProjectReader[39m Found 1 of 40101 file(s) to be mutated.
+[32m19:30:57 (32584) INFO Instrumenter[39m Instrumented 1 source file(s) with 175 mutant(s)
+[32m19:31:00 (32584) INFO ConcurrencyTokenProvider[39m Creating 8 test runner process(es).
+[32m19:31:22 (32584) INFO DryRunExecutor[39m Starting initial test run (vitest test runner with "perTest" coverage analysis). This may take a while.
+[32m19:31:59 (32584) INFO DryRunExecutor[39m Initial test run succeeded. Ran 348 tests in 37 seconds (net 17903.969899999975 ms, overhead 19353.030100000025 ms).
+[32m19:34:13 (32584) INFO JsonReporter[39m Your report can be found at: file:///D:/Projects/.worktrees/wps-claude-plugin/archi-generator-access-gap/openspec/changes/archi-generator-access-gap/reports/test/packages_desktop_vite-plus/mutation/mutation-seg-0.json
+[32m19:34:13 (32584) INFO MutationTestExecutor[39m Done in 3 minutes and 18 seconds.
+npm warn EBADDEVENGINES The developer of this package has specified the following through devEngines
+npm warn EBADDEVENGINES Invalid devEngines.packageManager
+npm warn EBADDEVENGINES Invalid name "pnpm" does not match "npm" for "packageManager"
+npm warn EBADDEVENGINES {
+npm warn EBADDEVENGINES   current: { name: 'npm', version: '11.20.0' },
+npm warn EBADDEVENGINES   required: { name: 'pnpm', onFail: 'warn' }
+npm warn EBADDEVENGINES }
+
+=== packages_desktop_src-tauri_rust (rust) · files=36 ===
+Found 62 mutants to test
+MISSED   crates/infra/agent/src/lib.rs:235:13: delete field artifact_writer from struct Self expression in EngineFacade::with_artifact_writer in 11s build + 45s test
+62 mutants tested in 13m: 1 missed, 46 caught, 15 unviable

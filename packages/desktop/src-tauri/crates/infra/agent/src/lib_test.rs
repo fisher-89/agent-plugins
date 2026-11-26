@@ -46,6 +46,7 @@ fn crate根导出面锚定_组合根与查询面与既有门面re_export可达()
         Option<i64>,
         &std::path::Path,
         Option<Arc<dyn orchestration::port::AskPort>>,
+        Option<Arc<dyn archi::ArtifactWriter>>,
     ) -> Result<ComposedTurn, String> = compose_turn;
     let _ = compose_signature;
 
@@ -1568,4 +1569,231 @@ fn sdk模块保持私有() {
         0,
         "crate 根不复述子模块声明（登记单点在 sdk/mod.rs）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：生成物写盘端口的门面 builder 缝（`EngineFacade::with_artifact_writer`，
+// 注入链第 2 跳；与 `with_ask_port` 同型）
+// ---------------------------------------------------------------------------
+
+/// 桩写盘端口：零字段计数形态（门面只做透传，替身不触盘、不重复任何渲染 / 比对 / 写盘）。
+#[derive(Default)]
+struct CountingArtifactWriter {
+    calls: AtomicUsize,
+}
+
+impl archi::ArtifactWriter for CountingArtifactWriter {
+    fn write(
+        &self,
+        root: &Path,
+        files: &[archi::GeneratedFile],
+    ) -> Result<archi::ArchiApiWriteOutcome, String> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        Ok(archi::ArchiApiWriteOutcome {
+            written: files
+                .iter()
+                .map(|file| archi::display(root, &file.path))
+                .collect(),
+            unchanged: Vec::new(),
+        })
+    }
+}
+
+/// 正向：`.with_artifact_writer(Some(替身))` 后 `runner_for(Sdk, cfg)` 仍产出 SDK 引擎，
+/// 且失败面与「直构 `SdkRunner` 加同载荷」一致（沿 `with_ask_port` / `with_max_tokens` 的
+/// 等价性先例）。
+#[test]
+fn with_artifact_writer链式构造且分发行为与直构一致() {
+    let writer = Arc::new(CountingArtifactWriter::default());
+    let via_facade = EngineFacade::new()
+        .with_artifact_writer(Some(writer.clone() as Arc<dyn archi::ArtifactWriter>))
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("Sdk 臂构造成功（新载荷不塌 runner_for）");
+    let via_direct = SdkRunner::new(complete_cfg(), None, None, None)
+        .with_artifact_writer(Some(writer.clone() as Arc<dyn archi::ArtifactWriter>));
+
+    let facade_error = via_facade
+        .open_session(open_continue("ses-artifact-writer"))
+        .expect_err("无装载缝续会话必须显式失败");
+    let direct_error = via_direct
+        .open_session(open_continue("ses-artifact-writer"))
+        .expect_err("直构同口径失败");
+    assert_eq!(
+        facade_error, direct_error,
+        "携该载荷的门面与直构 SdkRunner 失败面一致（引擎选择零漂移）"
+    );
+    assert_eq!(
+        writer.calls.load(Ordering::Relaxed),
+        0,
+        "构造与 open 不触发写盘（端口只在 archi_generate 执行臂被调用）"
+    );
+}
+
+/// 边界：`Some` / `None` 两形态均可构造；与 `with_context_window` / `with_ask_port` /
+/// `with_workspace_root` / `with_efforts` 双向续链（两种顺序）均可达且两载荷互不覆盖。
+#[test]
+fn with_artifact_writer两形态与四项builder双向续链() {
+    let writer = Arc::new(CountingArtifactWriter::default());
+    let dir = tempfile::Builder::new()
+        .prefix("facade-artifact-writer-")
+        .tempdir()
+        .expect("创建临时目录失败");
+
+    for (label, payload) in [
+        (
+            "Some",
+            Some(writer.clone() as Arc<dyn archi::ArtifactWriter>),
+        ),
+        ("None", None),
+    ] {
+        let chain = EngineFacade::new()
+            .with_artifact_writer(payload.clone())
+            .with_context_window(Some(200_000))
+            .with_max_tokens(Some(8_192))
+            .with_ask_port(Some(Arc::new(NoopAskPort)))
+            .with_workspace_root(dir.path().to_path_buf())
+            .with_efforts(store::AgentEffortTiers::default());
+        assert!(
+            chain.runner_for(EngineKind::Sdk, complete_cfg()).is_ok(),
+            "{label}：末位续链后 Sdk 臂构造成功"
+        );
+
+        // 换序：同一载荷置首（builder 全序可换，两载荷互不覆盖）
+        let reversed = EngineFacade::new()
+            .with_context_window(Some(1_000_000))
+            .with_ask_port(None)
+            .with_workspace_root(dir.path().to_path_buf())
+            .with_efforts(store::AgentEffortTiers::default())
+            .with_max_tokens(None)
+            .with_artifact_writer(payload);
+        assert!(
+            reversed.runner_for(EngineKind::Sdk, complete_cfg()).is_ok(),
+            "{label}：置首续链后 Sdk 臂构造成功"
+        );
+    }
+}
+
+/// 异常：重复调用该 builder ⇒ 后者覆盖（载荷原样透传、零 panic、零合并语义）；空配置 +
+/// 该载荷仍以 `config_missing` 显式失败（新字段不得把启动校验变成通过）。
+#[test]
+fn with_artifact_writer重复调用后者覆盖且不改启动校验() {
+    let first = Arc::new(CountingArtifactWriter::default());
+    let second = Arc::new(CountingArtifactWriter::default());
+    let overridden = EngineFacade::new()
+        .with_artifact_writer(Some(first as Arc<dyn archi::ArtifactWriter>))
+        .with_artifact_writer(Some(second as Arc<dyn archi::ArtifactWriter>));
+    assert!(
+        overridden
+            .runner_for(EngineKind::Sdk, complete_cfg())
+            .is_ok(),
+        "重复调用零 panic（后者覆盖）"
+    );
+    assert!(
+        EngineFacade::new()
+            .with_artifact_writer(None)
+            .with_artifact_writer(None)
+            .runner_for(EngineKind::Sdk, complete_cfg())
+            .is_ok(),
+        "两次 None 亦可达"
+    );
+
+    let runner = EngineFacade::new()
+        .with_artifact_writer(Some(
+            Arc::new(CountingArtifactWriter::default()) as Arc<dyn archi::ArtifactWriter>
+        ))
+        .runner_for(EngineKind::Sdk, EngineConfig::empty())
+        .expect("Sdk 臂构造成功");
+    let error = runner
+        .open_session(open_continue("ses-artifact-writer-empty"))
+        .expect_err("空配置必须显式失败");
+    let agent::AgentStartError::ConfigMissing(message) = &error else {
+        panic!("应为 ConfigMissing，实际: {error:?}");
+    };
+    for field in ["api_key", "base_url", "model"] {
+        assert!(
+            message.contains(field),
+            "成因集逐字为既有三档（缺 {field}），实际: {message}"
+        );
+    }
+    assert!(
+        !message.contains("artifact_writer"),
+        "端口载荷不进启动校验成因集，实际: {message}"
+    );
+}
+
+/// 回归：`EngineFacade::new()` 与 `with_resume_transcript(…)` 的该载荷缺省 `None`，行为与
+/// 落地前一致；既有 builder 链全部编译通过且字段原样带出（`self.artifact_writer` 透传）。
+#[test]
+fn 既有构造路径artifact_writer缺省none() {
+    let (loader, _calls) = counting_loader(Ok(None));
+
+    let via_new = EngineFacade::new()
+        .runner_for(EngineKind::Sdk, EngineConfig::empty())
+        .expect("Sdk 臂构造成功（缺省载荷不塌分发）");
+    let via_loader = EngineFacade::with_resume_transcript(loader)
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("Sdk 臂构造成功（缺省载荷不塌分发）");
+    drop(via_loader);
+
+    let direct_none = SdkRunner::new(EngineConfig::empty(), None, None, None);
+    assert_eq!(
+        via_new
+            .open_session(open_continue("ses-default-artifact-writer"))
+            .expect_err("必须 Err")
+            .to_string(),
+        direct_none
+            .open_session(open_continue("ses-default-artifact-writer"))
+            .expect_err("直构必须 Err")
+            .to_string(),
+        "缺省 None 语义 = 未注入（与直构三参 None 同口径）"
+    );
+
+    // 源码锚：十处穷尽 `Self { … }` 字面量皆带该字段（漏补即编译失败），且
+    // `runner_for` 的 sdk 臂只经 `.with_artifact_writer` 一处下沉
+    let source = include_str!("lib.rs");
+    assert_eq!(
+        source.matches("artifact_writer: None,").count(),
+        2,
+        "两处构造路径显式置 None（`new` / `with_resume_transcript`）"
+    );
+    assert_eq!(
+        source
+            .matches("artifact_writer: self.artifact_writer,")
+            .count(),
+        4,
+        "四处穷尽 `Self {{ … }}` 字面量原样带出该字段（零合并 / 零重建）"
+    );
+    assert_eq!(
+        source
+            .matches(".with_artifact_writer(self.artifact_writer.clone())")
+            .count(),
+        1,
+        "`runner_for` 的 sdk 臂恰一处下沉（第二份构造即违约）"
+    );
+}
+
+/// 回归异常：`Cli` 臂仍以逐字退役文案显式拒绝，且装载缝调用计数恒零（新字段不改变
+/// `runner_for` 的两值穷举与拒收正文）。
+#[test]
+fn cli臂退役文案不因artifact_writer载荷改写() {
+    let writer = Arc::new(CountingArtifactWriter::default());
+    let (loader, calls) = counting_loader(Ok(None));
+    let facade = EngineFacade::with_resume_transcript(loader)
+        .with_artifact_writer(Some(writer.clone() as Arc<dyn archi::ArtifactWriter>));
+
+    let error = facade
+        .runner_for(EngineKind::Cli, complete_cfg())
+        .err()
+        .expect("Cli 臂必须显式拒绝");
+    assert_eq!(error, CLI_TENANT_RETIRED, "逐字退役文案不变");
+    assert!(
+        !error.contains("artifact_writer"),
+        "拒收正文不掺新字段：{error}"
+    );
+    assert_eq!(
+        calls.load(Ordering::Relaxed),
+        0,
+        "Cli 臂不消费装载缝（零半成品构造）"
+    );
+    assert_eq!(writer.calls.load(Ordering::Relaxed), 0, "Cli 臂零写盘");
 }

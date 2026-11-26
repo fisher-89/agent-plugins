@@ -32,6 +32,7 @@
 - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行——不自行运行静态检查或测试门禁脚本。
 - 不产出评估结论或 checklist JSON。
 - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
-- 额外可用只读工具 `archi_module`（定位）：改动前先确认模块边界与依赖方向——返回该元素的邻接、直接子元素、文档引用与声明位置 `modelFile` + `modelLine`。另有 `archi_api`（接口面自检）：改完代码可自查生成物新鲜度与接口判据；生成物过期用既有命令重生成，MUST NOT 手改生成物。`archi_drift`（读数）：改完代码自查是否有未声明依赖。
-- 改了导出面（新增 / 删除 / 改签名）就同批同步该元素的 `<叶段>.schema.json`（分层目录下、叶段 = FQN 末段），改完用 `archi_api` 的 `check` 自查。
+- 额外可用只读工具 `archi_module`（定位）：改动前先确认模块边界与依赖方向——返回该元素的邻接、直接子元素、文档引用与声明位置 `modelFile` + `modelLine`。另有 `archi_api`（接口面自检）：改完代码用 `check` 看两轴（生成物新鲜度与契约判据摘要），据响应的 `remedy` 指路转告用户。`archi_drift`（读数）：改完代码自查是否有未声明依赖。
+- **不改契约**：接口定义（`.schema.json`）与模块文档（`.md`）在本相位受相位锁保护——写入会被拒，本相位只实现契约、不改契约。生成物同理 MUST NOT 手改：它只取决于契约，过期时按 `check` 的 `remedy` 指路交用户处置。
+- **两条出路**：代码与契约不符时先确认哪一方是对的——契约对就改代码追上它；契约确实不可实现或写错，就停下来说明冲突，由用户决定走 `backtrack` 回 `dev-design` 修订（或改用架构页会话维护）。
 - 架构模型已锁：MUST NOT 尝试写架构模型文件；需要改模型时把需求写进产物，由 `dev-design` 相位落地。
