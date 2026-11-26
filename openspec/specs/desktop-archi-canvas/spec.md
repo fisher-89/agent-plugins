@@ -141,19 +141,20 @@
 |---|---|---|
 | 结构校验 / 图渲染 / 入口文档段 | ✅ | ✅ |
 | 改 `gate` 档 | ❌ 只读视图，呈现「改档需要开一个 change」提示 | ✅ 写 `detail.worktree` 内模型，随该 change 归档合回 |
-| 生成契约生成物（写盘） | ❌ 只显示三类差异 + 呈现「生成需开 change（或让左侧会话执行本仓的生成命令）」提示 | ✅ 二次确认后写 `detail.worktree` 内的生成物，随该 change 归档合回 |
+| 生成契约生成物（写盘） | ❌ 只显示三类差异 + 呈现「生成需开 change，或让左侧会话生成」提示 | ✅ 二次确认后写 `detail.worktree` 内的生成物，随该 change 归档合回 |
 
 - `full` 模式 MUST NOT 呈现任何可提交的 `gate` 编辑入口（按钮 / 下拉 / 行内编辑），MUST NOT 发起写命令；同理 MUST NOT 呈现任何可提交的**生成物生成**入口，MUST NOT 发起 `archi_api_generate`。
 - `incremental` 模式的改档 SHALL 经**一个显式写命令**（服务端写前校验 + 渲染自证 + 原子写回）完成，MUST NOT 由前端直接拼写 / 重写 TOML 文本。
 - 改档成功 SHALL 触发一次显式重取（图与元素信息面板同步刷新）；失败 SHALL 以行内错误呈现且磁盘零变化。
 - `incremental` 模式的生成 SHALL 经**一个显式写命令**（`archi_api_generate`，只增只改、从不删文件）并在二次确认后发起（交互细节归 `desktop-archi-contract-panel`）；成功后 SHALL 重跑一次检查，失败 SHALL 以行内错误如实呈现（写盘非原子）。
 - `incremental` 模式 MUST NOT 提供「新增 / 删除元素」「连边」一类结构编辑入口（本期只开放 `gate` 单字段写入与生成物写盘）。
-- **只读约束的对象 = 画布的人类可提交入口**：`full` 模式的只读裁定 MUST NOT 被解读为「workspace 级模型不可被 agent 修改」。`/architecture` 页可同时挂载通用 agent 会话（`desktop-archi-chat`），该会话在主仓根直改模型属**会话能力**，不是画布能力；两者并存：MUST NOT 以「会话能写」为理由为画布新增任何写入口或写命令，亦 MUST NOT 以「画布只读」为理由禁止该会话写。会话写盘后画布不自动更新（零 watch 零轮询的必然推论），用户点刷新即可见新图或停摆态诊断。该裁定 SHALL 同样覆盖契约视图的生成按钮——它也是「画布的人类可提交入口」，故 `full` 模式无生成入口；`full` 模式下想清理过期生成物，其合法路径是让页内会话执行本仓的生成命令（或开一个 change）。
+- **只读约束的对象 = 画布的人类可提交入口**：`full` 模式的只读裁定 MUST NOT 被解读为「workspace 级模型不可被 agent 修改」。`/architecture` 页可同时挂载通用 agent 会话（`desktop-archi-chat`），该会话在主仓根直改模型属**会话能力**，不是画布能力；两者并存：MUST NOT 以「会话能写」为理由为画布新增任何写入口或写命令，亦 MUST NOT 以「画布只读」为理由禁止该会话写。会话写盘后画布不自动更新（零 watch 零轮询的必然推论），用户点刷新即可见新图或停摆态诊断。该裁定 SHALL 同样覆盖契约视图的生成按钮——它也是「画布的人类可提交入口」，故 `full` 模式无生成入口；`full` 模式下想清理过期生成物，其合法路径是让页内会话**生成**（会话经 `archi_generate` 按当前契约渲染并写主仓；见 `desktop-archi-agent`「archi_generate 生成物工具」），或开一个 change。
+- **「页内会话能生成」不构成新入口（本变更澄清）**：上述合法路径 SHALL 由 agent 工具承载（`archi_generate` 在 archi 来源臂下发），MUST NOT 由画布或面板发起命令；画布侧零写命令调用这一断言逐字不变。
 
 #### Scenario: 全量模式零写入口
 
 - **WHEN** 在 `/architecture`（`mode = full`）审查元素信息面板与契约视图
-- **THEN** 无任何可提交的 `gate` 编辑控件、无任何可提交的生成按钮，分别呈现「改档需要开一个 change」与「生成需开 change（或让左侧会话执行本仓的生成命令）」提示；审查源码零写命令调用（`archi_set_gate` / `archi_api_generate` 均不在 `full` 分支）
+- **THEN** 无任何可提交的 `gate` 编辑控件、无任何可提交的生成按钮，分别呈现「改档需要开一个 change」与「生成需开 change，或让左侧会话生成」提示；审查源码零写命令调用（`archi_set_gate` / `archi_api_generate` 均不在 `full` 分支）
 
 #### Scenario: 增量模式改档落 worktree
 
@@ -172,7 +173,7 @@
 
 #### Scenario: 画布只读与页内会话写权并存
 
-- **WHEN** 在 `/architecture` 页展开左栏通用 agent 会话并让 agent 改主仓模型（或执行本仓的生成命令）
+- **WHEN** 在 `/architecture` 页展开左栏通用 agent 会话并让 agent 改主仓模型（或调用 `archi_generate` 写主仓生成物）
 - **THEN** 元素信息面板仍无任何可提交 `gate` 入口、契约视图无生成按钮、页面零画布写命令；模型或生成物改动由会话写入，画布与面板在用户点刷新前保持旧数据，刷新后呈现新图 / 新差异（两条能力互不代理）
 
 ### Requirement: 元素信息面板内容与本期边界
@@ -357,3 +358,14 @@
 | `packages/desktop/src/views/architecture/components/model-info.tsx` | 元素信息面板（**零功能改动**） | 概览 / 契约段 / 入口文档 / 改档入口逐字不变（`doc` 字段零判据但 UI 语义不变：`api = none` 元素仍呈单条「入口文档」） |
 | `packages/desktop/src/views/architecture/lib/**`（标记派生面） | 零改动 | 标记只认 `apiFindings` 的计数与 `kind` 值域外的结构事实；`kind` 词汇收缩不改标记派生（画布不解释 `kind`） |
 | `packages/desktop/src/views/architecture/hooks/use-archi-module.ts` / `use-archi-graph.ts` / `use-archi-drift.ts` | 零改动 | 触发条件、载荷与取数纪律逐字不变；`ArchiModuleDetail` 的新字段 `assets` / `reading` 由 agent 工具消费，前端不读 |
+
+### 模块增量：能力差异文案换指（archi-generator-access-gap）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+#### Component: `packages/desktop/src/views/architecture/**`（画布）
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| 能力差异提示文案 | 改 | 「生成需开 change（或让左侧会话执行本仓的生成命令）」→「生成需开 change，或让左侧会话生成」 |
+| 结构编辑入口 / 生成按钮 / 写命令调用 | 零改动 | `full` 分支零 `archi_set_gate` / 零 `archiApiGenerate` 的断言逐字不变 |
