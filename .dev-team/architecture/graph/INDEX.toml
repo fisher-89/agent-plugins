@@ -22,12 +22,12 @@ generated = ""
 
 [[entry]]
 fqn = "Backend.Core.Archi"
-status = "absent"
+status = "declared"
 types = 0
-ops = 0
+ops = 2
 degraded = 0
-schema = ""
-generated = ""
+schema = ".dev-team/architecture/models/Backend/Core/Archi.schema.json"
+generated = "packages/desktop/src-tauri/crates/core/archi/src/lib.i.rs"
 
 [[entry]]
 fqn = "Backend.Core.Checks"

@@ -16,11 +16,11 @@ interface File {
   path: string;
   /** 文件类型（md/js/tsx/rs），非预制的类型显示文本；缺省按路径后缀推断 */
   type?: string;
+  /** 文件标题，默认从path截取文件名 */
+  title?: string;
 }
 
-type InnerFile = Required<File> & {
-  name: string;
-};
+type InnerFile = Required<File>;
 
 export interface FileViewerProps {
   root: string;
@@ -51,7 +51,7 @@ function toInnerFiles(files: File[]): InnerFile[] {
   return files.map((file) => ({
     path: file.path,
     type: file.type?.toLowerCase() ?? fileType(file.path),
-    name: fileName(file.path),
+    title: file.title || fileName(file.path),
   }));
 }
 
@@ -156,9 +156,9 @@ export function FileViewerBlock({ root, files }: FileViewerProps): React.JSX.Ele
   ) : (
     <Tabs defaultValue={first.path} orientation="vertical" className="h-full">
       <TabsList>
-        {innerFiles.map(({ path, name }) => (
-          <TabsTrigger key={path} value={path}>
-            {name}
+        {innerFiles.map(({ path, title }) => (
+          <TabsTrigger key={path} value={path} className="max-w-40 truncate">
+            {title}
           </TabsTrigger>
         ))}
       </TabsList>

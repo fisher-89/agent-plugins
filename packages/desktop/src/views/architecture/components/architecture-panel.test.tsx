@@ -1710,10 +1710,8 @@ describe('右栏文档分段（api 三路径 → FileViewer → read_file）', (
       limit: null,
     });
     // 三条非空路径各自成页签（路径为 null 才不出页签）
-    for (const name of ['App.Auth.md', 'App.Auth.schema.json', 'auth.i.ts']) {
-      expect(screen.getByRole('tab', { name })).toBeTruthy();
-    }
-    fireEvent.click(screen.getByRole('tab', { name: 'App.Auth.schema.json' }));
+    expect(docTabs()).toEqual(['文档', '接口契约', '接口代码']);
+    fireEvent.click(screen.getByRole('tab', { name: '接口契约' }));
     await waitFor(() => expect(callsOf('read_file')).toHaveLength(2));
     expect(callsOf('read_file')[1]).toEqual({
       path: `/ws/${schemaPath}`,
@@ -1757,17 +1755,19 @@ async function renderDocSection(api: {
   });
   render(<ArchitecturePanel root={'/ws'} mode="full" />);
   await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
-  await waitFor(() => expect(screen.getByRole('tab', { name: '文档' })).toBeTruthy());
+  // 模块详情落定（元素信息面板契约段挂载）才查文档页签，避免取数未回即断言的假绿
+  await waitFor(() => expect(screen.getByTestId('archi-contract-drawer-empty')).toBeTruthy());
 }
 
-/** 文档分段的页签名清单（只认三条派生名）。 */
+/** 文档分段的文件页签名清单（文件页签挂在 `FileViewerBlock` 的纵向 Tabs 根下）。 */
 function docTabs(): string[] {
-  return screen
+  const viewer = document.querySelector<HTMLElement>(
+    '[data-slot="tabs"][data-orientation="vertical"]',
+  );
+  if (viewer === null) return [];
+  return within(viewer)
     .queryAllByRole('tab')
-    .map((tab) => tab.textContent ?? '')
-    .filter((name) =>
-      ['.md', '.schema.json', '.i.ts', '.i.rs'].some((suffix) => name.endsWith(suffix)),
-    );
+    .map((tab) => tab.textContent ?? '');
 }
 
 describe('右栏文档分段：三路径各自独立出线（矩阵 3 形态 + 2 越界态）', () => {
@@ -1778,7 +1778,7 @@ describe('右栏文档分段：三路径各自独立出线（矩阵 3 形态 + 2
       schemaPath: '.dev-team/architecture/models/App.Auth.schema.json',
       generatedPath: null,
     });
-    expect(docTabs()).toEqual(['App.Auth.schema.json']);
+    expect(docTabs()).toEqual(['接口契约']);
   });
 
   it('应在只有文档时只出该页签', async () => {
@@ -1788,7 +1788,7 @@ describe('右栏文档分段：三路径各自独立出线（矩阵 3 形态 + 2
       schemaPath: null,
       generatedPath: null,
     });
-    expect(docTabs()).toEqual(['App.Auth.md']);
+    expect(docTabs()).toEqual(['文档']);
   });
 
   it('应在三条全在时按 文档 → 接口 → 生成物 的序出三个页签', async () => {
@@ -1798,7 +1798,7 @@ describe('右栏文档分段：三路径各自独立出线（矩阵 3 形态 + 2
       schemaPath: '.dev-team/architecture/models/App.Auth.schema.json',
       generatedPath: 'src/auth.i.ts',
     });
-    expect(docTabs()).toEqual(['App.Auth.md', 'App.Auth.schema.json', 'auth.i.ts']);
+    expect(docTabs()).toEqual(['文档', '接口契约', '接口代码']);
   });
 
   it('应在三条全空时整段零页签（不渲空标题）', async () => {
@@ -1818,7 +1818,7 @@ describe('右栏文档分段：三路径各自独立出线（矩阵 3 形态 + 2
       schemaPath: '.dev-team/architecture/models/App.Auth.schema.json',
       generatedPath: null,
     });
-    expect(docTabs()).toEqual(['App.Auth.schema.json']);
+    expect(docTabs()).toEqual(['接口契约']);
   });
 
   it('应在 status = none 且三路径全空时零页签（渲染面只看路径事实）', async () => {

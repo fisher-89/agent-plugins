@@ -8,16 +8,6 @@
 **边界**：骨架只排布与呈现，**零业务取数**——会话面、历史清单、动作面判据与状态行文案全在
 `SessionPanelState` 里由来源侧 hook 持有；骨架内唯一的「业务」决定是折叠几何与 testid 命名。
 
-## 公共面
-
-| 名字 | 形态 | 语义 |
-|---|---|---|
-| `SessionPanel` | 组件 | 可折叠面板骨架（窄条 / 展开两态） |
-| `SessionPanelState` | 接口 | 面板公共状态子集：会话面 + 历史清单面 + 动作面判据 + 状态行文案 |
-
-`SessionPanelProps`（`state` / `title` / `testIdPrefix` / `composer`）**不外露**：入参形状是骨架
-内部事实，跨元素消费者只经本元素入口取 `SessionPanel` 与 `SessionPanelState`。
-
 ## 不变量
 
 - **折叠判据单值 `MIN_SIZE = 500`**：`onResize` 以 `inPixels < MIN_SIZE` **单向**写
@@ -37,19 +27,14 @@
 
 ## 契约面留白
 
-- **`SessionPanel` 不进 `api-op`**：形态是 `(props: SessionPanelProps) => React.JSX.Element`
-  ——入参具名类型、返回位是 JSX 元素，两侧归一恒不等，同类实测差异见
-  `Desktop.Components.Agent.AgentError` 的留白段。
-- **`SessionPanelState` 不进 `api-types`**：十个字段位里四个引用外部类型——`UseAgentSessionState`
-  （`hooks/use-agent-session`）、`SessionSummary[]`（生成的绑定类型）与三个函数位。契约词汇没有
-  跨模块具名类型位；把外部类型就地重抄即造第二个真相源，故本元素 `$defs` 为空。
-- **`SessionPanelProps` 本就不在导出集**：代码未 `export`，契约声明它会立刻触发 `apiMissing`
-  （「有约定无兑现」）——名字不外露这件事由入口的导出面守，不靠契约。
+- **组件不进契约**：形态是 `(props: <具名 props>) => React.JSX.Element`——入参具名类型、返回位
+  是 JSX 元素，两侧归一恒不等，同类实测差异见 `Desktop.Components.Agent.AgentError` 的留白段。
+- **公共状态子集不进契约**：十个字段位里四个引用外部类型——会话 hook 状态、生成的绑定类型与三个
+  函数位。契约词汇没有跨模块具名类型位；把外部类型就地重抄即造第二个真相源，故本元素 `$defs`
+  为空。
+- **入参形状本就不在导出集**：代码未 `export`，契约声明它会立刻触发 `apiMissing`（「有约定无
+  兑现」）——入参不外露这件事由入口的导出面守，不靠契约。
 
 ## 类型
 
-本元素自有 `$defs` 为空（状态面形状全在留白里，见上）：
-
-```json api-types
-{}
-```
+本元素自有 `$defs` 为空（状态面形状全在留白里，见上）：契约侧不新建类型。

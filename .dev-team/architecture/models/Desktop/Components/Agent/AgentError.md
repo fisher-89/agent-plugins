@@ -8,13 +8,6 @@
 **边界**：纯函数面——零 React、零 IPC、零读盘。轮行（`TurnSummary`）是库态权威，事件流
 只是「终态行尚未到达」时的兜底；本模块只**投影**两者，不判活、不重试、不改会话状态。
 
-## 公共面
-
-| 名字 | 形态 | 语义 |
-|---|---|---|
-| `latestAgentFailure` | 函数 | 最新一轮失败 → `AgentFailure`；成功 / 停止 / 失败后已重试成功 → `null` |
-| `AgentFailure` | 接口 | 会话失败横幅的展示载荷：`title` / `hint` / `raw` |
-
 ## 不变量
 
 - **成功 / 停止 / 已恢复的失败一律返回 `null`**：判据是「最新轮状态为 `failed`」，或
@@ -38,15 +31,13 @@
 
 ## 契约面留白
 
-- **`latestAgentFailure` 不进 `api-op`**：两侧归一恒不等——契约侧 `$ref` 归一为
-  `?AgentEvent` / `?TurnSummary` / `?AgentFailure`（`$ref` 在 `schema_type` 里落 `Unknown`），
-  代码侧是具名 `AgentEvent` / `TurnSummary` 与 `optional<AgentFailure>`。实测差异：
-  `契约 fn(list<?AgentEvent>, list<?TurnSummary>) -> ?AgentFailure` 对
-  `代码 fn(list<AgentEvent>, list<TurnSummary>) -> optional<AgentFailure>`。补齐的出路是给契约
-  词汇补「具名类型位」与「可空返回位」（`$ref` → `Named`、`| null` → `optional`），不是放宽
-  判据、也不是把三处类型降级成 `object`。
-- **`AgentFailure` 不进 `api-types`**：它本身是**能自洽表达**的类型（三个必填 `string` 字段，
-  零外部引用），实测也通过 `apiMissing` 与 `apiSignatureMismatch`。留白的原因是生成链：
+- **失败投影函数不进契约**：两侧归一恒不等——契约侧 `$ref` 归一为 `?<名>`（`$ref` 在
+  `schema_type` 里落 `Unknown`），代码侧是具名类型、且只有返回位可空。实测差异的形态恒为：
+  契约侧每个具名位都带 `?`、列表元素位也不剥，代码侧 `list<T>` 的元素不带可空。补齐的出路是给
+  契约词汇补「具名类型位」与「可空返回位」（`$ref` → `Named`、`| null` → `optional`），不是
+  放宽判据、也不是把三处类型降级成 `object`。
+- **展示载荷类型不进契约**：它本身是**能自洽表达**的类型（三个必填 `string` 字段，零外部引用），
+  实测也通过 `apiMissing` 与 `apiSignatureMismatch`。留白的原因是生成链：
   `emit::ts` 在文件末尾多出一个空行，`vp check` 的格式化器剥掉它之后 `api:check` 的零 diff 门
   即判 `mismatched: …/agent-error.i.ts`——`client:check` 与 `api:check` 只能二选一。出路在
   源码/配置面（生成器去掉末尾空行，或把 `src/**/*.i.ts` 纳入 `NO_STATIC_CHECK`），属独立的
@@ -54,8 +45,4 @@
 
 ## 类型
 
-本元素自有 `$defs` 为空（成因见上）：
-
-```json api-types
-{}
-```
+本元素自有 `$defs` 为空（成因见上）：契约侧不新建类型。

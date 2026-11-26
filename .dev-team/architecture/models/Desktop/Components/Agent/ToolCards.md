@@ -10,17 +10,6 @@ web_search / bash / read / write / edit），并以 `BUILD_IN_TOOL_CARDS` 暴露
 词表（只穿 `turnRunning` 布尔原语）。两张卡（`web_search` / `finish_step`）的实现落在
 `AgentBlocks`，本元素只注册它们——注册表按键归此，块实现按呈现归彼。
 
-## 公共面
-
-| 名字 | 形态 | 语义 |
-|---|---|---|
-| `AgentToolCard` | 类型 | 特化工具卡的可插拔位（`ComponentType<AgentToolCardProps>`，允许 memo 包装） |
-| `BUILD_IN_TOOL_CARDS` | 值 | 内置注册表：7 条「工具名 → 卡组件」，键不含 `tool-` 前缀 |
-
-`AgentToolCardProps`（`toolCallId` / `toolName` / `state` / `input` / `output` /
-`turnRunning` / `askAnswer`）是卡与注册表之间的**内部**形状，不外露：注册表的值类型
-`AgentToolCard` 外露，入参形状不外露。
-
 ## 不变量
 
 - **注册表键 = 工具名（无 `tool-` 前缀）**：前缀剥离发生在消费者（`AgentMessages` 的
@@ -39,20 +28,15 @@ web_search / bash / read / write / edit），并以 `BUILD_IN_TOOL_CARDS` 暴露
 
 ## 契约面留白
 
-- **`AgentToolCard` 不进 `api-types`**：它是 `ComponentType<AgentToolCardProps>`——泛型别名，
-  且其参数是未导出的内部接口。契约的泛型零支持（`reject_generics`）与「跨模块具名类型位缺位」
-  两条在此叠加；把内部 props 抄成 `$defs` 会让「内部形状」变成公共承诺，与「不外露」的不变量
-  正面对撞。
-- **`BUILD_IN_TOOL_CARDS` 不进契约**：取数器只把 `export function` 记作操作、`export const`
-  里的对象字面量记作值（排除），故它不是符号；其形状是「运行时卡组件表」，无法用 JSON Schema
-  表达，条数与键集在散文（本文件）与 `AgentMessages` 的分派处共同守。
-- **本元素零 `api-op`**：唯一可进操作面的是各卡组件本身，而它们是 `memo(...)` 组件（组件面
-  非契约操作），形态与 `AgentBlocks` 的五个块同族。
+- **可插拔位类型不进契约**：它是 `ComponentType<内部 props>`——泛型别名，且参数是未导出的内部
+  接口。契约的泛型零支持（`reject_generics`）与「跨模块具名类型位缺位」两条在此叠加；把内部
+  props 抄成 `$defs` 会让「内部形状」变成公共承诺，与「不外露」的不变量正面对撞。
+- **注册表不进契约**：取数器只把 `export function` 记作操作、`export const` 里的对象字面量记作
+  值（排除），故它不是符号；其形状是「运行时卡组件表」，无法用 JSON Schema 表达，条数与键集在
+  入口代码与 `AgentMessages` 的分派处共同守。
+- **本元素零操作面**：唯一可进操作面的是各卡组件本身，而它们是 `memo(...)` 组件（组件面非契约
+  操作），形态与 `AgentBlocks` 的块同族。
 
 ## 类型
 
-本元素自有 `$defs` 为空（公共面全部为留白，见上）：
-
-```json api-types
-{}
-```
+本元素自有 `$defs` 为空（公共面全部为留白，见上）：契约侧不新建类型。

@@ -13,29 +13,9 @@
 - 取消以 `fault` 正常返回，MUST NOT 用 `Err` 表达。
 - 门禁 `passed` = 零违例且零模型结构错；执行体 MUST NOT 自行改写该判据。
 
-## 操作
+## 契约面
 
-### file_stem
-
-时间戳 → 报告文件名主干：只保留 ASCII 数字与 `T` / `Z`（`2026-10-20T08:31:12Z` →
-`20261020T083112Z`；冒号在 Windows 文件名上非法）。空输入退化为 `report`。
-
-```json api-op
-{
-  "owner": "LocalArchiCheck",
-  "params": [{ "name": "timestamp", "schema": { "type": "string" } }],
-  "returns": { "type": "string" }
-}
-```
-
-## 类型
-
-```json api-types
-{
-  "LocalArchiCheck": {
-    "type": "object",
-    "properties": {},
-    "x-common": { "note": "零字段门禁执行体：类型本身即名义性，构造器由生成器产出" }
-  }
-}
-```
+唯一凭据是同目录 `ArchiRuntime.schema.json`：操作语义、签名与类型形状只写在那边，本文件不复述
+名字与签名。留白判据与 `Backend.Core.Foundation` 同源——契约词汇只表达值的形态，入参 / 返回是
+路径、具名类型或零返回的动作写进去两侧签名恒对不上；本元素的公开面恰好整块落在能表达的一侧，
+故契约面不为空、也没有半边承诺。

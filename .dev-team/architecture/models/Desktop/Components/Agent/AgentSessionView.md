@@ -20,14 +20,6 @@ composer 插槽。以**同一渲染体**承载两种形态——自持形态（�
 `cacheCreationInputTokens` 为 `TurnDone.usage` 缓存计数的累计；命中率 = 缓存读取 ÷ 输入，
 输入已含缓存读写），缺席字段呈 `—`，零取数。
 
-## 公共面
-
-| 名字 | 形态 | 语义 |
-|---|---|---|
-| `AgentSessionView` | 组件 | 会话视图（双形态） |
-| `AgentSessionActions` | 接口 | composer 插槽的运行态 + 动作面（`running` / `loading` / `send` / `stop` / `steer` / `steering`） |
-| `AgentSessionViewProps` | 接口 | 入参：`root` / `sessionId` / `refreshKey` / `session` / `composer` / `askAnswer` / `data-testid` |
-
 ## 不变量
 
 - **形态判据单值**：注入形态 ⟺ `session !== undefined`。注入时内部 hook 以
@@ -44,19 +36,13 @@ composer 插槽。以**同一渲染体**承载两种形态——自持形态（�
 
 ## 契约面留白
 
-- **`AgentSessionView` 不进 `api-op`**：形态是 `(props: AgentSessionViewProps) =>
-  React.JSX.Element`——入参具名类型、返回位是 JSX 元素，两侧归一恒不等（`apiSignatureMismatch`
-  恒红），同类实测差异见 `Desktop.Components.Agent.AgentError` 的留白段。
-- **两个导出类型都不进 `api-types`**：`AgentSessionActions` 的三个函数位引用
-  `AgentSessionSendInput`（`hooks/use-agent-session`）；`AgentSessionViewProps` 更是
-  `UseAgentSessionState`、`React.ReactNode`、`SessionSummary`（生成的绑定类型）与自有
-  `AskAnswerActions` 的合成。契约词汇没有跨模块具名类型位，就地重抄这些类型即造第二个真相源，
-  故本元素 `$defs` 为空。
+- **组件不进契约**：形态是 `(props: <具名 props>) => React.JSX.Element`——入参具名类型、返回位
+  是 JSX 元素，两侧归一恒不等（`apiSignatureMismatch` 恒红），同类实测差异见
+  `Desktop.Components.Agent.AgentError` 的留白段。
+- **两个导出类型都不进契约**：动作面的三个函数位引用会话 hook 的发送入参；入参形状更是 hook 状态、
+  `React.ReactNode`、生成的绑定类型与自有应答动作面的合成。契约词汇没有跨模块具名类型位，就地
+  重抄这些类型即造第二个真相源，故本元素 `$defs` 为空。
 
 ## 类型
 
-本元素自有 `$defs` 为空（入参 / 动作面形状全在留白里，见上）：
-
-```json api-types
-{}
-```
+本元素自有 `$defs` 为空（入参 / 动作面形状全在留白里，见上）：契约侧不新建类型。

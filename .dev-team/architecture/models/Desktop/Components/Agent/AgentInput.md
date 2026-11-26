@@ -8,13 +8,6 @@
 **边界**：只上抛（`onSend` / `onStop`），零会话取数、零 IPC、零流订阅——链参数、stance 组装
 与是否真的能发由上游判。档位态本地持有，不回传也不落库。
 
-## 公共面
-
-| 名字 | 形态 | 语义 |
-|---|---|---|
-| `AgentInput` | 组件 | 输入框（含档位行与工具行） |
-| `AgentInputProps` | 接口 | 入参：`idPrefix` / `placeholder` / `running` / `disabled` / `disabledReason` / `hidePermissionMode` / `pending` / `onSend` / `onStop` |
-
 ## 不变量
 
 - **发送即清空**：点击发送与快捷键发送走同一条 `send(text)`，提交后本地清空 prompt；`text`
@@ -35,19 +28,13 @@
 
 ## 契约面留白
 
-- **`AgentInput` 不进 `api-op`**：形态是 `(props: AgentInputProps) => React.JSX.Element`——入参
-  具名类型、返回位是 JSX 元素。契约侧 `$ref` 归一为 `?AgentInputProps` / `?Element`、代码侧是
-  具名 `AgentInputProps` / `Element`，两侧恒不等；同类实测差异见
+- **组件不进契约**：形态是 `(props: <具名 props>) => React.JSX.Element`——入参具名类型、返回位
+  是 JSX 元素。契约侧 `$ref` 归一为 `?<名>`、代码侧是具名类型，两侧恒不等；同类实测差异见
   `Desktop.Components.Agent.AgentError` 的留白段。
-- **`AgentInputProps` 不进 `api-types`**：三个字段位引用外部类型——`AgentPermissionMode`
-  （`types/dto`）与两个内联函数形状（`onSend` 的 `{ text; permissionMode }` 对象参）。契约词汇
-  没有跨模块具名类型位，把外部类型在本元素重抄一份即造第二个真相源（`types/dto` 改名后契约
-  静默失真），故不生成本元素的 `$defs`。
+- **入参形状不进契约**：三个字段位引用外部类型——权限档位词表（`types/dto`）与两个内联函数形状
+  （发送动作的对象参）。契约词汇没有跨模块具名类型位，把外部类型在本元素重抄一份即造第二个真相
+  源（`types/dto` 改名后契约静默失真），故不生成本元素的 `$defs`。
 
 ## 类型
 
-本元素自有 `$defs` 为空（入参形状全在留白里，见上）：
-
-```json api-types
-{}
-```
+本元素自有 `$defs` 为空（入参形状全在留白里，见上）：契约侧不新建类型。

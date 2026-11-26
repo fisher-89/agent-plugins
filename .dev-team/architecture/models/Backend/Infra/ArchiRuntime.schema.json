@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "Backend.Infra.ArchiRuntime.schema.json",
   "title": "Backend.Infra.ArchiRuntime",
-  "$comment": "本文件由元素的契约 markdown 生成，勿手改：手改将在下次 generate 时被覆盖，且 api:check 零 diff 门会失败",
+  "$comment": "本文件是手写接口真相（不是生成物）：导出名 / 签名 / 类型的唯一持有者；`x-function.description` 只写调用方要知道的语义、MUST NOT 复述签名；改完用 `archi_api` 的 `check` 自查",
   "$defs": {
     "LocalArchiCheck": {
       "type": "object",
       "properties": {},
       "x-common": {
-        "note": "零字段门禁执行体：类型本身即名义性，构造器由生成器产出"
+        "note": "零字段门禁执行体：类型本身即名义性，零参 `new()` 由零字段 `object` 条目自动产出"
       }
     }
   },
@@ -16,6 +16,7 @@
     "file_stem": {
       "x-function": {
         "owner": "LocalArchiCheck",
+        "description": "时间戳 → 报告文件名主干：只保留 ASCII 数字与 `T` / `Z`（`2026-10-20T08:31:12Z` → `20261020T083112Z`；冒号在 Windows 文件名上非法）。空输入退化为 `report`——调用方 MUST NOT 为「空时间戳」另设分支。",
         "params": [
           {
             "name": "timestamp",

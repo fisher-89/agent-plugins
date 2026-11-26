@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "Backend.Core.Archi.schema.json",
+  "title": "Backend.Core.Archi",
+  "$comment": "本文件是手写接口真相（不是生成物）：导出名 / 签名 / 类型的唯一持有者；`x-function.description` 只写调用方要知道的语义、MUST NOT 复述签名；改完用 `archi_api` 的 `check` 自查",
+  "$defs": {},
+  "properties": {
+    "is_identifier": {
+      "x-function": {
+        "description": "ASCII 标识符判据（`[A-Za-z_][A-Za-z0-9_]*`）：回答「这串能不能当契约里的一个名字」——`properties` / `$defs` 的键、操作名、参数名、`owner`、`$ref` 末段名共用这一条实现。调用方 MUST NOT 自写字符集判定：放宽一处即让某个语言侧不可渲染的名字过闸，收紧一处即拒掉合法形态，而两侧口径分叉只在生成期才暴露。",
+        "params": [
+          {
+            "name": "token",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "returns": {
+          "type": "boolean"
+        }
+      }
+    },
+    "is_fqn": {
+      "x-function": {
+        "description": "元素 FQN 的形态判据：非空、不含路径分隔符与盘符前缀、无空段。FQN 同时充当契约资产的文件名（叶段）与分层目录段，故它是「这串能不能拿去派生成落盘路径」的唯一前置——放行一个含路径分隔符或空段的串，下层探测与写盘就会越出契约目录。调用方 MUST NOT 用「看起来像 FQN」代替本判据。",
+        "params": [
+          {
+            "name": "fqn",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "returns": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
