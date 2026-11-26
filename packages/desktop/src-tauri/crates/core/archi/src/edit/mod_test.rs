@@ -25,9 +25,9 @@ use crate::dto::{ApiStatus, ElementKind, GateTier};
 use crate::model::{Element, Model};
 use crate::parse::{self, SourceParser, TomlParser};
 use crate::{
-    apply_element_delete, apply_element_spec, apply_relation_delete, apply_relation_upsert,
     file_hash, file_hash_of, plan_element_delete, plan_element_upsert, plan_relation_delete,
-    plan_relation_upsert, DeleteSet, EditError, EditErrorKind, ElementSpec, ModelWrite,
+    plan_relation_upsert, DeleteSet, EditError, EditErrorKind, ElementSpec, ModelWrite, Reorder,
+    WriteOutcome,
 };
 
 use super::{
@@ -38,6 +38,30 @@ use super::{
 /// 单元素删除集的退化形（`DeleteSet` 恰含一个 FQN，删除纯函数唯一形态）。
 fn one(fqn: &str) -> DeleteSet {
     DeleteSet::of(fqn)
+}
+
+// 既有断言的对象一律是**交付文本**：`apply_*` 的产出是「交付文本 + [`Reorder`]」元组，
+// 下面四个同名包装只取文本——搬迁块的口径与 cap 归 `layout_test` 与写面 `reordered` 断言。
+fn apply_element_spec(source: &str, spec: &ElementSpec) -> Result<String, EditError> {
+    super::apply_element_spec(source, spec).map(|(content, _)| content)
+}
+
+fn apply_element_delete(source: &str, set: &DeleteSet) -> Result<String, EditError> {
+    super::apply_element_delete(source, set).map(|(content, _)| content)
+}
+
+fn apply_relation_upsert(
+    source: &str,
+    from: &str,
+    to: &str,
+    desc: Option<Option<&str>>,
+    apis: Option<&[String]>,
+) -> Result<String, EditError> {
+    super::apply_relation_upsert(source, from, to, desc, apis).map(|(content, _)| content)
+}
+
+fn apply_relation_delete(source: &str, from: &str, to: &str) -> Result<String, EditError> {
+    super::apply_relation_delete(source, from, to).map(|(content, _)| content)
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +331,8 @@ const DELETE_SOURCE: &str = concat!(
 );
 
 /// 三条关系（含空行与一条 `desc`）：更新 / 删除只动命中条。
+///
+/// 关系序按 R1 合规（`A` 组两段相邻、组间按首现序），故「不动臂」与源逐字节相等。
 const RELATIONS_SOURCE: &str = concat!(
     "[element.\"A\"]\n",
     "kind = \"module\"\n",
@@ -323,11 +349,11 @@ const RELATIONS_SOURCE: &str = concat!(
     "desc = \"旧说明\"\n",
     "\n",
     "[[relation]]\n",
-    "from = \"B\"\n",
+    "from = \"A\"\n",
     "to = \"C\"\n",
     "\n",
     "[[relation]]\n",
-    "from = \"A\"\n",
+    "from = \"B\"\n",
     "to = \"C\"\n",
 );
 
@@ -1276,7 +1302,8 @@ fn 关系apis清空即删键() {
     );
 }
 
-/// 正向（矩阵：追加 / 零关系文件）：缺席即追加条目；`relation` 键缺席即新建条目数组。
+/// 正向（矩阵：追加 / 零关系文件）：缺席即追加条目，并回其 `from` 组组尾（不是条目数组
+/// 尾——组后还有别人的条目）；`relation` 键缺席即新建条目数组。
 #[test]
 fn 关系缺席追加且缺键即建数组() {
     let rendered = apply_relation_upsert(RELATIONS_SOURCE, "A", "A", Some(Some("自述")), None)
@@ -1293,13 +1320,21 @@ fn 关系缺席追加且缺键即建数组() {
         "每条一个表头（不合并）"
     );
 
-    let block = &rendered[rendered.rfind("[[relation]]").expect("新条目在尾")..];
+    let anchor = rendered
+        .find("from = \"A\"\nto = \"A\"")
+        .expect("新条目在案");
+    let block_start = rendered[..anchor].rfind("[[relation]]").expect("表头在案");
+    let block = &rendered[block_start..];
     let from_index = block.find("from = ").expect("from 在场");
     let to_index = block.find("to = ").expect("to 在场");
     let desc_index = block.find("desc = ").expect("desc 在场");
     assert!(
         from_index < to_index && to_index < desc_index,
         "键序 from / to / desc：\n{block}"
+    );
+    assert!(
+        block_start < rendered.find("from = \"B\"").expect("B 组在案"),
+        "新条目并回 A 组组尾而非条目数组尾：\n{rendered}"
     );
 
     let zero_relation = concat!(
@@ -1350,12 +1385,12 @@ fn 关系写入坏源零文本() {
 /// 边界（矩阵：多条中间条 / 特殊字符端点）：更新只动命中条。
 #[test]
 fn 多条目更新只动命中条() {
-    let rendered = apply_relation_upsert(RELATIONS_SOURCE, "B", "C", Some(Some("中间条")), None)
+    let rendered = apply_relation_upsert(RELATIONS_SOURCE, "A", "C", Some(Some("中间条")), None)
         .expect("更新中间条应成功");
     let model = model_of(&rendered);
     assert_eq!(model.relations.len(), 3);
     assert_eq!(
-        relation_of(&model, "B", "C").description.as_deref(),
+        relation_of(&model, "A", "C").description.as_deref(),
         Some("中间条")
     );
     assert_eq!(
@@ -3269,10 +3304,11 @@ fn 公开面恰八函数两类型且messages私有() {
     assert_eq!(
         public_uses,
         vec![
+            "pub use layout::{Reorder, REORDER_BLOCKS_CAP};",
             "pub use messages::{EditError, EditErrorKind};",
             "pub use warnings::{delete_warnings, upsert_warnings, EditWarning};",
         ],
-        "出口两块（判据族 + 反馈面）且形态固定"
+        "出口三块（规范化 / 判据族 / 反馈面）且形态固定"
     );
     assert!(
         source.lines().any(|line| line == "mod messages;"),
@@ -3281,6 +3317,10 @@ fn 公开面恰八函数两类型且messages私有() {
     assert!(
         !source.contains("pub mod messages"),
         "无 edit::messages::… 第五路径"
+    );
+    assert!(
+        !source.contains("pub mod layout"),
+        "规范化子模块私有（出口只经 crate 根的两个名字）"
     );
 }
 
@@ -3440,7 +3480,7 @@ fn 十二名经crate根可达() {
 
 use crate::{
     delete_warnings, upsert_warnings, EditWarning, RelationSpec, RelationTally, WriteAction,
-    WriteCounts, WriteOutcome,
+    WriteCounts,
 };
 
 /// 内联出边的唯一构造形态（缺省动作 = upsert、三态字段不动）。
@@ -4388,7 +4428,7 @@ fn 新增类型形状齐备() {
     assert_eq!(RelationTally::default().created, 0);
 }
 
-/// 边界：`WriteOutcome` 七字段可构造且内嵌 `ModelWrite` 三字段与既有三元组逐字同义。
+/// 边界：`WriteOutcome` 八字段可构造且内嵌 `ModelWrite` 三字段与既有三元组逐字同义。
 #[test]
 #[allow(non_snake_case)]
 fn WriteOutcome内嵌ModelWrite不变() {
@@ -4405,8 +4445,17 @@ fn WriteOutcome内嵌ModelWrite不变() {
         relations: RelationTally::default(),
         counts: WriteCounts::default(),
         model: WriteCounts::default(),
+        reordered: Reorder::default(),
     };
-    assert_eq!(outcome.write, write, "七字段之一内嵌 ModelWrite 原样");
+    assert_eq!(outcome.write, write, "八字段之一内嵌 ModelWrite 原样");
+    assert_eq!(
+        outcome.reordered,
+        Reorder {
+            moved: 0,
+            blocks: Vec::new()
+        },
+        "reordered 缺省即零值形态（恒在场）"
+    );
     assert_eq!(outcome.write.file, PathBuf::from("01-app.toml"));
     assert_eq!(outcome.write.content, "# 01 · app\n");
     assert_eq!(
@@ -4600,5 +4649,793 @@ fn warnings测试登记在册() {
     assert!(
         source.contains("mod messages_test;"),
         "既有 messages_test 登记未动"
+    );
+}
+
+// ===========================================================================
+// 本变更：写入序规范化（`apply_*` 产出 `Reorder`、`plan_*` 直供、AC-4 等价形态）
+// ===========================================================================
+
+use super::layout::normalize;
+
+/// R1 违例夹具：`A` 组被 `B → Y` 切成两段（并回后组内源序原样保留）。
+const SPLIT_GROUP_SOURCE: &str = concat!(
+    "[element.\"A\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"B\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"X\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"Y\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"Z\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[[relation]]\n",
+    "from = \"A\"\n",
+    "to = \"X\"\n",
+    "desc = \"旧说明\"\n",
+    "\n",
+    "[[relation]]\n",
+    "from = \"B\"\n",
+    "to = \"Y\"\n",
+    "\n",
+    "[[relation]]\n",
+    "from = \"A\"\n",
+    "to = \"Z\"\n",
+);
+
+/// 两组 `from` 各自被切开（删一条后剩余序仍违例）。
+const SPLIT_BOTH_GROUPS_SOURCE: &str = concat!(
+    "[element.\"A\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"B\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"W\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"X\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"Y\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[[relation]]\n",
+    "from = \"A\"\n",
+    "to = \"X\"\n",
+    "\n",
+    "[[relation]]\n",
+    "from = \"B\"\n",
+    "to = \"Y\"\n",
+    "\n",
+    "[[relation]]\n",
+    "from = \"A\"\n",
+    "to = \"Y\"\n",
+    "\n",
+    "[[relation]]\n",
+    "from = \"B\"\n",
+    "to = \"X\"\n",
+);
+
+/// 健康子树夹具（合规 DFS 序：`App` → `App.Auth` → `App.Auth.Session` → `App.Billing`）：
+/// `App.Auth` 的子树区间已在位，新建 `App.Auth.*` 子元素会落进中段、触发一次搬迁。
+const SUBTREE_SOURCE: &str = concat!(
+    "[element.\"App\"]\n",
+    "kind = \"package\"\n",
+    "\n",
+    "[element.\"App.Auth\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"App.Auth.Session\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"App.Billing\"]\n",
+    "kind = \"module\"\n",
+);
+
+/// E2 违例夹具（E1 仍成立）：`App.Billing` 插进 `App.Auth` 的子树区间，把
+/// `App.Auth.Session` 挤到兄弟之后——规范化只搬一块（`App.Auth.Session`），
+/// 平局保留源序更早的 `App.Billing` 不动。
+const E2_VIOLATION_SOURCE: &str = concat!(
+    "[element.\"App\"]\n",
+    "kind = \"package\"\n",
+    "\n",
+    "[element.\"App.Auth\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"App.Billing\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"App.Auth.Session\"]\n",
+    "kind = \"module\"\n",
+);
+
+/// 未搬迁 `06` 形态的合成副本：`Views` 组末尾追加三个 `Changes.*` 子块
+///（`gate` 显式写出同值，使「同值重放」只剩位置面在变）。
+fn six_copy_source() -> String {
+    let mut source = String::from(
+        "# 06 · frontend（12 元素 / 0 关系）\n\n[element.\"Desktop.Views\"]\nkind = \"module\"\ngate = \"off\"\n\n",
+    );
+    for name in [
+        "Agents",
+        "Architecture",
+        "Changes",
+        "Config",
+        "DbInspector",
+        "Explores",
+        "Info",
+        "Welcome",
+    ] {
+        source.push_str(&format!(
+            "[element.\"Desktop.Views.{name}\"]\nkind = \"module\"\ngate = \"off\"\n\n"
+        ));
+    }
+    for name in ["Flow", "Renderers", "Agent"] {
+        source.push_str(&format!(
+            "[element.\"Desktop.Views.Changes.{name}\"]\nkind = \"module\"\ngate = \"off\"\n\n"
+        ));
+    }
+    source
+}
+
+/// 九块错位的模型（子块在前、父块在后）：删除一个叶元素后剩余序仍违例。
+fn nine_block_source() -> String {
+    let mut source = String::new();
+    for index in 0..9 {
+        source.push_str(&format!("[element.\"P{index}.C\"]\nkind = \"module\"\n\n"));
+    }
+    for index in 0..9 {
+        source.push_str(&format!("[element.\"P{index}\"]\nkind = \"module\"\n\n"));
+    }
+    source
+}
+
+/// 交付文本中的表形态元素表头序（序断言的观测面）。
+fn header_order(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix("[element.\"")?;
+            Some(rest.strip_suffix("\"]")?.to_owned())
+        })
+        .collect()
+}
+
+/// 交付文本中的关系序（`[[relation]]` 条目出现序 → `(from, to)`）。
+fn relation_order(content: &str) -> Vec<(String, String)> {
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    let mut current: Option<(String, String)> = None;
+    for line in content.lines() {
+        if line.trim() == "[[relation]]" {
+            if let Some(pair) = current.take() {
+                pairs.push(pair);
+            }
+            current = Some((String::new(), String::new()));
+            continue;
+        }
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("from = ") {
+            if let Some((from, _)) = current.as_mut() {
+                *from = rest.trim_matches('"').to_owned();
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("to = ") {
+            if let Some((_, to)) = current.as_mut() {
+                *to = rest.trim_matches('"').to_owned();
+            }
+        }
+    }
+    if let Some(pair) = current.take() {
+        pairs.push(pair);
+    }
+    pairs
+}
+
+/// 正向（AC-1 / D-5）：健康夹具上把 `gate` 改成其**当前值** ⇒ 交付文本与源逐字节
+/// 相等且 `reordered == Reorder::default()`。
+#[test]
+fn apply_element_spec健康夹具同值即零搬迁零字节差异() {
+    for (source, fqn, gate) in [
+        (CORE_SOURCE, "App.Auth", GateTier::Warn),
+        (CORE_SOURCE, "App.Billing", GateTier::Off),
+        (HEADER_SOURCE, "App.Auth", GateTier::Off),
+    ] {
+        let (content, reorder) =
+            super::apply_element_spec(source, &gate_spec(fqn, gate)).expect("同值改档应成功");
+        assert_eq!(content, source, "{fqn} 同值 ⇒ 与源逐字节相等");
+        assert_eq!(reorder, Reorder::default(), "{fqn} 同值 ⇒ 零搬迁");
+    }
+}
+
+/// 正向（AC-1 / spec「新建元素」分情形）：新建子元素落在父子树中段 ⇒ 文本收成子树
+/// 连续、`moved = 1` 且块名为该 FQN；子树区间已是文件尾 ⇒ `moved = 0`。
+#[test]
+fn apply_element_spec新建按落位分两臂() {
+    let middle = ElementSpec {
+        fqn: "App.Auth.Token".to_owned(),
+        kind: Some(ElementKind::Module),
+        ..Default::default()
+    };
+    let (content, reorder) =
+        super::apply_element_spec(SUBTREE_SOURCE, &middle).expect("新建应成功");
+    assert_eq!(reorder.moved, 1, "父子树中段新建 ⇒ 一块");
+    assert_eq!(reorder.blocks, vec!["App.Auth.Token".to_owned()]);
+    assert_eq!(
+        header_order(&content),
+        vec![
+            "App",
+            "App.Auth",
+            "App.Auth.Session",
+            "App.Auth.Token",
+            "App.Billing"
+        ],
+        "新元素收进父的子树区间"
+    );
+
+    let tail_source = concat!(
+        "[element.\"App\"]\n",
+        "kind = \"package\"\n",
+        "\n",
+        "[element.\"App.Billing\"]\n",
+        "kind = \"module\"\n",
+    );
+    let tail = ElementSpec {
+        fqn: "App.Billing.Invoice".to_owned(),
+        kind: Some(ElementKind::Module),
+        ..Default::default()
+    };
+    let (_, reorder) = super::apply_element_spec(tail_source, &tail).expect("新建应成功");
+    assert_eq!(reorder, Reorder::default(), "落文件尾 ⇒ 零搬迁");
+}
+
+/// 正向：删除后剩余序仍合规 ⇒ `moved = 0`，删除块外字节逐字保留（含空行与注释）。
+#[test]
+fn apply_element_delete删除后剩余序合规零搬迁() {
+    let mut set = DeleteSet::default();
+    set.elements.insert("App.Billing".to_owned());
+    set.relations
+        .insert(("App.Billing".to_owned(), "App".to_owned()));
+    let (content, reorder) = super::apply_element_delete(DELETE_SOURCE, &set).expect("删除应成功");
+    assert_eq!(reorder, Reorder::default(), "删除不引入错位");
+    assert!(!content.contains("[element.\"App.Billing\"]"), "元素表离场");
+    assert!(content.contains("# 01 · 核心"), "首部注释逐字保留");
+    assert_eq!(header_order(&content), vec!["App", "App.Auth"]);
+
+    // 删一条造成组分裂的关系：剩余 A 组与 B 组各自连续
+    let mut relations = DeleteSet::default();
+    relations.relations.insert(("A".to_owned(), "B".to_owned()));
+    let (content, reorder) =
+        super::apply_element_delete(RELATIONS_SOURCE, &relations).expect("删关系应成功");
+    assert_eq!(reorder, Reorder::default());
+    assert_eq!(
+        relation_order(&content),
+        vec![
+            ("A".to_owned(), "C".to_owned()),
+            ("B".to_owned(), "C".to_owned()),
+        ]
+    );
+}
+
+/// 正向（AC-5）：关系 upsert 的两臂——追加的新边并回 `from` 组**组尾**（一块）；
+/// R1 违例源上改 `desc` ⇒ 组并回（一块、块名 `A`），其余条目字节逐字保留。
+#[test]
+fn apply_relation_upsert并回组尾与组分裂两臂() {
+    let (content, reorder) =
+        super::apply_relation_upsert(RELATIONS_SOURCE, "A", "A", None, None).expect("追加应成功");
+    assert_eq!(reorder.moved, 1, "新边并回即一块");
+    assert_eq!(reorder.blocks, vec!["A".to_owned()]);
+    assert_eq!(
+        relation_order(&content),
+        vec![
+            ("A".to_owned(), "B".to_owned()),
+            ("A".to_owned(), "C".to_owned()),
+            ("A".to_owned(), "A".to_owned()),
+            ("B".to_owned(), "C".to_owned()),
+        ],
+        "新边落在 A 组组尾（不是条目数组尾）"
+    );
+    assert!(content.contains("desc = \"旧说明\""), "命中条字节逐字保留");
+
+    let (content, reorder) =
+        super::apply_relation_upsert(SPLIT_GROUP_SOURCE, "A", "X", Some(Some("新说明")), None)
+            .expect("改值应成功");
+    assert_eq!(reorder.moved, 1);
+    assert_eq!(reorder.blocks, vec!["A".to_owned()]);
+    assert_eq!(
+        relation_order(&content),
+        vec![
+            ("A".to_owned(), "X".to_owned()),
+            ("A".to_owned(), "Z".to_owned()),
+            ("B".to_owned(), "Y".to_owned()),
+        ],
+        "同 from 组连续、组内源序原样"
+    );
+    assert!(content.contains("desc = \"新说明\""), "命中条按新值写出");
+}
+
+/// 正向（AC-5）：关系删除命中条后剩余组仍连续 ⇒ `moved = 0`，其余条目（含 `desc` /
+/// `apis`）逐字保留。
+#[test]
+fn apply_relation_delete命中条后组连续零搬迁() {
+    let (content, reorder) =
+        super::apply_relation_delete(RELATIONS_SOURCE, "A", "B").expect("删除应成功");
+    assert_eq!(reorder, Reorder::default());
+    assert_eq!(
+        relation_order(&content),
+        vec![
+            ("A".to_owned(), "C".to_owned()),
+            ("B".to_owned(), "C".to_owned()),
+        ]
+    );
+
+    let (content, reorder) =
+        super::apply_relation_delete(APIS_SOURCE, "A", "B").expect("删除应成功");
+    assert_eq!(reorder, Reorder::default());
+    assert!(!content.contains("apis = "), "被删条目的 apis 一并离场");
+}
+
+/// 正向（AC-5 / D-7）：关系面两处同源——写后渲染文本中的关系序 == `TomlParser`
+/// 重解析出的关系序（Vec 序与文本序同批修改）。
+#[test]
+fn 关系写后文本序与回读序同源() {
+    for (source, from, to) in [
+        (RELATIONS_SOURCE, "A", "A"),
+        (SPLIT_GROUP_SOURCE, "A", "X"),
+        (SPLIT_BOTH_GROUPS_SOURCE, "W", "X"),
+    ] {
+        let (content, _) = super::apply_relation_upsert(source, from, to, Some(Some("同源")), None)
+            .expect("写应成功");
+        let textual = relation_order(&content);
+        let parsed: Vec<(String, String)> = model_of(&content)
+            .relations
+            .iter()
+            .map(|relation| (relation.from.clone(), relation.to.clone()))
+            .collect();
+        assert_eq!(textual, parsed, "文本序 == 重解析序（{from} → {to}）");
+    }
+}
+
+/// 正向（AC-8）：`WriteOutcome.reordered` 由 `apply_*` **直供**——四个计划函数逐字段
+/// 对拍同源 `apply_*` 的返回（自行比对前后文本重算即第二事实源，本断言即违约检出面）。
+#[test]
+fn plan_四函数reordered直供对拍() {
+    // 元素 upsert：健康臂（moved = 0）+ 脏臂（moved > 0）
+    let healthy = TempDir::new("reorder-supply-element-ok");
+    healthy.write_model("01-core.toml", CORE_SOURCE);
+    let same = gate_spec("App.Auth", GateTier::Warn);
+    let (_, expected) = super::apply_element_spec(CORE_SOURCE, &same).expect("同值应成功");
+    let outcome = plan_element_upsert(healthy.root(), &same).expect("计划应成功");
+    assert_eq!(outcome.reordered, expected, "健康臂逐字段相等");
+    assert_eq!(outcome.reordered, Reorder::default());
+
+    let dirty = TempDir::new("reorder-supply-element-dirty");
+    let file = dirty.write_model("01-core.toml", SUBTREE_SOURCE);
+    let create = ElementSpec {
+        fqn: "App.Auth.Token".to_owned(),
+        kind: Some(ElementKind::Module),
+        ..Default::default()
+    };
+    let source = fs::read_to_string(&file).expect("读模型失败");
+    let (text, expected) = super::apply_element_spec(&source, &create).expect("新建应成功");
+    let outcome = plan_element_upsert(dirty.root(), &create).expect("计划应成功");
+    assert_eq!(outcome.reordered, expected, "脏臂逐字段相等");
+    assert!(outcome.reordered.moved >= 1, "脏臂有搬迁");
+    assert_eq!(outcome.write.content, text, "交付文本同源");
+
+    // 元素删除：脏臂 + 健康臂
+    let deleted = TempDir::new("reorder-supply-delete");
+    let file = deleted.write_model("01-core.toml", &nine_block_source());
+    let set = DeleteSet::of("P8.C");
+    let source = fs::read_to_string(&file).expect("读模型失败");
+    let (text, expected) = super::apply_element_delete(&source, &set).expect("删除应成功");
+    let outcome = plan_element_delete(deleted.root(), "P8.C", false, None).expect("计划应成功");
+    assert_eq!(outcome.reordered, expected, "删除面逐字段相等");
+    assert!(outcome.reordered.moved >= 1, "脏模型删除后仍有搬迁");
+    assert_eq!(outcome.write.content, text);
+
+    let leaf = TempDir::new("reorder-supply-delete-leaf");
+    leaf.write_model("01-core.toml", CORE_SOURCE);
+    let outcome = plan_element_delete(leaf.root(), "App.Auth", false, None).expect("计划应成功");
+    assert_eq!(outcome.reordered, Reorder::default(), "健康模型删除零搬迁");
+
+    // 关系 upsert：健康臂 + 脏臂
+    let relation = TempDir::new("reorder-supply-relation");
+    relation.write_model("01-core.toml", RELATIONS_SOURCE);
+    let (_, expected) =
+        super::apply_relation_upsert(RELATIONS_SOURCE, "A", "B", Some(Some("改")), None)
+            .expect("改值应成功");
+    let outcome = plan_relation_upsert(relation.root(), "A", "B", Some(Some("改")), None, None)
+        .expect("计划应成功");
+    assert_eq!(outcome.reordered, expected, "健康臂逐字段相等");
+    assert_eq!(outcome.reordered, Reorder::default());
+
+    let split = TempDir::new("reorder-supply-relation-dirty");
+    split.write_model("01-core.toml", SPLIT_GROUP_SOURCE);
+    let (_, expected) =
+        super::apply_relation_upsert(SPLIT_GROUP_SOURCE, "A", "X", Some(Some("改")), None)
+            .expect("改值应成功");
+    let outcome = plan_relation_upsert(split.root(), "A", "X", Some(Some("改")), None, None)
+        .expect("计划应成功");
+    assert_eq!(outcome.reordered, expected, "脏臂逐字段相等");
+    assert!(outcome.reordered.moved >= 1);
+
+    // 关系删除：健康臂 + 脏臂
+    let relation_delete = TempDir::new("reorder-supply-relation-delete");
+    relation_delete.write_model("01-core.toml", RELATIONS_SOURCE);
+    let (_, expected) =
+        super::apply_relation_delete(RELATIONS_SOURCE, "B", "C").expect("删除应成功");
+    let outcome = plan_relation_delete(relation_delete.root(), "B", "C", None).expect("计划应成功");
+    assert_eq!(outcome.reordered, expected);
+    assert_eq!(outcome.reordered, Reorder::default());
+
+    let dirty_delete = TempDir::new("reorder-supply-relation-delete-dirty");
+    dirty_delete.write_model("01-core.toml", SPLIT_BOTH_GROUPS_SOURCE);
+    let (_, expected) =
+        super::apply_relation_delete(SPLIT_BOTH_GROUPS_SOURCE, "B", "X").expect("删除应成功");
+    let outcome = plan_relation_delete(dirty_delete.root(), "B", "X", None).expect("计划应成功");
+    assert_eq!(outcome.reordered, expected);
+    assert!(outcome.reordered.moved >= 1, "脏源删一条后仍需并回");
+}
+
+/// 正向（AC-1 / AC-3）：未搬迁 `06` 合成副本上改一档成当前值 ⇒ `reordered.moved = 3`、
+/// 块清单恰三个 FQN，`write.content` 收成子树连续。
+#[test]
+fn plan_element_upsert未搬迁06副本报三块() {
+    let temp = TempDir::new("reorder-six-copy");
+    temp.write_model("01-core.toml", &six_copy_source());
+    let outcome = plan_element_upsert(
+        temp.root(),
+        &gate_spec("Desktop.Views.Changes.Flow", GateTier::Off),
+    )
+    .expect("同值改档应成功");
+
+    assert_eq!(outcome.reordered.moved, 3, "三个子块各计一块");
+    assert_eq!(
+        outcome.reordered.blocks,
+        vec![
+            "Desktop.Views.Changes.Flow".to_owned(),
+            "Desktop.Views.Changes.Renderers".to_owned(),
+            "Desktop.Views.Changes.Agent".to_owned(),
+        ]
+    );
+    let headers = header_order(&outcome.write.content);
+    let changes = headers
+        .iter()
+        .position(|fqn| fqn == "Desktop.Views.Changes")
+        .expect("Changes 在案");
+    assert_eq!(
+        &headers[changes + 1..changes + 4],
+        &[
+            "Desktop.Views.Changes.Flow".to_owned(),
+            "Desktop.Views.Changes.Renderers".to_owned(),
+            "Desktop.Views.Changes.Agent".to_owned(),
+        ],
+        "三个子块紧随 Changes（子树连续）：{headers:?}"
+    );
+}
+
+/// 正向（AC-3 / AC-4）：对写后文本再写一次同值 ⇒ `changed = []` ∧ `reordered.moved = 0`
+/// ∧ `write.content` 与盘上文本逐字节相等。
+#[test]
+fn plan_element_upsert幂等重放零搬迁零字节变化() {
+    let temp = TempDir::new("reorder-idempotent");
+    temp.write_model("01-core.toml", &six_copy_source());
+    let spec = gate_spec("Desktop.Views.Changes.Flow", GateTier::Off);
+
+    let first = plan_element_upsert(temp.root(), &spec).expect("首次计划应成功");
+    assert_eq!(first.reordered.moved, 3);
+    fs::write(&first.write.file, &first.write.content).expect("落盘首次结果");
+
+    let second = plan_element_upsert(temp.root(), &spec).expect("重放计划应成功");
+    assert_eq!(
+        second.changed,
+        Vec::<String>::new(),
+        "同值重放 ⇒ changed 空"
+    );
+    assert_eq!(second.reordered, Reorder::default(), "重放 ⇒ 零搬迁");
+    assert_eq!(
+        second.write.content,
+        fs::read_to_string(&first.write.file).expect("读盘失败"),
+        "重放内容与盘上文本逐字节相等"
+    );
+    assert_eq!(
+        second.write.content, first.write.content,
+        "两次交付文本一致"
+    );
+}
+
+/// 正向（AC-4 等价形态）：首次规范化时字段零变化 ⇒ `changed = []` ∧ `moved = 3` ∧
+/// `write.content != source`（文本必变而 `changed` 仍空）。
+#[test]
+#[allow(non_snake_case)]
+fn AC4首次规范化字段零变化文本仍变() {
+    let temp = TempDir::new("reorder-ac4");
+    let source = six_copy_source();
+    let file = temp.write_model("01-core.toml", &source);
+    let outcome = plan_element_upsert(
+        temp.root(),
+        &gate_spec("Desktop.Views.Changes.Flow", GateTier::Off),
+    )
+    .expect("同值改档应成功");
+
+    assert_eq!(outcome.changed, Vec::<String>::new(), "字段零变化");
+    assert_eq!(outcome.reordered.moved, 3, "搬迁独立于字段面");
+    assert_ne!(outcome.write.content, source, "首次规范化文本必变");
+    assert_eq!(
+        fs::read_to_string(&file).expect("读盘失败"),
+        source,
+        "plan 零写盘"
+    );
+}
+
+/// 边界（AC-8）：新建文件分支 ⇒ `reordered == Reorder::default()`（新文件无历史错位）、
+/// `write.content` 含表头计数行、`created = true`。
+#[test]
+fn plan_element_upsert新建文件分支零搬迁() {
+    let temp = TempDir::new("reorder-fresh-file");
+    temp.write_model("01-core.toml", CORE_SOURCE);
+    let spec = ElementSpec {
+        fqn: "App.Auth.Session".to_owned(),
+        kind: Some(ElementKind::Module),
+        file: Some("07-session.toml".to_owned()),
+        create: true,
+        ..Default::default()
+    };
+    let outcome = plan_element_upsert(temp.root(), &spec).expect("新建文件应成功");
+    assert!(outcome.created, "新建分支");
+    assert_eq!(outcome.reordered, Reorder::default(), "新文件无历史错位");
+    assert!(
+        outcome
+            .write
+            .content
+            .starts_with("# 07-session（1 元素 / 0 关系）"),
+        "新文件表头按写后重解析计数生成：{}",
+        outcome.write.content
+    );
+}
+
+/// 异常（AC-4）：脏副本 + 过期 `expect` ⇒ `Err(ExpectMismatch)` 且零 `write` 产出
+///（规范化不得先于乐观锁；盘面字节零变化）。
+#[test]
+fn plan_element_upsert_expect先于规范化() {
+    let temp = TempDir::new("reorder-expect-first");
+    temp.write_model("01-core.toml", &six_copy_source());
+    let before = temp.snapshot();
+    let mut spec = gate_spec("Desktop.Views.Changes.Flow", GateTier::Off);
+    spec.expect = Some("sha256:过期哈希".to_owned());
+    let failure = plan_element_upsert(temp.root(), &spec).expect_err("过期 expect 应拒");
+    assert_eq!(failure.kind, EditErrorKind::ExpectMismatch);
+    assert_eq!(temp.snapshot(), before, "零落盘（规范化未先于乐观锁）");
+}
+
+/// 异常（AC-7）：源有子树错位（E2 违例：`App.Auth.Session` 被挤到 `App.Billing` 之后）
+/// 时，一次合法元素 upsert 仍 `Ok`（美观问题 MUST NOT 升级为写入失败）；搬迁只报一块
+/// `App.Auth.Session`、交付文本回规范序。
+#[test]
+#[allow(non_snake_case)]
+fn 含E2违例源合法upsert仍Ok() {
+    let temp = TempDir::new("reorder-e2-ok");
+    temp.write_model("01-core.toml", E2_VIOLATION_SOURCE);
+    let outcome = plan_element_upsert(temp.root(), &gate_spec("App.Billing", GateTier::Warn))
+        .expect("错位源的合法写应 Ok");
+    assert_eq!(outcome.changed, vec!["gate".to_owned()]);
+    assert_eq!(outcome.reordered.moved, 1, "顺带搬迁照报（只搬一块）");
+    assert_eq!(
+        outcome.reordered.blocks,
+        vec!["App.Auth.Session".to_owned()],
+        "块名为被搬的后代（平局保留源序更早的 App.Billing）"
+    );
+    assert_eq!(
+        header_order(&outcome.write.content),
+        vec!["App", "App.Auth", "App.Auth.Session", "App.Billing"],
+        "交付文本已成规范序"
+    );
+}
+
+/// 异常（AC-7 源码锚）：自证链体内零 `normalize` 引用；`layout::normalize` 调用点恰 4
+/// 处（4 × `apply_*`）；`mod.rs` / `layout.rs` 零 `assert!` / `debug_assert!` 序断言
+///（机械断言只在测试侧）；`WriteOutcome` 声明序末位为 `reordered`。
+#[test]
+fn 源码锚自证链零触点且调用点恰四() {
+    let source = include_str!("mod.rs");
+    for signature in [
+        "fn finish(",
+        "fn verify_element(",
+        "fn verify_inline_relations(",
+        "fn verify_relation_count(",
+        "fn verify_relation_absent(",
+        "fn backfill_header_counts(",
+    ] {
+        let body = body_of(source, signature);
+        assert!(
+            !body.contains("normalize"),
+            "{signature} 体内零 normalize 引用（不进自证链）"
+        );
+    }
+
+    assert_eq!(
+        source.matches("layout::normalize(").count(),
+        4,
+        "4 × `apply_*` 各调一次（plan 层不另调）"
+    );
+    for text in [source, include_str!("layout.rs")] {
+        for forbidden in ["assert!", "debug_assert"] {
+            assert!(
+                !text.contains(forbidden),
+                "序断言只在测试侧（零 `{forbidden}`）"
+            );
+        }
+    }
+
+    let counts = source
+        .find("pub model: WriteCounts,")
+        .expect("模型计数字段在案");
+    let reordered = source
+        .find("pub reordered: Reorder,")
+        .expect("reordered 字段在案");
+    assert!(counts < reordered, "WriteOutcome 末位为 reordered");
+}
+
+/// 产品源码的一段函数体（`signature` 起至其后首个行首 `}`）。
+fn body_of<'a>(source: &'a str, signature: &str) -> &'a str {
+    let start = source
+        .find(signature)
+        .unwrap_or_else(|| panic!("{signature} 应在产品源码内"));
+    let rest = &source[start..];
+    let end = rest.find("\n}\n").unwrap_or(rest.len());
+    &rest[..end]
+}
+
+/// 回归（AC-6 / AC-9）：搬迁不产诊断、不改计数——写后重解析的诊断集合、元素 / 关系
+/// 计数与写前逐项一致，`warnings` 不因搬迁新增。
+#[test]
+fn 搬迁不产诊断且计数逐项不变() {
+    let temp = TempDir::new("reorder-diagnostics");
+    let source = six_copy_source();
+    temp.write_model("01-core.toml", &source);
+    let before = model_of(&source);
+    let outcome = plan_element_upsert(
+        temp.root(),
+        &gate_spec("Desktop.Views.Changes.Flow", GateTier::Off),
+    )
+    .expect("同值改档应成功");
+
+    let parsed = TomlParser::parse(&outcome.write.content);
+    assert!(parsed.diagnostics.is_empty(), "搬迁后零诊断");
+    assert_eq!(
+        parsed.model.elements.len(),
+        before.elements.len(),
+        "元素计数不变"
+    );
+    assert_eq!(
+        parsed.model.relations.len(),
+        before.relations.len(),
+        "关系计数不变"
+    );
+    assert_eq!(outcome.counts.elements, before.elements.len());
+    assert_eq!(outcome.counts.relations, before.relations.len());
+    let mut written: Vec<&str> = parsed
+        .model
+        .elements
+        .iter()
+        .map(|element| element.fqn.as_str())
+        .collect();
+    let mut prior: Vec<&str> = before
+        .elements
+        .iter()
+        .map(|element| element.fqn.as_str())
+        .collect();
+    written.sort_unstable();
+    prior.sort_unstable();
+    assert_eq!(written, prior, "元素集零增减");
+    assert!(
+        outcome.warnings.is_empty(),
+        "搬迁不新增 warnings：{:?}",
+        outcome.warnings
+    );
+}
+
+/// 回归（D-10 / R-2）：既有夹具按序归类——合规夹具一律 no-op（`untouched == source`）；
+/// `SPLIT_GROUP_SOURCE` 判为 R1 违例（并回一块）；`E2_VIOLATION_SOURCE` 判为 E2 违例
+///（子树错位一块）。
+#[test]
+fn 既有夹具按序归类() {
+    for (tag, source) in [
+        ("CORE_SOURCE", CORE_SOURCE),
+        ("HEADER_SOURCE", HEADER_SOURCE),
+        ("FIELDS_SOURCE", FIELDS_SOURCE),
+        ("COLLECTION_SOURCE", COLLECTION_SOURCE),
+        ("DELETE_SOURCE", DELETE_SOURCE),
+        ("APIS_SOURCE", APIS_SOURCE),
+        ("RELATION_PLAN_SOURCE", RELATION_PLAN_SOURCE),
+        ("TWO_ELEMENTS_SOURCE", TWO_ELEMENTS_SOURCE),
+        ("SUBTREE_SOURCE", SUBTREE_SOURCE),
+        ("SPLIT_FROM_SOURCE", SPLIT_FROM_SOURCE),
+        ("SPLIT_RELATION_SOURCE", SPLIT_RELATION_SOURCE),
+        ("DUPLICATED_IN_SOURCE", DUPLICATED_IN_SOURCE),
+        ("DUPLICATED_APP_SOURCE", DUPLICATED_APP_SOURCE),
+        ("DUPLICATED_FRONTEND_SOURCE", DUPLICATED_FRONTEND_SOURCE),
+        ("IDENTITY_APP_SOURCE", IDENTITY_APP_SOURCE),
+        ("IDENTITY_FRONTEND_SOURCE", IDENTITY_FRONTEND_SOURCE),
+    ] {
+        let mut document: DocumentMut = source.parse().expect("夹具应可解析");
+        assert_eq!(
+            normalize(&mut document),
+            Reorder::default(),
+            "{tag} 应判为合规序"
+        );
+        assert_eq!(document.to_string(), source, "{tag} 零字节差异");
+    }
+
+    let mut document: DocumentMut = SPLIT_GROUP_SOURCE.parse().expect("夹具应可解析");
+    assert_eq!(
+        normalize(&mut document),
+        Reorder {
+            moved: 1,
+            blocks: vec!["A".to_owned()],
+        },
+        "SPLIT_GROUP_SOURCE 判为 R1 违例（并回一块）"
+    );
+
+    let mut document: DocumentMut = E2_VIOLATION_SOURCE.parse().expect("夹具应可解析");
+    assert_eq!(
+        normalize(&mut document),
+        Reorder {
+            moved: 1,
+            blocks: vec!["App.Auth.Session".to_owned()],
+        },
+        "E2_VIOLATION_SOURCE 判为 E2 违例（子树错位一块）"
+    );
+    assert_eq!(
+        header_order(&document.to_string()),
+        vec!["App", "App.Auth", "App.Auth.Session", "App.Billing"],
+        "规范化后收成子树连续"
+    );
+}
+
+/// 边界（AC-8）：`Reorder` / `REORDER_BLOCKS_CAP` 经 **crate 根**可达（编译期即判据，
+/// 任一名字离场即编译失败）；crate 根 `edit` 出口分组块含这两项。
+#[test]
+fn crate根出口补两项且编译面可达() {
+    let source = include_str!("../lib.rs");
+    assert!(source.contains("pub use edit::{"), "edit 出口分组块在案");
+    for name in ["Reorder", "REORDER_BLOCKS_CAP"] {
+        assert!(source.contains(name), "crate 根出口含 `{name}`");
+    }
+    assert_eq!(crate::REORDER_BLOCKS_CAP, 8, "上限单点经 crate 根可达");
+    let construct: fn(usize, Vec<String>) -> Reorder = crate::Reorder::of;
+    assert_eq!(
+        construct(9, vec!["A".to_owned()]).moved,
+        9,
+        "`Reorder::of` 经 crate 根可达且 moved 保真"
+    );
+    assert_eq!(
+        EditErrorKind::ALL.len(),
+        23,
+        "判据族值集逐字不变（零新增变体）"
+    );
+}
+
+/// 边界（源码锚）：`layout_test` 与 `mod_test` 同级登记且位序在前；`WriteOutcome` 的
+/// `reordered` 字段在案。
+#[test]
+fn layout测试登记在册且与mod平级() {
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source.matches("mod layout_test;").count(),
+        1,
+        "layout_test 登记恰一处"
+    );
+    let layout = source.find("mod layout_test;").expect("登记在案");
+    let module_test = source.find("mod mod_test;").expect("既有登记在案");
+    assert!(layout < module_test, "layout_test 位序在 mod_test 之前");
+    assert!(
+        source.contains("pub reordered: Reorder,"),
+        "WriteOutcome 末位字段在案"
     );
 }

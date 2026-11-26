@@ -61,7 +61,8 @@ pub use edit::{
     apply_element_delete, apply_element_spec, apply_relation_delete, apply_relation_upsert,
     delete_warnings, plan_element_delete, plan_element_upsert, plan_relation_delete,
     plan_relation_upsert, upsert_warnings, DeleteSet, EditError, EditErrorKind, EditWarning,
-    ElementSpec, ModelWrite, RelationSpec, RelationTally, WriteAction, WriteCounts, WriteOutcome,
+    ElementSpec, ModelWrite, RelationSpec, RelationTally, Reorder, WriteAction, WriteCounts,
+    WriteOutcome, REORDER_BLOCKS_CAP,
 };
 pub use model::{Diagnostic, Element, Model, Relation};
 pub use relation::relation_detail;

@@ -1,0 +1,3543 @@
+diff --git a/crates/core/archi/src/edit/layout.rs b/crates/core/archi/src/edit/layout.rs
+new file mode 100644
+index 000000000000..df1d9526c01a
+--- /dev/null
++++ b/crates/core/archi/src/edit/layout.rs
+@@ -0,0 +1,360 @@
++//! 写入序规范化：把「已改完 AST、尚未渲染」的文档收进三条不变量，并回报搬迁块。
++//!
++//! 三条不变量——**E1 父先于子** / **E2 子树连续**（元素面）、**R1 同一 `from` 组连续**
++//! （关系面）。**规范序序敏感**（不取字典序）：元素面 = DFS + 同层保持**首次出现序**；
++//! 关系面 = 组连续 + 组间保持该 `from` 首现序 + 组内原样（新边因此落组尾）；元素区恒在
++//! 关系区之前。**最小移动** = 源序与目标序的最长公共子序列补集——只搬「不在其父子树连续
++//! 区间内」的元素段与「组分裂」的关系段，同层相对序、组内相对序与块的内部字节
++//! （键序 / decor / 注释 / 空行）逐字保留。故**对已合规的文件本模块是 no-op**（快路径：
++//! 零 AST 改动直接返回），这正是它能挂在每次写出口的前提。
++//!
++//! 落笔口径取 `toml_edit` 的两条编码器事实：渲染序 = `(path 非空, position)` 的**稳定
++//! 排序**，`position` 为 `None` 时继承遍历中前一个表的位号；解析器按表头连续分配
++//! `position = 1..N`。于是**元素面 = 一次号重分配**（元素区 `1..k`、关系区 `k+1..N`），
++//! **关系面必须真移动 `ArrayOfTables` 成员并同批重编号**——只改一处会让渲染序与读回序
++//! 打架（`(from, to)` 定位依赖成员序）。
++//!
++//! 三条纪律：**零 `Err` 臂**（解析已在前完成）、**零诊断 / warning 构造**、**零文件系统**
++//! ——序由测试守，不由运行时守（美观缺陷 MUST NOT 升级为写入失败）。射程两条：**单文件**
++//! （元素不跨模型文件搬）；**表形态**（只对 `[element."<FQN>"]` 动手，内联表形态的元素
++//! 条目原样保留、不参与重排）。
++
++use std::collections::HashSet;
++
++use serde::Serialize;
++use toml_edit::{DocumentMut, Item, Table};
++
++/// `reordered.blocks` 的字段级上限（`moved` 恒为真值、永不截断）。
++pub const REORDER_BLOCKS_CAP: usize = 8;
++
++/// 一次写回顺带搬迁的块回报（恒在场：零值也写 `{"moved":0,"blocks":[]}`）。
++#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
++pub struct Reorder {
++    /// 搬迁的**块数真值**（元素块 + 关系块；永不截断）
++    pub moved: usize,
++    /// 各块的首元素 FQN（元素面）/ `from` FQN（关系面），按交付文本序、至多 [`REORDER_BLOCKS_CAP`] 项
++    pub blocks: Vec<String>,
++}
++
++impl Reorder {
++    /// 唯一构造点：cap 在此施加，`moved` 保留真值。
++    pub fn of(moved: usize, mut blocks: Vec<String>) -> Reorder {
++        blocks.truncate(REORDER_BLOCKS_CAP);
++        Reorder { moved, blocks }
++    }
++}
++
++/// 文件内的一个「位置槽」：表形态元素（FQN）或关系条目（条目数组下标）。
++///
++/// 关系槽带下标而非 `(from, to)`——同一对可以在源内多处声明，下标才是身份。
++#[derive(Debug, Clone, PartialEq, Eq)]
++enum Slot {
++    Element(String),
++    Relation(usize),
++}
++
++/// 把交付文本收进三条不变量，并回报本次搬迁的块。
++///
++/// 一个纯内存判断：读手边 AST 的源序与目标序，只搬 LCS 补集；源序已等于目标序即走快路径
++/// （零 AST 改动——健康文件的逐字节 no-op 由此成立）。
++pub(super) fn normalize(document: &mut DocumentMut) -> Reorder {
++    let source = source_order(document);
++    let froms = relation_froms(document);
++    let target = target_order(&source, &froms);
++    let moved = minimal_moved(&source, &target);
++    if moved.is_empty() {
++        return Reorder::default();
++    }
++    let blocks = blocks_of(&moved, &target, &froms);
++    let count = blocks.len();
++    apply_target(document, &target);
++    Reorder::of(count, blocks)
++}
++
++// ---------------------------------------------------------------------------
++// 读源序（复刻编码器的「自身 position，否则继承前表」语义）
++// ---------------------------------------------------------------------------
++
++/// 交付前的文本序：按有效位号升序（元素区 / 关系区同池排序）。
++///
++/// `position` 为 `None` 的表（手工新建、尚未编号）继承遍历中前一个表的位号——这正是
++/// 编码器的规则，照抄它才能让「源序 == 目标序 ⇔ 文本 no-op」成立。
++fn source_order(document: &DocumentMut) -> Vec<Slot> {
++    let mut cursor = 0isize;
++    let mut slots: Vec<(isize, u8, Slot)> = Vec::new();
++    if let Some(Item::Table(table)) = document.as_table().get("element") {
++        if let Some(position) = table.position() {
++            cursor = position;
++        }
++        for (fqn, entry) in table.iter() {
++            let Item::Table(entry) = entry else {
++                continue;
++            };
++            if let Some(position) = entry.position() {
++                cursor = position;
++            }
++            slots.push((cursor, 0, Slot::Element(fqn.to_owned())));
++        }
++    }
++    if let Some(entries) = document
++        .as_table()
++        .get("relation")
++        .and_then(Item::as_array_of_tables)
++    {
++        for index in 0..entries.len() {
++            let Some(entry) = entries.get(index) else {
++                continue;
++            };
++            if let Some(position) = entry.position() {
++                cursor = position;
++            }
++            slots.push((cursor, 1, Slot::Relation(index)));
++        }
++    }
++    slots.sort_by_key(|(position, face, _)| (*position, *face));
++    slots.into_iter().map(|(_, _, slot)| slot).collect()
++}
++
++/// 关系条目的 `from`（按条目数组下标；缺键取空串，与展示 / 判据面同款兜底）。
++fn relation_froms(document: &DocumentMut) -> Vec<String> {
++    document
++        .as_table()
++        .get("relation")
++        .and_then(Item::as_array_of_tables)
++        .map(|entries| {
++            (0..entries.len())
++                .map(|index| {
++                    entries
++                        .get(index)
++                        .and_then(|entry| entry.get("from"))
++                        .and_then(Item::as_str)
++                        .unwrap_or_default()
++                        .to_owned()
++                })
++                .collect()
++        })
++        .unwrap_or_default()
++}
++
++// ---------------------------------------------------------------------------
++// 算目标序
++// ---------------------------------------------------------------------------
++
++/// 目标序：元素区（DFS）全部在前，关系区（组连续）全部在后——混插形态由此被理顺。
++fn target_order(source: &[Slot], froms: &[String]) -> Vec<Slot> {
++    let mut elements: Vec<&str> = Vec::new();
++    let mut relations: Vec<usize> = Vec::new();
++    for slot in source {
++        match slot {
++            Slot::Element(fqn) => elements.push(fqn.as_str()),
++            Slot::Relation(index) => relations.push(*index),
++        }
++    }
++    let mut target: Vec<Slot> = element_order(&elements)
++        .into_iter()
++        .map(|fqn| Slot::Element(fqn.to_owned()))
++        .collect();
++    target.extend(
++        relation_order(&relations, froms)
++            .into_iter()
++            .map(Slot::Relation),
++    );
++    target
++}
++
++/// FQN 的父（末段之前）；单段 FQN 无父。
++fn parent_of(fqn: &str) -> Option<&str> {
++    fqn.rsplit_once('.').map(|(parent, _)| parent)
++}
++
++/// 父是否声明在**本文件**元素集内（不在即当顶级——元素不跨模型文件搬）。
++fn has_parent_in(fqn: &str, present: &HashSet<&str>) -> bool {
++    parent_of(fqn).is_some_and(|parent| present.contains(parent))
++}
++
++/// 元素目标序：DFS + 同层保持首次出现序。
++///
++/// 直接子按 FQN 前缀现算（`<父FQN>.` 且余段不含 `.`）——MUST NOT 借
++/// `ModelGraph::children`，它 `sort_unstable()`，用了即把同层序变成字典序。
++fn element_order<'a>(fqns: &[&'a str]) -> Vec<&'a str> {
++    let present: HashSet<&'a str> = fqns.iter().copied().collect();
++    let mut order: Vec<&'a str> = Vec::with_capacity(fqns.len());
++    for fqn in fqns.iter().copied() {
++        if !has_parent_in(fqn, &present) {
++            push_subtree(fqn, fqns, &mut order);
++        }
++    }
++    order
++}
++
++/// 先自身，再按首次出现序递归展开直接子。
++fn push_subtree<'a>(fqn: &'a str, fqns: &[&'a str], order: &mut Vec<&'a str>) {
++    order.push(fqn);
++    for child in fqns.iter().copied() {
++        if parent_of(child) == Some(fqn) {
++            push_subtree(child, fqns, order);
++        }
++    }
++}
++
++/// 关系目标序：同 `from` 聚成一段，段的先后 = 该 `from` 的首现位置，段内保持源序
++/// （新边因此落在组尾）。返回源下标序 = 重建条目数组的置换。
++fn relation_order(indexes: &[usize], froms: &[String]) -> Vec<usize> {
++    let mut groups: Vec<(&str, Vec<usize>)> = Vec::new();
++    for index in indexes.iter().copied() {
++        let from = froms.get(index).map(String::as_str).unwrap_or_default();
++        match groups.iter_mut().find(|(key, _)| *key == from) {
++            Some((_, members)) => members.push(index),
++            None => groups.push((from, vec![index])),
++        }
++    }
++    groups
++        .into_iter()
++        .flat_map(|(_, members)| members)
++        .collect()
++}
++
++// ---------------------------------------------------------------------------
++// 最小移动（LCS 补集）与块归组
++// ---------------------------------------------------------------------------
++
++/// 最小移动集合 = 源序与目标序的 LCS 补集；平局**推进 T**（保留源序更早的项）。
++///
++/// 空集 ⇔ 源序 == 目标序 ⇔ 规范化对文本是 no-op（快路径的依据）。
++fn minimal_moved(source: &[Slot], target: &[Slot]) -> Vec<Slot> {
++    let (n, m) = (source.len(), target.len());
++    let mut lcs = vec![vec![0usize; m + 1]; n + 1];
++    for i in (0..n).rev() {
++        for j in (0..m).rev() {
++            lcs[i][j] = if source[i] == target[j] {
++                lcs[i + 1][j + 1] + 1
++            } else {
++                lcs[i + 1][j].max(lcs[i][j + 1])
++            };
++        }
++    }
++    let mut moved: Vec<Slot> = Vec::new();
++    let (mut i, mut j) = (0, 0);
++    while i < n && j < m {
++        if source[i] == target[j] {
++            i += 1;
++            j += 1;
++        } else if lcs[i + 1][j] > lcs[i][j + 1] {
++            moved.push(source[i].clone());
++            i += 1;
++        } else {
++            j += 1;
++        }
++    }
++    moved.extend(source[i..].iter().cloned());
++    moved
++}
++
++/// 块口径：元素块按**最上层被移动祖先**归组、关系块按**连续同 `from`** 归段；
++/// 元素块在前，各自按目标序。
++fn blocks_of(moved: &[Slot], target: &[Slot], froms: &[String]) -> Vec<String> {
++    let mut moved_elements: HashSet<&str> = HashSet::new();
++    let mut moved_relations: HashSet<usize> = HashSet::new();
++    for slot in moved {
++        match slot {
++            Slot::Element(fqn) => {
++                moved_elements.insert(fqn.as_str());
++            }
++            Slot::Relation(index) => {
++                moved_relations.insert(*index);
++            }
++        }
++    }
++    let declared: HashSet<&str> = target
++        .iter()
++        .filter_map(|slot| match slot {
++            Slot::Element(fqn) => Some(fqn.as_str()),
++            Slot::Relation(_) => None,
++        })
++        .collect();
++    let mut blocks: Vec<String> = Vec::new();
++    for slot in target {
++        let Slot::Element(fqn) = slot else {
++            continue;
++        };
++        if !moved_elements.contains(fqn.as_str()) {
++            continue;
++        }
++        let root = moved_root(fqn, &moved_elements, &declared);
++        if !blocks.iter().any(|existing| existing == &root) {
++            blocks.push(root);
++        }
++    }
++    let mut previous: Option<&str> = None;
++    for slot in target {
++        let Slot::Relation(index) = slot else {
++            continue;
++        };
++        if !moved_relations.contains(index) {
++            continue;
++        }
++        let from = froms.get(*index).map(String::as_str).unwrap_or_default();
++        if previous != Some(from) {
++            blocks.push(from.to_owned());
++            previous = Some(from);
++        }
++    }
++    blocks
++}
++
++/// 被移动元素的块根：向上取最上层「也在此次移动集合内且声明在本文件」的祖先。
++fn moved_root(fqn: &str, moved: &HashSet<&str>, declared: &HashSet<&str>) -> String {
++    let mut root = fqn;
++    let mut current = fqn;
++    while let Some(parent) = parent_of(current) {
++        if !declared.contains(parent) || !moved.contains(parent) {
++            break;
++        }
++        root = parent;
++        current = parent;
++    }
++    root.to_owned()
++}
++
++// ---------------------------------------------------------------------------
++// 落笔（只动位置面）
++// ---------------------------------------------------------------------------
++
++/// 按目标序重编号：元素区 `1..k`，关系区 `k+1..N`；关系面**真移动**成员后再编号
++/// （成员整体搬迁，内部字节零改写）。
++fn apply_target(document: &mut DocumentMut, target: &[Slot]) {
++    let mut elements: Vec<&str> = Vec::new();
++    let mut relations: Vec<usize> = Vec::new();
++    for slot in target {
++        match slot {
++            Slot::Element(fqn) => elements.push(fqn.as_str()),
++            Slot::Relation(index) => relations.push(*index),
++        }
++    }
++    if let Some(table) = document
++        .as_table_mut()
++        .get_mut("element")
++        .and_then(Item::as_table_mut)
++    {
++        for (offset, fqn) in elements.iter().enumerate() {
++            if let Some(entry) = table.get_mut(fqn).and_then(Item::as_table_mut) {
++                entry.set_position(Some(offset as isize + 1));
++            }
++        }
++    }
++    let base = elements.len() as isize;
++    if let Some(entries) = document
++        .as_table_mut()
++        .get_mut("relation")
++        .and_then(Item::as_array_of_tables_mut)
++    {
++        let count = entries.len();
++        let mut taken: Vec<Option<Table>> = (0..count).map(|_| Some(entries.remove(0))).collect();
++        for (offset, index) in relations.iter().enumerate() {
++            if let Some(mut table) = taken.get_mut(*index).and_then(Option::take) {
++                table.set_position(Some(base + offset as isize + 1));
++                entries.push(table);
++            }
++        }
++    }
++}
+diff --git a/crates/core/archi/src/edit/layout_test.rs b/crates/core/archi/src/edit/layout_test.rs
+new file mode 100644
+index 000000000000..34d2891288d2
+--- /dev/null
++++ b/crates/core/archi/src/edit/layout_test.rs
+@@ -0,0 +1,1289 @@
++//! `edit::layout` 的单元测试面（写入序规范化：三条不变量 / 最小移动 / 号重分配 /
++//! 关系组连续 / `Reorder` 口径与 cap）。
++//!
++//! 可见性口径：本模块是 `edit` 的子模块、与 `layout` **平级**，故只可达 `layout` 的
++//! `pub` / `pub(super)` 项（[`normalize`] / [`Reorder`] / [`REORDER_BLOCKS_CAP`]）。
++//! 五个私有 helper（`source_order` / `element_target_order` / `relation_target_order` /
++//! `minimal_moved` / `blocks_of`）**只经 `normalize` 的产出观测**——不为测试开路新增导出。
++//!
++//! 零 mock：真实 `toml_edit::DocumentMut`（解析 + 渲染即被测面）、真实 `TomlParser`
++//! （同源断言：重解析序 == 渲染文本序）、真实 `serde_json`（`Reorder` 线面）；仓库面
++//! 用例只读在盘模型文件（`CARGO_MANIFEST_DIR` 上溯六层，零写盘），替身会让「在盘事实」
++//! 不可见。
++
++use std::fs;
++use std::path::PathBuf;
++
++use toml_edit::{ArrayOfTables, DocumentMut, Item, Table};
++
++use foundation::layout::archi_graph_model_dir;
++
++use crate::model::Model;
++use crate::parse::{SourceParser, TomlParser};
++
++use super::layout::{normalize, Reorder, REORDER_BLOCKS_CAP};
++
++// ---------------------------------------------------------------------------
++// 装置：解析 / 规范化 / 渲染 / 重解析
++// ---------------------------------------------------------------------------
++
++/// 源文本 → AST（夹具缺陷即测试自身失败，不掩盖）。
++fn document_of(source: &str) -> DocumentMut {
++    source.parse().expect("夹具应可解析")
++}
++
++/// 规范化一次，返回「渲染文本 + 搬迁块回报」——本文件全部断言的唯一观测面。
++fn reordered(source: &str) -> (String, Reorder) {
++    let mut document = document_of(source);
++    let reorder = normalize(&mut document);
++    (document.to_string(), reorder)
++}
++
++/// 快路径：零搬迁且逐字节相等。
++fn assert_fast_path(source: &str) {
++    let (rendered, reorder) = reordered(source);
++    assert_eq!(reorder, Reorder::default(), "健康文件应零搬迁：{source:?}");
++    assert_eq!(rendered, source, "健康文件应逐字节相等：{source:?}");
++}
++
++/// 重解析（零诊断）——序断言与解析层同源。
++fn reparsed(rendered: &str) -> Model {
++    let outcome = TomlParser::parse(rendered);
++    assert!(
++        outcome.diagnostics.is_empty(),
++        "规范化产出应零诊断：{:?}\n{rendered}",
++        outcome.diagnostics
++    );
++    outcome.model
++}
++
++/// 渲染文本中的表形态元素 FQN 序（`[element."<FQN>"]` 表头出现序）。
++fn element_headers(rendered: &str) -> Vec<String> {
++    rendered
++        .lines()
++        .filter_map(|line| {
++            let rest = line.strip_prefix("[element.\"")?;
++            Some(rest.strip_suffix("\"]")?.to_owned())
++        })
++        .collect()
++}
++
++/// 去引号（关系条目的 `from` / `to` 取值）。
++fn unquote(text: &str) -> String {
++    text.trim().trim_matches('"').to_owned()
++}
++
++/// 渲染文本中的关系序（`[[relation]]` 条目出现序 → `(from, to)`）。
++fn relation_pairs(rendered: &str) -> Vec<(String, String)> {
++    let mut pairs: Vec<(String, String)> = Vec::new();
++    let mut current: Option<(String, String)> = None;
++    for line in rendered.lines() {
++        if line.trim() == "[[relation]]" {
++            if let Some(pair) = current.take() {
++                pairs.push(pair);
++            }
++            current = Some((String::new(), String::new()));
++            continue;
++        }
++        let trimmed = line.trim();
++        if let Some(rest) = trimmed.strip_prefix("from = ") {
++            if let Some((from, _)) = current.as_mut() {
++                *from = unquote(rest);
++            }
++        } else if let Some(rest) = trimmed.strip_prefix("to = ") {
++            if let Some((_, to)) = current.as_mut() {
++                *to = unquote(rest);
++            }
++        }
++    }
++    if let Some(pair) = current.take() {
++        pairs.push(pair);
++    }
++    pairs
++}
++
++/// 三条不变量的机械断言（E1 / E2 / R1 + 区域序）：只在测试侧做，产品源码零命中。
++fn assert_invariants(rendered: &str) {
++    let elements = element_headers(rendered);
++    let relations = relation_pairs(rendered);
++
++    for (index, fqn) in elements.iter().enumerate() {
++        if let Some((parent, _)) = fqn.rsplit_once('.') {
++            if let Some(parent_index) = elements.iter().position(|other| other == parent) {
++                assert!(
++                    parent_index < index,
++                    "E1 父先于子：{parent} 应在 {fqn} 之前\n{rendered}"
++                );
++            }
++        }
++        let descendant_prefix = format!("{fqn}.");
++        let subtree: Vec<usize> = elements
++            .iter()
++            .enumerate()
++            .filter(|(_, other)| other.starts_with(&descendant_prefix))
++            .map(|(subtree_index, _)| subtree_index)
++            .collect();
++        if let (Some(first), Some(last)) = (subtree.first(), subtree.last()) {
++            assert_eq!(first, &(index + 1), "E2 子树紧邻父后：{fqn}\n{rendered}");
++            assert_eq!(
++                last - first + 1,
++                subtree.len(),
++                "E2 子树连续：{fqn}\n{rendered}"
++            );
++        }
++    }
++
++    if let (Some(first_relation), Some(last_element)) =
++        (rendered.find("[[relation]]"), rendered.rfind("[element.\""))
++    {
++        assert!(
++            last_element < first_relation,
++            "元素区恒在关系区之前\n{rendered}"
++        );
++    }
++
++    let froms: Vec<String> = relations.iter().map(|(from, _)| from.clone()).collect();
++    let mut previous: Option<&str> = None;
++    let mut closed: Vec<&str> = Vec::new();
++    for from in &froms {
++        if previous == Some(from.as_str()) {
++            continue;
++        }
++        assert!(
++            !closed.contains(&from.as_str()),
++            "R1 同一 from 组连续（{from} 组分裂）\n{rendered}"
++        );
++        if let Some(previous) = previous {
++            closed.push(previous);
++        }
++        previous = Some(from);
++    }
++}
++
++/// 在文档的元素表尾追加一张表（复刻 `apply_element_spec` 新建元素的落位：键序末位、
++/// `position` 缺省——`normalize` 按「继承前表位号」读它）。
++fn append_element(document: &mut DocumentMut, fqn: &str, kind: &str) {
++    let mut entry = Table::new();
++    entry.insert("kind", toml_edit::value(kind));
++    document
++        .as_table_mut()
++        .get_mut("element")
++        .and_then(Item::as_table_mut)
++        .expect("夹具应有 element 表")
++        .insert(fqn, Item::Table(entry));
++}
++
++/// 在文档的关系条目数组尾追加一条（复刻 `apply_relation_upsert` 的追加点）。
++fn append_relation(document: &mut DocumentMut, from: &str, to: &str) {
++    let entries: &mut ArrayOfTables = document
++        .as_table_mut()
++        .get_mut("relation")
++        .and_then(Item::as_array_of_tables_mut)
++        .expect("夹具应有关系条目数组");
++    let mut table = Table::new();
++    table.insert("from", toml_edit::value(from));
++    table.insert("to", toml_edit::value(to));
++    table.decor_mut().set_prefix("\n");
++    entries.push(table);
++}
++
++/// 仓库根（`CARGO_MANIFEST_DIR` 位于 `<仓根>/packages/desktop/src-tauri/crates/core/archi`，
++/// 故上溯**六层**，沿 `tests/pilot_test.rs::repository_root` 先例）。
++fn repository_root() -> PathBuf {
++    let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
++    for _ in 0..6 {
++        root.pop();
++    }
++    root
++}
++
++// ---------------------------------------------------------------------------
++// 夹具：健康形态（六类）与脏形态
++// ---------------------------------------------------------------------------
++
++/// 单元素零关系（`k = 1`、`r = 0`）。
++const HEALTHY_SINGLE: &str = concat!("[element.\"Only\"]\n", "kind = \"module\"\n",);
++
++/// 分层序父先于子 + 一条关系。
++const HEALTHY_HIERARCHY: &str = concat!(
++    "[element.\"App\"]\n",
++    "kind = \"package\"\n",
++    "\n",
++    "[element.\"App.Auth\"]\n",
++    "kind = \"domain\"\n",
++    "\n",
++    "[element.\"App.Billing\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"App.Auth\"\n",
++    "to = \"App.Billing\"\n",
++);
++
++/// 多 `from` 组（`A` 组两条相邻在前、`B` 组在后，组间按首现序）。
++const HEALTHY_MULTI_GROUP: &str = concat!(
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"C\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"B\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"C\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"B\"\n",
++    "to = \"A\"\n",
++);
++
++/// 组内 `to` 手选序（`A → Z` 在 `A → Y` 之前：非字典序，MUST 原样保留）。
++const HEALTHY_INNER_ORDER: &str = concat!(
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"Y\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"Z\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"Z\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"Y\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"B\"\n",
++    "to = \"Y\"\n",
++);
++
++/// 只有内联表条目（`element` 表内联值，不参与号分配）。
++const HEALTHY_INLINE: &str = concat!("[element]\n", "App = { kind = \"package\" }\n",);
++
++/// `[element]` 显式表头（自身有位号）+ 两张元素表。
++const HEALTHY_ELEMENT_HEADER: &str = concat!(
++    "[element]\n",
++    "\n",
++    "[element.\"P\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"Q\"]\n",
++    "kind = \"module\"\n",
++);
++
++/// 子树错位：`Q` 夹在 `P` 与 `P.A` / `P.B` 之间（`moved = 1`、块名 `Q`）。
++const DIRTY_SUBTREE: &str = concat!(
++    "[element.\"P\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"Q\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"P.A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"P.B\"]\n",
++    "kind = \"module\"\n",
++);
++
++/// 子先于父（平局：保留源序更早的项 ⇒ 块名给 `P` 而非 `P.C`）。
++const DIRTY_CHILD_FIRST: &str = concat!(
++    "[element.\"P.C\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"P\"]\n",
++    "kind = \"module\"\n",
++);
++
++/// 同层反字典序：`P.Zeta` 在 `P.Alpha` 之前（首次出现序 MUST NOT 被排序改写）。
++const DIRTY_SAME_LEVEL: &str = concat!(
++    "[element.\"P.Zeta\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"P.Alpha\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"P\"]\n",
++    "kind = \"module\"\n",
++);
++
++/// 未搬迁 `06` 形态的合成副本：`Views` 组末尾追加三个 `Changes.*` 子块
++/// （父已有后代排更前 ⇒ `moved = 3`）。
++fn six_copy_source() -> String {
++    let mut source = String::from(
++        "# 06 · frontend（12 元素 / 0 关系）\n\n[element.\"Desktop.Views\"]\nkind = \"module\"\ngate = \"off\"\n\n",
++    );
++    for name in [
++        "Agents",
++        "Architecture",
++        "Changes",
++        "Config",
++        "DbInspector",
++        "Explores",
++        "Info",
++        "Welcome",
++    ] {
++        source.push_str(&format!(
++            "[element.\"Desktop.Views.{name}\"]\nkind = \"module\"\ngate = \"off\"\n\n"
++        ));
++    }
++    for name in ["Flow", "Renderers", "Agent"] {
++        source.push_str(&format!(
++            "[element.\"Desktop.Views.Changes.{name}\"]\nkind = \"module\"\ngate = \"off\"\n\n"
++        ));
++    }
++    source
++}
++
++/// 关系组分裂：`A` 组被 `B → Y` 切开（R1 违例）。
++const DIRTY_RELATION_SPLIT: &str = concat!(
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"X\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"Y\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"Z\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"X\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"B\"\n",
++    "to = \"Y\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"Z\"\n",
++);
++
++/// 同一 `from` 的两段被切开（并回后归**一块**）。
++const DIRTY_RELATION_SEGMENTS: &str = concat!(
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"X\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"Y\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"Z\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"X\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"B\"\n",
++    "to = \"Y\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"Z\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"B\"\n",
++    "to = \"X\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"Y\"\n",
++);
++
++/// 区域混插：`[[relation]]` 夹在两张元素表之间。
++const DIRTY_MIXED_REGIONS: &str = concat!(
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"B\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++);
++
++/// 块内字节面：首部注释块 / 表内说明行 / 行尾注释 / 数组值 / 块间空行齐备。
++const DIRTY_BLOCK_BYTES: &str = concat!(
++    "# 文件头（3 元素 / 1 关系）\n",
++    "[element.\"P\"]\n",
++    "# 说明行\n",
++    "kind = \"module\" # 行尾注释\n",
++    "path = [\"./a/\", \"./b/\"]\n",
++    "\n",
++    "[element.\"Q\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"P.A\"]\n",
++    "kind = \"module\"\n",
++);
++
++/// 大文件规模（12 元素 + 3 关系，健康序）。
++fn large_source() -> String {
++    let mut source = String::new();
++    source.push_str("[element.\"Root\"]\nkind = \"package\"\n\n");
++    for layer in 0..2 {
++        for index in 0..3 {
++            source.push_str(&format!(
++                "[element.\"Root.L{layer}{index}\"]\nkind = \"module\"\n\n"
++            ));
++            source.push_str(&format!(
++                "[element.\"Root.L{layer}{index}.Leaf\"]\nkind = \"module\"\n\n"
++            ));
++        }
++    }
++    for index in 0..3 {
++        source.push_str(&format!(
++            "[[relation]]\nfrom = \"Root.L0{index}.Leaf\"\nto = \"Root.L1{index}.Leaf\"\n\n"
++        ));
++    }
++    source
++}
++
++// ---------------------------------------------------------------------------
++// 正向：快路径 no-op（六类形态）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-1 / D-5）：六类健康形态逐一——返回 `Reorder::default()` 且渲染文本与源
++/// 逐字节相等（快路径零 AST 改动）。
++#[test]
++fn 六类健康形态走快路径零字节差异() {
++    for source in [
++        HEALTHY_SINGLE,
++        HEALTHY_HIERARCHY,
++        HEALTHY_MULTI_GROUP,
++        HEALTHY_INNER_ORDER,
++        HEALTHY_INLINE,
++        HEALTHY_ELEMENT_HEADER,
++    ] {
++        assert_fast_path(source);
++    }
++    assert_fast_path(&large_source());
++
++    let (rendered, reorder) = reordered(HEALTHY_HIERARCHY);
++    assert_eq!(reorder.moved, 0);
++    assert!(reorder.blocks.is_empty(), "零搬迁 ⇒ 空块清单");
++    assert_eq!(
++        element_headers(&rendered),
++        vec!["App", "App.Auth", "App.Billing"]
++    );
++    assert_eq!(
++        relation_pairs(&rendered),
++        vec![("App.Auth".to_owned(), "App.Billing".to_owned())]
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 正向：目标序（元素面）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-2）：同层源序取**首次出现序**——`P.Zeta` 在 `P.Alpha` 之前时保持该序
++///（MUST NOT 变字典序），且每个元素的全部后代聚成紧邻区间（E1 + E2）。
++#[test]
++fn 同层序取首次出现而非字典序() {
++    let (rendered, reorder) = reordered(DIRTY_SAME_LEVEL);
++    assert_eq!(reorder.moved, 1, "父上移一块");
++    assert_eq!(reorder.blocks, vec!["P".to_owned()], "块名取被搬祖先");
++    assert_eq!(
++        element_headers(&rendered),
++        vec!["P", "P.Zeta", "P.Alpha"],
++        "同层序沿用源内首次出现序"
++    );
++    assert_invariants(&rendered);
++
++    // 重解析面不参与序断言：`TomlParser` 的元素表是 `BTreeMap`（按 FQN 排序），
++    // 元素的交付序只由渲染文本承载——故只核对元素集，序由渲染面断言。
++    let model = reparsed(&rendered);
++    let mut fqns: Vec<&str> = model
++        .elements
++        .iter()
++        .map(|element| element.fqn.as_str())
++        .collect();
++    fqns.sort_unstable();
++    assert_eq!(fqns, vec!["P", "P.Alpha", "P.Zeta"], "元素集不因重排增减");
++}
++
++/// 正向（AC-2 / AC-3）：子树错位的最小移动——`[P, Q, P.A, P.B]` 收成
++/// `[P, P.A, P.B, Q]`，只报一块 `Q`（不得报「两个子元素各一块」）。
++#[test]
++fn 子树错位最小移动只报一块且全文逐字() {
++    let (rendered, reorder) = reordered(DIRTY_SUBTREE);
++    assert_eq!(reorder.moved, 1, "只搬一块");
++    assert_eq!(reorder.blocks, vec!["Q".to_owned()]);
++    assert_eq!(
++        rendered,
++        concat!(
++            "[element.\"P\"]\n",
++            "kind = \"module\"\n",
++            "\n",
++            "[element.\"P.A\"]\n",
++            "kind = \"module\"\n",
++            "\n",
++            "[element.\"P.B\"]\n",
++            "kind = \"module\"\n",
++            "\n",
++            "[element.\"Q\"]\n",
++            "kind = \"module\"\n",
++        ),
++        "渲染全文逐字"
++    );
++    assert_invariants(&rendered);
++}
++
++/// 正向（AC-1）：未搬迁 `06` 形态 —— `Views` 组后追加三个 `Changes.*` 子块 ⇒
++/// `moved = 3`、块清单恰三个 FQN（按交付文本序），文本收成子树连续。
++#[test]
++fn 未搬迁六号形态报三块且按交付文本序() {
++    let source = six_copy_source();
++    let (rendered, reorder) = reordered(&source);
++    assert_eq!(reorder.moved, 3, "三个子块各计一块");
++    assert_eq!(
++        reorder.blocks,
++        vec![
++            "Desktop.Views.Changes.Flow".to_owned(),
++            "Desktop.Views.Changes.Renderers".to_owned(),
++            "Desktop.Views.Changes.Agent".to_owned(),
++        ],
++        "块清单按交付文本序"
++    );
++    let headers = element_headers(&rendered);
++    let changes = headers
++        .iter()
++        .position(|fqn| fqn == "Desktop.Views.Changes")
++        .expect("Changes 在案");
++    assert_eq!(
++        &headers[changes + 1..changes + 4],
++        &[
++            "Desktop.Views.Changes.Flow".to_owned(),
++            "Desktop.Views.Changes.Renderers".to_owned(),
++            "Desktop.Views.Changes.Agent".to_owned(),
++        ],
++        "三个子块紧随 Changes（子树连续）：{headers:?}"
++    );
++    assert!(
++        rendered.starts_with("# 06 · frontend"),
++        "首部注释块随首表原位"
++    );
++    assert_invariants(&rendered);
++}
++
++/// 正向（AC-1 / D-5）：新建元素（表尾 append、`position` 缺省）落在父子树中段 ⇒
++/// 渲染文本收成子树连续、`moved = 1` 且块名为新 FQN；落在文件尾则零搬迁。
++#[test]
++fn 表尾追加的新元素按位置收进或零搬迁() {
++    let parents = concat!(
++        "[element.\"App\"]\n",
++        "kind = \"package\"\n",
++        "\n",
++        "[element.\"App.Auth\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"App.Auth.Session\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"App.Billing\"]\n",
++        "kind = \"module\"\n",
++    );
++    let mut document = document_of(parents);
++    append_element(&mut document, "App.Auth.Token", "module");
++    let reorder = normalize(&mut document);
++    let rendered = document.to_string();
++    assert_eq!(reorder.moved, 1, "新元素落在兄弟之后 ⇒ 一块");
++    assert_eq!(reorder.blocks, vec!["App.Auth.Token".to_owned()]);
++    assert_eq!(
++        element_headers(&rendered),
++        vec![
++            "App",
++            "App.Auth",
++            "App.Auth.Session",
++            "App.Auth.Token",
++            "App.Billing"
++        ],
++        "新元素收进父的子树区间"
++    );
++    assert_invariants(&rendered);
++
++    let tail = concat!(
++        "[element.\"App\"]\n",
++        "kind = \"package\"\n",
++        "\n",
++        "[element.\"App.Billing\"]\n",
++        "kind = \"module\"\n",
++    );
++    let mut document = document_of(tail);
++    append_element(&mut document, "App.Billing.Invoice", "module");
++    assert_eq!(
++        normalize(&mut document),
++        Reorder::default(),
++        "子树区间已是文件尾 ⇒ 零搬迁"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 正向：目标序（关系面）与区域序
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-5 / D-2）：关系组分裂并回 —— `[A→X, B→Y, A→Z]` 收成
++/// `[A→X, A→Z, B→Y]`，`moved = 1`、块名 `A`（并回后出现的那一段归组）。
++#[test]
++fn 关系组分裂并回报一块且全文逐字() {
++    let (rendered, reorder) = reordered(DIRTY_RELATION_SPLIT);
++    assert_eq!(reorder.moved, 1);
++    assert_eq!(reorder.blocks, vec!["A".to_owned()], "块名 = 该段的 from");
++    assert_eq!(
++        relation_pairs(&rendered),
++        vec![
++            ("A".to_owned(), "X".to_owned()),
++            ("A".to_owned(), "Z".to_owned()),
++            ("B".to_owned(), "Y".to_owned()),
++        ],
++        "同 from 组连续、组间按首现序"
++    );
++    assert_invariants(&rendered);
++}
++
++/// 正向（AC-2 / AC-5）：组间先后 = 该 `from` 的首现位置；组内 `to` 手选序原样保留；
++/// AoT 尾 append 的同 `from` 新边归位到该组**末成员**（不是条目数组尾）。
++#[test]
++fn 组间首现序与组内手选序及新边归组尾() {
++    assert_fast_path(HEALTHY_INNER_ORDER);
++    let (rendered, _) = reordered(HEALTHY_INNER_ORDER);
++    assert_eq!(
++        relation_pairs(&rendered),
++        vec![
++            ("A".to_owned(), "Z".to_owned()),
++            ("A".to_owned(), "Y".to_owned()),
++            ("B".to_owned(), "Y".to_owned()),
++        ],
++        "组内手选序（A → Z 先于 A → Y）原样保留"
++    );
++
++    let mut document = document_of(HEALTHY_MULTI_GROUP);
++    append_relation(&mut document, "A", "A");
++    let reorder = normalize(&mut document);
++    let rendered = document.to_string();
++    assert_eq!(reorder.moved, 1, "新边并回即一块");
++    assert_eq!(reorder.blocks, vec!["A".to_owned()]);
++    assert_eq!(
++        relation_pairs(&rendered),
++        vec![
++            ("A".to_owned(), "B".to_owned()),
++            ("A".to_owned(), "C".to_owned()),
++            ("A".to_owned(), "A".to_owned()),
++            ("B".to_owned(), "A".to_owned()),
++        ],
++        "新边落在 A 组组尾（不是条目数组尾）"
++    );
++    assert_invariants(&rendered);
++}
++
++/// 正向（AC-2）：区域序理顺 —— 混插源渲染后元素区全在关系区之前（全文逐字）。
++#[test]
++fn 区域混插渲染后元素区恒在关系区之前() {
++    let (rendered, reorder) = reordered(DIRTY_MIXED_REGIONS);
++    assert_eq!(reorder.moved, 1);
++    assert_eq!(reorder.blocks, vec!["B".to_owned()]);
++    assert_eq!(
++        rendered,
++        concat!(
++            "[element.\"A\"]\n",
++            "kind = \"module\"\n",
++            "\n",
++            "[element.\"B\"]\n",
++            "kind = \"module\"\n",
++            "\n",
++            "[[relation]]\n",
++            "from = \"A\"\n",
++            "to = \"B\"\n",
++        ),
++        "渲染全文逐字"
++    );
++    assert_invariants(&rendered);
++}
++
++// ---------------------------------------------------------------------------
++// 正向：号分配三类交界（不断言 position 取值）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-2 / R-3）：三类交界的号分配——单元素（`k = 1`、`r = 0`）/ 零关系 /
++/// 混插；断言渲染全文逐字 + 重解析出的元素序与关系序，**不断言 `position` 取值**
++///（位号是实现细节，交付面只看序）。
++#[test]
++fn 号分配三类交界只断言序不断言位号() {
++    // 单元素：`k = 1`、`r = 0`
++    assert_fast_path(HEALTHY_SINGLE);
++    assert_eq!(element_headers(HEALTHY_SINGLE), vec!["Only"]);
++    assert!(relation_pairs(HEALTHY_SINGLE).is_empty());
++
++    // 零关系：元素 `1..=k`，关系区空
++    let zero_relation = concat!(
++        "[element.\"A\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"A.B\"]\n",
++        "kind = \"module\"\n",
++    );
++    assert_fast_path(zero_relation);
++    let rendered = reordered(zero_relation).0;
++    assert!(relation_pairs(&rendered).is_empty(), "零关系不建空条目数组");
++    assert!(!rendered.contains("[[relation]]"));
++
++    // 混插：元素 `1..=k`、关系 `k+1..=k+r`（区域序理顺；重解析的关系序 == 文本序）
++    let (rendered, reorder) = reordered(DIRTY_MIXED_REGIONS);
++    assert_eq!(reorder.moved, 1);
++    let model = reparsed(&rendered);
++    assert_eq!(model.elements.len(), 2, "元素计数不因重排变化");
++    let relation_order: Vec<(String, String)> = model
++        .relations
++        .iter()
++        .map(|relation| (relation.from.clone(), relation.to.clone()))
++        .collect();
++    assert_eq!(relation_order, vec![("A".to_owned(), "B".to_owned())]);
++    assert_eq!(
++        rendered,
++        concat!(
++            "[element.\"A\"]\n",
++            "kind = \"module\"\n",
++            "\n",
++            "[element.\"B\"]\n",
++            "kind = \"module\"\n",
++            "\n",
++            "[[relation]]\n",
++            "from = \"A\"\n",
++            "to = \"B\"\n",
++        )
++    );
++}
++
++/// 正向（AC-5 / D-7）：重建后 `ArrayOfTables` 成员序 == 渲染文本中的关系序 ==
++/// `TomlParser` 重解析出的 `model.relations` 序（三面同源）。
++#[test]
++fn 条目成员序与文本序与重解析序三面同源() {
++    for source in [DIRTY_RELATION_SPLIT, DIRTY_RELATION_SEGMENTS] {
++        let mut document = document_of(source);
++        normalize(&mut document);
++        let rendered = document.to_string();
++
++        let members: Vec<(String, String)> = document
++            .as_table()
++            .get("relation")
++            .and_then(Item::as_array_of_tables)
++            .expect("夹具应有条目数组")
++            .iter()
++            .map(|table| {
++                (
++                    table
++                        .get("from")
++                        .and_then(Item::as_str)
++                        .unwrap_or_default()
++                        .to_owned(),
++                    table
++                        .get("to")
++                        .and_then(Item::as_str)
++                        .unwrap_or_default()
++                        .to_owned(),
++                )
++            })
++            .collect();
++        let textual = relation_pairs(&rendered);
++        let parsed: Vec<(String, String)> = reparsed(&rendered)
++            .relations
++            .iter()
++            .map(|relation| (relation.from.clone(), relation.to.clone()))
++            .collect();
++
++        assert_eq!(members, textual, "成员序 == 文本序");
++        assert_eq!(textual, parsed, "文本序 == 重解析序");
++        assert_invariants(&rendered);
++    }
++
++    // 元素面要素：重排只动位置——重解析的元素集与计数不变（`TomlParser` 的元素表按
++    // FQN 排序，元素的交付序只由渲染文本承载，故此处不拿重解析序对拍表头序）。
++    let mut document = document_of(DIRTY_SUBTREE);
++    normalize(&mut document);
++    let rendered = document.to_string();
++    let headers = element_headers(&rendered);
++    let mut parsed: Vec<String> = reparsed(&rendered)
++        .elements
++        .iter()
++        .map(|element| element.fqn.clone())
++        .collect();
++    parsed.sort_unstable();
++    let mut expected = headers.clone();
++    expected.sort_unstable();
++    assert_eq!(parsed, expected, "元素集不因重排增减");
++}
++
++// ---------------------------------------------------------------------------
++// 正向：幂等与最小移动口径
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-3）：同一脏输入连排两次——第二次返回 `Reorder::default()`，两次渲染
++/// 文本逐字节相等。
++#[test]
++fn 同一脏输入连排两次幂等() {
++    for source in [
++        DIRTY_SUBTREE,
++        DIRTY_CHILD_FIRST,
++        DIRTY_RELATION_SPLIT,
++        DIRTY_MIXED_REGIONS,
++    ] {
++        let (first, reorder) = reordered(source);
++        assert!(reorder.moved >= 1, "首排应搬迁：{source:?}");
++        let (second, again) = reordered(&first);
++        assert_eq!(again, Reorder::default(), "第二次应零搬迁：{first:?}");
++        assert_eq!(second, first, "两次渲染文本逐字节相等");
++    }
++
++    let six = six_copy_source();
++    let (first, reorder) = reordered(&six);
++    assert_eq!(reorder.moved, 3);
++    let (second, again) = reordered(&first);
++    assert_eq!(again, Reorder::default());
++    assert_eq!(second, first);
++}
++
++/// 正向（AC-2 / AC-9 零改写面）：只动位置面——被搬迁块的键序 / 值形态 / 行内注释 /
++/// 块间空行 / 首部注释块与表头计数逐字保留。
++#[test]
++fn 块内字节零改写只动位置面() {
++    let (rendered, reorder) = reordered(DIRTY_BLOCK_BYTES);
++    assert_eq!(reorder.moved, 1);
++    assert_eq!(reorder.blocks, vec!["P.A".to_owned()]);
++    assert_eq!(
++        rendered,
++        concat!(
++            "# 文件头（3 元素 / 1 关系）\n",
++            "[element.\"P\"]\n",
++            "# 说明行\n",
++            "kind = \"module\" # 行尾注释\n",
++            "path = [\"./a/\", \"./b/\"]\n",
++            "\n",
++            "[element.\"P.A\"]\n",
++            "kind = \"module\"\n",
++            "\n",
++            "[element.\"Q\"]\n",
++            "kind = \"module\"\n",
++        ),
++        "块内字节逐字保留（只动位置）"
++    );
++    for needle in [
++        "# 文件头（3 元素 / 1 关系）",
++        "# 说明行",
++        "# 行尾注释",
++        "path = [\"./a/\", \"./b/\"]",
++    ] {
++        assert!(rendered.contains(needle), "块内字节零改写：{needle}");
++    }
++}
++
++/// 正向（D-2 / Q-1）：平局推进目标序——`[P.C, P]` 收成 `[P, P.C]` 且块名给 `P`
++///（保留源序更早项，不给 `P.C`）。
++#[test]
++fn 平局保留源序更早项块名给父() {
++    let (rendered, reorder) = reordered(DIRTY_CHILD_FIRST);
++    assert_eq!(reorder.moved, 1);
++    assert_eq!(reorder.blocks, vec!["P".to_owned()], "块名给 P 而非 P.C");
++    assert_eq!(
++        element_headers(&rendered),
++        vec!["P", "P.C"],
++        "父先于子（块内字节随块搬）"
++    );
++    assert_invariants(&rendered);
++}
++
++/// 正向（D-2 块口径）：一棵被移动子树含两个后代 ⇒ 归**一块**（取最上层被移动祖先）；
++/// 关系面连续同 `from` 的两段并回 ⇒ 同样只报一块。
++#[test]
++fn 多后代与多段各归一块() {
++    // 元素面：父在子之后，父与两个后代一起搬 ⇒ 一块
++    let parent_after_children = concat!(
++        "[element.\"P.A\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"P.B\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"P\"]\n",
++        "kind = \"module\"\n",
++    );
++    let (rendered, reorder) = reordered(parent_after_children);
++    assert_eq!(reorder.moved, 1, "两个后代不各计一块");
++    assert_eq!(reorder.blocks, vec!["P".to_owned()]);
++    assert_eq!(element_headers(&rendered), vec!["P", "P.A", "P.B"]);
++
++    // 关系面：同 from 的两段（A 组被切两刀）并回 ⇒ 一块
++    let (rendered, reorder) = reordered(DIRTY_RELATION_SEGMENTS);
++    assert_eq!(reorder.moved, 1, "多段并回报一块");
++    assert_eq!(reorder.blocks, vec!["A".to_owned()]);
++    assert_invariants(&rendered);
++}
++
++// ---------------------------------------------------------------------------
++// 正向：仓库面只读
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-1 的在盘事实）：仓库六个模型文件逐一 `normalize` ⇒ `Reorder::default()`
++/// 且逐字节相等；只读、零写盘（读前读后字节全等）。
++#[test]
++fn 仓库六模型文件逐一no_op且零写盘() {
++    let dir = archi_graph_model_dir(&repository_root());
++    let mut names: Vec<String> = fs::read_dir(&dir)
++        .expect("模型声明目录应在盘")
++        .flatten()
++        .filter_map(|entry| entry.file_name().to_str().map(str::to_owned))
++        .filter(|name| name.ends_with(".toml"))
++        .collect();
++    names.sort();
++    assert_eq!(names.len(), 6, "仓库模型文件恰六个：{names:?}");
++
++    for name in names {
++        let path = dir.join(&name);
++        let before = fs::read(&path).expect("读模型文件失败");
++        let source = String::from_utf8(before.clone()).expect("模型文件应是 UTF-8");
++        let mut document = document_of(&source);
++        let reorder = normalize(&mut document);
++        assert_eq!(reorder, Reorder::default(), "{name} 应零搬迁");
++        assert!(reorder.blocks.is_empty(), "{name} 块清单应空");
++        assert_eq!(document.to_string(), source, "{name} 渲染文本应逐字节相等");
++        assert_eq!(
++            fs::read(&path).expect("读模型文件失败"),
++            before,
++            "{name} 只读零写盘"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 边界：`Reorder` 口径（cap 与零值线面）
++// ---------------------------------------------------------------------------
++
++/// 边界（AC-8 / D-3）：cap 只作用于 `blocks`——长度 0 / 1 / 8 / 9 / 100 逐一：保留
++/// **前** 8 项且按入参序，`moved` 保留真值（含 `moved = 0` 与 `moved = 9 > blocks.len()`
++/// 的截断可见性）。
++#[test]
++fn of施加cap且moved保留真值() {
++    for len in [0usize, 1, 8, 9, 100] {
++        let names: Vec<String> = (0..len).map(|index| format!("块{index}")).collect();
++        let reorder = Reorder::of(len, names.clone());
++        assert!(
++            reorder.blocks.len() <= REORDER_BLOCKS_CAP,
++            "blocks 不得超过上限：{}",
++            reorder.blocks.len()
++        );
++        assert_eq!(reorder.moved, len, "moved 恒为真值（不截断）");
++        let kept = len.min(REORDER_BLOCKS_CAP);
++        assert_eq!(
++            reorder.blocks,
++            names[..kept].to_vec(),
++            "保留前 {kept} 项且按入参序"
++        );
++    }
++
++    let truncated = Reorder::of(9, (0..9).map(|index| format!("B{index}")).collect());
++    assert_eq!(truncated.blocks.len(), REORDER_BLOCKS_CAP);
++    assert!(
++        truncated.moved > truncated.blocks.len(),
++        "截断可见：moved(9) > blocks.len(8)"
++    );
++
++    let over_cap = Reorder::of(100, (0..100).map(|index| format!("C{index}")).collect());
++    assert_eq!(over_cap.blocks.len(), REORDER_BLOCKS_CAP);
++    assert_eq!(over_cap.blocks.last().map(String::as_str), Some("C7"));
++    assert_eq!(over_cap.moved, 100);
++}
++
++/// 边界（AC-8）：零值线面恰 `{"moved":0,"blocks":[]}`（字段 MUST NOT 省略）；
++/// `REORDER_BLOCKS_CAP == 8` 为编译期单点。
++#[test]
++fn 零值线面字段恒在场且cap为八() {
++    assert_eq!(REORDER_BLOCKS_CAP, 8, "字段级上限单点");
++    assert_eq!(
++        serde_json::to_value(Reorder::default()).expect("序列化应成功"),
++        serde_json::json!({ "moved": 0, "blocks": [] }),
++        "零值也写两字段（零值不省略）"
++    );
++    assert_eq!(
++        serde_json::to_value(Reorder::of(2, vec!["A".to_owned(), "B".to_owned()]))
++            .expect("序列化应成功"),
++        serde_json::json!({ "moved": 2, "blocks": ["A", "B"] })
++    );
++    assert_eq!(
++        Reorder::of(0, Vec::new()),
++        Reorder::default(),
++        "空清单 + 零搬迁即 `Default`"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 边界：射程（表形态 / 显式表头 / 内联表 / 空文档 / 极值 FQN）
++// ---------------------------------------------------------------------------
++
++/// 边界（AC-2 射程）：`element` 表内联值条目（`Item::Value`）原样保留、不参与号分配；
++/// 同文件表形态条目仍编 `1..=k`。
++#[test]
++fn 射程内联表条目不参与重排() {
++    assert_fast_path(HEALTHY_INLINE);
++
++    let inline_dirty = concat!(
++        "[element]\n",
++        "App = { kind = \"package\" }\n",
++        "\n",
++        "[element.\"App.A.X\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"App.A\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"App.B\"]\n",
++        "kind = \"module\"\n",
++    );
++    let (rendered, reorder) = reordered(inline_dirty);
++    assert_eq!(reorder.moved, 1);
++    assert_eq!(reorder.blocks, vec!["App.A".to_owned()]);
++    assert_eq!(
++        rendered,
++        concat!(
++            "[element]\n",
++            "App = { kind = \"package\" }\n",
++            "\n",
++            "[element.\"App.A\"]\n",
++            "kind = \"module\"\n",
++            "\n",
++            "[element.\"App.A.X\"]\n",
++            "kind = \"module\"\n",
++            "\n",
++            "[element.\"App.B\"]\n",
++            "kind = \"module\"\n",
++        ),
++        "内联条目原样保留（原位、不改写）"
++    );
++    assert_eq!(
++        element_headers(&rendered),
++        vec!["App.A", "App.A.X", "App.B"],
++        "表形态条目参与重排（内联条目不在表头序内）"
++    );
++}
++
++/// 边界（C1 附带形态）：`element` 自身写成显式表头（自身有位号）⇒ 不进入重编号区间、
++/// 文本稳定（快路径 no-op）。
++#[test]
++fn 射程显式element表头保持稳定() {
++    assert_fast_path(HEALTHY_ELEMENT_HEADER);
++    let (rendered, reorder) = reordered(HEALTHY_ELEMENT_HEADER);
++    assert_eq!(reorder, Reorder::default());
++    assert!(rendered.starts_with("[element]\n"), "显式表头原位");
++    assert_eq!(element_headers(&rendered), vec!["P", "Q"]);
++}
++
++/// 边界（list / dict 的空值与缺失形态）：空文档 / 只有 `[[relation]]` 的片段 /
++/// `element` 表为空 ⇒ 不 panic、零重排、`moved = 0`，且 `relation` 键缺席时 MUST NOT
++/// 建空条目数组。
++#[test]
++fn 空与退化文档零重排不建空数组() {
++    for source in ["", "\n", "[element]\n"] {
++        let mut document = document_of(source);
++        assert_eq!(normalize(&mut document), Reorder::default());
++        assert_eq!(document.to_string(), source, "退化文档原样返回：{source:?}");
++    }
++
++    // 只有关系条目：元素区空、关系区原样
++    assert_fast_path("[[relation]]\nfrom = \"A\"\nto = \"B\"\n");
++
++    // 元素齐备而 `relation` 键缺席：MUST NOT 建空条目数组
++    let without_relation = concat!(
++        "[element.\"A\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"A.B\"]\n",
++        "kind = \"module\"\n",
++    );
++    let (rendered, reorder) = reordered(without_relation);
++    assert_eq!(reorder, Reorder::default());
++    assert!(
++        !rendered.contains("[[relation]]"),
++        "缺席的 relation 键不得被建出"
++    );
++    assert_eq!(rendered, without_relation);
++}
++
++/// 边界（str 极值与特殊字符）：FQN 极值量级 × 9 块 ⇒ `moved = 9`、`blocks` 恰 8 项；
++/// emoji 段 FQN 的块名原样进 `blocks`。
++#[test]
++fn 极值长度与emoji块名原样进清单() {
++    let long: String = std::iter::repeat_n('A', 250).collect();
++    let mut source = String::new();
++    for index in 0..9 {
++        source.push_str(&format!(
++            "[element.\"L{index}.{long}.C\"]\nkind = \"module\"\n\n"
++        ));
++    }
++    for index in 0..9 {
++        source.push_str(&format!(
++            "[element.\"L{index}.{long}\"]\nkind = \"module\"\n\n"
++        ));
++    }
++    let (rendered, reorder) = reordered(&source);
++    assert_eq!(reorder.moved, 9, "九块真值不截断");
++    assert_eq!(reorder.blocks.len(), REORDER_BLOCKS_CAP, "块清单恰 8 项");
++    for (index, block) in reorder.blocks.iter().enumerate() {
++        assert!(
++            block.starts_with(&format!("L{index}.")),
++            "保留前 8 项且按交付文本序：{block}"
++        );
++        assert!(block.len() > 200, "超长 FQN 原样进清单：{} B", block.len());
++    }
++    assert_invariants(&rendered);
++
++    let emoji = concat!(
++        "[element.\"App\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"App.🚀.Inner\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"App.🚀\"]\n",
++        "kind = \"module\"\n",
++    );
++    let (rendered, reorder) = reordered(emoji);
++    assert_eq!(reorder.moved, 1);
++    assert_eq!(reorder.blocks, vec!["App.🚀".to_owned()], "emoji 段原样");
++    assert_eq!(
++        element_headers(&rendered),
++        vec!["App", "App.🚀", "App.🚀.Inner"]
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 异常：零 `Err` 臂 / 零依赖面
++// ---------------------------------------------------------------------------
++
++/// 异常（AC-6 / AC-7）：缺 `element` 键、`element` 为非表形态、`relation` 键形态异常
++/// ⇒ **恒返回 `Reorder`**（不 panic、不造诊断、不引入 IO、无失败分支）。
++#[test]
++fn 形态异常恒返回搬迁块不panic() {
++    // 缺 `element` 键：纯关系文件
++    let mut document = document_of("[[relation]]\nfrom = \"A\"\nto = \"B\"\n");
++    let reorder = normalize(&mut document);
++    assert_eq!(reorder, Reorder::default());
++    assert_eq!(
++        document.to_string(),
++        "[[relation]]\nfrom = \"A\"\nto = \"B\"\n"
++    );
++
++    // `element` 为非表形态（值）：零重排、原文原样
++    let mut document = document_of("element = 3\n");
++    assert_eq!(normalize(&mut document), Reorder::default());
++    assert_eq!(document.to_string(), "element = 3\n");
++
++    // `relation` 键形态异常（值而非条目数组）+ 元素错位：仍返回搬迁块，不 panic
++    let weird = concat!(
++        "[element.\"P\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"Q\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "[element.\"P.A\"]\n",
++        "kind = \"module\"\n",
++        "\n",
++        "relation = \"x\"\n",
++    );
++    let mut document = document_of(weird);
++    let reorder = normalize(&mut document);
++    assert_eq!(reorder.moved, 1, "元素面照常规范化");
++    assert_eq!(reorder.blocks, vec!["P.A".to_owned()]);
++    let rendered = document.to_string();
++    for needle in [
++        "[element.\"P\"]",
++        "[element.\"P.A\"]",
++        "[element.\"Q\"]",
++        "relation = \"x\"",
++    ] {
++        assert!(rendered.contains(needle), "形态异常不得丢内容：{needle}");
++    }
++    assert!(
++        rendered.find("[element.\"P.A\"]") < rendered.find("[element.\"Q\"]"),
++        "元素面照常收成子树连续：\n{rendered}"
++    );
++}
++
++/// 异常（AC-6 / AC-7 源码锚）：`layout.rs` 零诊断 / 判据 / IO 依赖面；`normalize`
++/// 签名无 `Result`；`Reorder` 的构造点唯一（`Reorder::of`）。
++#[test]
++fn 源码锚零依赖面且构造点唯一() {
++    let source = include_str!("layout.rs");
++    for forbidden in [
++        "DiagnosticKind",
++        "EditErrorKind",
++        "drift::",
++        "fs::",
++        "spawn",
++        "sha2",
++        "assert!",
++        "debug_assert",
++        "Result<",
++    ] {
++        assert!(
++            !source.contains(forbidden),
++            "layout.rs 内零 `{forbidden}`（序由测试守，不由运行时守）"
++        );
++    }
++    assert_eq!(source.matches("fn normalize(").count(), 1, "规范化单点");
++    assert!(
++        source.contains("pub(super) fn normalize(document: &mut DocumentMut) -> Reorder"),
++        "签名无 `Result`（零 Err 臂）"
++    );
++    assert_eq!(
++        source.matches("Reorder { moved, blocks }").count(),
++        1,
++        "`Reorder` 字面构造恰一处（唯一构造点 `Reorder::of`）"
++    );
++    assert_eq!(
++        source.matches("Reorder::of(").count(),
++        1,
++        "`Reorder::of` 是唯一构造调用点（`normalize` 出口）"
++    );
++    assert!(
++        source.contains("pub fn of(moved: usize, mut blocks: Vec<String>) -> Reorder"),
++        "唯一构造点签名"
++    );
++    assert!(
++        source.contains("blocks.truncate(REORDER_BLOCKS_CAP)"),
++        "cap 在构造点施加"
++    );
++    assert_eq!(
++        source
++            .matches("pub const REORDER_BLOCKS_CAP: usize = 8;")
++            .count(),
++        1,
++        "上限单点字面"
++    );
++}
+diff --git a/crates/core/archi/src/edit/mod.rs b/crates/core/archi/src/edit/mod.rs
+index 2721529eb7b0..8da4ddbba013 100644
+--- a/crates/core/archi/src/edit/mod.rs
++++ b/crates/core/archi/src/edit/mod.rs
+@@ -1,4 +1,4 @@
+-//! 写回原语族：纯函数 `apply_*`（源文本进、改写后的完整源文本出）与计划函数
++//! 写回原语族：纯函数 `apply_*`（源文本进、交付文本 + 搬迁块 [`Reorder`] 出）与计划函数
+ //! `plan_*`（读盘定位 + 纯函数 + 待落盘产物 [`ModelWrite`] + 反馈面 [`WriteOutcome`]）。
+ //!
+ //! 三层形状固定：`apply_*` 只碰文本（零文件系统）；`plan_*` 只读盘
+@@ -7,11 +7,19 @@
+ //! **零写盘、零子进程、零 Tauri**——模型落盘不在本模块（落盘单点是 infra 侧的原子写，
+ //! 壳层命令面与 agent 写工具共用一份实现）。
+ //!
+-//! 产出顺序固定为「改 AST → 渲染 → 表头计数回填 → 重解析自证零诊断 → 回读逐字段
+-//! 一致」，且被自证 / 被回读的文本**逐字等于**交出的 `content`（MUST NOT 先验后改）。
+-//! 渲染经 `toml_edit`：既有键原位不动（更新时沿用原值的 decor），新键追加到元素表尾，
+-//! 新建元素按 `kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata`
+-//! 规范序整表写出。
++//! 产出顺序固定为「改 AST → **规范化** → 渲染 → 表头计数回填 → 重解析自证零诊断 →
++//! 回读逐字段一致」，且被自证 / 被回读的文本**逐字等于**交出的 `content`（MUST NOT
++//! 先验后改）。渲染经 `toml_edit`：既有键原位不动（更新时沿用原值的 decor），新键追加到
++//! 元素表尾，新建元素按 `kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` /
++//! `metadata` 规范序整表写出。
++//!
++//! **写入序不变量**（[`layout`] 的唯一职责）：交付文本恒满足 E1 父先于子 / E2 子树连续
++//! （元素面）与 R1 同一 `from` 组连续（关系面）；规范序 = DFS + 同层首次出现序、组连续 +
++//! 组间首次出现序 + 组内原样，取**最小移动**形式——对已合规的文件是 no-op，同层手排序与
++//! 块内字节（键序 / decor / 注释 / 空行）逐字保留。搬迁块经 [`WriteOutcome::reordered`]
++//! 报出。三条边界：**射程**单文件 + 表形态（内联表形态的元素条目不参与）；**不进自证链**
++//! （规范化没有 `Err` 臂，一个美观缺陷 MUST NOT 升级为写入失败——序由测试守）；**零暴露
++//! 面**（序违例不产诊断 / warning，也不设任何手动触发入口）。
+ //!
+ //! **内联出边**：[`ElementSpec::relations`] 在一次元素写回里批量 upsert / delete 出边，
+ //! 四条约束——同批 `to` 唯一、`action = delete` 项禁带字段、内联边只作用于目标文件
+@@ -35,6 +43,7 @@
+ //! 产出被 parser 判 `invalidValue` 的形态（渲染空数组即一例）——值面 / 形态判据全归
+ //! parser，越界值经自证链变成 `RenderSelfCheck`。
+ 
++mod layout;
+ mod messages;
+ pub mod warnings;
+ 
+@@ -51,6 +60,7 @@ use crate::graph::ModelGraph;
+ use crate::model::{Diagnostic, Element, Model, Relation};
+ use crate::parse::{self, SourceParser, TomlParser};
+ 
++pub use layout::{Reorder, REORDER_BLOCKS_CAP};
+ pub use messages::{EditError, EditErrorKind};
+ pub use warnings::{delete_warnings, upsert_warnings, EditWarning};
+ 
+@@ -203,6 +213,8 @@ pub struct WriteOutcome {
+     pub counts: WriteCounts,
+     /// 全模型计数（前值 ± 本次增量）
+     pub model: WriteCounts,
++    /// 本次写回顺带搬迁的块（规范化所报；零值形态 `{"moved":0,"blocks":[]}` 恒在场）
++    pub reordered: Reorder,
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -214,7 +226,11 @@ pub struct WriteOutcome {
+ ///
+ /// 元素字段写回之后按 [`RelationSpec::action`] 逐条 upsert / delete 内联出边，未列出的
+ /// 既有边零改动；被回读的对象是**同一份**交付文本（自证与回读共用 [`finish`] 的收口）。
+-pub fn apply_element_spec(source: &str, spec: &ElementSpec) -> Result<String, EditError> {
++/// 产出 = 交付文本 + 本次顺带搬迁的块（规范化所报，见 [`layout::normalize`]）。
++pub fn apply_element_spec(
++    source: &str,
++    spec: &ElementSpec,
++) -> Result<(String, Reorder), EditError> {
+     check_relation_batch(&spec.relations)?;
+     let mut document = parse_source(source)?;
+     let declared = document
+@@ -250,19 +266,21 @@ pub fn apply_element_spec(source: &str, spec: &ElementSpec) -> Result<String, Ed
+         table.insert(&spec.fqn, Item::Table(entry));
+     }
+     let expected = apply_inline_relations(&mut document, &spec.fqn, &spec.relations)?;
++    let reorder = layout::normalize(&mut document);
+     finish(document, |model| {
+         verify_element(model, spec)?;
+         verify_inline_relations(model, &spec.fqn, &spec.relations)?;
+         verify_relation_count(model, expected)
+     })
++    .map(|content| (content, reorder))
+ }
+ 
+ /// 单文件删除：按集合删关系对与元素表。
+ ///
+ /// 缺 `element` 表 ⇒ `ElementTableMissing`；元素刻意 / 关系缺席 ⇒ `ElementNotFound` /
+ /// `RelationNotFound`（事实段列该文件现有元素 / 关系对）。子元素与引用前置归
+-/// [`plan_element_delete`]（跨文件、级联闭包）。
+-pub fn apply_element_delete(source: &str, set: &DeleteSet) -> Result<String, EditError> {
++/// [`plan_element_delete`]（跨文件、级联闭包）。产出 = 交付文本 + [`Reorder`]。
++pub fn apply_element_delete(source: &str, set: &DeleteSet) -> Result<(String, Reorder), EditError> {
+     let mut document = parse_source(source)?;
+     if !set.relations.is_empty() {
+         let entries = relation_entries_mut(&mut document)?;
+@@ -307,6 +325,7 @@ pub fn apply_element_delete(source: &str, set: &DeleteSet) -> Result<String, Edi
+             ));
+         }
+     }
++    let reorder = layout::normalize(&mut document);
+     finish(document, |model| {
+         for fqn in &set.elements {
+             if model.element(fqn).is_some() {
+@@ -321,19 +340,23 @@ pub fn apply_element_delete(source: &str, set: &DeleteSet) -> Result<String, Edi
+         }
+         Ok(())
+     })
++    .map(|content| (content, reorder))
+ }
+ 
+ /// 单文件关系 upsert：命中 `(from, to)` 走原地三态改写（条数不变），缺席则追加一条
+ /// `[[relation]]`（键缺席 ⇒ 新建条目数组，不报缺表）。同一源内该对多处声明 ⇒
+ /// `RelationDuplicated`（改哪条都是静默裁决）。`apis` 的 `Some(&[])` 翻成删键
+ /// （MUST NOT 渲染空数组——空数组与省略同义，parser 判 `invalidValue`）。
++///
++/// 新条目先 append 到条目数组尾，规范化随后并回其 `from` 组组尾（R1）。产出 = 交付文本
++/// + [`Reorder`]。
+ pub fn apply_relation_upsert(
+     source: &str,
+     from: &str,
+     to: &str,
+     desc: Option<Option<&str>>,
+     apis: Option<&[String]>,
+-) -> Result<String, EditError> {
++) -> Result<(String, Reorder), EditError> {
+     let mut document = parse_source(source)?;
+     let entries = relation_entries_mut(&mut document)?;
+     let before = entries.len();
+@@ -353,16 +376,22 @@ pub fn apply_relation_upsert(
+             before + 1
+         }
+     };
++    let reorder = layout::normalize(&mut document);
+     finish(document, |model| {
+         verify_relation_upsert(model, from, to, desc, apis)?;
+         verify_relation_count(model, expected)
+     })
++    .map(|content| (content, reorder))
+ }
+ 
+ /// 单文件删关系条目：命中**唯一**条目即删该条，缺席 ⇒ `RelationNotFound`（事实段列该
+ /// 文件现有关系对）；同一源内该对多处声明 ⇒ `RelationDuplicated`（一次删多条是静默
+-/// 裁决）。
+-pub fn apply_relation_delete(source: &str, from: &str, to: &str) -> Result<String, EditError> {
++/// 裁决）。产出 = 交付文本 + [`Reorder`]。
++pub fn apply_relation_delete(
++    source: &str,
++    from: &str,
++    to: &str,
++) -> Result<(String, Reorder), EditError> {
+     let mut document = parse_source(source)?;
+     let entries = relation_entries_mut(&mut document)?;
+     let before = entries.len();
+@@ -374,10 +403,12 @@ pub fn apply_relation_delete(source: &str, from: &str, to: &str) -> Result<Strin
+         return Err(relation_absent_error(entries, &relation_pair_of(from, to)));
+     };
+     entries.remove(index);
++    let reorder = layout::normalize(&mut document);
+     finish(document, |model| {
+         verify_relation_absent(model, from, to)?;
+         verify_relation_count(model, before - 1)
+     })
++    .map(|content| (content, reorder))
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -421,7 +452,7 @@ pub fn plan_element_upsert(root: &Path, spec: &ElementSpec) -> Result<WriteOutco
+     let tally = relation_tally(model, &spec.fqn, &spec.relations);
+     let source = read_source(&target.file, creating)?;
+     check_expect(&target.file, &source, spec.expect.as_deref())?;
+-    let body = apply_element_spec(&source, spec)?;
++    let (body, reorder) = apply_element_spec(&source, spec)?;
+     let content = if target.fresh {
+         new_file_content(&target.file, &body)?
+     } else {
+@@ -442,6 +473,7 @@ pub fn plan_element_upsert(root: &Path, spec: &ElementSpec) -> Result<WriteOutco
+         relations: tally,
+         counts,
+         model: model_counts(model, element_delta(creating), relation_delta(tally)),
++        reordered: reorder,
+     })
+ }
+ 
+@@ -495,7 +527,7 @@ pub fn plan_element_delete(
+     let file = root.join(&declared_file);
+     let source = read_source(&file, false)?;
+     check_expect(&file, &source, expect)?;
+-    let content = apply_element_delete(&source, &set)?;
++    let (content, reorder) = apply_element_delete(&source, &set)?;
+     let write = write_of(file, &content);
+     let written = recount(&write.content)?;
+     Ok(WriteOutcome {
+@@ -510,6 +542,7 @@ pub fn plan_element_delete(
+             -(set.elements.len() as isize),
+             -(set.relations.len() as isize),
+         ),
++        reordered: reorder,
+     })
+ }
+ 
+@@ -538,7 +571,7 @@ pub fn plan_relation_upsert(
+     let changed = relation_changed(hits.first().copied(), desc, apis);
+     let source = read_source(&file, false)?;
+     check_expect(&file, &source, expect)?;
+-    let content = apply_relation_upsert(&source, from, to, desc, apis)?;
++    let (content, reorder) = apply_relation_upsert(&source, from, to, desc, apis)?;
+     let write = write_of(file, &content);
+     let written = recount(&write.content)?;
+     Ok(WriteOutcome {
+@@ -554,6 +587,7 @@ pub fn plan_relation_upsert(
+         },
+         counts: counts_of(&written),
+         model: model_counts(model, 0, isize::from(created)),
++        reordered: reorder,
+     })
+ }
+ 
+@@ -591,7 +625,7 @@ pub fn plan_relation_delete(
+     let file = root.join(&relation.file);
+     let source = read_source(&file, false)?;
+     check_expect(&file, &source, expect)?;
+-    let content = apply_relation_delete(&source, from, to)?;
++    let (content, reorder) = apply_relation_delete(&source, from, to)?;
+     let write = write_of(file, &content);
+     let written = recount(&write.content)?;
+     Ok(WriteOutcome {
+@@ -607,6 +641,7 @@ pub fn plan_relation_delete(
+         },
+         counts: counts_of(&written),
+         model: model_counts(model, 0, -1),
++        reordered: reorder,
+     })
+ }
+ 
+@@ -1699,6 +1734,9 @@ fn endpoints<'a>(
+     }
+ }
+ 
++#[cfg(test)]
++mod layout_test;
++
+ #[cfg(test)]
+ mod mod_test;
+ 
+diff --git a/crates/core/archi/src/edit/mod_test.rs b/crates/core/archi/src/edit/mod_test.rs
+index 8daccbe0fa67..836a359f9c24 100644
+--- a/crates/core/archi/src/edit/mod_test.rs
++++ b/crates/core/archi/src/edit/mod_test.rs
+@@ -25,9 +25,9 @@ use crate::dto::{ApiStatus, ElementKind, GateTier};
+ use crate::model::{Element, Model};
+ use crate::parse::{self, SourceParser, TomlParser};
+ use crate::{
+-    apply_element_delete, apply_element_spec, apply_relation_delete, apply_relation_upsert,
+     file_hash, file_hash_of, plan_element_delete, plan_element_upsert, plan_relation_delete,
+-    plan_relation_upsert, DeleteSet, EditError, EditErrorKind, ElementSpec, ModelWrite,
++    plan_relation_upsert, DeleteSet, EditError, EditErrorKind, ElementSpec, ModelWrite, Reorder,
++    WriteOutcome,
+ };
+ 
+ use super::{
+@@ -40,6 +40,30 @@ fn one(fqn: &str) -> DeleteSet {
+     DeleteSet::of(fqn)
+ }
+ 
++// 既有断言的对象一律是**交付文本**：`apply_*` 的产出是「交付文本 + [`Reorder`]」元组，
++// 下面四个同名包装只取文本——搬迁块的口径与 cap 归 `layout_test` 与写面 `reordered` 断言。
++fn apply_element_spec(source: &str, spec: &ElementSpec) -> Result<String, EditError> {
++    super::apply_element_spec(source, spec).map(|(content, _)| content)
++}
++
++fn apply_element_delete(source: &str, set: &DeleteSet) -> Result<String, EditError> {
++    super::apply_element_delete(source, set).map(|(content, _)| content)
++}
++
++fn apply_relation_upsert(
++    source: &str,
++    from: &str,
++    to: &str,
++    desc: Option<Option<&str>>,
++    apis: Option<&[String]>,
++) -> Result<String, EditError> {
++    super::apply_relation_upsert(source, from, to, desc, apis).map(|(content, _)| content)
++}
++
++fn apply_relation_delete(source: &str, from: &str, to: &str) -> Result<String, EditError> {
++    super::apply_relation_delete(source, from, to).map(|(content, _)| content)
++}
++
+ // ---------------------------------------------------------------------------
+ // 真实临时目录（本 crate 零 dev-dependency，故用 std 自建）
+ // ---------------------------------------------------------------------------
+@@ -307,6 +331,8 @@ const DELETE_SOURCE: &str = concat!(
+ );
+ 
+ /// 三条关系（含空行与一条 `desc`）：更新 / 删除只动命中条。
++///
++/// 关系序按 R1 合规（`A` 组两段相邻、组间按首现序），故「不动臂」与源逐字节相等。
+ const RELATIONS_SOURCE: &str = concat!(
+     "[element.\"A\"]\n",
+     "kind = \"module\"\n",
+@@ -323,11 +349,11 @@ const RELATIONS_SOURCE: &str = concat!(
+     "desc = \"旧说明\"\n",
+     "\n",
+     "[[relation]]\n",
+-    "from = \"B\"\n",
++    "from = \"A\"\n",
+     "to = \"C\"\n",
+     "\n",
+     "[[relation]]\n",
+-    "from = \"A\"\n",
++    "from = \"B\"\n",
+     "to = \"C\"\n",
+ );
+ 
+@@ -1276,7 +1302,8 @@ fn 关系apis清空即删键() {
+     );
+ }
+ 
+-/// 正向（矩阵：追加 / 零关系文件）：缺席即追加条目；`relation` 键缺席即新建条目数组。
++/// 正向（矩阵：追加 / 零关系文件）：缺席即追加条目，并回其 `from` 组组尾（不是条目数组
++/// 尾——组后还有别人的条目）；`relation` 键缺席即新建条目数组。
+ #[test]
+ fn 关系缺席追加且缺键即建数组() {
+     let rendered = apply_relation_upsert(RELATIONS_SOURCE, "A", "A", Some(Some("自述")), None)
+@@ -1293,7 +1320,11 @@ fn 关系缺席追加且缺键即建数组() {
+         "每条一个表头（不合并）"
+     );
+ 
+-    let block = &rendered[rendered.rfind("[[relation]]").expect("新条目在尾")..];
++    let anchor = rendered
++        .find("from = \"A\"\nto = \"A\"")
++        .expect("新条目在案");
++    let block_start = rendered[..anchor].rfind("[[relation]]").expect("表头在案");
++    let block = &rendered[block_start..];
+     let from_index = block.find("from = ").expect("from 在场");
+     let to_index = block.find("to = ").expect("to 在场");
+     let desc_index = block.find("desc = ").expect("desc 在场");
+@@ -1301,6 +1332,10 @@ fn 关系缺席追加且缺键即建数组() {
+         from_index < to_index && to_index < desc_index,
+         "键序 from / to / desc：\n{block}"
+     );
++    assert!(
++        block_start < rendered.find("from = \"B\"").expect("B 组在案"),
++        "新条目并回 A 组组尾而非条目数组尾：\n{rendered}"
++    );
+ 
+     let zero_relation = concat!(
+         "[element.\"A\"]\n",
+@@ -1350,12 +1385,12 @@ fn 关系写入坏源零文本() {
+ /// 边界（矩阵：多条中间条 / 特殊字符端点）：更新只动命中条。
+ #[test]
+ fn 多条目更新只动命中条() {
+-    let rendered = apply_relation_upsert(RELATIONS_SOURCE, "B", "C", Some(Some("中间条")), None)
++    let rendered = apply_relation_upsert(RELATIONS_SOURCE, "A", "C", Some(Some("中间条")), None)
+         .expect("更新中间条应成功");
+     let model = model_of(&rendered);
+     assert_eq!(model.relations.len(), 3);
+     assert_eq!(
+-        relation_of(&model, "B", "C").description.as_deref(),
++        relation_of(&model, "A", "C").description.as_deref(),
+         Some("中间条")
+     );
+     assert_eq!(
+@@ -3269,10 +3304,11 @@ fn 公开面恰八函数两类型且messages私有() {
+     assert_eq!(
+         public_uses,
+         vec![
++            "pub use layout::{Reorder, REORDER_BLOCKS_CAP};",
+             "pub use messages::{EditError, EditErrorKind};",
+             "pub use warnings::{delete_warnings, upsert_warnings, EditWarning};",
+         ],
+-        "出口两块（判据族 + 反馈面）且形态固定"
++        "出口三块（规范化 / 判据族 / 反馈面）且形态固定"
+     );
+     assert!(
+         source.lines().any(|line| line == "mod messages;"),
+@@ -3282,6 +3318,10 @@ fn 公开面恰八函数两类型且messages私有() {
+         !source.contains("pub mod messages"),
+         "无 edit::messages::… 第五路径"
+     );
++    assert!(
++        !source.contains("pub mod layout"),
++        "规范化子模块私有（出口只经 crate 根的两个名字）"
++    );
+ }
+ 
+ /// 异常（源码锚）：`edit/` 零写盘、零子进程、零哈希拼装（写盘单点在壳层，哈希口径在
+@@ -3440,7 +3480,7 @@ fn 十二名经crate根可达() {
+ 
+ use crate::{
+     delete_warnings, upsert_warnings, EditWarning, RelationSpec, RelationTally, WriteAction,
+-    WriteCounts, WriteOutcome,
++    WriteCounts,
+ };
+ 
+ /// 内联出边的唯一构造形态（缺省动作 = upsert、三态字段不动）。
+@@ -4388,7 +4428,7 @@ fn 新增类型形状齐备() {
+     assert_eq!(RelationTally::default().created, 0);
+ }
+ 
+-/// 边界：`WriteOutcome` 七字段可构造且内嵌 `ModelWrite` 三字段与既有三元组逐字同义。
++/// 边界：`WriteOutcome` 八字段可构造且内嵌 `ModelWrite` 三字段与既有三元组逐字同义。
+ #[test]
+ #[allow(non_snake_case)]
+ fn WriteOutcome内嵌ModelWrite不变() {
+@@ -4405,8 +4445,17 @@ fn WriteOutcome内嵌ModelWrite不变() {
+         relations: RelationTally::default(),
+         counts: WriteCounts::default(),
+         model: WriteCounts::default(),
++        reordered: Reorder::default(),
+     };
+-    assert_eq!(outcome.write, write, "七字段之一内嵌 ModelWrite 原样");
++    assert_eq!(outcome.write, write, "八字段之一内嵌 ModelWrite 原样");
++    assert_eq!(
++        outcome.reordered,
++        Reorder {
++            moved: 0,
++            blocks: Vec::new()
++        },
++        "reordered 缺省即零值形态（恒在场）"
++    );
+     assert_eq!(outcome.write.file, PathBuf::from("01-app.toml"));
+     assert_eq!(outcome.write.content, "# 01 · app\n");
+     assert_eq!(
+@@ -4602,3 +4651,791 @@ fn warnings测试登记在册() {
+         "既有 messages_test 登记未动"
+     );
+ }
++
++// ===========================================================================
++// 本变更：写入序规范化（`apply_*` 产出 `Reorder`、`plan_*` 直供、AC-4 等价形态）
++// ===========================================================================
++
++use super::layout::normalize;
++
++/// R1 违例夹具：`A` 组被 `B → Y` 切成两段（并回后组内源序原样保留）。
++const SPLIT_GROUP_SOURCE: &str = concat!(
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"X\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"Y\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"Z\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"X\"\n",
++    "desc = \"旧说明\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"B\"\n",
++    "to = \"Y\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"Z\"\n",
++);
++
++/// 两组 `from` 各自被切开（删一条后剩余序仍违例）。
++const SPLIT_BOTH_GROUPS_SOURCE: &str = concat!(
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"W\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"X\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"Y\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"X\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"B\"\n",
++    "to = \"Y\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"Y\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"B\"\n",
++    "to = \"X\"\n",
++);
++
++/// 健康子树夹具（合规 DFS 序：`App` → `App.Auth` → `App.Auth.Session` → `App.Billing`）：
++/// `App.Auth` 的子树区间已在位，新建 `App.Auth.*` 子元素会落进中段、触发一次搬迁。
++const SUBTREE_SOURCE: &str = concat!(
++    "[element.\"App\"]\n",
++    "kind = \"package\"\n",
++    "\n",
++    "[element.\"App.Auth\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"App.Auth.Session\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"App.Billing\"]\n",
++    "kind = \"module\"\n",
++);
++
++/// E2 违例夹具（E1 仍成立）：`App.Billing` 插进 `App.Auth` 的子树区间，把
++/// `App.Auth.Session` 挤到兄弟之后——规范化只搬一块（`App.Auth.Session`），
++/// 平局保留源序更早的 `App.Billing` 不动。
++const E2_VIOLATION_SOURCE: &str = concat!(
++    "[element.\"App\"]\n",
++    "kind = \"package\"\n",
++    "\n",
++    "[element.\"App.Auth\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"App.Billing\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"App.Auth.Session\"]\n",
++    "kind = \"module\"\n",
++);
++
++/// 未搬迁 `06` 形态的合成副本：`Views` 组末尾追加三个 `Changes.*` 子块
++///（`gate` 显式写出同值，使「同值重放」只剩位置面在变）。
++fn six_copy_source() -> String {
++    let mut source = String::from(
++        "# 06 · frontend（12 元素 / 0 关系）\n\n[element.\"Desktop.Views\"]\nkind = \"module\"\ngate = \"off\"\n\n",
++    );
++    for name in [
++        "Agents",
++        "Architecture",
++        "Changes",
++        "Config",
++        "DbInspector",
++        "Explores",
++        "Info",
++        "Welcome",
++    ] {
++        source.push_str(&format!(
++            "[element.\"Desktop.Views.{name}\"]\nkind = \"module\"\ngate = \"off\"\n\n"
++        ));
++    }
++    for name in ["Flow", "Renderers", "Agent"] {
++        source.push_str(&format!(
++            "[element.\"Desktop.Views.Changes.{name}\"]\nkind = \"module\"\ngate = \"off\"\n\n"
++        ));
++    }
++    source
++}
++
++/// 九块错位的模型（子块在前、父块在后）：删除一个叶元素后剩余序仍违例。
++fn nine_block_source() -> String {
++    let mut source = String::new();
++    for index in 0..9 {
++        source.push_str(&format!("[element.\"P{index}.C\"]\nkind = \"module\"\n\n"));
++    }
++    for index in 0..9 {
++        source.push_str(&format!("[element.\"P{index}\"]\nkind = \"module\"\n\n"));
++    }
++    source
++}
++
++/// 交付文本中的表形态元素表头序（序断言的观测面）。
++fn header_order(content: &str) -> Vec<String> {
++    content
++        .lines()
++        .filter_map(|line| {
++            let rest = line.strip_prefix("[element.\"")?;
++            Some(rest.strip_suffix("\"]")?.to_owned())
++        })
++        .collect()
++}
++
++/// 交付文本中的关系序（`[[relation]]` 条目出现序 → `(from, to)`）。
++fn relation_order(content: &str) -> Vec<(String, String)> {
++    let mut pairs: Vec<(String, String)> = Vec::new();
++    let mut current: Option<(String, String)> = None;
++    for line in content.lines() {
++        if line.trim() == "[[relation]]" {
++            if let Some(pair) = current.take() {
++                pairs.push(pair);
++            }
++            current = Some((String::new(), String::new()));
++            continue;
++        }
++        let trimmed = line.trim();
++        if let Some(rest) = trimmed.strip_prefix("from = ") {
++            if let Some((from, _)) = current.as_mut() {
++                *from = rest.trim_matches('"').to_owned();
++            }
++        } else if let Some(rest) = trimmed.strip_prefix("to = ") {
++            if let Some((_, to)) = current.as_mut() {
++                *to = rest.trim_matches('"').to_owned();
++            }
++        }
++    }
++    if let Some(pair) = current.take() {
++        pairs.push(pair);
++    }
++    pairs
++}
++
++/// 正向（AC-1 / D-5）：健康夹具上把 `gate` 改成其**当前值** ⇒ 交付文本与源逐字节
++/// 相等且 `reordered == Reorder::default()`。
++#[test]
++fn apply_element_spec健康夹具同值即零搬迁零字节差异() {
++    for (source, fqn, gate) in [
++        (CORE_SOURCE, "App.Auth", GateTier::Warn),
++        (CORE_SOURCE, "App.Billing", GateTier::Off),
++        (HEADER_SOURCE, "App.Auth", GateTier::Off),
++    ] {
++        let (content, reorder) =
++            super::apply_element_spec(source, &gate_spec(fqn, gate)).expect("同值改档应成功");
++        assert_eq!(content, source, "{fqn} 同值 ⇒ 与源逐字节相等");
++        assert_eq!(reorder, Reorder::default(), "{fqn} 同值 ⇒ 零搬迁");
++    }
++}
++
++/// 正向（AC-1 / spec「新建元素」分情形）：新建子元素落在父子树中段 ⇒ 文本收成子树
++/// 连续、`moved = 1` 且块名为该 FQN；子树区间已是文件尾 ⇒ `moved = 0`。
++#[test]
++fn apply_element_spec新建按落位分两臂() {
++    let middle = ElementSpec {
++        fqn: "App.Auth.Token".to_owned(),
++        kind: Some(ElementKind::Module),
++        ..Default::default()
++    };
++    let (content, reorder) =
++        super::apply_element_spec(SUBTREE_SOURCE, &middle).expect("新建应成功");
++    assert_eq!(reorder.moved, 1, "父子树中段新建 ⇒ 一块");
++    assert_eq!(reorder.blocks, vec!["App.Auth.Token".to_owned()]);
++    assert_eq!(
++        header_order(&content),
++        vec![
++            "App",
++            "App.Auth",
++            "App.Auth.Session",
++            "App.Auth.Token",
++            "App.Billing"
++        ],
++        "新元素收进父的子树区间"
++    );
++
++    let tail_source = concat!(
++        "[element.\"App\"]\n",
++        "kind = \"package\"\n",
++        "\n",
++        "[element.\"App.Billing\"]\n",
++        "kind = \"module\"\n",
++    );
++    let tail = ElementSpec {
++        fqn: "App.Billing.Invoice".to_owned(),
++        kind: Some(ElementKind::Module),
++        ..Default::default()
++    };
++    let (_, reorder) = super::apply_element_spec(tail_source, &tail).expect("新建应成功");
++    assert_eq!(reorder, Reorder::default(), "落文件尾 ⇒ 零搬迁");
++}
++
++/// 正向：删除后剩余序仍合规 ⇒ `moved = 0`，删除块外字节逐字保留（含空行与注释）。
++#[test]
++fn apply_element_delete删除后剩余序合规零搬迁() {
++    let mut set = DeleteSet::default();
++    set.elements.insert("App.Billing".to_owned());
++    set.relations
++        .insert(("App.Billing".to_owned(), "App".to_owned()));
++    let (content, reorder) = super::apply_element_delete(DELETE_SOURCE, &set).expect("删除应成功");
++    assert_eq!(reorder, Reorder::default(), "删除不引入错位");
++    assert!(!content.contains("[element.\"App.Billing\"]"), "元素表离场");
++    assert!(content.contains("# 01 · 核心"), "首部注释逐字保留");
++    assert_eq!(header_order(&content), vec!["App", "App.Auth"]);
++
++    // 删一条造成组分裂的关系：剩余 A 组与 B 组各自连续
++    let mut relations = DeleteSet::default();
++    relations.relations.insert(("A".to_owned(), "B".to_owned()));
++    let (content, reorder) =
++        super::apply_element_delete(RELATIONS_SOURCE, &relations).expect("删关系应成功");
++    assert_eq!(reorder, Reorder::default());
++    assert_eq!(
++        relation_order(&content),
++        vec![
++            ("A".to_owned(), "C".to_owned()),
++            ("B".to_owned(), "C".to_owned()),
++        ]
++    );
++}
++
++/// 正向（AC-5）：关系 upsert 的两臂——追加的新边并回 `from` 组**组尾**（一块）；
++/// R1 违例源上改 `desc` ⇒ 组并回（一块、块名 `A`），其余条目字节逐字保留。
++#[test]
++fn apply_relation_upsert并回组尾与组分裂两臂() {
++    let (content, reorder) =
++        super::apply_relation_upsert(RELATIONS_SOURCE, "A", "A", None, None).expect("追加应成功");
++    assert_eq!(reorder.moved, 1, "新边并回即一块");
++    assert_eq!(reorder.blocks, vec!["A".to_owned()]);
++    assert_eq!(
++        relation_order(&content),
++        vec![
++            ("A".to_owned(), "B".to_owned()),
++            ("A".to_owned(), "C".to_owned()),
++            ("A".to_owned(), "A".to_owned()),
++            ("B".to_owned(), "C".to_owned()),
++        ],
++        "新边落在 A 组组尾（不是条目数组尾）"
++    );
++    assert!(content.contains("desc = \"旧说明\""), "命中条字节逐字保留");
++
++    let (content, reorder) =
++        super::apply_relation_upsert(SPLIT_GROUP_SOURCE, "A", "X", Some(Some("新说明")), None)
++            .expect("改值应成功");
++    assert_eq!(reorder.moved, 1);
++    assert_eq!(reorder.blocks, vec!["A".to_owned()]);
++    assert_eq!(
++        relation_order(&content),
++        vec![
++            ("A".to_owned(), "X".to_owned()),
++            ("A".to_owned(), "Z".to_owned()),
++            ("B".to_owned(), "Y".to_owned()),
++        ],
++        "同 from 组连续、组内源序原样"
++    );
++    assert!(content.contains("desc = \"新说明\""), "命中条按新值写出");
++}
++
++/// 正向（AC-5）：关系删除命中条后剩余组仍连续 ⇒ `moved = 0`，其余条目（含 `desc` /
++/// `apis`）逐字保留。
++#[test]
++fn apply_relation_delete命中条后组连续零搬迁() {
++    let (content, reorder) =
++        super::apply_relation_delete(RELATIONS_SOURCE, "A", "B").expect("删除应成功");
++    assert_eq!(reorder, Reorder::default());
++    assert_eq!(
++        relation_order(&content),
++        vec![
++            ("A".to_owned(), "C".to_owned()),
++            ("B".to_owned(), "C".to_owned()),
++        ]
++    );
++
++    let (content, reorder) =
++        super::apply_relation_delete(APIS_SOURCE, "A", "B").expect("删除应成功");
++    assert_eq!(reorder, Reorder::default());
++    assert!(!content.contains("apis = "), "被删条目的 apis 一并离场");
++}
++
++/// 正向（AC-5 / D-7）：关系面两处同源——写后渲染文本中的关系序 == `TomlParser`
++/// 重解析出的关系序（Vec 序与文本序同批修改）。
++#[test]
++fn 关系写后文本序与回读序同源() {
++    for (source, from, to) in [
++        (RELATIONS_SOURCE, "A", "A"),
++        (SPLIT_GROUP_SOURCE, "A", "X"),
++        (SPLIT_BOTH_GROUPS_SOURCE, "W", "X"),
++    ] {
++        let (content, _) = super::apply_relation_upsert(source, from, to, Some(Some("同源")), None)
++            .expect("写应成功");
++        let textual = relation_order(&content);
++        let parsed: Vec<(String, String)> = model_of(&content)
++            .relations
++            .iter()
++            .map(|relation| (relation.from.clone(), relation.to.clone()))
++            .collect();
++        assert_eq!(textual, parsed, "文本序 == 重解析序（{from} → {to}）");
++    }
++}
++
++/// 正向（AC-8）：`WriteOutcome.reordered` 由 `apply_*` **直供**——四个计划函数逐字段
++/// 对拍同源 `apply_*` 的返回（自行比对前后文本重算即第二事实源，本断言即违约检出面）。
++#[test]
++fn plan_四函数reordered直供对拍() {
++    // 元素 upsert：健康臂（moved = 0）+ 脏臂（moved > 0）
++    let healthy = TempDir::new("reorder-supply-element-ok");
++    healthy.write_model("01-core.toml", CORE_SOURCE);
++    let same = gate_spec("App.Auth", GateTier::Warn);
++    let (_, expected) = super::apply_element_spec(CORE_SOURCE, &same).expect("同值应成功");
++    let outcome = plan_element_upsert(healthy.root(), &same).expect("计划应成功");
++    assert_eq!(outcome.reordered, expected, "健康臂逐字段相等");
++    assert_eq!(outcome.reordered, Reorder::default());
++
++    let dirty = TempDir::new("reorder-supply-element-dirty");
++    let file = dirty.write_model("01-core.toml", SUBTREE_SOURCE);
++    let create = ElementSpec {
++        fqn: "App.Auth.Token".to_owned(),
++        kind: Some(ElementKind::Module),
++        ..Default::default()
++    };
++    let source = fs::read_to_string(&file).expect("读模型失败");
++    let (text, expected) = super::apply_element_spec(&source, &create).expect("新建应成功");
++    let outcome = plan_element_upsert(dirty.root(), &create).expect("计划应成功");
++    assert_eq!(outcome.reordered, expected, "脏臂逐字段相等");
++    assert!(outcome.reordered.moved >= 1, "脏臂有搬迁");
++    assert_eq!(outcome.write.content, text, "交付文本同源");
++
++    // 元素删除：脏臂 + 健康臂
++    let deleted = TempDir::new("reorder-supply-delete");
++    let file = deleted.write_model("01-core.toml", &nine_block_source());
++    let set = DeleteSet::of("P8.C");
++    let source = fs::read_to_string(&file).expect("读模型失败");
++    let (text, expected) = super::apply_element_delete(&source, &set).expect("删除应成功");
++    let outcome = plan_element_delete(deleted.root(), "P8.C", false, None).expect("计划应成功");
++    assert_eq!(outcome.reordered, expected, "删除面逐字段相等");
++    assert!(outcome.reordered.moved >= 1, "脏模型删除后仍有搬迁");
++    assert_eq!(outcome.write.content, text);
++
++    let leaf = TempDir::new("reorder-supply-delete-leaf");
++    leaf.write_model("01-core.toml", CORE_SOURCE);
++    let outcome = plan_element_delete(leaf.root(), "App.Auth", false, None).expect("计划应成功");
++    assert_eq!(outcome.reordered, Reorder::default(), "健康模型删除零搬迁");
++
++    // 关系 upsert：健康臂 + 脏臂
++    let relation = TempDir::new("reorder-supply-relation");
++    relation.write_model("01-core.toml", RELATIONS_SOURCE);
++    let (_, expected) =
++        super::apply_relation_upsert(RELATIONS_SOURCE, "A", "B", Some(Some("改")), None)
++            .expect("改值应成功");
++    let outcome = plan_relation_upsert(relation.root(), "A", "B", Some(Some("改")), None, None)
++        .expect("计划应成功");
++    assert_eq!(outcome.reordered, expected, "健康臂逐字段相等");
++    assert_eq!(outcome.reordered, Reorder::default());
++
++    let split = TempDir::new("reorder-supply-relation-dirty");
++    split.write_model("01-core.toml", SPLIT_GROUP_SOURCE);
++    let (_, expected) =
++        super::apply_relation_upsert(SPLIT_GROUP_SOURCE, "A", "X", Some(Some("改")), None)
++            .expect("改值应成功");
++    let outcome = plan_relation_upsert(split.root(), "A", "X", Some(Some("改")), None, None)
++        .expect("计划应成功");
++    assert_eq!(outcome.reordered, expected, "脏臂逐字段相等");
++    assert!(outcome.reordered.moved >= 1);
++
++    // 关系删除：健康臂 + 脏臂
++    let relation_delete = TempDir::new("reorder-supply-relation-delete");
++    relation_delete.write_model("01-core.toml", RELATIONS_SOURCE);
++    let (_, expected) =
++        super::apply_relation_delete(RELATIONS_SOURCE, "B", "C").expect("删除应成功");
++    let outcome = plan_relation_delete(relation_delete.root(), "B", "C", None).expect("计划应成功");
++    assert_eq!(outcome.reordered, expected);
++    assert_eq!(outcome.reordered, Reorder::default());
++
++    let dirty_delete = TempDir::new("reorder-supply-relation-delete-dirty");
++    dirty_delete.write_model("01-core.toml", SPLIT_BOTH_GROUPS_SOURCE);
++    let (_, expected) =
++        super::apply_relation_delete(SPLIT_BOTH_GROUPS_SOURCE, "B", "X").expect("删除应成功");
++    let outcome = plan_relation_delete(dirty_delete.root(), "B", "X", None).expect("计划应成功");
++    assert_eq!(outcome.reordered, expected);
++    assert!(outcome.reordered.moved >= 1, "脏源删一条后仍需并回");
++}
++
++/// 正向（AC-1 / AC-3）：未搬迁 `06` 合成副本上改一档成当前值 ⇒ `reordered.moved = 3`、
++/// 块清单恰三个 FQN，`write.content` 收成子树连续。
++#[test]
++fn plan_element_upsert未搬迁06副本报三块() {
++    let temp = TempDir::new("reorder-six-copy");
++    temp.write_model("01-core.toml", &six_copy_source());
++    let outcome = plan_element_upsert(
++        temp.root(),
++        &gate_spec("Desktop.Views.Changes.Flow", GateTier::Off),
++    )
++    .expect("同值改档应成功");
++
++    assert_eq!(outcome.reordered.moved, 3, "三个子块各计一块");
++    assert_eq!(
++        outcome.reordered.blocks,
++        vec![
++            "Desktop.Views.Changes.Flow".to_owned(),
++            "Desktop.Views.Changes.Renderers".to_owned(),
++            "Desktop.Views.Changes.Agent".to_owned(),
++        ]
++    );
++    let headers = header_order(&outcome.write.content);
++    let changes = headers
++        .iter()
++        .position(|fqn| fqn == "Desktop.Views.Changes")
++        .expect("Changes 在案");
++    assert_eq!(
++        &headers[changes + 1..changes + 4],
++        &[
++            "Desktop.Views.Changes.Flow".to_owned(),
++            "Desktop.Views.Changes.Renderers".to_owned(),
++            "Desktop.Views.Changes.Agent".to_owned(),
++        ],
++        "三个子块紧随 Changes（子树连续）：{headers:?}"
++    );
++}
++
++/// 正向（AC-3 / AC-4）：对写后文本再写一次同值 ⇒ `changed = []` ∧ `reordered.moved = 0`
++/// ∧ `write.content` 与盘上文本逐字节相等。
++#[test]
++fn plan_element_upsert幂等重放零搬迁零字节变化() {
++    let temp = TempDir::new("reorder-idempotent");
++    temp.write_model("01-core.toml", &six_copy_source());
++    let spec = gate_spec("Desktop.Views.Changes.Flow", GateTier::Off);
++
++    let first = plan_element_upsert(temp.root(), &spec).expect("首次计划应成功");
++    assert_eq!(first.reordered.moved, 3);
++    fs::write(&first.write.file, &first.write.content).expect("落盘首次结果");
++
++    let second = plan_element_upsert(temp.root(), &spec).expect("重放计划应成功");
++    assert_eq!(
++        second.changed,
++        Vec::<String>::new(),
++        "同值重放 ⇒ changed 空"
++    );
++    assert_eq!(second.reordered, Reorder::default(), "重放 ⇒ 零搬迁");
++    assert_eq!(
++        second.write.content,
++        fs::read_to_string(&first.write.file).expect("读盘失败"),
++        "重放内容与盘上文本逐字节相等"
++    );
++    assert_eq!(
++        second.write.content, first.write.content,
++        "两次交付文本一致"
++    );
++}
++
++/// 正向（AC-4 等价形态）：首次规范化时字段零变化 ⇒ `changed = []` ∧ `moved = 3` ∧
++/// `write.content != source`（文本必变而 `changed` 仍空）。
++#[test]
++#[allow(non_snake_case)]
++fn AC4首次规范化字段零变化文本仍变() {
++    let temp = TempDir::new("reorder-ac4");
++    let source = six_copy_source();
++    let file = temp.write_model("01-core.toml", &source);
++    let outcome = plan_element_upsert(
++        temp.root(),
++        &gate_spec("Desktop.Views.Changes.Flow", GateTier::Off),
++    )
++    .expect("同值改档应成功");
++
++    assert_eq!(outcome.changed, Vec::<String>::new(), "字段零变化");
++    assert_eq!(outcome.reordered.moved, 3, "搬迁独立于字段面");
++    assert_ne!(outcome.write.content, source, "首次规范化文本必变");
++    assert_eq!(
++        fs::read_to_string(&file).expect("读盘失败"),
++        source,
++        "plan 零写盘"
++    );
++}
++
++/// 边界（AC-8）：新建文件分支 ⇒ `reordered == Reorder::default()`（新文件无历史错位）、
++/// `write.content` 含表头计数行、`created = true`。
++#[test]
++fn plan_element_upsert新建文件分支零搬迁() {
++    let temp = TempDir::new("reorder-fresh-file");
++    temp.write_model("01-core.toml", CORE_SOURCE);
++    let spec = ElementSpec {
++        fqn: "App.Auth.Session".to_owned(),
++        kind: Some(ElementKind::Module),
++        file: Some("07-session.toml".to_owned()),
++        create: true,
++        ..Default::default()
++    };
++    let outcome = plan_element_upsert(temp.root(), &spec).expect("新建文件应成功");
++    assert!(outcome.created, "新建分支");
++    assert_eq!(outcome.reordered, Reorder::default(), "新文件无历史错位");
++    assert!(
++        outcome
++            .write
++            .content
++            .starts_with("# 07-session（1 元素 / 0 关系）"),
++        "新文件表头按写后重解析计数生成：{}",
++        outcome.write.content
++    );
++}
++
++/// 异常（AC-4）：脏副本 + 过期 `expect` ⇒ `Err(ExpectMismatch)` 且零 `write` 产出
++///（规范化不得先于乐观锁；盘面字节零变化）。
++#[test]
++fn plan_element_upsert_expect先于规范化() {
++    let temp = TempDir::new("reorder-expect-first");
++    temp.write_model("01-core.toml", &six_copy_source());
++    let before = temp.snapshot();
++    let mut spec = gate_spec("Desktop.Views.Changes.Flow", GateTier::Off);
++    spec.expect = Some("sha256:过期哈希".to_owned());
++    let failure = plan_element_upsert(temp.root(), &spec).expect_err("过期 expect 应拒");
++    assert_eq!(failure.kind, EditErrorKind::ExpectMismatch);
++    assert_eq!(temp.snapshot(), before, "零落盘（规范化未先于乐观锁）");
++}
++
++/// 异常（AC-7）：源有子树错位（E2 违例：`App.Auth.Session` 被挤到 `App.Billing` 之后）
++/// 时，一次合法元素 upsert 仍 `Ok`（美观问题 MUST NOT 升级为写入失败）；搬迁只报一块
++/// `App.Auth.Session`、交付文本回规范序。
++#[test]
++#[allow(non_snake_case)]
++fn 含E2违例源合法upsert仍Ok() {
++    let temp = TempDir::new("reorder-e2-ok");
++    temp.write_model("01-core.toml", E2_VIOLATION_SOURCE);
++    let outcome = plan_element_upsert(temp.root(), &gate_spec("App.Billing", GateTier::Warn))
++        .expect("错位源的合法写应 Ok");
++    assert_eq!(outcome.changed, vec!["gate".to_owned()]);
++    assert_eq!(outcome.reordered.moved, 1, "顺带搬迁照报（只搬一块）");
++    assert_eq!(
++        outcome.reordered.blocks,
++        vec!["App.Auth.Session".to_owned()],
++        "块名为被搬的后代（平局保留源序更早的 App.Billing）"
++    );
++    assert_eq!(
++        header_order(&outcome.write.content),
++        vec!["App", "App.Auth", "App.Auth.Session", "App.Billing"],
++        "交付文本已成规范序"
++    );
++}
++
++/// 异常（AC-7 源码锚）：自证链体内零 `normalize` 引用；`layout::normalize` 调用点恰 4
++/// 处（4 × `apply_*`）；`mod.rs` / `layout.rs` 零 `assert!` / `debug_assert!` 序断言
++///（机械断言只在测试侧）；`WriteOutcome` 声明序末位为 `reordered`。
++#[test]
++fn 源码锚自证链零触点且调用点恰四() {
++    let source = include_str!("mod.rs");
++    for signature in [
++        "fn finish(",
++        "fn verify_element(",
++        "fn verify_inline_relations(",
++        "fn verify_relation_count(",
++        "fn verify_relation_absent(",
++        "fn backfill_header_counts(",
++    ] {
++        let body = body_of(source, signature);
++        assert!(
++            !body.contains("normalize"),
++            "{signature} 体内零 normalize 引用（不进自证链）"
++        );
++    }
++
++    assert_eq!(
++        source.matches("layout::normalize(").count(),
++        4,
++        "4 × `apply_*` 各调一次（plan 层不另调）"
++    );
++    for text in [source, include_str!("layout.rs")] {
++        for forbidden in ["assert!", "debug_assert"] {
++            assert!(
++                !text.contains(forbidden),
++                "序断言只在测试侧（零 `{forbidden}`）"
++            );
++        }
++    }
++
++    let counts = source
++        .find("pub model: WriteCounts,")
++        .expect("模型计数字段在案");
++    let reordered = source
++        .find("pub reordered: Reorder,")
++        .expect("reordered 字段在案");
++    assert!(counts < reordered, "WriteOutcome 末位为 reordered");
++}
++
++/// 产品源码的一段函数体（`signature` 起至其后首个行首 `}`）。
++fn body_of<'a>(source: &'a str, signature: &str) -> &'a str {
++    let start = source
++        .find(signature)
++        .unwrap_or_else(|| panic!("{signature} 应在产品源码内"));
++    let rest = &source[start..];
++    let end = rest.find("\n}\n").unwrap_or(rest.len());
++    &rest[..end]
++}
++
++/// 回归（AC-6 / AC-9）：搬迁不产诊断、不改计数——写后重解析的诊断集合、元素 / 关系
++/// 计数与写前逐项一致，`warnings` 不因搬迁新增。
++#[test]
++fn 搬迁不产诊断且计数逐项不变() {
++    let temp = TempDir::new("reorder-diagnostics");
++    let source = six_copy_source();
++    temp.write_model("01-core.toml", &source);
++    let before = model_of(&source);
++    let outcome = plan_element_upsert(
++        temp.root(),
++        &gate_spec("Desktop.Views.Changes.Flow", GateTier::Off),
++    )
++    .expect("同值改档应成功");
++
++    let parsed = TomlParser::parse(&outcome.write.content);
++    assert!(parsed.diagnostics.is_empty(), "搬迁后零诊断");
++    assert_eq!(
++        parsed.model.elements.len(),
++        before.elements.len(),
++        "元素计数不变"
++    );
++    assert_eq!(
++        parsed.model.relations.len(),
++        before.relations.len(),
++        "关系计数不变"
++    );
++    assert_eq!(outcome.counts.elements, before.elements.len());
++    assert_eq!(outcome.counts.relations, before.relations.len());
++    let mut written: Vec<&str> = parsed
++        .model
++        .elements
++        .iter()
++        .map(|element| element.fqn.as_str())
++        .collect();
++    let mut prior: Vec<&str> = before
++        .elements
++        .iter()
++        .map(|element| element.fqn.as_str())
++        .collect();
++    written.sort_unstable();
++    prior.sort_unstable();
++    assert_eq!(written, prior, "元素集零增减");
++    assert!(
++        outcome.warnings.is_empty(),
++        "搬迁不新增 warnings：{:?}",
++        outcome.warnings
++    );
++}
++
++/// 回归（D-10 / R-2）：既有夹具按序归类——合规夹具一律 no-op（`untouched == source`）；
++/// `SPLIT_GROUP_SOURCE` 判为 R1 违例（并回一块）；`E2_VIOLATION_SOURCE` 判为 E2 违例
++///（子树错位一块）。
++#[test]
++fn 既有夹具按序归类() {
++    for (tag, source) in [
++        ("CORE_SOURCE", CORE_SOURCE),
++        ("HEADER_SOURCE", HEADER_SOURCE),
++        ("FIELDS_SOURCE", FIELDS_SOURCE),
++        ("COLLECTION_SOURCE", COLLECTION_SOURCE),
++        ("DELETE_SOURCE", DELETE_SOURCE),
++        ("APIS_SOURCE", APIS_SOURCE),
++        ("RELATION_PLAN_SOURCE", RELATION_PLAN_SOURCE),
++        ("TWO_ELEMENTS_SOURCE", TWO_ELEMENTS_SOURCE),
++        ("SUBTREE_SOURCE", SUBTREE_SOURCE),
++        ("SPLIT_FROM_SOURCE", SPLIT_FROM_SOURCE),
++        ("SPLIT_RELATION_SOURCE", SPLIT_RELATION_SOURCE),
++        ("DUPLICATED_IN_SOURCE", DUPLICATED_IN_SOURCE),
++        ("DUPLICATED_APP_SOURCE", DUPLICATED_APP_SOURCE),
++        ("DUPLICATED_FRONTEND_SOURCE", DUPLICATED_FRONTEND_SOURCE),
++        ("IDENTITY_APP_SOURCE", IDENTITY_APP_SOURCE),
++        ("IDENTITY_FRONTEND_SOURCE", IDENTITY_FRONTEND_SOURCE),
++    ] {
++        let mut document: DocumentMut = source.parse().expect("夹具应可解析");
++        assert_eq!(
++            normalize(&mut document),
++            Reorder::default(),
++            "{tag} 应判为合规序"
++        );
++        assert_eq!(document.to_string(), source, "{tag} 零字节差异");
++    }
++
++    let mut document: DocumentMut = SPLIT_GROUP_SOURCE.parse().expect("夹具应可解析");
++    assert_eq!(
++        normalize(&mut document),
++        Reorder {
++            moved: 1,
++            blocks: vec!["A".to_owned()],
++        },
++        "SPLIT_GROUP_SOURCE 判为 R1 违例（并回一块）"
++    );
++
++    let mut document: DocumentMut = E2_VIOLATION_SOURCE.parse().expect("夹具应可解析");
++    assert_eq!(
++        normalize(&mut document),
++        Reorder {
++            moved: 1,
++            blocks: vec!["App.Auth.Session".to_owned()],
++        },
++        "E2_VIOLATION_SOURCE 判为 E2 违例（子树错位一块）"
++    );
++    assert_eq!(
++        header_order(&document.to_string()),
++        vec!["App", "App.Auth", "App.Auth.Session", "App.Billing"],
++        "规范化后收成子树连续"
++    );
++}
++
++/// 边界（AC-8）：`Reorder` / `REORDER_BLOCKS_CAP` 经 **crate 根**可达（编译期即判据，
++/// 任一名字离场即编译失败）；crate 根 `edit` 出口分组块含这两项。
++#[test]
++fn crate根出口补两项且编译面可达() {
++    let source = include_str!("../lib.rs");
++    assert!(source.contains("pub use edit::{"), "edit 出口分组块在案");
++    for name in ["Reorder", "REORDER_BLOCKS_CAP"] {
++        assert!(source.contains(name), "crate 根出口含 `{name}`");
++    }
++    assert_eq!(crate::REORDER_BLOCKS_CAP, 8, "上限单点经 crate 根可达");
++    let construct: fn(usize, Vec<String>) -> Reorder = crate::Reorder::of;
++    assert_eq!(
++        construct(9, vec!["A".to_owned()]).moved,
++        9,
++        "`Reorder::of` 经 crate 根可达且 moved 保真"
++    );
++    assert_eq!(
++        EditErrorKind::ALL.len(),
++        23,
++        "判据族值集逐字不变（零新增变体）"
++    );
++}
++
++/// 边界（源码锚）：`layout_test` 与 `mod_test` 同级登记且位序在前；`WriteOutcome` 的
++/// `reordered` 字段在案。
++#[test]
++fn layout测试登记在册且与mod平级() {
++    let source = include_str!("mod.rs");
++    assert_eq!(
++        source.matches("mod layout_test;").count(),
++        1,
++        "layout_test 登记恰一处"
++    );
++    let layout = source.find("mod layout_test;").expect("登记在案");
++    let module_test = source.find("mod mod_test;").expect("既有登记在案");
++    assert!(layout < module_test, "layout_test 位序在 mod_test 之前");
++    assert!(
++        source.contains("pub reordered: Reorder,"),
++        "WriteOutcome 末位字段在案"
++    );
++}
+diff --git a/crates/core/archi/src/lib.rs b/crates/core/archi/src/lib.rs
+index 538c614aced3..821a59154704 100644
+--- a/crates/core/archi/src/lib.rs
++++ b/crates/core/archi/src/lib.rs
+@@ -61,7 +61,8 @@ pub use edit::{
+     apply_element_delete, apply_element_spec, apply_relation_delete, apply_relation_upsert,
+     delete_warnings, plan_element_delete, plan_element_upsert, plan_relation_delete,
+     plan_relation_upsert, upsert_warnings, DeleteSet, EditError, EditErrorKind, EditWarning,
+-    ElementSpec, ModelWrite, RelationSpec, RelationTally, WriteAction, WriteCounts, WriteOutcome,
++    ElementSpec, ModelWrite, RelationSpec, RelationTally, Reorder, WriteAction, WriteCounts,
++    WriteOutcome, REORDER_BLOCKS_CAP,
+ };
+ pub use model::{Diagnostic, Element, Model, Relation};
+ pub use relation::relation_detail;
+diff --git a/crates/infra/agent/src/sdk/archi_tool.rs b/crates/infra/agent/src/sdk/archi_tool.rs
+index 4e2e8386beb6..4485452c0cc2 100644
+--- a/crates/infra/agent/src/sdk/archi_tool.rs
++++ b/crates/infra/agent/src/sdk/archi_tool.rs
+@@ -320,6 +320,7 @@ impl ArchiContext {
+             "hash": &outcome.write.hash,
+             "created": outcome.created,
+             "changed": &outcome.changed,
++            "reordered": &outcome.reordered,
+         }))
+     }
+ 
+@@ -347,6 +348,8 @@ impl ArchiContext {
+     }
+ 
+     /// 元素写面的响应（三通道：`warnings` / `changed` / 计数；`file` 为 repo 相对 POSIX）。
++    ///
++    /// `reordered` 照带（规范化已在 `apply_*` 内完成，零额外解析、零计数重算）。
+     fn element_response(&self, parsed: &ElementWriteInput, outcome: &WriteOutcome) -> Value {
+         serde_json::json!({
+             "warnings": &outcome.warnings,
+@@ -359,6 +362,7 @@ impl ArchiContext {
+             "relations": outcome.relations,
+             "counts": outcome.counts,
+             "model": outcome.model,
++            "reordered": &outcome.reordered,
+         })
+     }
+ }
+diff --git a/crates/infra/agent/src/sdk/archi_tool_test.rs b/crates/infra/agent/src/sdk/archi_tool_test.rs
+index 10e5d0ae0536..abbf414888f3 100644
+--- a/crates/infra/agent/src/sdk/archi_tool_test.rs
++++ b/crates/infra/agent/src/sdk/archi_tool_test.rs
+@@ -2126,7 +2126,8 @@ async fn element_write(context: &ArchiContext, input: Value) -> Value {
+ 
+ /// 正向：upsert 新建 ⇒ 响应含 `warnings`（数组）/ `action = "upsert"` / `element` /
+ /// `file`（repo 相对 POSIX）/ `hash`（`sha256:`）/ `created = true` / `changed`（数组）/
+-/// `relations` 四计数 / `counts` / `model`；盘上字节 == `plan_element_upsert` 的 `content`。
++/// `relations` 四计数 / `counts` / `model` / `reordered`（搬迁块）；盘上字节 ==
++/// `plan_element_upsert` 的 `content`。
+ #[tokio::test]
+ async fn 元素写响应三通道齐备且落盘同文本() {
+     let dir = healthy("element-write-ok");
+@@ -2213,8 +2214,8 @@ async fn 元素写响应三通道齐备且落盘同文本() {
+ }
+ 
+ /// 正向：`archi_relation` 薄形——`warnings` **恒空数组** / `action` / `from` / `to` /
+-/// `file` / `hash` / `created` / `changed` ⊆ {`desc`, `apis`}；零 `counts` / `model` /
+-/// `relations` 键。
++/// `file` / `hash` / `created` / `changed` ⊆ {`desc`, `apis`} / `reordered`（搬迁块）；
++/// 零 `counts` / `model` / `relations` 键。
+ #[tokio::test]
+ async fn 关系写薄形无计数() {
+     let dir = healthy("relation-write-ok");
+@@ -2235,11 +2236,26 @@ async fn 关系写薄形无计数() {
+     keys.sort_unstable();
+     assert_eq!(
+         keys,
+-        vec!["action", "changed", "created", "file", "from", "hash", "to", "warnings"],
+-        "薄形键面封闭（零 counts / model / relations）"
++        vec![
++            "action",
++            "changed",
++            "created",
++            "file",
++            "from",
++            "hash",
++            "reordered",
++            "to",
++            "warnings"
++        ],
++        "薄形键面封闭（九项；零 counts / model / relations）"
+     );
+     assert_eq!(payload["warnings"], json!([]), "关系写 warnings 恒空数组");
+     assert_eq!(payload["created"], json!(true), "新对 ⇒ created");
++    assert!(
++        payload["reordered"]["moved"].is_u64() && payload["reordered"]["blocks"].is_array(),
++        "reordered 恒在场（moved 真值 + blocks 有界）：{}",
++        payload["reordered"]
++    );
+     assert_eq!(
+         payload["changed"],
+         json!(["desc"]),
+@@ -3509,3 +3525,348 @@ async fn archi_api_link到write到check可达() {
+         "link 算出的跨元素串必可达（apiRefMissing 零命中）：{kinds:?}"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 本变更：写入序规范化（两写工具响应面的 `reordered`）
++// ---------------------------------------------------------------------------
++
++/// 关系组分裂夹具（R1 违例）：`A` 组被 `B → Y` 切开，新增 `A → Z` 即并回。
++const RELATIONS_DIRTY: &str = concat!(
++    "[element.\"A\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"B\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"X\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"Y\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[element.\"Z\"]\n",
++    "kind = \"module\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"A\"\n",
++    "to = \"X\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"B\"\n",
++    "to = \"Y\"\n",
++);
++
++/// 九块错位模型（子块在前、父块在后）：一次写即报九块（`blocks` 截到 8 项）。
++fn nine_block_model() -> String {
++    let mut source = String::new();
++    for index in 0..9 {
++        source.push_str(&format!("[element.\"P{index}.C\"]\nkind = \"module\"\n\n"));
++    }
++    for index in 0..9 {
++        source.push_str(&format!("[element.\"P{index}\"]\nkind = \"module\"\n\n"));
++    }
++    source
++}
++
++/// 单模型文件的合成根（`01-core.toml`）。
++fn model_root(tag: &str, source: &str) -> tempfile::TempDir {
++    let dir = tempdir(tag);
++    write_model(dir.path(), "01-core.toml", source);
++    dir
++}
++
++/// 模型文件绝对路径（`01-core.toml`）。
++fn core_model_path(root: &Path) -> PathBuf {
++    root.join(".dev-team/architecture/graph/model/01-core.toml")
++}
++
++/// 正向（AC-8 / C4）：元素写成功响应键面不变 + `reordered` 恒在场且零值形态恰
++/// `{"moved":0,"blocks":[]}`（MUST NOT 因零值省略）。
++#[tokio::test]
++async fn 元素写响应reordered零值形态() {
++    let dir = healthy("reorder-element-zero");
++    let context = with_protect(dir.path());
++    let payload = element_write(
++        &context,
++        json!({ "action": "upsert", "element": "App.Auth", "gate": "strict" }),
++    )
++    .await;
++
++    assert_eq!(
++        payload["reordered"],
++        json!({ "moved": 0, "blocks": [] }),
++        "零值也写两字段（键恒在场）"
++    );
++    let mut keys: Vec<&str> = payload
++        .as_object()
++        .expect("响应为对象")
++        .keys()
++        .map(String::as_str)
++        .collect();
++    keys.sort_unstable();
++    assert_eq!(
++        keys,
++        vec![
++            "action",
++            "changed",
++            "counts",
++            "created",
++            "element",
++            "file",
++            "hash",
++            "model",
++            "relations",
++            "reordered",
++            "warnings",
++        ],
++        "元素面键面 10 → 11（既有十键逐字不变）"
++    );
++}
++
++/// 正向（AC-1 / AC-8）：新建元素落在父子树中段 ⇒ `moved >= 1` 且 `blocks` 含该 FQN，
++/// 盘上文本的子树连续与之一致。
++#[tokio::test]
++async fn 元素写响应reordered非零形态() {
++    let dir = healthy("reorder-element-moved");
++    let context = with_protect(dir.path());
++    let payload = element_write(
++        &context,
++        json!({
++            "action": "upsert",
++            "element": "App.Auth.Token",
++            "kind": "module",
++            "path": ["./src/auth/token/"],
++        }),
++    )
++    .await;
++
++    assert_eq!(payload["created"], json!(true), "新建分支");
++    assert_eq!(
++        payload["reordered"],
++        json!({ "moved": 1, "blocks": ["App.Auth.Token"] }),
++        "新元素收进父的子树区间即一块"
++    );
++    let text = fs::read_to_string(core_model_path(dir.path())).expect("读模型失败");
++    let token = text
++        .find("[element.\"App.Auth.Token\"]")
++        .expect("新元素在盘");
++    let billing = text.find("[element.\"App.Billing\"]").expect("兄弟在盘");
++    assert!(token < billing, "盘上文本子树连续：\n{text}");
++}
++
++/// 正向（AC-3）：对写后文件重放同值 upsert ⇒ `reordered.moved = 0` 且盘上字节零变化。
++#[tokio::test]
++async fn 元素写同值重放零搬迁() {
++    let dir = healthy("reorder-element-replay");
++    let context = with_protect(dir.path());
++    let first = element_write(
++        &context,
++        json!({
++            "action": "upsert",
++            "element": "App.Auth.Token",
++            "kind": "module",
++            "path": ["./src/auth/token/"],
++        }),
++    )
++    .await;
++    assert_eq!(first["reordered"]["moved"], json!(1));
++    let bytes = fs::read(core_model_path(dir.path())).expect("读模型失败");
++
++    // 重放省去 kind（在案元素给 kind 即 Err），其余字段同值
++    let second = element_write(
++        &context,
++        json!({
++            "action": "upsert",
++            "element": "App.Auth.Token",
++            "path": ["./src/auth/token/"],
++        }),
++    )
++    .await;
++    assert_eq!(
++        second["reordered"],
++        json!({ "moved": 0, "blocks": [] }),
++        "重放 ⇒ 零搬迁"
++    );
++    assert_eq!(second["changed"], json!([]), "重放 ⇒ 零字段变化");
++    assert_eq!(
++        fs::read(core_model_path(dir.path())).expect("读模型失败"),
++        bytes,
++        "重放零字节变化"
++    );
++}
++
++/// 正向（AC-5 / AC-8）：关系写造成 `from` 组分裂并回 ⇒ `moved >= 1`、`blocks` 为该
++/// `from`，组连续化后文本序与 `reordered` 一致。
++#[tokio::test]
++async fn 关系写reordered搬迁语义() {
++    let dir = model_root("reorder-relation", RELATIONS_DIRTY);
++    let context = with_protect(dir.path());
++    let payload = execute_json(
++        &context,
++        ARCHI_RELATION_TOOL,
++        json!({ "action": "upsert", "from": "A", "to": "Z" }),
++    )
++    .await;
++
++    assert_eq!(
++        payload["reordered"],
++        json!({ "moved": 1, "blocks": ["A"] }),
++        "组并回即一块"
++    );
++    let text = fs::read_to_string(core_model_path(dir.path())).expect("读模型失败");
++    let z = text.find("to = \"Z\"").expect("新边在盘");
++    let y = text.find("to = \"Y\"").expect("B 组在盘");
++    assert!(z < y, "A 组连续（新边紧随 A 组组尾）：\n{text}");
++}
++
++/// 边界（AC-8 / D-3）：>8 块搬迁夹具 ⇒ `moved` 为真值 `> 8`、`blocks` 恰 8 项、成功响应
++/// 未触截断且 < 3 KB。
++#[tokio::test]
++async fn reordered块数上限与响应体量未触截断() {
++    let dir = model_root("reorder-cap", &nine_block_model());
++    let context = with_protect(dir.path());
++    let text = context
++        .execute(
++            ARCHI_ELEMENT_TOOL,
++            &json!({ "action": "upsert", "element": "P0", "gate": "off" }),
++        )
++        .await
++        .expect("写应成功");
++    assert!(!text.contains("已截断"), "成功响应未触截断留痕：{text}");
++    assert!(text.len() < 3 * 1024, "成功响应 < 3 KB：{} B", text.len());
++
++    let payload: Value = serde_json::from_str(&text).expect("结果为 JSON 串");
++    assert_eq!(
++        payload["reordered"]["moved"],
++        json!(9),
++        "moved 为块数真值（不截断）"
++    );
++    let blocks = payload["reordered"]["blocks"]
++        .as_array()
++        .expect("blocks 为数组");
++    assert_eq!(blocks.len(), 8, "blocks 恰 8 项");
++    assert_eq!(blocks[0], json!("P0"), "按交付文本序");
++    assert!(
++        text.len() < MAX_RESULT_BYTES,
++        "仍经 cap_result 收口（未触上限）"
++    );
++}
++
++/// 异常（AC-8 异常面）：各 `Err` 响应（值域 / 必填 / 端点 / 落点 / 乐观锁 / 保护闸）不
++/// 出现 `reordered` 键。
++#[tokio::test]
++async fn 失败路径零reordered键() {
++    let dir = healthy("reorder-errors");
++    let context = with_protect(dir.path());
++    for (tool, input) in [
++        (
++            ARCHI_ELEMENT_TOOL,
++            json!({ "action": "modify", "element": "App.Auth" }),
++        ),
++        (ARCHI_ELEMENT_TOOL, json!({ "action": "upsert" })),
++        (
++            ARCHI_ELEMENT_TOOL,
++            json!({ "action": "upsert", "element": "Orphan", "kind": "domain" }),
++        ),
++        (
++            ARCHI_ELEMENT_TOOL,
++            json!({ "action": "upsert", "element": "App.Auth", "summary": "x", "expect": "sha256:错值" }),
++        ),
++        (
++            ARCHI_RELATION_TOOL,
++            json!({ "action": "upsert", "from": "App.Auth", "to": "App.Legacy" }),
++        ),
++        (
++            ARCHI_RELATION_TOOL,
++            json!({ "action": "delete", "from": "App.Billing", "to": "App.Auth" }),
++        ),
++    ] {
++        let error = context
++            .execute(tool, &input)
++            .await
++            .expect_err("失败路径必须 Err");
++        assert!(
++            !error.contains("reordered"),
++            "失败响应零 reordered 键（{tool}）：{error}"
++        );
++    }
++}
++
++/// 异常（AC-6）：脏夹具搬迁（`moved > 0`）的 `warnings` 与搬前同形——关系面恒空数组，
++/// 元素面非 `path` / `api` 诱发的改动也不加项。
++#[tokio::test]
++async fn 搬迁不新增warnings条目() {
++    let dir = model_root("reorder-warnings", RELATIONS_DIRTY);
++    let context = with_protect(dir.path());
++    let payload = execute_json(
++        &context,
++        ARCHI_RELATION_TOOL,
++        json!({ "action": "upsert", "from": "A", "to": "Z" }),
++    )
++    .await;
++    assert_eq!(payload["reordered"]["moved"], json!(1), "确有搬迁");
++    assert_eq!(payload["warnings"], json!([]), "关系面 warnings 恒空数组");
++
++    let element = element_write(
++        &context,
++        json!({ "action": "upsert", "element": "A", "gate": "warn" }),
++    )
++    .await;
++    assert_eq!(
++        element["warnings"],
++        json!([]),
++        "只改 gate ⇒ 零 warning（搬迁不诱发判据）"
++    );
++    assert_eq!(
++        element["reordered"],
++        json!({ "moved": 0, "blocks": [] }),
++        "搬前已合规 ⇒ 本次零搬迁"
++    );
++}
++
++/// 正向（组合链路，入口 = 工具执行体）：`archi_relation` upsert → `plan_relation_upsert`
++/// → `layout::normalize` → 保护闸 → 原子写；盘上字节 == 计划的 `content` == 规范化序，
++/// 响应 `moved` 与计划同源；再重放一次 ⇒ `moved = 0` 且盘上字节零变化。
++#[tokio::test]
++async fn 组合链路盘上文本等于计划文本且重放零搬迁() {
++    let dir = model_root("reorder-chain", RELATIONS_DIRTY);
++    let context = with_protect(dir.path());
++    let file = core_model_path(dir.path());
++    let source_before = fs::read_to_string(&file).expect("读模型失败");
++
++    let planned = archi::edit::plan_relation_upsert(dir.path(), "A", "Z", None, None, None)
++        .expect("同一计划应成功");
++    assert!(planned.reordered.moved >= 1, "计划面已报搬迁");
++
++    let payload = execute_json(
++        &context,
++        ARCHI_RELATION_TOOL,
++        json!({ "action": "upsert", "from": "A", "to": "Z" }),
++    )
++    .await;
++    assert_eq!(
++        payload["reordered"]["moved"],
++        json!(planned.reordered.moved),
++        "响应 moved 与计划同源"
++    );
++    let after = fs::read_to_string(&file).expect("读模型失败");
++    assert_eq!(after, planned.write.content, "盘上字节 == 计划的 content");
++    assert_ne!(after, source_before, "首次规范化确实改了文本");
++
++    let replay = execute_json(
++        &context,
++        ARCHI_RELATION_TOOL,
++        json!({ "action": "upsert", "from": "A", "to": "Z" }),
++    )
++    .await;
++    assert_eq!(
++        replay["reordered"],
++        json!({ "moved": 0, "blocks": [] }),
++        "重放零搬迁"
++    );
++    assert_eq!(
++        fs::read_to_string(&file).expect("读模型失败"),
++        after,
++        "重放零字节变化"
++    );
++}
+diff --git a/crates/infra/agent/src/sdk/mount.rs b/crates/infra/agent/src/sdk/mount.rs
+index f7b54223cd3f..5f7bb1915fd2 100644
+--- a/crates/infra/agent/src/sdk/mount.rs
++++ b/crates/infra/agent/src/sdk/mount.rs
+@@ -457,8 +457,9 @@ fn archi_scaffold_definition() -> ToolDefinition {
+ /// `archi_element` 定义（写面平铺 schema：逐字段 `description` 写明缺省与陷阱，`enum`
+ /// 全由封闭词表派生，上限取 [`WRITE_LIMITS`]）。
+ ///
+-/// 描述面只答三件事（形态归 `archi_scaffold` 词典与参数 `description`）：写盘原子且坏
+-/// 文本不可产出、`expect` ↔ `hash` 闭环、`cascade` 只同一模型文件。
++/// 描述面只答四件事（形态归 `archi_scaffold` 词典与参数 `description`）：写盘原子且坏
++/// 文本不可产出、`expect` ↔ `hash` 闭环、`cascade` 只同一模型文件、**写入把目标文件归一
++/// 到规范序**（手改拆开的子树会被合回，顺带搬家的块经 `reordered` 报出）。
+ fn archi_element_definition() -> ToolDefinition {
+     ToolDefinition {
+         name: ARCHI_ELEMENT_TOOL.to_owned(),
+@@ -469,6 +470,8 @@ fn archi_element_definition() -> ToolDefinition {
+             "乐观锁：expect 填目标文件当前内容哈希（上一轮响应的 hash 或 archi_module 的 fileHash 可直接用），",
+             "不匹配即 Err 且不写盘；响应里的 hash 就是写后新值。",
+             "cascade 只作用于**同一模型文件内**的子树与出入边（闭包跨文件即 Err 点名文件与阻塞项）。",
++            "写入还会把目标文件归一到规范序（子树连续 + 关系组连续）：手改拆开的子树会在下一次工具写时被合回，",
++            "顺带搬家的块经响应 reordered 报出（moved 为块数真值、blocks 至多 8 项）；",
+             "字段值域与形态看本工具各参数与 archi_scaffold 词典；写完用 archi_drift 自查"
+         )
+         .to_owned(),
+@@ -583,6 +586,8 @@ fn archi_element_definition() -> ToolDefinition {
+ }
+ 
+ /// `archi_relation` 定义（单条关系 upsert / delete；响应是薄形，不付全量重解析）。
++///
++/// 描述面与 `archi_element` 同四件事（关系面口径的第四件：同 `from` 组连续）。
+ fn archi_relation_definition() -> ToolDefinition {
+     ToolDefinition {
+         name: ARCHI_RELATION_TOOL.to_owned(),
+@@ -592,6 +597,8 @@ fn archi_relation_definition() -> ToolDefinition {
+             "落点 = 该关系声明的文件；新增关系落 from 元素所在文件。",
+             "乐观锁：expect 填目标文件当前内容哈希（上一轮响应的 hash 或 archi_module 的 fileHash），",
+             "不匹配即 Err 且不写盘；响应里的 hash 就是写后新值。",
++            "写入还会把目标文件归一到规范序（同一 from 的关系条目连续）：手改拆开的关系组会在下一次工具写时被并回，",
++            "顺带搬家的块经响应 reordered 报出（moved 为块数真值、blocks 至多 8 项）；",
+             "一次只动一条边——同一元素的多条边用 archi_element 的内联 relations，计数用 archi_drift 取"
+         )
+         .to_owned(),
+diff --git a/crates/infra/agent/src/sdk/mount_test.rs b/crates/infra/agent/src/sdk/mount_test.rs
+index 9a1bcdc22a31..7a99c9cbb1be 100644
+--- a/crates/infra/agent/src/sdk/mount_test.rs
++++ b/crates/infra/agent/src/sdk/mount_test.rs
+@@ -2404,8 +2404,8 @@ fn 限额数字单点() {
+ }
+ 
+ /// 边界（矩阵 2 份定义）：描述面零字段形态教学（不写 `kind = ` / `[[relation]]` /
+-/// `path = [` / `metadata = {` 一类示例），三事齐备（原子写坏文本不可产出 / `expect`
+-/// ↔ `hash` 闭环 / `cascade` 只同一模型文件内）。
++/// `path = [` / `metadata = {` 一类示例），四事齐备（原子写坏文本不可产出 / `expect`
++/// ↔ `hash` 闭环 / `cascade` 只同一模型文件内 / 写入归一到规范序 + `reordered`）。
+ #[test]
+ fn 描述不复述字段形态长表() {
+     for name in [ARCHI_ELEMENT_TOOL, ARCHI_RELATION_TOOL] {
+@@ -2422,6 +2422,18 @@ fn 描述不复述字段形态长表() {
+                 "{name} 描述含 `{piece}`：{description}"
+             );
+         }
++        for piece in ["归一到规范序", "reordered"] {
++            assert!(
++                description.contains(piece),
++                "{name} 描述含第四件事 `{piece}`：{description}"
++            );
++        }
++        for algorithm in ["DFS", "position", "ArrayOfTables"] {
++            assert!(
++                !description.contains(algorithm),
++                "{name} 描述不教算法（零 `{algorithm}`）：{description}"
++            );
++        }
+     }
+     assert!(
+         lookup(ARCHI_ELEMENT_TOOL)
+@@ -2496,3 +2508,140 @@ fn 描述随三资产改写() {
+         "文档正文整读纪律（禁分段拼凑）：{description}"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 本变更：两写工具描述面的第四件事（写入归一到规范序 + `reordered` 回报）
++// ---------------------------------------------------------------------------
++
++/// 两写工具的描述面文本（`registry()` 的真实定义，零替身）。
++fn write_descriptions() -> [String; 2] {
++    [ARCHI_ELEMENT_TOOL, ARCHI_RELATION_TOOL].map(|name| {
++        lookup(name)
++            .unwrap_or_else(|| panic!("{name} 定义在案"))
++            .description
++            .clone()
++    })
++}
++
++/// 正向（AC-11 / C5）：两写工具 `description` 各含第四件事的三句要点——写入归一到规范
++/// 序（元素面子树连续 + 关系组连续 / 关系面同一 `from` 组连续）、手改拆开的会在下一次
++/// 工具写时被合回、搬迁块经响应 `reordered` 报出（`moved` 真值、`blocks` 有界）；既有三
++/// 条要点（坏文本不可产出 / `expect` ↔ `hash` / `cascade` 射程）逐字保留。
++#[test]
++fn 描述面第四件事三句齐备() {
++    let [element, relation] = write_descriptions();
++    for description in [&element, &relation] {
++        for piece in [
++            "归一到规范序",
++            "下一次工具写时被",
++            "reordered",
++            "moved 为块数真值",
++            "blocks 至多 8 项",
++        ] {
++            assert!(
++                description.contains(piece),
++                "描述含第四件事 `{piece}`：{description}"
++            );
++        }
++        for legacy in ["坏文本不可产出", "expect", "hash"] {
++            assert!(
++                description.contains(legacy),
++                "既有要点 `{legacy}` 未丢：{description}"
++            );
++        }
++        assert_eq!(
++            description.matches("reordered").count(),
++            1,
++            "第四件事一句话（不拆多句）：{description}"
++        );
++    }
++
++    assert!(
++        element.contains("子树连续") && element.contains("关系组连续"),
++        "元素面口径写明两条不变量：{element}"
++    );
++    assert!(
++        element.contains("同一模型文件内"),
++        "元素面 `cascade` 射程句未丢：{element}"
++    );
++    assert!(
++        relation.contains("同一 from 的关系条目连续"),
++        "关系面口径写同一 `from` 组连续：{relation}"
++    );
++}
++
++/// 边界（C5 / Q-4）：两 `description` 零实现词与零字段形态示例——不教算法、不举字段形态。
++#[test]
++fn 描述面零实现词与零形态示例() {
++    for (name, description) in [ARCHI_ELEMENT_TOOL, ARCHI_RELATION_TOOL]
++        .into_iter()
++        .zip(write_descriptions())
++    {
++        for algorithm in [
++            "DFS",
++            "position",
++            "ArrayOfTables",
++            "LCS",
++            "truncate",
++            "最长公共子序列",
++            "排序算法",
++        ] {
++            assert!(
++                !description.contains(algorithm),
++                "{name} 描述零实现词 `{algorithm}`：{description}"
++            );
++        }
++        for example in ["kind = ", "[[relation]]", "path = [", "metadata = {"] {
++            assert!(
++                !description.contains(example),
++                "{name} 描述零形态示例 `{example}`：{description}"
++            );
++        }
++    }
++}
++
++/// 边界（AC-11 / C5）：函数 doc 随动——`archi_element_definition` 的「只答三件事」改
++/// 「四件事」、`archi_relation_definition` 的「同四件事」，与描述面同批对齐（不得只改
++/// 一处）。
++#[test]
++fn 函数doc随动四件事() {
++    let source = source_of("src/sdk/mount.rs");
++    assert_eq!(
++        source.matches("描述面只答四件事").count(),
++        1,
++        "元素定义 doc 说四件事"
++    );
++    assert_eq!(
++        source.matches("同四件事").count(),
++        1,
++        "关系定义 doc 说同四件事"
++    );
++    for stale in ["只答三件事", "同三件事", "三件事（形态归"] {
++        assert!(!source.contains(stale), "旧 doc 句零命中 `{stale}`");
++    }
++    assert!(
++        source.contains("写入把目标文件归一"),
++        "元素 doc 的第四件事句在案"
++    );
++    assert!(
++        source.contains("同 `from` 组连续"),
++        "关系 doc 的第四件事句在案"
++    );
++}
++
++/// 异常（AC-11 旧句判据）：`mount.rs` 内「重排文件」零命中（只在禁令句允许；实现在
++/// `edit/layout` 侧，挂载面 MUST NOT 持旧措辞），两 `description` 也零「重排」。
++#[test]
++fn 旧句零正面表述() {
++    let source = source_of("src/sdk/mount.rs");
++    assert!(
++        !source.contains("重排文件"),
++        "mount.rs 内零「重排文件」（旧句零残留）"
++    );
++    for description in write_descriptions() {
++        assert!(
++            !description.contains("重排"),
++            "描述面零「重排」措辞：{description}"
++        );
++    }
++}

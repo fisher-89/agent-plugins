@@ -457,8 +457,9 @@ fn archi_scaffold_definition() -> ToolDefinition {
 /// `archi_element` 定义（写面平铺 schema：逐字段 `description` 写明缺省与陷阱，`enum`
 /// 全由封闭词表派生，上限取 [`WRITE_LIMITS`]）。
 ///
-/// 描述面只答三件事（形态归 `archi_scaffold` 词典与参数 `description`）：写盘原子且坏
-/// 文本不可产出、`expect` ↔ `hash` 闭环、`cascade` 只同一模型文件。
+/// 描述面只答四件事（形态归 `archi_scaffold` 词典与参数 `description`）：写盘原子且坏
+/// 文本不可产出、`expect` ↔ `hash` 闭环、`cascade` 只同一模型文件、**写入把目标文件归一
+/// 到规范序**（手改拆开的子树会被合回，顺带搬家的块经 `reordered` 报出）。
 fn archi_element_definition() -> ToolDefinition {
     ToolDefinition {
         name: ARCHI_ELEMENT_TOOL.to_owned(),
@@ -469,6 +470,8 @@ fn archi_element_definition() -> ToolDefinition {
             "乐观锁：expect 填目标文件当前内容哈希（上一轮响应的 hash 或 archi_module 的 fileHash 可直接用），",
             "不匹配即 Err 且不写盘；响应里的 hash 就是写后新值。",
             "cascade 只作用于**同一模型文件内**的子树与出入边（闭包跨文件即 Err 点名文件与阻塞项）。",
+            "写入还会把目标文件归一到规范序（子树连续 + 关系组连续）：手改拆开的子树会在下一次工具写时被合回，",
+            "顺带搬家的块经响应 reordered 报出（moved 为块数真值、blocks 至多 8 项）；",
             "字段值域与形态看本工具各参数与 archi_scaffold 词典；写完用 archi_drift 自查"
         )
         .to_owned(),
@@ -583,6 +586,8 @@ fn archi_element_definition() -> ToolDefinition {
 }
 
 /// `archi_relation` 定义（单条关系 upsert / delete；响应是薄形，不付全量重解析）。
+///
+/// 描述面与 `archi_element` 同四件事（关系面口径的第四件：同 `from` 组连续）。
 fn archi_relation_definition() -> ToolDefinition {
     ToolDefinition {
         name: ARCHI_RELATION_TOOL.to_owned(),
@@ -592,6 +597,8 @@ fn archi_relation_definition() -> ToolDefinition {
             "落点 = 该关系声明的文件；新增关系落 from 元素所在文件。",
             "乐观锁：expect 填目标文件当前内容哈希（上一轮响应的 hash 或 archi_module 的 fileHash），",
             "不匹配即 Err 且不写盘；响应里的 hash 就是写后新值。",
+            "写入还会把目标文件归一到规范序（同一 from 的关系条目连续）：手改拆开的关系组会在下一次工具写时被并回，",
+            "顺带搬家的块经响应 reordered 报出（moved 为块数真值、blocks 至多 8 项）；",
             "一次只动一条边——同一元素的多条边用 archi_element 的内联 relations，计数用 archi_drift 取"
         )
         .to_owned(),

@@ -320,6 +320,7 @@ impl ArchiContext {
             "hash": &outcome.write.hash,
             "created": outcome.created,
             "changed": &outcome.changed,
+            "reordered": &outcome.reordered,
         }))
     }
 
@@ -347,6 +348,8 @@ impl ArchiContext {
     }
 
     /// 元素写面的响应（三通道：`warnings` / `changed` / 计数；`file` 为 repo 相对 POSIX）。
+    ///
+    /// `reordered` 照带（规范化已在 `apply_*` 内完成，零额外解析、零计数重算）。
     fn element_response(&self, parsed: &ElementWriteInput, outcome: &WriteOutcome) -> Value {
         serde_json::json!({
             "warnings": &outcome.warnings,
@@ -359,6 +362,7 @@ impl ArchiContext {
             "relations": outcome.relations,
             "counts": outcome.counts,
             "model": outcome.model,
+            "reordered": &outcome.reordered,
         })
     }
 }

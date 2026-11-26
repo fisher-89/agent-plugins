@@ -2126,7 +2126,8 @@ async fn element_write(context: &ArchiContext, input: Value) -> Value {
 
 /// 正向：upsert 新建 ⇒ 响应含 `warnings`（数组）/ `action = "upsert"` / `element` /
 /// `file`（repo 相对 POSIX）/ `hash`（`sha256:`）/ `created = true` / `changed`（数组）/
-/// `relations` 四计数 / `counts` / `model`；盘上字节 == `plan_element_upsert` 的 `content`。
+/// `relations` 四计数 / `counts` / `model` / `reordered`（搬迁块）；盘上字节 ==
+/// `plan_element_upsert` 的 `content`。
 #[tokio::test]
 async fn 元素写响应三通道齐备且落盘同文本() {
     let dir = healthy("element-write-ok");
@@ -2213,8 +2214,8 @@ async fn 元素写响应三通道齐备且落盘同文本() {
 }
 
 /// 正向：`archi_relation` 薄形——`warnings` **恒空数组** / `action` / `from` / `to` /
-/// `file` / `hash` / `created` / `changed` ⊆ {`desc`, `apis`}；零 `counts` / `model` /
-/// `relations` 键。
+/// `file` / `hash` / `created` / `changed` ⊆ {`desc`, `apis`} / `reordered`（搬迁块）；
+/// 零 `counts` / `model` / `relations` 键。
 #[tokio::test]
 async fn 关系写薄形无计数() {
     let dir = healthy("relation-write-ok");
@@ -2235,11 +2236,26 @@ async fn 关系写薄形无计数() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        vec!["action", "changed", "created", "file", "from", "hash", "to", "warnings"],
-        "薄形键面封闭（零 counts / model / relations）"
+        vec![
+            "action",
+            "changed",
+            "created",
+            "file",
+            "from",
+            "hash",
+            "reordered",
+            "to",
+            "warnings"
+        ],
+        "薄形键面封闭（九项；零 counts / model / relations）"
     );
     assert_eq!(payload["warnings"], json!([]), "关系写 warnings 恒空数组");
     assert_eq!(payload["created"], json!(true), "新对 ⇒ created");
+    assert!(
+        payload["reordered"]["moved"].is_u64() && payload["reordered"]["blocks"].is_array(),
+        "reordered 恒在场（moved 真值 + blocks 有界）：{}",
+        payload["reordered"]
+    );
     assert_eq!(
         payload["changed"],
         json!(["desc"]),
@@ -3507,5 +3523,350 @@ async fn archi_api_link到write到check可达() {
     assert!(
         !kinds.contains(&"apiRefMissing"),
         "link 算出的跨元素串必可达（apiRefMissing 零命中）：{kinds:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：写入序规范化（两写工具响应面的 `reordered`）
+// ---------------------------------------------------------------------------
+
+/// 关系组分裂夹具（R1 违例）：`A` 组被 `B → Y` 切开，新增 `A → Z` 即并回。
+const RELATIONS_DIRTY: &str = concat!(
+    "[element.\"A\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"B\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"X\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"Y\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[element.\"Z\"]\n",
+    "kind = \"module\"\n",
+    "\n",
+    "[[relation]]\n",
+    "from = \"A\"\n",
+    "to = \"X\"\n",
+    "\n",
+    "[[relation]]\n",
+    "from = \"B\"\n",
+    "to = \"Y\"\n",
+);
+
+/// 九块错位模型（子块在前、父块在后）：一次写即报九块（`blocks` 截到 8 项）。
+fn nine_block_model() -> String {
+    let mut source = String::new();
+    for index in 0..9 {
+        source.push_str(&format!("[element.\"P{index}.C\"]\nkind = \"module\"\n\n"));
+    }
+    for index in 0..9 {
+        source.push_str(&format!("[element.\"P{index}\"]\nkind = \"module\"\n\n"));
+    }
+    source
+}
+
+/// 单模型文件的合成根（`01-core.toml`）。
+fn model_root(tag: &str, source: &str) -> tempfile::TempDir {
+    let dir = tempdir(tag);
+    write_model(dir.path(), "01-core.toml", source);
+    dir
+}
+
+/// 模型文件绝对路径（`01-core.toml`）。
+fn core_model_path(root: &Path) -> PathBuf {
+    root.join(".dev-team/architecture/graph/model/01-core.toml")
+}
+
+/// 正向（AC-8 / C4）：元素写成功响应键面不变 + `reordered` 恒在场且零值形态恰
+/// `{"moved":0,"blocks":[]}`（MUST NOT 因零值省略）。
+#[tokio::test]
+async fn 元素写响应reordered零值形态() {
+    let dir = healthy("reorder-element-zero");
+    let context = with_protect(dir.path());
+    let payload = element_write(
+        &context,
+        json!({ "action": "upsert", "element": "App.Auth", "gate": "strict" }),
+    )
+    .await;
+
+    assert_eq!(
+        payload["reordered"],
+        json!({ "moved": 0, "blocks": [] }),
+        "零值也写两字段（键恒在场）"
+    );
+    let mut keys: Vec<&str> = payload
+        .as_object()
+        .expect("响应为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec![
+            "action",
+            "changed",
+            "counts",
+            "created",
+            "element",
+            "file",
+            "hash",
+            "model",
+            "relations",
+            "reordered",
+            "warnings",
+        ],
+        "元素面键面 10 → 11（既有十键逐字不变）"
+    );
+}
+
+/// 正向（AC-1 / AC-8）：新建元素落在父子树中段 ⇒ `moved >= 1` 且 `blocks` 含该 FQN，
+/// 盘上文本的子树连续与之一致。
+#[tokio::test]
+async fn 元素写响应reordered非零形态() {
+    let dir = healthy("reorder-element-moved");
+    let context = with_protect(dir.path());
+    let payload = element_write(
+        &context,
+        json!({
+            "action": "upsert",
+            "element": "App.Auth.Token",
+            "kind": "module",
+            "path": ["./src/auth/token/"],
+        }),
+    )
+    .await;
+
+    assert_eq!(payload["created"], json!(true), "新建分支");
+    assert_eq!(
+        payload["reordered"],
+        json!({ "moved": 1, "blocks": ["App.Auth.Token"] }),
+        "新元素收进父的子树区间即一块"
+    );
+    let text = fs::read_to_string(core_model_path(dir.path())).expect("读模型失败");
+    let token = text
+        .find("[element.\"App.Auth.Token\"]")
+        .expect("新元素在盘");
+    let billing = text.find("[element.\"App.Billing\"]").expect("兄弟在盘");
+    assert!(token < billing, "盘上文本子树连续：\n{text}");
+}
+
+/// 正向（AC-3）：对写后文件重放同值 upsert ⇒ `reordered.moved = 0` 且盘上字节零变化。
+#[tokio::test]
+async fn 元素写同值重放零搬迁() {
+    let dir = healthy("reorder-element-replay");
+    let context = with_protect(dir.path());
+    let first = element_write(
+        &context,
+        json!({
+            "action": "upsert",
+            "element": "App.Auth.Token",
+            "kind": "module",
+            "path": ["./src/auth/token/"],
+        }),
+    )
+    .await;
+    assert_eq!(first["reordered"]["moved"], json!(1));
+    let bytes = fs::read(core_model_path(dir.path())).expect("读模型失败");
+
+    // 重放省去 kind（在案元素给 kind 即 Err），其余字段同值
+    let second = element_write(
+        &context,
+        json!({
+            "action": "upsert",
+            "element": "App.Auth.Token",
+            "path": ["./src/auth/token/"],
+        }),
+    )
+    .await;
+    assert_eq!(
+        second["reordered"],
+        json!({ "moved": 0, "blocks": [] }),
+        "重放 ⇒ 零搬迁"
+    );
+    assert_eq!(second["changed"], json!([]), "重放 ⇒ 零字段变化");
+    assert_eq!(
+        fs::read(core_model_path(dir.path())).expect("读模型失败"),
+        bytes,
+        "重放零字节变化"
+    );
+}
+
+/// 正向（AC-5 / AC-8）：关系写造成 `from` 组分裂并回 ⇒ `moved >= 1`、`blocks` 为该
+/// `from`，组连续化后文本序与 `reordered` 一致。
+#[tokio::test]
+async fn 关系写reordered搬迁语义() {
+    let dir = model_root("reorder-relation", RELATIONS_DIRTY);
+    let context = with_protect(dir.path());
+    let payload = execute_json(
+        &context,
+        ARCHI_RELATION_TOOL,
+        json!({ "action": "upsert", "from": "A", "to": "Z" }),
+    )
+    .await;
+
+    assert_eq!(
+        payload["reordered"],
+        json!({ "moved": 1, "blocks": ["A"] }),
+        "组并回即一块"
+    );
+    let text = fs::read_to_string(core_model_path(dir.path())).expect("读模型失败");
+    let z = text.find("to = \"Z\"").expect("新边在盘");
+    let y = text.find("to = \"Y\"").expect("B 组在盘");
+    assert!(z < y, "A 组连续（新边紧随 A 组组尾）：\n{text}");
+}
+
+/// 边界（AC-8 / D-3）：>8 块搬迁夹具 ⇒ `moved` 为真值 `> 8`、`blocks` 恰 8 项、成功响应
+/// 未触截断且 < 3 KB。
+#[tokio::test]
+async fn reordered块数上限与响应体量未触截断() {
+    let dir = model_root("reorder-cap", &nine_block_model());
+    let context = with_protect(dir.path());
+    let text = context
+        .execute(
+            ARCHI_ELEMENT_TOOL,
+            &json!({ "action": "upsert", "element": "P0", "gate": "off" }),
+        )
+        .await
+        .expect("写应成功");
+    assert!(!text.contains("已截断"), "成功响应未触截断留痕：{text}");
+    assert!(text.len() < 3 * 1024, "成功响应 < 3 KB：{} B", text.len());
+
+    let payload: Value = serde_json::from_str(&text).expect("结果为 JSON 串");
+    assert_eq!(
+        payload["reordered"]["moved"],
+        json!(9),
+        "moved 为块数真值（不截断）"
+    );
+    let blocks = payload["reordered"]["blocks"]
+        .as_array()
+        .expect("blocks 为数组");
+    assert_eq!(blocks.len(), 8, "blocks 恰 8 项");
+    assert_eq!(blocks[0], json!("P0"), "按交付文本序");
+    assert!(
+        text.len() < MAX_RESULT_BYTES,
+        "仍经 cap_result 收口（未触上限）"
+    );
+}
+
+/// 异常（AC-8 异常面）：各 `Err` 响应（值域 / 必填 / 端点 / 落点 / 乐观锁 / 保护闸）不
+/// 出现 `reordered` 键。
+#[tokio::test]
+async fn 失败路径零reordered键() {
+    let dir = healthy("reorder-errors");
+    let context = with_protect(dir.path());
+    for (tool, input) in [
+        (
+            ARCHI_ELEMENT_TOOL,
+            json!({ "action": "modify", "element": "App.Auth" }),
+        ),
+        (ARCHI_ELEMENT_TOOL, json!({ "action": "upsert" })),
+        (
+            ARCHI_ELEMENT_TOOL,
+            json!({ "action": "upsert", "element": "Orphan", "kind": "domain" }),
+        ),
+        (
+            ARCHI_ELEMENT_TOOL,
+            json!({ "action": "upsert", "element": "App.Auth", "summary": "x", "expect": "sha256:错值" }),
+        ),
+        (
+            ARCHI_RELATION_TOOL,
+            json!({ "action": "upsert", "from": "App.Auth", "to": "App.Legacy" }),
+        ),
+        (
+            ARCHI_RELATION_TOOL,
+            json!({ "action": "delete", "from": "App.Billing", "to": "App.Auth" }),
+        ),
+    ] {
+        let error = context
+            .execute(tool, &input)
+            .await
+            .expect_err("失败路径必须 Err");
+        assert!(
+            !error.contains("reordered"),
+            "失败响应零 reordered 键（{tool}）：{error}"
+        );
+    }
+}
+
+/// 异常（AC-6）：脏夹具搬迁（`moved > 0`）的 `warnings` 与搬前同形——关系面恒空数组，
+/// 元素面非 `path` / `api` 诱发的改动也不加项。
+#[tokio::test]
+async fn 搬迁不新增warnings条目() {
+    let dir = model_root("reorder-warnings", RELATIONS_DIRTY);
+    let context = with_protect(dir.path());
+    let payload = execute_json(
+        &context,
+        ARCHI_RELATION_TOOL,
+        json!({ "action": "upsert", "from": "A", "to": "Z" }),
+    )
+    .await;
+    assert_eq!(payload["reordered"]["moved"], json!(1), "确有搬迁");
+    assert_eq!(payload["warnings"], json!([]), "关系面 warnings 恒空数组");
+
+    let element = element_write(
+        &context,
+        json!({ "action": "upsert", "element": "A", "gate": "warn" }),
+    )
+    .await;
+    assert_eq!(
+        element["warnings"],
+        json!([]),
+        "只改 gate ⇒ 零 warning（搬迁不诱发判据）"
+    );
+    assert_eq!(
+        element["reordered"],
+        json!({ "moved": 0, "blocks": [] }),
+        "搬前已合规 ⇒ 本次零搬迁"
+    );
+}
+
+/// 正向（组合链路，入口 = 工具执行体）：`archi_relation` upsert → `plan_relation_upsert`
+/// → `layout::normalize` → 保护闸 → 原子写；盘上字节 == 计划的 `content` == 规范化序，
+/// 响应 `moved` 与计划同源；再重放一次 ⇒ `moved = 0` 且盘上字节零变化。
+#[tokio::test]
+async fn 组合链路盘上文本等于计划文本且重放零搬迁() {
+    let dir = model_root("reorder-chain", RELATIONS_DIRTY);
+    let context = with_protect(dir.path());
+    let file = core_model_path(dir.path());
+    let source_before = fs::read_to_string(&file).expect("读模型失败");
+
+    let planned = archi::edit::plan_relation_upsert(dir.path(), "A", "Z", None, None, None)
+        .expect("同一计划应成功");
+    assert!(planned.reordered.moved >= 1, "计划面已报搬迁");
+
+    let payload = execute_json(
+        &context,
+        ARCHI_RELATION_TOOL,
+        json!({ "action": "upsert", "from": "A", "to": "Z" }),
+    )
+    .await;
+    assert_eq!(
+        payload["reordered"]["moved"],
+        json!(planned.reordered.moved),
+        "响应 moved 与计划同源"
+    );
+    let after = fs::read_to_string(&file).expect("读模型失败");
+    assert_eq!(after, planned.write.content, "盘上字节 == 计划的 content");
+    assert_ne!(after, source_before, "首次规范化确实改了文本");
+
+    let replay = execute_json(
+        &context,
+        ARCHI_RELATION_TOOL,
+        json!({ "action": "upsert", "from": "A", "to": "Z" }),
+    )
+    .await;
+    assert_eq!(
+        replay["reordered"],
+        json!({ "moved": 0, "blocks": [] }),
+        "重放零搬迁"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).expect("读模型失败"),
+        after,
+        "重放零字节变化"
     );
 }

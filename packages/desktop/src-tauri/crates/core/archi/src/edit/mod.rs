@@ -1,4 +1,4 @@
-//! 写回原语族：纯函数 `apply_*`（源文本进、改写后的完整源文本出）与计划函数
+//! 写回原语族：纯函数 `apply_*`（源文本进、交付文本 + 搬迁块 [`Reorder`] 出）与计划函数
 //! `plan_*`（读盘定位 + 纯函数 + 待落盘产物 [`ModelWrite`] + 反馈面 [`WriteOutcome`]）。
 //!
 //! 三层形状固定：`apply_*` 只碰文本（零文件系统）；`plan_*` 只读盘
@@ -7,11 +7,19 @@
 //! **零写盘、零子进程、零 Tauri**——模型落盘不在本模块（落盘单点是 infra 侧的原子写，
 //! 壳层命令面与 agent 写工具共用一份实现）。
 //!
-//! 产出顺序固定为「改 AST → 渲染 → 表头计数回填 → 重解析自证零诊断 → 回读逐字段
-//! 一致」，且被自证 / 被回读的文本**逐字等于**交出的 `content`（MUST NOT 先验后改）。
-//! 渲染经 `toml_edit`：既有键原位不动（更新时沿用原值的 decor），新键追加到元素表尾，
-//! 新建元素按 `kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata`
-//! 规范序整表写出。
+//! 产出顺序固定为「改 AST → **规范化** → 渲染 → 表头计数回填 → 重解析自证零诊断 →
+//! 回读逐字段一致」，且被自证 / 被回读的文本**逐字等于**交出的 `content`（MUST NOT
+//! 先验后改）。渲染经 `toml_edit`：既有键原位不动（更新时沿用原值的 decor），新键追加到
+//! 元素表尾，新建元素按 `kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` /
+//! `metadata` 规范序整表写出。
+//!
+//! **写入序不变量**（[`layout`] 的唯一职责）：交付文本恒满足 E1 父先于子 / E2 子树连续
+//! （元素面）与 R1 同一 `from` 组连续（关系面）；规范序 = DFS + 同层首次出现序、组连续 +
+//! 组间首次出现序 + 组内原样，取**最小移动**形式——对已合规的文件是 no-op，同层手排序与
+//! 块内字节（键序 / decor / 注释 / 空行）逐字保留。搬迁块经 [`WriteOutcome::reordered`]
+//! 报出。三条边界：**射程**单文件 + 表形态（内联表形态的元素条目不参与）；**不进自证链**
+//! （规范化没有 `Err` 臂，一个美观缺陷 MUST NOT 升级为写入失败——序由测试守）；**零暴露
+//! 面**（序违例不产诊断 / warning，也不设任何手动触发入口）。
 //!
 //! **内联出边**：[`ElementSpec::relations`] 在一次元素写回里批量 upsert / delete 出边，
 //! 四条约束——同批 `to` 唯一、`action = delete` 项禁带字段、内联边只作用于目标文件
@@ -35,6 +43,7 @@
 //! 产出被 parser 判 `invalidValue` 的形态（渲染空数组即一例）——值面 / 形态判据全归
 //! parser，越界值经自证链变成 `RenderSelfCheck`。
 
+mod layout;
 mod messages;
 pub mod warnings;
 
@@ -51,6 +60,7 @@ use crate::graph::ModelGraph;
 use crate::model::{Diagnostic, Element, Model, Relation};
 use crate::parse::{self, SourceParser, TomlParser};
 
+pub use layout::{Reorder, REORDER_BLOCKS_CAP};
 pub use messages::{EditError, EditErrorKind};
 pub use warnings::{delete_warnings, upsert_warnings, EditWarning};
 
@@ -203,6 +213,8 @@ pub struct WriteOutcome {
     pub counts: WriteCounts,
     /// 全模型计数（前值 ± 本次增量）
     pub model: WriteCounts,
+    /// 本次写回顺带搬迁的块（规范化所报；零值形态 `{"moved":0,"blocks":[]}` 恒在场）
+    pub reordered: Reorder,
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +226,11 @@ pub struct WriteOutcome {
 ///
 /// 元素字段写回之后按 [`RelationSpec::action`] 逐条 upsert / delete 内联出边，未列出的
 /// 既有边零改动；被回读的对象是**同一份**交付文本（自证与回读共用 [`finish`] 的收口）。
-pub fn apply_element_spec(source: &str, spec: &ElementSpec) -> Result<String, EditError> {
+/// 产出 = 交付文本 + 本次顺带搬迁的块（规范化所报，见 [`layout::normalize`]）。
+pub fn apply_element_spec(
+    source: &str,
+    spec: &ElementSpec,
+) -> Result<(String, Reorder), EditError> {
     check_relation_batch(&spec.relations)?;
     let mut document = parse_source(source)?;
     let declared = document
@@ -250,19 +266,21 @@ pub fn apply_element_spec(source: &str, spec: &ElementSpec) -> Result<String, Ed
         table.insert(&spec.fqn, Item::Table(entry));
     }
     let expected = apply_inline_relations(&mut document, &spec.fqn, &spec.relations)?;
+    let reorder = layout::normalize(&mut document);
     finish(document, |model| {
         verify_element(model, spec)?;
         verify_inline_relations(model, &spec.fqn, &spec.relations)?;
         verify_relation_count(model, expected)
     })
+    .map(|content| (content, reorder))
 }
 
 /// 单文件删除：按集合删关系对与元素表。
 ///
 /// 缺 `element` 表 ⇒ `ElementTableMissing`；元素刻意 / 关系缺席 ⇒ `ElementNotFound` /
 /// `RelationNotFound`（事实段列该文件现有元素 / 关系对）。子元素与引用前置归
-/// [`plan_element_delete`]（跨文件、级联闭包）。
-pub fn apply_element_delete(source: &str, set: &DeleteSet) -> Result<String, EditError> {
+/// [`plan_element_delete`]（跨文件、级联闭包）。产出 = 交付文本 + [`Reorder`]。
+pub fn apply_element_delete(source: &str, set: &DeleteSet) -> Result<(String, Reorder), EditError> {
     let mut document = parse_source(source)?;
     if !set.relations.is_empty() {
         let entries = relation_entries_mut(&mut document)?;
@@ -307,6 +325,7 @@ pub fn apply_element_delete(source: &str, set: &DeleteSet) -> Result<String, Edi
             ));
         }
     }
+    let reorder = layout::normalize(&mut document);
     finish(document, |model| {
         for fqn in &set.elements {
             if model.element(fqn).is_some() {
@@ -321,19 +340,23 @@ pub fn apply_element_delete(source: &str, set: &DeleteSet) -> Result<String, Edi
         }
         Ok(())
     })
+    .map(|content| (content, reorder))
 }
 
 /// 单文件关系 upsert：命中 `(from, to)` 走原地三态改写（条数不变），缺席则追加一条
 /// `[[relation]]`（键缺席 ⇒ 新建条目数组，不报缺表）。同一源内该对多处声明 ⇒
 /// `RelationDuplicated`（改哪条都是静默裁决）。`apis` 的 `Some(&[])` 翻成删键
 /// （MUST NOT 渲染空数组——空数组与省略同义，parser 判 `invalidValue`）。
+///
+/// 新条目先 append 到条目数组尾，规范化随后并回其 `from` 组组尾（R1）。产出 = 交付文本
+/// + [`Reorder`]。
 pub fn apply_relation_upsert(
     source: &str,
     from: &str,
     to: &str,
     desc: Option<Option<&str>>,
     apis: Option<&[String]>,
-) -> Result<String, EditError> {
+) -> Result<(String, Reorder), EditError> {
     let mut document = parse_source(source)?;
     let entries = relation_entries_mut(&mut document)?;
     let before = entries.len();
@@ -353,16 +376,22 @@ pub fn apply_relation_upsert(
             before + 1
         }
     };
+    let reorder = layout::normalize(&mut document);
     finish(document, |model| {
         verify_relation_upsert(model, from, to, desc, apis)?;
         verify_relation_count(model, expected)
     })
+    .map(|content| (content, reorder))
 }
 
 /// 单文件删关系条目：命中**唯一**条目即删该条，缺席 ⇒ `RelationNotFound`（事实段列该
 /// 文件现有关系对）；同一源内该对多处声明 ⇒ `RelationDuplicated`（一次删多条是静默
-/// 裁决）。
-pub fn apply_relation_delete(source: &str, from: &str, to: &str) -> Result<String, EditError> {
+/// 裁决）。产出 = 交付文本 + [`Reorder`]。
+pub fn apply_relation_delete(
+    source: &str,
+    from: &str,
+    to: &str,
+) -> Result<(String, Reorder), EditError> {
     let mut document = parse_source(source)?;
     let entries = relation_entries_mut(&mut document)?;
     let before = entries.len();
@@ -374,10 +403,12 @@ pub fn apply_relation_delete(source: &str, from: &str, to: &str) -> Result<Strin
         return Err(relation_absent_error(entries, &relation_pair_of(from, to)));
     };
     entries.remove(index);
+    let reorder = layout::normalize(&mut document);
     finish(document, |model| {
         verify_relation_absent(model, from, to)?;
         verify_relation_count(model, before - 1)
     })
+    .map(|content| (content, reorder))
 }
 
 // ---------------------------------------------------------------------------
@@ -421,7 +452,7 @@ pub fn plan_element_upsert(root: &Path, spec: &ElementSpec) -> Result<WriteOutco
     let tally = relation_tally(model, &spec.fqn, &spec.relations);
     let source = read_source(&target.file, creating)?;
     check_expect(&target.file, &source, spec.expect.as_deref())?;
-    let body = apply_element_spec(&source, spec)?;
+    let (body, reorder) = apply_element_spec(&source, spec)?;
     let content = if target.fresh {
         new_file_content(&target.file, &body)?
     } else {
@@ -442,6 +473,7 @@ pub fn plan_element_upsert(root: &Path, spec: &ElementSpec) -> Result<WriteOutco
         relations: tally,
         counts,
         model: model_counts(model, element_delta(creating), relation_delta(tally)),
+        reordered: reorder,
     })
 }
 
@@ -495,7 +527,7 @@ pub fn plan_element_delete(
     let file = root.join(&declared_file);
     let source = read_source(&file, false)?;
     check_expect(&file, &source, expect)?;
-    let content = apply_element_delete(&source, &set)?;
+    let (content, reorder) = apply_element_delete(&source, &set)?;
     let write = write_of(file, &content);
     let written = recount(&write.content)?;
     Ok(WriteOutcome {
@@ -510,6 +542,7 @@ pub fn plan_element_delete(
             -(set.elements.len() as isize),
             -(set.relations.len() as isize),
         ),
+        reordered: reorder,
     })
 }
 
@@ -538,7 +571,7 @@ pub fn plan_relation_upsert(
     let changed = relation_changed(hits.first().copied(), desc, apis);
     let source = read_source(&file, false)?;
     check_expect(&file, &source, expect)?;
-    let content = apply_relation_upsert(&source, from, to, desc, apis)?;
+    let (content, reorder) = apply_relation_upsert(&source, from, to, desc, apis)?;
     let write = write_of(file, &content);
     let written = recount(&write.content)?;
     Ok(WriteOutcome {
@@ -554,6 +587,7 @@ pub fn plan_relation_upsert(
         },
         counts: counts_of(&written),
         model: model_counts(model, 0, isize::from(created)),
+        reordered: reorder,
     })
 }
 
@@ -591,7 +625,7 @@ pub fn plan_relation_delete(
     let file = root.join(&relation.file);
     let source = read_source(&file, false)?;
     check_expect(&file, &source, expect)?;
-    let content = apply_relation_delete(&source, from, to)?;
+    let (content, reorder) = apply_relation_delete(&source, from, to)?;
     let write = write_of(file, &content);
     let written = recount(&write.content)?;
     Ok(WriteOutcome {
@@ -607,6 +641,7 @@ pub fn plan_relation_delete(
         },
         counts: counts_of(&written),
         model: model_counts(model, 0, -1),
+        reordered: reorder,
     })
 }
 
@@ -1698,6 +1733,9 @@ fn endpoints<'a>(
         }
     }
 }
+
+#[cfg(test)]
+mod layout_test;
 
 #[cfg(test)]
 mod mod_test;

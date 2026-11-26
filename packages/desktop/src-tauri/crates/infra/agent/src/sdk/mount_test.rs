@@ -2404,8 +2404,8 @@ fn 限额数字单点() {
 }
 
 /// 边界（矩阵 2 份定义）：描述面零字段形态教学（不写 `kind = ` / `[[relation]]` /
-/// `path = [` / `metadata = {` 一类示例），三事齐备（原子写坏文本不可产出 / `expect`
-/// ↔ `hash` 闭环 / `cascade` 只同一模型文件内）。
+/// `path = [` / `metadata = {` 一类示例），四事齐备（原子写坏文本不可产出 / `expect`
+/// ↔ `hash` 闭环 / `cascade` 只同一模型文件内 / 写入归一到规范序 + `reordered`）。
 #[test]
 fn 描述不复述字段形态长表() {
     for name in [ARCHI_ELEMENT_TOOL, ARCHI_RELATION_TOOL] {
@@ -2420,6 +2420,18 @@ fn 描述不复述字段形态长表() {
             assert!(
                 description.contains(piece),
                 "{name} 描述含 `{piece}`：{description}"
+            );
+        }
+        for piece in ["归一到规范序", "reordered"] {
+            assert!(
+                description.contains(piece),
+                "{name} 描述含第四件事 `{piece}`：{description}"
+            );
+        }
+        for algorithm in ["DFS", "position", "ArrayOfTables"] {
+            assert!(
+                !description.contains(algorithm),
+                "{name} 描述不教算法（零 `{algorithm}`）：{description}"
             );
         }
     }
@@ -2495,4 +2507,141 @@ fn 描述随三资产改写() {
             && description.contains("MUST NOT 用 grep / offset 拼凑"),
         "文档正文整读纪律（禁分段拼凑）：{description}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：两写工具描述面的第四件事（写入归一到规范序 + `reordered` 回报）
+// ---------------------------------------------------------------------------
+
+/// 两写工具的描述面文本（`registry()` 的真实定义，零替身）。
+fn write_descriptions() -> [String; 2] {
+    [ARCHI_ELEMENT_TOOL, ARCHI_RELATION_TOOL].map(|name| {
+        lookup(name)
+            .unwrap_or_else(|| panic!("{name} 定义在案"))
+            .description
+            .clone()
+    })
+}
+
+/// 正向（AC-11 / C5）：两写工具 `description` 各含第四件事的三句要点——写入归一到规范
+/// 序（元素面子树连续 + 关系组连续 / 关系面同一 `from` 组连续）、手改拆开的会在下一次
+/// 工具写时被合回、搬迁块经响应 `reordered` 报出（`moved` 真值、`blocks` 有界）；既有三
+/// 条要点（坏文本不可产出 / `expect` ↔ `hash` / `cascade` 射程）逐字保留。
+#[test]
+fn 描述面第四件事三句齐备() {
+    let [element, relation] = write_descriptions();
+    for description in [&element, &relation] {
+        for piece in [
+            "归一到规范序",
+            "下一次工具写时被",
+            "reordered",
+            "moved 为块数真值",
+            "blocks 至多 8 项",
+        ] {
+            assert!(
+                description.contains(piece),
+                "描述含第四件事 `{piece}`：{description}"
+            );
+        }
+        for legacy in ["坏文本不可产出", "expect", "hash"] {
+            assert!(
+                description.contains(legacy),
+                "既有要点 `{legacy}` 未丢：{description}"
+            );
+        }
+        assert_eq!(
+            description.matches("reordered").count(),
+            1,
+            "第四件事一句话（不拆多句）：{description}"
+        );
+    }
+
+    assert!(
+        element.contains("子树连续") && element.contains("关系组连续"),
+        "元素面口径写明两条不变量：{element}"
+    );
+    assert!(
+        element.contains("同一模型文件内"),
+        "元素面 `cascade` 射程句未丢：{element}"
+    );
+    assert!(
+        relation.contains("同一 from 的关系条目连续"),
+        "关系面口径写同一 `from` 组连续：{relation}"
+    );
+}
+
+/// 边界（C5 / Q-4）：两 `description` 零实现词与零字段形态示例——不教算法、不举字段形态。
+#[test]
+fn 描述面零实现词与零形态示例() {
+    for (name, description) in [ARCHI_ELEMENT_TOOL, ARCHI_RELATION_TOOL]
+        .into_iter()
+        .zip(write_descriptions())
+    {
+        for algorithm in [
+            "DFS",
+            "position",
+            "ArrayOfTables",
+            "LCS",
+            "truncate",
+            "最长公共子序列",
+            "排序算法",
+        ] {
+            assert!(
+                !description.contains(algorithm),
+                "{name} 描述零实现词 `{algorithm}`：{description}"
+            );
+        }
+        for example in ["kind = ", "[[relation]]", "path = [", "metadata = {"] {
+            assert!(
+                !description.contains(example),
+                "{name} 描述零形态示例 `{example}`：{description}"
+            );
+        }
+    }
+}
+
+/// 边界（AC-11 / C5）：函数 doc 随动——`archi_element_definition` 的「只答三件事」改
+/// 「四件事」、`archi_relation_definition` 的「同四件事」，与描述面同批对齐（不得只改
+/// 一处）。
+#[test]
+fn 函数doc随动四件事() {
+    let source = source_of("src/sdk/mount.rs");
+    assert_eq!(
+        source.matches("描述面只答四件事").count(),
+        1,
+        "元素定义 doc 说四件事"
+    );
+    assert_eq!(
+        source.matches("同四件事").count(),
+        1,
+        "关系定义 doc 说同四件事"
+    );
+    for stale in ["只答三件事", "同三件事", "三件事（形态归"] {
+        assert!(!source.contains(stale), "旧 doc 句零命中 `{stale}`");
+    }
+    assert!(
+        source.contains("写入把目标文件归一"),
+        "元素 doc 的第四件事句在案"
+    );
+    assert!(
+        source.contains("同 `from` 组连续"),
+        "关系 doc 的第四件事句在案"
+    );
+}
+
+/// 异常（AC-11 旧句判据）：`mount.rs` 内「重排文件」零命中（只在禁令句允许；实现在
+/// `edit/layout` 侧，挂载面 MUST NOT 持旧措辞），两 `description` 也零「重排」。
+#[test]
+fn 旧句零正面表述() {
+    let source = source_of("src/sdk/mount.rs");
+    assert!(
+        !source.contains("重排文件"),
+        "mount.rs 内零「重排文件」（旧句零残留）"
+    );
+    for description in write_descriptions() {
+        assert!(
+            !description.contains("重排"),
+            "描述面零「重排」措辞：{description}"
+        );
+    }
 }

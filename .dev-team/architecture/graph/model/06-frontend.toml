@@ -37,6 +37,24 @@ gate = "off"
 path = ["./packages/desktop/src/views/changes/"]
 summary = "变更页：列表、详情与编排容器"
 
+[element."Desktop.Views.Changes.Flow"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src/views/changes/flow/"]
+summary = "变更详情流程图：节点、运行控制与产物抽屉"
+
+[element."Desktop.Views.Changes.Renderers"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src/views/changes/renderers/"]
+summary = "产物渲染器注册表与兜底呈现"
+
+[element."Desktop.Views.Changes.Agent"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src/views/changes/agent/"]
+summary = "变更详情右栏的 agent 对话面板"
+
 [element."Desktop.Views.Config"]
 kind = "module"
 gate = "off"
@@ -66,24 +84,6 @@ kind = "module"
 gate = "off"
 path = ["./packages/desktop/src/views/welcome-view.tsx"]
 summary = "空工作区引导页"
-
-[element."Desktop.Views.Changes.Flow"]
-kind = "module"
-gate = "off"
-path = ["./packages/desktop/src/views/changes/flow/"]
-summary = "变更详情流程图：节点、运行控制与产物抽屉"
-
-[element."Desktop.Views.Changes.Renderers"]
-kind = "module"
-gate = "off"
-path = ["./packages/desktop/src/views/changes/renderers/"]
-summary = "产物渲染器注册表与兜底呈现"
-
-[element."Desktop.Views.Changes.Agent"]
-kind = "module"
-gate = "off"
-path = ["./packages/desktop/src/views/changes/agent/"]
-summary = "变更详情右栏的 agent 对话面板"
 
 [element."Desktop.Components"]
 kind = "composite"
