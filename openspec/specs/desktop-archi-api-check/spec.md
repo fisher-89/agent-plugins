@@ -185,7 +185,7 @@
 | `ApiShadowing` | `apiShadowing` | 父 `$defs` 与子元素 `$defs` 类型名交集非空 |
 | `ApiRefMissing` | `apiRefMissing` | 跨模块 `$ref` 目标缺失 / 目标未 `declared` / 非直接子元素 |
 | `ApiNestedCrossCrate` | `apiNestedCrossCrate` | 嵌套元素父子分属不同 crate |
-| `ApiConstructorDeclared` | `apiConstructorDeclared` | 接口的 `properties` 声明了构造器（应由生成器产出） |
+| `ApiConstructorDeclared` | `apiConstructorDeclared` | **模块级**接口的 `properties` 声明了构造器名（构造器由生成器产出：零字段 `object` 自动 `new()`、类型级走 `$defs.<T>.x-constructor`；`$defs` 内的构造入口 MUST NOT 触发本值） |
 | `DocMissing` | `docMissing` | **文档未就位**（单成因）：派生的 `<archi_models_dir>/<分层目录…>/<叶段>.md` 不在盘，**与 `api` 状态、`doc` 字段都无关** |
 
 - **三项删除的事实源口径（必须逐条说准，MUST NOT 读成「放宽」）**：
@@ -202,6 +202,7 @@
 - **`.i` 生成物的存在 MUST NOT 作为入口的替代证据**（生成物路径是入口的函数）。
 - **`api = none` 元素退出入口判据**：其求值链只剩 `apiUnexpected` → `docMissing` 两步，MUST NOT 报 `apiEntryMissing`。
 - **`apiEntryMissing` 的四种不可用理由挤进同一个值**（形态 / 落位 / 存在 / 跨元素唯一），文案点名具体理由；MUST NOT 新增第 11 个值。
+- **`apiConstructorDeclared` 的射程收窄到模块级 `properties`**：`$defs` 条目的 `x-constructor`（以及 `x-static`）是**正规形态**，MUST NOT 被判；`$defs` 条目的 `properties.new` 由装载期 `x-class` 预留名判据拦（`ApiError`，不是本判据）——两面分工：模块面容错面产 finding、条目面在写闸即死。
 - **`ALL` 与 `as_str` / `severity` 三方对拍**：`ArchiApiFindingKind::ALL: [Self; 10]` SHALL 与 `as_str` 逐值对拍、与 `severity()` 的取值面逐值对拍；新增变体未补入 `ALL`（长度断言）即测试红。
 - **`category` SHALL 仍为开放值集字符串（MUST NOT 设枚举、MUST NOT 设 `ALL`）**，取值集**仍是七值**——三处删除只收缩成员、不清空任何分组：`entry`（`apiEntryMissing` / `apiUnexpected`）/ `contract`（`apiMissing` / `apiUndeclared`）/ `signature`（`apiSignatureMismatch`）/ `reexport`（`apiShadowing` / `apiRefMissing`）/ `nesting`（`apiNestedCrossCrate`）/ `constructor`（`apiConstructorDeclared`）/ **`doc`（只剩 `docMissing`）**。MUST NOT 为「只剩一个成员的分组」做合并或改名（chip 由数据聚合，空组自然不渲）。
 - **条目形状**：`ArchiApiFinding { kind, category, element, target, message, occurrences }` 逐字不变（`occurrences` 复用 `ArchiDriftOccurrence`）。
@@ -219,7 +220,7 @@
 #### Scenario: category 七值无空组
 
 - **WHEN** 遍历十个判据值并取 `category_of`
-- **THEN** 七组各自至少一个成员（`doc` 只剩 `docMissing`）；无第八值、无空串、无空组；`apiUnexpected` 仍落 `entry`
+- **THEN** 七组各自至少一个成员（`doc` 只剩 `docMissing`）；无第八值、无空串、无空组；`apiUnexpected` 仍落 `entry`；`apiConstructorDeclared` 仍落 `constructor`
 
 #### Scenario: 与既有漂移词汇互不混用
 
@@ -230,6 +231,16 @@
 
 - **WHEN** 构造一个 `api = none` 且无可用入口（无 `entry`、目录型根无 `index.ts(x)`）的元素
 - **THEN** 该元素零 `apiEntryMissing`；若其派生 md 不在盘则恰一条 `docMissing`
+
+#### Scenario: 类型级构造器不产该判据
+
+- **WHEN** 某 `api = declared` 元素的 `$defs.Store` 带 `"type": "object"` + `"x-class": true` + `"x-constructor"`（`params` 非空）与一条返回本类型的 `x-static`，而模块级 `properties` 无构造器名
+- **THEN** 该元素零 `apiConstructorDeclared`、零 `apiMissing`（`$defs` 条目不是模块导出比对的对象）；`ArchiApiFindingKind::ALL` 仍十值、`category` 仍七值
+
+#### Scenario: 模块级构造器名仍判
+
+- **WHEN** 同一元素在模块级 `properties` 写 `new`（带 `x-function`），同时在 `$defs.Store` 写 `x-constructor`
+- **THEN** 恰一条 `apiConstructorDeclared` 点名模块级 `new`（`$defs` 的构造入口不在射程）；文案给出路「类型级构造用 `$defs.<T>.x-constructor`」
 
 ### Requirement: 十判据的定义与求值互斥顺序
 
@@ -376,3 +387,31 @@ pair 锚点（不进元素循环，与元素锚点并列、互不挤占）
 | `ArchiDriftReport.apiFindings` | 零形状变化 | 条目形状与排序不变；`kind` 取值面收为十值 |
 | `archi_drift` 的 `byKind` 计数 | 随词汇收窄 | 键集合由十三变十；`counts.api` 三档计数语义不变 |
 | `archi_api(action = "check")` | 零形状变化 | 仍回三类差异 + `byCategory` 计数 + 逐条判据；`byCategory` 键集合不变（七组） |
+
+### 模块增量：构造器判据射程收窄到模块级（archi-api-constructor-static-members）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+### Function: `crates/core/archi/src/api/check.rs`
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `constructor_declared` | 改（文案 / 口径） | 仍从 `contract.ops`（模块级 `properties` 投影）里找首个构造器名；文案由「构造器由生成器的 `$defs` 条目自动产出」改为「零字段 `object` 自动产 `new()`、类型级构造走 `$defs.<T>.x-constructor`」；零新增参数、零新增调用点 |
+| `check` 两支求值序 / `category_of` / 其余九条判据 | 零改动 | `api = none` 支两步、`api = declared` 支四步、pair 锚点序、`category` 七值逐字不变 |
+
+### API: 判据词汇与报告面
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `ArchiApiFindingKind` | 零改动 | 仍十值、`ALL: [Self; 10]`、`as_str` / `severity()` 逐值不变；`category` 分组不变（`constructor` 仍归 `apiConstructorDeclared`） |
+| `ArchiApiFinding` / `ArchiDriftReport.api_findings` / `REPORT_VERSION` | 零改动 | 条目形状与报告槽位逐字不变（本变更只改一个值的**语义口径**，不改形状与桶） |
+| 纳管口径（`gating_findings` / `derive_status` / `passed`） | 零改动 | `docMissing` 恒 `warn` 且不纳管；`apiConstructorDeclared` 的档位与纳管面逐字不变 |
+| `bindings.ts` / `bindings.zod.ts` | 零改动 | 零枚举成员变化 ⇒ `bindings:export` 零 diff |
+
+### CLI / Component: 零改动面
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `crates/core/archi/src/drift/**` | 零改动 | 报告装配与状态推导逐字不变 |
+| 契约面板 / 画布（`desktop-archi-contract-panel` / `desktop-archi-canvas`） | 零改动 | chip 按数据聚合，`constructor` 组仍非空；零 UI 变化 |
+| `tests/corpus/drift/**` 金样 | 零改动 | 在案语料零 `x-class` / 零新键 ⇒ `apiFindings` 条数与构成不变（落地时以实测复核） |
