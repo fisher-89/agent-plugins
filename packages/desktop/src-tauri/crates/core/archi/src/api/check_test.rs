@@ -2983,3 +2983,335 @@ fn 三值随事实源消失() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// 类型级构造器不进判据面（AC-9）
+// ---------------------------------------------------------------------------
+
+/// 源码内顶层函数体（自 `signature` 起的花括号配对区段；未命中即断言失败）。
+fn source_function_body<'a>(source: &'a str, signature: &str) -> &'a str {
+    let start = source
+        .find(signature)
+        .unwrap_or_else(|| panic!("源码内应有 `{signature}`"));
+    let open = start + source[start..].find('{').expect("函数体起手花括号");
+    let mut depth = 0usize;
+    for (offset, character) in source[open..].char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &source[open..open + offset + 1];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("`{signature}` 的函数体未闭合");
+}
+
+/// 单条目 `$defs` 契约（`defs` / `properties` 片段直传；file 取派生路径）。
+fn contract_from(fqn: &str, defs: &str, properties: &str) -> Contract {
+    let source = mirrored_schema_text(fqn, defs, properties);
+    crate::api::mod_test::prepare(&source, fqn, &format!("{fqn}.schema.json")).0
+}
+
+/// 类型级构造器类条目（`x-constructor` + 返回本类型的 `x-static`）。
+const STORE_DEF: &str = r##""Store": {"type": "object", "x-class": true, "properties": {}, "x-constructor": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}]}}, "x-static": {"open": {"x-function": {"returns": {"$ref": "#/$defs/Store"}}}}}"##;
+
+/// 正向（AC-9）：`$defs.Store` 带 `x-class` + `x-constructor`（`params` 非空）+ 一条返回
+/// 本类型的 `x-static`，模块级 `properties` 无构造器名 ⇒ 零 `apiConstructorDeclared`、零
+/// `apiMissing`（`$defs` 条目按类型面比对）；`ALL.len()` 仍 10、`category` 仍七值。
+#[test]
+fn 类型级构造器零判据() {
+    let fqn = "App.Core.Alpha";
+    let fixture = Fixture::new("type-level-constructor")
+        .with_element(element(fqn, &["src/alpha/"]))
+        .with_contract(contract_from(fqn, STORE_DEF, ""))
+        .with_symbols(fqn, vec![type_symbol("Store", ApiSymbolKind::Trait)]);
+    fixture.touch_entry("src/alpha");
+
+    let findings = fixture.run();
+    assert_eq!(
+        count(&findings, ArchiApiFindingKind::ApiConstructorDeclared),
+        0,
+        "类型级构造入口不触发模块面判据：{:?}",
+        findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        count(&findings, ArchiApiFindingKind::ApiMissing),
+        0,
+        "类型面已实现 ⇒ 零缺失"
+    );
+    assert_eq!(ArchiApiFindingKind::ALL.len(), 10, "词汇十值封闭");
+}
+
+/// 边界（两面分离）：同一元素模块级 `new` + `$defs.Store.x-constructor` 并存 ⇒ 恰一条，
+/// `target` 点名模块级 `new`（`$defs` 侧不在射程）。
+#[test]
+fn 构造器判据只判模块级() {
+    let fqn = "App.Core.Alpha";
+    let fixture = Fixture::new("constructor-scope")
+        .with_element(element(fqn, &["src/alpha/"]))
+        .with_contract(contract_from(
+            fqn,
+            STORE_DEF,
+            r#""new": {"x-function": {"params": []}}"#,
+        ))
+        .with_symbols(fqn, vec![type_symbol("Store", ApiSymbolKind::Trait)]);
+    fixture.touch_entry("src/alpha");
+
+    let findings = fixture.run();
+    let declared: Vec<&ArchiApiFinding> = findings
+        .iter()
+        .filter(|finding| finding.kind == ArchiApiFindingKind::ApiConstructorDeclared)
+        .collect();
+    assert_eq!(declared.len(), 1, "恰一条模块面判据：{:?}", declared);
+    assert_eq!(
+        declared[0].target.as_deref(),
+        Some("new"),
+        "target 点名模块级构造器"
+    );
+    assert_eq!(declared[0].category, "constructor", "分类仍 constructor");
+}
+
+/// 边界（AC-9 无构造通路）：`x-class` 条目既无 `x-constructor`、也无返回自身 `$ref` 的
+/// `x-static`、且模块内无 op 的 `returns` 指向它 ⇒ `check` 零 api 条目；源码锚：
+/// `emit/mod.rs` 零 `x-constructor` / `x-static` 字面、`warn_missing_x_class` 对
+/// `x-class` 条目早退（零警告）。
+#[test]
+fn 无构造通路零判据零警告() {
+    let fqn = "App.Core.Alpha";
+    let fixture = Fixture::new("no-constructor-path")
+        .with_element(element(fqn, &["src/alpha/"]))
+        .with_contract(contract_from(
+            fqn,
+            r#""Store": {"type": "object", "x-class": true, "properties": {}}"#,
+            "",
+        ))
+        .with_symbols(fqn, vec![type_symbol("Store", ApiSymbolKind::Trait)]);
+    fixture.touch_entry("src/alpha");
+
+    let findings = fixture.run();
+    assert!(
+        findings.is_empty(),
+        "无构造通路 ⇒ 零判据零警告：{:?}",
+        findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+    );
+
+    let emit = include_str!("emit/mod.rs");
+    assert!(
+        !emit.contains("x-constructor") && !emit.contains("x-static"),
+        "语言分派处零新键字面（判据 / 渲染单点在别处）"
+    );
+    let body = source_function_body(include_str!("emit/mod.rs"), "fn warn_missing_x_class(");
+    let class_guard = body
+        .find("x-class")
+        .unwrap_or_else(|| panic!("警告路径应见 `x-class` 早退判据：{body}"));
+    let properties_read = body
+        .find("\"properties\"")
+        .unwrap_or_else(|| panic!("警告路径应读 `properties`：{body}"));
+    assert!(
+        class_guard < properties_read,
+        "`x-class` 条目在读取 `properties` 之前早退（零警告）"
+    );
+}
+
+/// 异常（文案面）：`constructor_declared` 文案含「模块级」与出路
+/// `$defs.<T>.x-constructor`；`check.rs` 内零 `x-class` 字面（源码自证）；构造器封闭集逐值
+/// 仍命中——`default` / `build` / `from_str` / `with_capacity` / `empty` / `never` / `open`
+/// 各一臂 ⇒ 各一条且 `target` 点名该名。
+#[test]
+fn 构造器声明文案与封闭集() {
+    let fqn = "App.Core.Alpha";
+    let fixture = Fixture::new("constructor-copy")
+        .with_element(element(fqn, &["src/alpha/"]))
+        .with_contract(contract_from(
+            fqn,
+            "",
+            r#""new": {"x-function": {"params": []}}"#,
+        ));
+    fixture.touch_entry("src/alpha");
+    let findings = fixture.run();
+    let message = findings
+        .iter()
+        .find(|finding| finding.kind == ArchiApiFindingKind::ApiConstructorDeclared)
+        .map(|finding| finding.message.clone())
+        .expect("应产出构造器判据");
+    assert!(message.contains("模块级"), "口径收窄为模块级：{message}");
+    assert!(
+        message.contains("$defs.<T>.x-constructor"),
+        "出路指向类型级声明：{message}"
+    );
+
+    let source = include_str!("check.rs");
+    assert!(
+        !source.contains("x-class"),
+        "本文件零 `x-class` 字面（判据面不看 class 标记）"
+    );
+
+    for name in [
+        "default",
+        "build",
+        "from_str",
+        "with_capacity",
+        "empty",
+        "never",
+        "open",
+    ] {
+        let fqn = format!("App.Core.{name}");
+        let fixture = Fixture::new("constructor-set")
+            .with_element(element(&fqn, &["src/alpha/"]))
+            .with_contract(contract_from(
+                &fqn,
+                "",
+                &format!(r#""{name}": {{"x-function": {{"params": []}}}}"#),
+            ));
+        fixture.touch_entry("src/alpha");
+        let findings = fixture.run();
+        let declared: Vec<&ArchiApiFinding> = findings
+            .iter()
+            .filter(|finding| finding.kind == ArchiApiFindingKind::ApiConstructorDeclared)
+            .collect();
+        assert_eq!(declared.len(), 1, "`{name}` 应命中恰一条");
+        assert_eq!(
+            declared[0].target.as_deref(),
+            Some(name),
+            "target 点名首个命中的构造器"
+        );
+    }
+}
+
+/// 边界（首命中取投影序）：`new` 在 `from_str` 之前 / 之后两臂 ⇒ 均只一条且 `target` 取
+/// 首个命中的构造器（`contract.ops` 投影序）；零构造器 ⇒ `None`（不产条目）。
+#[test]
+fn 构造器首命中取投影序() {
+    for (properties, expected) in [
+        (
+            r#""new": {"x-function": {"params": []}}, "from_str": {"x-function": {"params": []}}"#,
+            "new",
+        ),
+        (
+            r#""from_str": {"x-function": {"params": []}}, "new": {"x-function": {"params": []}}"#,
+            "from_str",
+        ),
+    ] {
+        let fqn = "App.Core.Alpha";
+        let fixture = Fixture::new("constructor-order")
+            .with_element(element(fqn, &["src/alpha/"]))
+            .with_contract(contract_from(fqn, "", properties));
+        fixture.touch_entry("src/alpha");
+        let findings = fixture.run();
+        let declared: Vec<&ArchiApiFinding> = findings
+            .iter()
+            .filter(|finding| finding.kind == ArchiApiFindingKind::ApiConstructorDeclared)
+            .collect();
+        assert_eq!(declared.len(), 1, "元素锚点每元素一条：{declared:?}");
+        assert_eq!(
+            declared[0].target.as_deref(),
+            Some(expected),
+            "target 取投影序首个命中"
+        );
+    }
+
+    let fqn = "App.Core.Alpha";
+    let fixture = Fixture::new("constructor-absent")
+        .with_element(element(fqn, &["src/alpha/"]))
+        .with_contract(contract_from(
+            fqn,
+            "",
+            r#""run": {"x-function": {"params": []}}"#,
+        ))
+        .with_symbols(
+            fqn,
+            vec![function("run", vec![], ApiType::Unknown("()".to_owned()))],
+        );
+    fixture.touch_entry("src/alpha");
+    assert_eq!(
+        count(&fixture.run(), ArchiApiFindingKind::ApiConstructorDeclared),
+        0,
+        "零构造器 ⇒ 不产条目"
+    );
+}
+
+/// 边界（空 / 规模输入）：零 op 契约 ⇒ 零条；`file_stem` 一类非构造器名 ⇒ 零条；`$defs`
+/// 含 100 条目 ⇒ 判据计数不变（`$defs` 规模不进判据面）；元素 `path` 为空 ⇒ 早退零条。
+#[test]
+fn 构造器判据空与规模输入() {
+    let fqn = "App.Core.Alpha";
+    let fixture = Fixture::new("constructor-empty")
+        .with_element(element(fqn, &["src/alpha/"]))
+        .with_contract(contract_from(fqn, "", ""))
+        .with_symbols(
+            fqn,
+            vec![function("file_stem", vec![], ApiType::OwnedString)],
+        );
+    fixture.touch_entry("src/alpha");
+    assert_eq!(
+        count(&fixture.run(), ArchiApiFindingKind::ApiConstructorDeclared),
+        0,
+        "零 op / 非构造器名 ⇒ 零条"
+    );
+
+    let names: Vec<String> = (0..100).map(|index| format!("T{index}")).collect();
+    let definitions: Vec<String> = names
+        .iter()
+        .map(|name| format!(r#""{name}": {{"type": "object", "properties": {{}}}}"#))
+        .collect();
+    let symbols: Vec<ApiSymbol> = names
+        .iter()
+        .map(|name| type_symbol(name, ApiSymbolKind::Type))
+        .collect();
+    let fixture = Fixture::new("constructor-scale")
+        .with_element(element(fqn, &["src/alpha/"]))
+        .with_contract(contract_from(fqn, &definitions.join(", "), ""))
+        .with_symbols(fqn, symbols);
+    fixture.touch_entry("src/alpha");
+    assert_eq!(
+        count(&fixture.run(), ArchiApiFindingKind::ApiConstructorDeclared),
+        0,
+        "`$defs` 规模不进判据面"
+    );
+
+    let blank = Fixture::new("constructor-blank-path")
+        .with_element(element(fqn, &[]))
+        .with_contract(contract_from(
+            fqn,
+            "",
+            r#""new": {"x-function": {"params": []}}"#,
+        ));
+    assert!(blank.run().is_empty(), "元素 path 为空 ⇒ 早退零条");
+}
+
+/// 回归（首错短路不变）：`apiMissing` + `apiSignatureMismatch` + `apiConstructorDeclared`
+/// 同场 ⇒ 只留 `apiMissing`（元素锚点每元素至多一条）。
+#[test]
+fn 首错短路只留实现缺失() {
+    let fqn = "App.Core.Alpha";
+    let fixture = Fixture::new("first-error")
+        .with_element(element(fqn, &["src/alpha/"]))
+        .with_contract(contract(
+            fqn,
+            &[
+                ("new", json!({"params": []})),
+                ("missing", json!({"params": []})),
+                (
+                    "mismatched",
+                    json!({"params": [], "returns": {"type": "string"}}),
+                ),
+            ],
+            &[],
+            &[],
+        ))
+        .with_symbols(fqn, vec![function("mismatched", vec![], ApiType::Bool)]);
+    fixture.touch_entry("src/alpha");
+
+    let findings = fixture.run();
+    assert_eq!(findings.len(), 1, "元素锚点每元素一条：{findings:?}");
+    assert_eq!(
+        findings[0].kind,
+        ArchiApiFindingKind::ApiMissing,
+        "首错短路只留 apiMissing：{:?}",
+        findings[0].message
+    );
+}

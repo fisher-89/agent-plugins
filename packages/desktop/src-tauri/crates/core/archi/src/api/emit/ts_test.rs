@@ -280,6 +280,7 @@ fn render的x_class为interface并记degraded() {
     let text = render_types(
         r#"{
   "Runner": {
+    "type": "object",
     "x-class": true,
     "properties": {"run": {"x-function": {"params": [{"name": "input", "schema": {"type": "string"}}], "returns": {"type": "boolean"}}}}
   }
@@ -1012,8 +1013,10 @@ fn render的头注释() {
 // 反例：ambient-free / 无品牌类型 / 零 eprintln!
 // ---------------------------------------------------------------------------
 
-/// 异常（AC-6 反例在案）：渲染结果 ambient-free——不含 `declare` / `declare module` /
-/// `.d.ts` 形态；来源文件双自查零命中。
+/// 异常（AC-6 反例在案 + AC-3 收窄）：非类条目产物零 ambient 声明（零 `declare` /
+/// `declare module` / `.d.ts` 形态）；`x-class` 值声明的 `export declare const` 是**类型 /
+/// 值同名共存**的唯一合法形式（`isolatedModules` 下成立），不属于 ambient 面——模块级
+/// ambient 声明仍零命中。
 #[test]
 fn render的ambient_free() {
     let text = render_source(&mirrored_schema_text(
@@ -1022,20 +1025,37 @@ fn render的ambient_free() {
         "",
     ));
     assert!(
-        !text.contains("declare module") && !text.contains("declare const"),
-        "产物 MUST NOT 含 ambient 声明：
+        !text.contains("declare"),
+        "非类条目产物 MUST NOT 含 ambient 声明：
 {text}"
     );
     assert!(
-        !text.contains(".d.ts"),
-        "产物 MUST NOT 是 .d.ts 形态：
+        !text.contains("declare module") && !text.contains(".d.ts"),
+        "产物 MUST NOT 是模块级 ambient / .d.ts 形态：
 {text}"
     );
-    // 来源文件自证：零 ambient 声明语句（文档注释里的禁令措辞不算）
+
+    let class_text = render_source(&mirrored_schema_text(
+        FQN,
+        r#""Store": {"type": "object", "x-class": true, "x-constructor": {"x-function": {}}}"#,
+        "",
+    ));
+    assert!(
+        class_text.contains("export declare const Store: {"),
+        "类条目的值声明是 `export declare const`（类型 / 值同名共存）：
+{class_text}"
+    );
+    assert!(
+        !class_text.contains("declare module"),
+        "值声明 MUST NOT 退化成模块级 ambient：
+{class_text}"
+    );
+
+    // 来源文件自证：零模块级 ambient 声明（文档注释里的禁令措辞不算）
     let source = include_str!("ts.rs");
     assert!(
-        !source.contains("declare module") && !source.contains("declare const"),
-        "来源文件零 ambient 声明语句"
+        !source.contains("declare module"),
+        "来源文件零模块级 ambient 声明语句"
     );
     assert!(
         source.contains("ambient-free"),
@@ -1077,6 +1097,7 @@ fn render零eprintln且x_class只含方法() {
     let text = render_types(
         r#"{
   "Runner": {
+    "type": "object",
     "x-class": true,
     "properties": {"run": {"x-function": {"params": [], "returns": {"type": "boolean"}}}}
   }
@@ -1836,7 +1857,7 @@ fn ts侧specifier转义零筛选() {
 fn 同一schema两侧形态收敛() {
     let (contract, schema) = prepare_local(&mirrored_schema_text(
         FQN,
-        r#""Runner": {"x-class": true, "properties": {"run": {"x-function": {"params": [{"name": "input", "schema": {"type": "string"}}], "returns": {"type": "boolean"}}}}}"#,
+        r#""Runner": {"type": "object", "x-class": true, "properties": {"run": {"x-function": {"params": [{"name": "input", "schema": {"type": "string"}}], "returns": {"type": "boolean"}}}}}"#,
         "",
     ));
     let target = EmitTarget {
@@ -2224,4 +2245,482 @@ fn ts渲染器doc改述为entry_state且specifier留白() {
             "specifier 语义零变化（{form:?}）"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// x-class 的同名值声明（AC-3 / AC-7 / AC-8）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-3 值声明正例）：`Store` 条目（`count` 方法 + `x-constructor` + 两 static）⇒
+/// interface 之后紧跟 `export declare const Store: {`，成员行序 `new` → static 声明序，
+/// interface `}` 与值声明之间零空行；整块逐字。
+#[test]
+fn render值声明正例() {
+    let text = render_types(
+        r##"{
+  "Store": {
+    "type": "object",
+    "x-class": true,
+    "properties": {"count": {"x-function": {}}},
+    "x-constructor": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}]}},
+    "x-static": {
+      "open": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}], "returns": {"$ref": "#/$defs/Store"}}},
+      "default_path": {"x-function": {"returns": {"type": "string"}}}
+    }
+  }
+}"##,
+    );
+    assert!(
+        text.contains(
+            "export interface Store {\n  count: () => void;\n}\nexport declare const Store: {\n  \
+             new (path: string): Store;\n  open (path: string): Store;\n  default_path (): string;\n};\n"
+        ),
+        "interface 与值声明逐字（零空行、2 空格缩进、new 在前）：\n{text}"
+    );
+}
+
+/// 正向（AC-3 单项产出）：仅 `x-constructor` ⇒ 值声明只有 `new` 一行；仅 `x-static` ⇒
+/// 值声明无 `new`、逐成员一行；类型 / 值同名共存形态（`export interface T` +
+/// `export declare const T`）。
+#[test]
+fn render值声明单项产出() {
+    let constructor_only = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-constructor": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}]}}}}"#,
+    );
+    assert!(
+        constructor_only.contains(
+            "export interface Store {}\nexport declare const Store: {\n  new (path: string): Store;\n};\n"
+        ),
+        "仅 ctor ⇒ 值声明只有 new：\n{constructor_only}"
+    );
+
+    let statics_only = render_types(
+        r##"{"Store": {"type": "object", "x-class": true, "x-static": {"open": {"x-function": {"returns": {"$ref": "#/$defs/Store"}}}, "default_path": {"x-function": {"returns": {"type": "string"}}}}}}"##,
+    );
+    assert!(
+        statics_only.contains(
+            "export declare const Store: {\n  open (): Store;\n  default_path (): string;\n};\n"
+        ),
+        "仅 static ⇒ 值声明无 new：\n{statics_only}"
+    );
+    assert!(
+        statics_only.contains("export interface Store {}"),
+        "类型 / 值同名共存：\n{statics_only}"
+    );
+}
+
+/// 边界（AC-3 零值声明三臂）：无 ctor / static 的 `x-class` ⇒ 零 `export declare const`；
+/// 任何 object 条目（有字段 / 零字段 / 带 `additionalProperties`）⇒ 零值声明；
+/// `x-static: {}` + 无 ctor ⇒ 零值声明（「非空」判定而非「键在场」）。
+#[test]
+fn render零值声明三臂() {
+    let cases = [
+        (
+            "无 ctor / static 的 x-class",
+            r#"{"Marker": {"type": "object", "x-class": true, "properties": {}}}"#,
+        ),
+        (
+            "有字段 object",
+            r#"{"Item": {"type": "object", "properties": {"a": {"type": "string"}}}}"#,
+        ),
+        (
+            "零字段 object",
+            r#"{"Unit": {"type": "object", "properties": {}}}"#,
+        ),
+        (
+            "带 additionalProperties 的 object",
+            r#"{"Dict": {"type": "object", "additionalProperties": {"type": "string"}}}"#,
+        ),
+        (
+            "空 x-static 表",
+            r#"{"Marker": {"type": "object", "x-class": true, "properties": {}, "x-static": {}}}"#,
+        ),
+    ];
+    for (label, definition) in cases {
+        let text = render_types(definition);
+        assert!(
+            !text.contains("export declare const"),
+            "{label} ⇒ 零值声明：\n{text}"
+        );
+    }
+}
+
+/// 边界（值声明成员签名）：ctor `params` 缺省 ⇒ `new (): Store;`；100 参 ⇒ 一行内逗号
+/// 连接、零尾逗号；成员名 1200 字符 ⇒ 行内含该名；`returns` 缺省 ⇒ `: void`。
+#[test]
+fn render值声明成员签名边界() {
+    let bare = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-constructor": {"x-function": {}}}}"#,
+    );
+    assert!(bare.contains("  new (): Store;\n"), "ctor 零参：\n{bare}");
+
+    let params: Vec<serde_json::Value> = (0..100)
+        .map(|index| serde_json::json!({"name": format!("p{index}"), "schema": {"type": "string"}}))
+        .collect();
+    let definition = serde_json::json!({
+        "Store": {"type": "object", "x-class": true, "x-constructor": {"x-function": {"params": params}}}
+    });
+    let wide = render_types(&definition.to_string());
+    let line = wide
+        .lines()
+        .find(|line| line.contains("  new ("))
+        .unwrap_or_else(|| panic!("应产值声明 new 行：\n{wide}"));
+    assert_eq!(line.matches(", ").count(), 99, "100 参逗号连接：{line}");
+    assert!(line.ends_with("): Store;"), "零尾逗号且闭合：{line}");
+
+    let long = "a".repeat(1200);
+    let mut statics = serde_json::Map::new();
+    statics.insert(long.clone(), serde_json::json!({"x-function": {}}));
+    let definition = serde_json::json!({
+        "Store": {
+            "type": "object",
+            "x-class": true,
+            "x-static": serde_json::Value::Object(statics),
+        }
+    });
+    let text = render_types(&definition.to_string());
+    assert!(
+        text.contains(&format!("  {long} (): void;")),
+        "超长成员名在行内且 returns 缺省 ⇒ void"
+    );
+}
+
+/// 异常（渲染期零判据）：`params` 值非数组 ⇒ 空串、零 panic；参数项缺 `schema` 且缺
+/// `type` ⇒ `unknown` 兜底。
+#[test]
+fn render值声明参数兜底() {
+    for declaration in [
+        r#"{"x-function": {"params": "oops"}}"#,
+        r#"{"x-function": {"params": {"a": 1}}}"#,
+        r#"{"x-function": {"params": null}}"#,
+    ] {
+        let text = render_types(&format!(
+            r#"{{"Store": {{"type": "object", "x-class": true, "x-constructor": {declaration}}}}}"#
+        ));
+        assert!(
+            text.contains("  new (): Store;\n"),
+            "非法 params ⇒ 空串（{declaration}）：\n{text}"
+        );
+    }
+
+    let unknown = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-constructor": {"x-function": {"params": [{"name": "raw"}]}}}}"#,
+    );
+    assert!(
+        unknown.contains("  new (raw: unknown): Store;\n"),
+        "缺 schema / type ⇒ unknown 兜底：\n{unknown}"
+    );
+}
+
+/// 正向（参数面）：`optional: true` ⇒ `path: string | null`（`nullable_of` 单点包装，与字段面 `?` 分立）；
+/// `params[].name` 缺省回退 `arg`；参数 `schema` 缺省回退 param 自身。
+#[test]
+fn render值声明参数面() {
+    let optional = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-static": {"open": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}, "optional": true}]}}}}}"#,
+    );
+    assert!(
+        optional.contains("  open (path: string | null): void;\n"),
+        "可选参经 `| null` 单点包装（与字段面 `?` 分立）：\n{optional}"
+    );
+
+    let fallback = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-static": {"open": {"x-function": {"params": [{"type": "integer"}]}}}}}"#,
+    );
+    assert!(
+        fallback.contains("  open (arg: number): void;\n"),
+        "缺 name ⇒ arg；schema 缺省回退 param 自身：\n{fallback}"
+    );
+}
+
+/// 边界（params 四臂）：缺省 / `[]` ⇒ 空串；单元素 ⇒ `path: string`；100 元素 ⇒ 逗号连接。
+#[test]
+fn render值声明params四臂() {
+    let bare = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-static": {"open": {"x-function": {}}}}}"#,
+    );
+    assert!(bare.contains("  open (): void;\n"), "params 缺省：\n{bare}");
+
+    let empty = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-static": {"open": {"x-function": {"params": []}}}}}"#,
+    );
+    assert!(
+        empty.contains("  open (): void;\n"),
+        "params 为空：\n{empty}"
+    );
+
+    let single = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-static": {"open": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}]}}}}}"#,
+    );
+    assert!(
+        single.contains("  open (path: string): void;\n"),
+        "单参：\n{single}"
+    );
+
+    let params: Vec<serde_json::Value> = (0..100)
+        .map(|index| serde_json::json!({"name": format!("p{index}"), "schema": {"type": "string"}}))
+        .collect();
+    let definition = serde_json::json!({
+        "Store": {"type": "object", "x-class": true, "x-static": {"open": {"x-function": {"params": params}}}}
+    });
+    let wide = render_types(&definition.to_string());
+    let line = wide
+        .lines()
+        .find(|line| line.contains("  open ("))
+        .unwrap_or_else(|| panic!("应产值声明成员行：\n{wide}"));
+    assert_eq!(line.matches(", ").count(), 99, "100 参逗号连接：{line}");
+    assert!(line.ends_with("): void;"), "零尾逗号且闭合：{line}");
+}
+
+/// 异常（返回位兜底）：`returns` 为非法值（标量 / `null`）⇒ `unknown` 兜底、零 panic；
+/// `async` 值非布尔 ⇒ 不算异步（只认 `true`）。
+#[test]
+fn render值声明返回位兜底() {
+    for returns in ["42", "null"] {
+        let text = render_types(&format!(
+            r#"{{"Store": {{"type": "object", "x-class": true, "x-static": {{"open": {{"x-function": {{"returns": {returns}}}}}}}}}}}"#
+        ));
+        assert!(
+            text.contains("  open (): unknown;\n"),
+            "非法 returns ⇒ unknown（{returns}）：\n{text}"
+        );
+    }
+
+    let async_string = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-static": {"open": {"x-function": {"async": "true", "returns": {"type": "string"}}}}}}"#,
+    );
+    assert!(
+        async_string.contains("  open (): string;\n"),
+        "非布尔 async 不算异步：\n{async_string}"
+    );
+}
+
+/// 正向（返回面）：`async: true` ⇒ `Promise<R>`；`returns` 缺省 ⇒ `void`；`returns` 为
+/// `$ref` ⇒ 末段名；显式 null ⇒ `T | null` 至多一次。
+#[test]
+fn render值声明返回面() {
+    let asynchronous = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-static": {"open": {"x-function": {"async": true, "returns": {"type": "string"}}}}}}"#,
+    );
+    assert!(
+        asynchronous.contains("  open (): Promise<string>;\n"),
+        "async ⇒ Promise<R>：\n{asynchronous}"
+    );
+
+    let reference = render_types(
+        r##"{"Store": {"type": "object", "x-class": true, "x-static": {"open": {"x-function": {"returns": {"$ref": "#/$defs/Store"}}}}}}"##,
+    );
+    assert!(
+        reference.contains("  open (): Store;\n"),
+        "`$ref` ⇒ 末段名：\n{reference}"
+    );
+
+    let nullable = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-static": {"open": {"x-function": {"returns": {"type": ["string", "null"]}}}}}}"#,
+    );
+    assert!(
+        nullable.contains("  open (): string | null;\n"),
+        "显式 null ⇒ `T | null` 一次：\n{nullable}"
+    );
+    assert!(
+        !nullable.contains("| null | null"),
+        "`| null` 至多一次：\n{nullable}"
+    );
+}
+
+/// 边界（映射规则内容位 D-7）：`returns` 为 `{"outcome": {"type":"string"}}` ⇒ 经
+/// `value_type(returns, Return)` 按 `common.json` 表展开；**整签名包装**只作用于 interface
+/// 成员位——同一函数对象在 interface 成员位套包装、在值声明位只展开 `returns`。
+#[test]
+fn render值声明不套整签名包装() {
+    let text = render_types(
+        r#"{"Store": {
+  "type": "object",
+  "x-class": true,
+  "properties": {"load": {"x-function": {"outcome": {"type": "string"}}}},
+  "x-static": {"load": {"x-function": {"outcome": {"type": "string"}}}}
+}}"#,
+    );
+    assert!(
+        text.contains("  load: { ok: string } | { err: string };\n"),
+        "interface 成员位套整签名包装：\n{text}"
+    );
+    assert!(
+        text.contains("  load (): void;\n"),
+        "值声明位不套整签名包装（returns 缺省 ⇒ void）：\n{text}"
+    );
+}
+
+/// 正向（方法成员形态）：`(input: string) => boolean`（整签名包装未命中）；零参零返回 ⇒
+/// `() => void`。
+#[test]
+fn render方法成员形态() {
+    let method = render_types(
+        r#"{"Runner": {"type": "object", "x-class": true, "properties": {"run": {"x-function": {"params": [{"name": "input", "schema": {"type": "string"}}], "returns": {"type": "boolean"}}}}}}"#,
+    );
+    assert!(
+        method.contains("  run: (input: string) => boolean;\n"),
+        "方法成员签名逐字：\n{method}"
+    );
+
+    let bare = render_types(
+        r#"{"Runner": {"type": "object", "x-class": true, "properties": {"run": {"x-function": {}}}}}"#,
+    );
+    assert!(
+        bare.contains("  run: () => void;\n"),
+        "零参零返回：\n{bare}"
+    );
+}
+
+/// 异常（`function_type` 兜底）：函数对象为标量 / `null`（绕过写闸直喂）⇒ `() => void`
+/// 兜底、零 panic；`common_type` 命中但本语言槽位为空 ⇒ 回退普通签名。
+#[test]
+fn render方法成员兜底() {
+    for function in ["42", "null"] {
+        let text = render_types(&format!(
+            r#"{{"Runner": {{"type": "object", "x-class": true, "properties": {{"run": {{"x-function": {function}}}}}}}}}"#
+        ));
+        assert!(
+            text.contains("  run: () => void;\n"),
+            "非法函数对象 ⇒ `() => void` 兜底（{function}）：\n{text}"
+        );
+    }
+}
+
+/// 异常（`interface_block` 渲染期零判据）：`x-class` 条目 `properties` 含非函数值（绕过
+/// 写闸直喂）⇒ 该成员按字段面 `{field}?: T` 渲染、零 panic；`x-constructor` 带 `returns` /
+/// `async: true` ⇒ 不被读取、不报错。
+#[test]
+fn render界面块零判据() {
+    let mixed = render_types(
+        r#"{"Gate": {"type": "object", "x-class": true, "properties": {"count": {"type": "integer"}, "run": {"x-function": {}}}}}"#,
+    );
+    assert!(
+        mixed.contains("  count?: number;\n") && mixed.contains("  run: () => void;\n"),
+        "非函数值按字段面渲染：\n{mixed}"
+    );
+
+    let illegal_constructor = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-constructor": {"x-function": {"returns": {"type": "string"}, "async": true}}}}"#,
+    );
+    assert!(
+        illegal_constructor.contains("  new (): Store;\n"),
+        "构造器的 returns / async 不被值声明读取：\n{illegal_constructor}"
+    );
+}
+
+/// 边界（`interface_block` 超大 body）：100 成员 ⇒ 逐行 2 空格缩进、interface 的 `}` 与值声明
+/// 之间零空行；零字段类 ⇒ `export interface T {}` 单行形态。
+#[test]
+fn render界面块百成员body() {
+    let mut properties = serde_json::Map::new();
+    for index in 0..100 {
+        properties.insert(format!("m{index}"), serde_json::json!({"x-function": {}}));
+    }
+    let definition = serde_json::json!({
+        "Wide": {
+            "type": "object",
+            "x-class": true,
+            "properties": serde_json::Value::Object(properties),
+            "x-constructor": {"x-function": {"params": []}},
+        }
+    });
+    let text = render_types(&definition.to_string());
+    let start = text
+        .find("export interface Wide {")
+        .unwrap_or_else(|| panic!("应产 interface 头：\n{text}"));
+    let end = text
+        .find("export declare const Wide:")
+        .unwrap_or_else(|| panic!("应产值声明头：\n{text}"));
+    let body = &text[start..end];
+    assert!(
+        body.ends_with("}\n"),
+        "interface 的 `}}` 与值声明之间零空行：\n{body}"
+    );
+
+    let lines: Vec<&str> = body.lines().collect();
+    assert_eq!(
+        lines.first().copied(),
+        Some("export interface Wide {"),
+        "头行"
+    );
+    assert_eq!(lines.last().copied(), Some("}"), "尾行为闭合括号");
+    assert_eq!(
+        lines.len() - 2,
+        100,
+        "100 成员逐行在 body（实际 {} 行）",
+        lines.len()
+    );
+    for line in &lines[1..lines.len() - 1] {
+        assert!(
+            line.starts_with("  ") && !line.starts_with("   "),
+            "成员缩进 2 空格：{line:?}"
+        );
+        assert!(line.ends_with(';'), "成员行以分号收束：{line:?}");
+    }
+
+    let empty = render_types(r#"{"Gate": {"type": "object", "x-class": true, "properties": {}}}"#);
+    assert!(
+        empty.contains("export interface Gate {}\n"),
+        "零字段类 ⇒ 单行 interface：\n{empty}"
+    );
+}
+
+/// 回归（精确计数）：`ts.rs` 内 `get("x-function")` 文本出现次数恒 **2**
+/// （`interface_block` + `function_of`），值声明成员读取只走 `function_of`；三函数入口形态
+/// 不变。
+#[test]
+fn ts的x_function读取点恒二() {
+    let source = include_str!("ts.rs");
+    assert_eq!(
+        source.matches("get(\"x-function\")").count(),
+        2,
+        "`x-function` 读取点恒 2（interface 成员 + `function_of`）"
+    );
+    for signature in [
+        "fn interface_block(",
+        "fn function_type(",
+        "fn function_of(",
+    ] {
+        assert_eq!(
+            source.matches(signature).count(),
+            1,
+            "`{signature}` 单点定义且在案"
+        );
+    }
+    assert!(
+        !source.contains("eprintln!("),
+        "本文件零 `eprintln!`（警告单点在 `emit/mod.rs`）"
+    );
+}
+
+/// 回归（AC-3 零产出侧 + 幂等）：object 条目与无新键的 `x-class` 条目 ⇒ 全文零
+/// `export declare const`；`x-static` 值写成非对象（绕过写闸直喂）⇒ 不产该成员、零 panic；
+/// 同一 schema 两次渲染逐字相等。
+#[test]
+fn render零产出与幂等() {
+    let source = mirrored_schema_text(
+        FQN,
+        r##""Item": {"type": "object", "properties": {"a": {"type": "string"}}},
+            "Unit": {"type": "object", "properties": {}},
+            "Marker": {"type": "object", "x-class": true, "properties": {}},
+            "Scalar": {"type": "integer"},
+            "Choice": {"enum": ["a", "b"]},
+            "Variant": {"oneOf": [{"type": "string"}, {"type": "integer"}]}"##,
+        "",
+    );
+    let first = render_source(&source);
+    let second = render_source(&source);
+    assert_eq!(first, second, "同一 schema 两次渲染逐字相等");
+    assert!(
+        !first.contains("export declare const"),
+        "非类 / 无构造通路的条目零值声明：\n{first}"
+    );
+
+    let illegal =
+        render_types(r#"{"Store": {"type": "object", "x-class": true, "x-static": "oops"}}"#);
+    assert!(
+        !illegal.contains("export declare const"),
+        "`x-static` 非对象 ⇒ 零值声明、零 panic：\n{illegal}"
+    );
 }

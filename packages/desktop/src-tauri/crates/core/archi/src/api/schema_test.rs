@@ -790,10 +790,12 @@ fn verify_defs空与边缘形态() {
 // ---------------------------------------------------------------------------
 
 /// 异常（AC-5 / D27）：`x-class: true` 带 `properties` / `required` → `Err` 并点名
-/// 类型名 + 违规键；零属性的 `x-class` → `Ok`；`x-class: false` + 带属性 → `Ok`。
+/// 类型名 + 违规键；**缺 `type: "object"` 的骨架**（`{"x-class": true}`）同样 `Err` 并给出路
+/// （补 `"type": "object"`）；`x-class: false` + 带属性 → `Ok`（不参与判定）。
 #[test]
 fn verify_defs的x_class带属性判错() {
     let with_property = json!({"$defs": {"Gate": {
+        "type": "object",
         "x-class": true,
         "properties": {"count": {"type": "integer"}}
     }}});
@@ -803,6 +805,7 @@ fn verify_defs的x_class带属性判错() {
     assert!(error.contains("trait"), "点明 trait 仅允许方法：{error}");
 
     let with_required = json!({"$defs": {"Gate": {
+        "type": "object",
         "x-class": true,
         "required": ["a"]
     }}});
@@ -810,10 +813,17 @@ fn verify_defs的x_class带属性判错() {
     assert!(error.contains("Gate"), "点名类型名：{error}");
     assert!(error.contains("required"), "点名违规键：{error}");
 
+    // 缺骨架：`x-class` MUST 带 `type: "object"`（不写 `type` 的条目在标准校验器里是「任意值」，
+    // 且 `type: "string"` 一类会被静默吞成 trait）——本臂由正例翻负例（AC-5 / AC-11）
     let bare = json!({"$defs": {"Gate": {"x-class": true}}});
+    let bare_error = contract_error(verify_defs(&bare));
     assert!(
-        verify_defs(&bare).is_ok(),
-        "零属性的 x-class 合法（空 trait）"
+        bare_error.contains("type") && bare_error.contains("$defs.Gate.type"),
+        "缺 `type: \"object\"` 即 `Err` 并点名 $defs.Gate.type：{bare_error}"
+    );
+    assert!(
+        bare_error.contains(r#""type": "object""#),
+        "出路是补 `\"type\": \"object\"`：{bare_error}"
     );
 
     let false_flag = json!({"$defs": {"Gate": {
@@ -832,6 +842,7 @@ fn verify_defs的x_class带属性判错() {
 fn verify_defs的x_class不吞并既有规则() {
     let nested = json!({"A": {"type": "object", "$defs": {"B": {"type": "object"}}}});
     let x_class = json!({"Gate": {
+        "type": "object",
         "x-class": true,
         "properties": {"count": {"type": "integer"}}
     }});
@@ -878,6 +889,7 @@ fn verify_defs的x_class不吞并既有规则() {
 #[test]
 fn verify_defs判错只出contract变体() {
     let schema = json!({"$defs": {"Gate": {
+        "type": "object",
         "x-class": true,
         "properties": {"count": {"type": "integer"}}
     }}});
@@ -1753,8 +1765,7 @@ fn verify_defs既有规则零回归() {
         "同名两次（文本层判据）：{duplicate_error}"
     );
 
-    let x_class =
-        json!({"$defs": {"Gate": {"x-class": true, "properties": {"count": {"type": "integer"}}}}});
+    let x_class = json!({"$defs": {"Gate": {"type": "object", "x-class": true, "properties": {"count": {"type": "integer"}}}}});
     let x_class_error = contract_error(verify_defs(&x_class));
     assert!(
         x_class_error.contains("x-class") && x_class_error.contains("trait"),
@@ -1880,4 +1891,751 @@ fn 生成器让位而注记分家() {
         module.matches("SCHEMA_WRITER_NOTICE").count() >= 2,
         "写者纪律注在案并被骨架使用"
     );
+}
+
+// ---------------------------------------------------------------------------
+// x-class 骨架 / 构造入口 / 静态方法（AC-4 / AC-5 / AC-6 / AC-7 / AC-8）
+// ---------------------------------------------------------------------------
+
+/// `$defs` 片段 → `{"$defs": …}` schema 值（判据面只吃 `$defs`，其余顶层键不参与）。
+fn defs_value(defs: &str) -> Value {
+    serde_json::from_str(&format!("{{\"$defs\": {defs}}}"))
+        .unwrap_or_else(|error| panic!("夹具 `$defs` 片段必须是合法 JSON：{error}\n{defs}"))
+}
+
+/// `$defs.Gate` 取给定定义原文的 schema 值。
+fn gate(definition: &str) -> Value {
+    defs_value(&format!("{{\"Gate\": {definition}}}"))
+}
+
+/// `$defs.Gate` 的 `x-class` 骨架（`type` + `x-class` 固定在场，`rest` 逐字追加）。
+fn class_gate(rest: &str) -> Value {
+    let body = if rest.trim().is_empty() {
+        r#"{"type": "object", "x-class": true}"#.to_owned()
+    } else {
+        format!(r#"{{"type": "object", "x-class": true, {rest}}}"#)
+    };
+    gate(&body)
+}
+
+/// 正向（AC-5 正例面 / 骨架四判据全过）：空 `properties`（空 trait）、全 `x-function`
+/// 方法、`x-class: false` + 带属性、`x-class` 为字符串 `"true"`（非 bool 不命中 class
+/// 分支）四臂 ⇒ 全 `Ok`。
+#[test]
+fn verify_defs合法骨架面全过() {
+    let cases = [
+        (
+            "空 properties 的空 trait",
+            r#"{"Gate": {"type": "object", "x-class": true, "properties": {}}}"#,
+        ),
+        (
+            "全 x-function 方法的 trait",
+            r#"{"Gate": {"type": "object", "x-class": true, "properties": {"run": {"x-function": {"params": [], "returns": {"type": "string"}}}}}}"#,
+        ),
+        (
+            "x-class: false 带属性",
+            r#"{"Gate": {"type": "object", "x-class": false, "properties": {"count": {"type": "integer"}}}}"#,
+        ),
+        (
+            "x-class 值为字符串 \"true\"",
+            r#"{"Gate": {"type": "object", "x-class": "true", "properties": {"count": {"type": "integer"}}}}"#,
+        ),
+    ];
+    for (label, defs) in cases {
+        assert_eq!(
+            verify_defs(&defs_value(defs)),
+            Ok(()),
+            "{label}：骨架四判据应全过"
+        );
+    }
+}
+
+/// 异常（AC-5）：缺骨架两主形态——`{"x-class": true}`（`type` 缺省）与
+/// `{"type":"string","x-class":true}` ⇒ 各 `Err`，文案点名 `$defs.Gate.type`、报实际形态、
+/// 含出路「补 `\"type\": \"object\"`」。
+#[test]
+fn verify_defs缺骨架两主形态报错() {
+    let bare = contract_error(verify_defs(&gate(r#"{"x-class": true}"#)));
+    assert!(bare.contains("$defs.Gate.type"), "点名键位：{bare}");
+    assert!(bare.contains("缺省"), "报实际形态（缺省）：{bare}");
+    assert!(bare.contains(r#""type": "object""#), "含可执行出路：{bare}");
+
+    let scalar = contract_error(verify_defs(&gate(r#"{"type": "string", "x-class": true}"#)));
+    assert!(scalar.contains("$defs.Gate.type"), "点名键位：{scalar}");
+    assert!(scalar.contains("`string`"), "报实际形态：{scalar}");
+    assert!(
+        scalar.contains(r#""type": "object""#),
+        "含可执行出路：{scalar}"
+    );
+    assert_ne!(bare, scalar, "两形态文案互不相等（逐条可辨）");
+}
+
+/// 异常（AC-5，str 边界四值）：`type` 为 `"Object"`（大小写）/ `"object "`（尾空格）/
+/// `""`（空串）/ `null` ⇒ 各 `Err`（不归一、不容错）。
+#[test]
+fn verify_defs的type四边界值全报错() {
+    for actual in [r#""Object""#, r#""object ""#, r#""""#, "null"] {
+        let defs = format!(r#"{{"Gate": {{"type": {actual}, "x-class": true}}}}"#);
+        let message = contract_error(verify_defs(&defs_value(&defs)));
+        assert!(
+            message.contains("$defs.Gate.type"),
+            "`type` = {actual} ⇒ 点名键位：{message}"
+        );
+        assert!(
+            message.contains(r#""type": "object""#),
+            "`type` = {actual} ⇒ 含出路：{message}"
+        );
+    }
+}
+
+/// 异常（AC-5 / 语义互斥）：`additionalProperties` 对象 / 布尔 `false` / 布尔 `true` /
+/// 空对象四形态 ⇒ 各 `Err`，文案点名该键并含两条可执行出路（去掉 `x-class` 变纯数据且
+/// 说明条目层 map 本期不渲染；方法集合则去掉该键）。
+#[test]
+fn verify_defs的additional_properties四形态互斥() {
+    let cases = [
+        ("对象形态", r#"{"type": "string"}"#),
+        ("布尔 false", "false"),
+        ("布尔 true", "true"),
+        ("空对象", "{}"),
+    ];
+    for (label, declaration) in cases {
+        let message = contract_error(verify_defs(&class_gate(&format!(
+            r#""additionalProperties": {declaration}"#
+        ))));
+        assert!(
+            message.contains("additionalProperties"),
+            "{label} ⇒ 点名该键：{message}"
+        );
+        assert!(
+            message.contains("去掉 `x-class`") && message.contains("不渲染"),
+            "{label} ⇒ 出路一侧（变纯数据 + map 不渲染）：{message}"
+        );
+        assert!(
+            message.contains("去掉 `additionalProperties`"),
+            "{label} ⇒ 出路另一侧（方法集合）：{message}"
+        );
+    }
+}
+
+/// 边界（AC-8 反向断言：只治一侧）：无 `x-class` 的 `additionalProperties` 字典 ⇒ `Ok`；
+/// 同形态再带 `properties` ⇒ 仍 `Ok`（本期不改它的静默）。
+#[test]
+fn verify_defs良性对照只治x_class一侧() {
+    let dictionary =
+        defs_value(r#"{"Dict": {"type": "object", "additionalProperties": {"type": "string"}}}"#);
+    assert_eq!(
+        verify_defs(&dictionary),
+        Ok(()),
+        "无 x-class 的字典仍被写闸放行"
+    );
+
+    let with_fields = defs_value(
+        r#"{"Dict": {"type": "object", "additionalProperties": {"type": "boolean"}, "properties": {"size": {"type": "integer"}}}}"#,
+    );
+    assert_eq!(
+        verify_defs(&with_fields),
+        Ok(()),
+        "带 properties 的字典仍放行"
+    );
+}
+
+/// 边界（判序固定，判序即错误面）：`additionalProperties` + `required` + 非函数属性并存
+/// ⇒ 报 `additionalProperties`；`type` 缺失 + 其余并存 ⇒ 报 `type`；有 `type` 时
+/// `required` + 非函数属性 ⇒ 报 `required`；只剩非函数属性 ⇒ 报 `properties`——四条文案
+/// 互不相等（逐条可辨）。
+#[test]
+fn verify_defs骨架四判据判序固定() {
+    let dictionary = contract_error(verify_defs(&gate(
+        r#"{"type": "object", "x-class": true, "additionalProperties": false, "required": ["a"], "properties": {"a": {"type": "integer"}}}"#,
+    )));
+    assert!(
+        dictionary.contains("additionalProperties"),
+        "首选判据是 additionalProperties：{dictionary}"
+    );
+
+    let skeleton = contract_error(verify_defs(&gate(
+        r#"{"x-class": true, "required": ["a"], "properties": {"a": {"type": "integer"}}}"#,
+    )));
+    assert!(
+        skeleton.contains("$defs.Gate.type"),
+        "次选判据是 type：{skeleton}"
+    );
+
+    let required = contract_error(verify_defs(&gate(
+        r#"{"type": "object", "x-class": true, "required": ["a"], "properties": {"a": {"type": "integer"}}}"#,
+    )));
+    assert!(
+        required.contains("required") && !required.contains("$defs.Gate.type"),
+        "第三判据是 required：{required}"
+    );
+
+    let properties = contract_error(verify_defs(&gate(
+        r#"{"type": "object", "x-class": true, "properties": {"a": {"type": "integer"}}}"#,
+    )));
+    assert!(
+        properties.contains("properties.a"),
+        "末位判据是 properties：{properties}"
+    );
+
+    let messages = [
+        dictionary.clone(),
+        skeleton.clone(),
+        required.clone(),
+        properties.clone(),
+    ];
+    for (index, left) in messages.iter().enumerate() {
+        for right in messages.iter().skip(index + 1) {
+            assert_ne!(left, right, "四判据文案互不相等（逐条可辨）");
+        }
+    }
+}
+
+/// 回归（AC-5 既有面）：新判据不遮蔽既有五条 `$defs` 规则——嵌套 `$defs` 与缺 `type`
+/// 并存 ⇒ 先报嵌套（外层规则优先）。
+#[test]
+fn verify_defs新判据不遮蔽既有规则() {
+    let nested =
+        defs_value(r#"{"Gate": {"x-class": true, "$defs": {"Inner": {"type": "object"}}}}"#);
+    let message = contract_error(verify_defs(&nested));
+    assert!(
+        message.contains("嵌套"),
+        "外层规则先命中（缺 type 不抢先）：{message}"
+    );
+    assert!(
+        !message.contains("$defs.Gate.type"),
+        "MUST NOT 遮蔽既有规则：{message}"
+    );
+}
+
+/// 边界（str 边界 + 超长）：`type` 含 `\n` / `\0` / emoji ⇒ 各 `Err`（零 panic 的精确
+/// 拒绝）；键名 emoji 与 `x-static` 成员名含空格 / 连字符 ⇒ 本文件不判（名字族归
+/// `contract::verify`）故 `Ok`；落点单趟仍排在 `degraded` 词表扫描之前。
+#[test]
+fn verify_defs特殊字符与超长值零误判() {
+    for actual in [r#""object\n""#, r#""object\u0000""#, r#""object🎯""#] {
+        let defs = format!(r#"{{"Gate": {{"type": {actual}, "x-class": true}}}}"#);
+        let message = contract_error(verify_defs(&defs_value(&defs)));
+        assert!(
+            message.contains("$defs.Gate.type"),
+            "特殊字符的 type 仍精确拒绝：{message}"
+        );
+    }
+
+    let exotic_name =
+        defs_value(r#"{"🎯": {"type": "object", "x-class": true, "properties": {}}}"#);
+    assert_eq!(
+        verify_defs(&exotic_name),
+        Ok(()),
+        "键名形态归名字闸，本文件不判"
+    );
+
+    let exotic_members =
+        class_gate(r#""x-static": {"带 空格": {"x-function": {}}, "open-it": {"x-function": {}}}"#);
+    assert_eq!(
+        verify_defs(&exotic_members),
+        Ok(()),
+        "成员名形态归名字闸，本文件不判"
+    );
+
+    let ordered = defs_value(
+        r#"{"Plain": {"type": "object", "x-static": {"open": {"x-function": {}}}, "x-common": {"degraded": "bogus"}}}"#,
+    );
+    let message = contract_error(verify_defs(&ordered));
+    assert!(
+        message.contains("落点非法"),
+        "落点单趟排在 degraded 词表之前：{message}"
+    );
+    assert!(!message.contains("降级词表"), "降级词表仍最后：{message}");
+}
+
+/// 正向（AC-6 正例面 / 构造器形态）：`params` 缺省 / `[]` / 单参 / 100 参、`async: false`、
+/// 外层另加键（`note` / `description`）⇒ 全 `Ok`（外层不设未知键闸）。
+#[test]
+fn verify_class_members构造器形态正例() {
+    for rest in [
+        r#""x-constructor": {"x-function": {}}"#,
+        r#""x-constructor": {"x-function": {"params": []}}"#,
+        r#""x-constructor": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}]}}"#,
+        r#""x-constructor": {"x-function": {"async": false}}"#,
+        r#""x-constructor": {"x-function": {}, "note": "注", "description": "注"}"#,
+    ] {
+        assert_eq!(
+            verify_defs(&class_gate(rest)),
+            Ok(()),
+            "构造器合法形态应过：{rest}"
+        );
+    }
+
+    let params: Vec<Value> = (0..100)
+        .map(|index| json!({"name": format!("p{index}"), "schema": {"type": "string"}}))
+        .collect();
+    let wide = json!({"$defs": {"Gate": {
+        "type": "object",
+        "x-class": true,
+        "x-constructor": {"x-function": {"params": params}},
+    }}});
+    assert_eq!(
+        verify_defs(&wide),
+        Ok(()),
+        "100 参构造器仍合法（list 超大边界）"
+    );
+}
+
+/// 异常（AC-6 / N-3）：构造器形态负例——值为数组 / 字符串 / `null` / `{}`（缺
+/// `x-function`）/ `x-function` 为标量 ⇒ 各 `Err` 点名 `$defs.Gate.x-constructor`；
+/// 带 `returns` ⇒ `Err` 点名 `returns` 与出路；`async: true` ⇒ `Err`（构造器是值而非
+/// future）。
+#[test]
+fn verify_class_members构造器形态负例() {
+    for declaration in ["[]", r#""oops""#, "null", "{}", r#"{"x-function": 42}"#] {
+        let message = contract_error(verify_defs(&class_gate(&format!(
+            r#""x-constructor": {declaration}"#
+        ))));
+        assert!(
+            message.contains("$defs.Gate.x-constructor"),
+            "点名键位（{declaration}）：{message}"
+        );
+    }
+
+    let returns = contract_error(verify_defs(&class_gate(
+        r#""x-constructor": {"x-function": {"returns": {"type": "string"}}}"#,
+    )));
+    assert!(returns.contains("returns"), "点名禁项 returns：{returns}");
+    assert!(
+        returns.contains("别名构造") && returns.contains("x-static"),
+        "出路指向 x-static：{returns}"
+    );
+
+    let asynchronous = contract_error(verify_defs(&class_gate(
+        r#""x-constructor": {"x-function": {"async": true}}"#,
+    )));
+    assert!(
+        asynchronous.contains("async") && asynchronous.contains("future"),
+        "点名禁项 async: true 与成因：{asynchronous}"
+    );
+}
+
+/// 异常（AC-6 静态成员形态）：`x-static` 值为数组 / 字符串 / `null` ⇒ 各 `Err`；成员缺
+/// `x-function` / `x-function` 为标量 ⇒ `Err`（缺包裹即静默丢）；100 个合法成员 ⇒ `Ok`。
+#[test]
+fn verify_class_members静态成员形态负例() {
+    for declaration in ["[]", r#""oops""#, "null"] {
+        let message = contract_error(verify_defs(&class_gate(&format!(
+            r#""x-static": {declaration}"#
+        ))));
+        assert!(
+            message.contains("$defs.Gate.x-static"),
+            "点名表位（{declaration}）：{message}"
+        );
+    }
+    for declaration in [r#"{"open": {}}"#, r#"{"open": {"x-function": 42}}"#] {
+        let message = contract_error(verify_defs(&class_gate(&format!(
+            r#""x-static": {declaration}"#
+        ))));
+        assert!(
+            message.contains("$defs.Gate.x-static.open"),
+            "点名成员位（{declaration}）：{message}"
+        );
+        assert!(message.contains("x-function"), "点名缺包裹：{message}");
+    }
+
+    let members: Map<String, Value> = (0..100)
+        .map(|index| (format!("m{index}"), json!({"x-function": {}})))
+        .collect();
+    let many = json!({"$defs": {"Gate": {
+        "type": "object",
+        "x-class": true,
+        "x-static": Value::Object(members),
+    }}});
+    assert_eq!(
+        verify_defs(&many),
+        Ok(()),
+        "100 个合法静态成员仍过（dict 超大边界）"
+    );
+}
+
+/// 边界（Optional 缺省面）：`x-static: {}`（零成员）⇒ `Ok`；两键都缺省 ⇒ `Ok`；成员内层
+/// 自由形状（`params` / `returns` / `async` / `description` 任意组合）⇒ `Ok`。
+#[test]
+fn verify_class_members缺省与空面() {
+    for rest in [
+        r#""x-static": {}"#,
+        "",
+        r#""x-static": {"open": {"x-function": {"params": [], "returns": {"type": "string"}, "async": true, "description": "开"}}}"#,
+    ] {
+        assert_eq!(
+            verify_defs(&class_gate(rest)),
+            Ok(()),
+            "缺省 / 空面应过：{rest}"
+        );
+    }
+}
+
+/// 正向（AC-4 正例面）：合法位——类条目顶层单独 `x-constructor` / 单独 `x-static` /
+/// 两键并存 / 带方法 + ctor + static 的完整正例 ⇒ 全 `Ok`。
+#[test]
+fn verify_class_key_positions合法位() {
+    for rest in [
+        r#""x-constructor": {"x-function": {}}"#,
+        r#""x-static": {"open": {"x-function": {}}}"#,
+        r#""x-constructor": {"x-function": {}}, "x-static": {"open": {"x-function": {}}}"#,
+        r##""properties": {"run": {"x-function": {}}}, "x-constructor": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}]}}, "x-static": {"open": {"x-function": {"returns": {"$ref": "#/$defs/Gate"}}}}"##,
+    ] {
+        assert_eq!(
+            verify_defs(&class_gate(rest)),
+            Ok(()),
+            "类条目顶层的两键合法：{rest}"
+        );
+    }
+}
+
+/// 异常（AC-4 落点）：非类条目四形态——纯 `object` / `enum` / 标量 / 纯 `$ref` alias 上
+/// 写 `x-constructor` ⇒ 各 `Err` 点名 `$defs.<T>.x-constructor` 与出路；`x-static` 写进
+/// `enum` / 纯 alias 两臂同断言。
+#[test]
+fn verify_class_key_positions非类条目四形态() {
+    let constructor = r#""x-constructor": {"x-function": {}}"#;
+    let statics = r#""x-static": {"open": {"x-function": {}}}"#;
+    let cases = [
+        (
+            "纯 object",
+            format!(r#"{{"Plain": {{"type": "object", {constructor}}}}}"#),
+        ),
+        (
+            "enum",
+            format!(r#"{{"Plain": {{"enum": ["a", "b"], {constructor}}}}}"#),
+        ),
+        (
+            "标量",
+            format!(r#"{{"Plain": {{"type": "string", {constructor}}}}}"#),
+        ),
+        (
+            "纯 $ref alias",
+            format!(
+                r##"{{"Other": {{"type": "object"}}, "Plain": {{"$ref": "#/$defs/Other", {constructor}}}}}"##
+            ),
+        ),
+    ];
+    for (label, defs) in cases {
+        let message = contract_error(verify_defs(&defs_value(&defs)));
+        assert!(
+            message.contains("$defs.Plain.x-constructor"),
+            "{label} ⇒ 点名键位与条目：{message}"
+        );
+        assert!(
+            message.contains("只有 `x-class` 条目可声明构造入口与静态方法"),
+            "{label} ⇒ 含出路：{message}"
+        );
+    }
+
+    for (label, defs) in [
+        (
+            "enum",
+            format!(r#"{{"Plain": {{"enum": ["a"], {statics}}}}}"#),
+        ),
+        (
+            "纯 $ref alias",
+            format!(
+                r##"{{"Other": {{"type": "object"}}, "Plain": {{"$ref": "#/$defs/Other", {statics}}}}}"##
+            ),
+        ),
+    ] {
+        let message = contract_error(verify_defs(&defs_value(&defs)));
+        assert!(
+            message.contains("$defs.Plain.x-static"),
+            "{label} 的 x-static ⇒ 点名键位：{message}"
+        );
+    }
+}
+
+/// 异常（AC-4 深层与模块位）：`properties.<k>.x-function` 内写新键 / `$defs` 条目内更深层
+/// / `items` 内 / `x-static.open.x-static`（嵌套两键）⇒ 各 `Err` 点名 JSON pointer；
+/// 模块 `properties.<k>` 直接写新键 ⇒ 既有 ⑤ 形态白名单 `Err`。
+#[test]
+fn verify_class_key_positions深层与模块位() {
+    let inside_function = json!({
+        "$defs": {},
+        "properties": {"k": {"x-function": {"x-constructor": {"x-function": {}}}}},
+    });
+    let message = contract_error(verify_defs(&inside_function));
+    assert!(
+        message.contains("properties.k.x-function.x-constructor"),
+        "函数内层写新键 ⇒ 点名 pointer：{message}"
+    );
+
+    let deeper = class_gate(
+        r#""properties": {"m": {"x-function": {}, "x-static": {"open": {"x-function": {}}}}}"#,
+    );
+    let message = contract_error(verify_defs(&deeper));
+    assert!(
+        message.contains("$defs.Gate.properties.m.x-static"),
+        "条目内更深层 ⇒ 点名 pointer：{message}"
+    );
+
+    let in_items = class_gate(
+        r#""properties": {"m": {"x-function": {"params": [{"name": "xs", "schema": {"type": "array", "items": {"x-static": {"open": {"x-function": {}}}}}}]}}}"#,
+    );
+    let message = contract_error(verify_defs(&in_items));
+    assert!(
+        message.contains("items.x-static") && message.contains("params[0]"),
+        "items 内 ⇒ 点名 pointer（含数组段）：{message}"
+    );
+
+    let nested = class_gate(
+        r#""x-static": {"open": {"x-function": {}, "x-static": {"close": {"x-function": {}}}}}"#,
+    );
+    let message = contract_error(verify_defs(&nested));
+    assert!(
+        message.contains("$defs.Gate.x-static.open.x-static"),
+        "嵌套两键 ⇒ 点名 pointer：{message}"
+    );
+
+    let module_level = json!({"properties": {"k": {"x-constructor": {}}}});
+    let message = contract_error(verify_shape(&module_level));
+    assert!(
+        message.contains("properties.k") && message.contains("形态非法"),
+        "模块 properties 位的形态仍由既有 ⑤ 拒：{message}"
+    );
+}
+
+/// 边界（递归体退化输入）：`{}`（无 `$defs`）、`$defs` 值为标量 / 数组、`$defs: {}` 空表、
+/// `$defs` 键超长 ⇒ 零 panic（首三者按既有规则 `Err`，空表与超长键 `Ok`）；
+/// `x-class: "true"`（字符串）条目的顶层新键按非法落点 `Err`。
+#[test]
+fn verify_class_key_positions递归体退化输入() {
+    let no_defs = contract_error(verify_defs(&json!({})));
+    assert!(
+        no_defs.contains("$defs"),
+        "缺 $defs 仍报既有文案：{no_defs}"
+    );
+
+    let scalar_defs = contract_error(verify_defs(&json!({"$defs": "x"})));
+    assert!(
+        scalar_defs.contains("$defs"),
+        "`$defs` 非对象：{scalar_defs}"
+    );
+
+    for definition in [json!([]), json!(42)] {
+        let message = contract_error(verify_defs(&json!({"$defs": {"A": definition}})));
+        assert!(message.contains("A"), "条目值非对象 ⇒ 点名键：{message}");
+    }
+
+    assert_eq!(
+        verify_defs(&json!({"$defs": {}})),
+        Ok(()),
+        "空 $defs 表 ⇒ Ok"
+    );
+
+    let long_name = "a".repeat(1200);
+    let long_key = json!({"$defs": {long_name.clone(): {"type": "object", "x-class": true, "properties": {}}}});
+    assert_eq!(verify_defs(&long_key), Ok(()), "超长键名零 panic 且不越界");
+
+    let string_flag = defs_value(
+        r#"{"Gate": {"type": "object", "x-class": "true", "x-constructor": {"x-function": {}}}}"#,
+    );
+    let message = contract_error(verify_defs(&string_flag));
+    assert!(
+        message.contains("$defs.Gate.x-constructor"),
+        "字符串 x-class 不算类条目 ⇒ 顶层新键是非法落点：{message}"
+    );
+}
+
+/// 异常（AC-4 顶层键）：顶层新 `x-` 键 `x-note` / `x-constructor` / `x-static` ⇒ 各 `Err`，
+/// 文案含封闭六项与 `x-` 面五项逐名（`x-function` / `x-class` / `x-common` /
+/// `x-constructor` / `x-static`）。
+#[test]
+fn verify_top_level_keys五面逐名() {
+    for unknown in ["x-note", "x-constructor", "x-static"] {
+        let mut value = json!({"$id": FILE, "title": FQN, "$defs": {}, "properties": {}});
+        value[unknown] = json!({});
+        let message = contract_error(verify_top_level_keys(&value));
+        assert!(message.contains(unknown), "点名新键 `{unknown}`：{message}");
+        for needle in [
+            "x-function",
+            "x-class",
+            "x-common",
+            "x-constructor",
+            "x-static",
+        ] {
+            assert!(
+                message.contains(needle),
+                "`x-` 面逐名在场（缺 `{needle}`）：{message}"
+            );
+        }
+        for top in ["$schema", "$comment", "$defs", "properties"] {
+            assert!(
+                message.contains(top),
+                "封闭六项逐名在场（缺 `{top}`）：{message}"
+            );
+        }
+    }
+}
+
+/// 边界（闸 ⑧ 形态）：顶层值非对象（`[]` / `"x"` / `42` / `null`）⇒ `Err`「顶层必须是
+/// JSON 对象」；`$defs` / `properties` 非对象 ⇒ `Err`。
+#[test]
+fn verify_top_level_keys形态边界() {
+    for illegal in [json!([1, 2]), json!("x"), json!(42), Value::Null] {
+        let message = contract_error(verify_top_level_keys(&illegal));
+        assert!(
+            message.contains("顶层必须是 JSON 对象"),
+            "非对象顶层 ⇒ Err：{message}"
+        );
+    }
+    for key in ["$defs", "properties"] {
+        let mut value = json!({"$id": FILE, "title": FQN, "$defs": {}, "properties": {}});
+        value[key] = json!([1, 2]);
+        let message = contract_error(verify_top_level_keys(&value));
+        assert!(
+            message.contains(key) && message.contains("必须是对象"),
+            "`{key}` 非对象 ⇒ 点名其形态：{message}"
+        );
+    }
+}
+
+/// 正向（AC-1 投影面）：合法「类 + ctor + static」整链经写闸 ⇒ `Ok`，且 `Contract` 投影的
+/// `ops` / `types` 键集 / `reexports` 与补两键前逐字段相等（新键不进模块 op 投影）。
+#[test]
+fn validate_schema合法类整链() {
+    let defs_with_keys = concat!(
+        r#""Store": {"type": "object", "x-class": true, "properties": {"count": {"x-function": {}}}, "#,
+        r#""x-constructor": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}]}}, "#,
+        r##""x-static": {"open": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}], "returns": {"$ref": "#/$defs/Store"}}}}}"##,
+    );
+    let defs_without_keys = "\"Store\": {\"type\": \"object\", \"x-class\": true, \"properties\": {\"count\": {\"x-function\": {}}}}";
+    let with_keys = validate_schema(
+        FQN,
+        &schema_text(defs_with_keys, r##""Store": {"$ref": "#/$defs/Store"}"##),
+    )
+    .expect("类 + ctor + static 整链应合法");
+    let without_keys = validate_schema(
+        FQN,
+        &schema_text(defs_without_keys, r##""Store": {"$ref": "#/$defs/Store"}"##),
+    )
+    .expect("补两键前的同形契约应合法");
+
+    assert_eq!(with_keys.ops, without_keys.ops, "新键不进模块 op 投影");
+    let mut with_types: Vec<&String> = with_keys.types.keys().collect();
+    let mut without_types: Vec<&String> = without_keys.types.keys().collect();
+    with_types.sort();
+    without_types.sort();
+    assert_eq!(with_types, without_types, "类型面键集逐字段相等");
+    assert_eq!(with_keys.reexports, without_keys.reexports, "透传面零变化");
+}
+
+/// 异常（AC-5 跨函数分工）：缺骨架经写闸 ⇒ `Err(ApiError::Contract)`，文案与
+/// `verify_defs` 单点同源；源码锚：`validate_schema` 体内闸调用序 ①–⑧ + `contract::verify`
+/// + `verify_defs`，闸数仍九（零第十道闸）。
+#[test]
+fn validate_schema缺骨架写闸同源() {
+    let text = schema_text(
+        r#""Gate": {"x-class": true}"#,
+        r##""Gate": {"$ref": "#/$defs/Gate"}"##,
+    );
+    let message = parse_error(validate_schema(FQN, &text));
+    let value: Value = serde_json::from_str(&text).expect("夹具必须是合法 JSON");
+    assert_eq!(
+        message,
+        contract_error(verify_defs(&value)),
+        "写闸与 `verify_defs` 单点同源（零第二份文案）"
+    );
+
+    let source = include_str!("schema.rs");
+    let body_start = source
+        .find("pub fn validate_schema(")
+        .expect("源码内应有 `validate_schema`");
+    let body = &source[body_start..];
+    let mut cursor = 0usize;
+    for call in [
+        "verify_identity",
+        "verify_keyspace",
+        "verify_shape",
+        "verify_mirror",
+        "verify_ref_prefix",
+        "verify_top_level_keys",
+        "Contract::from_schema",
+        "contract::verify",
+        "verify_defs",
+    ] {
+        let found = body[cursor..]
+            .find(call)
+            .unwrap_or_else(|| panic!("`validate_schema` 体内应有闸调用 `{call}`"));
+        cursor += found + call.len();
+    }
+    assert_eq!(
+        source.matches("fn validate_schema").count(),
+        1,
+        "写闸与装载期共用同一入口（零孪生）"
+    );
+}
+
+/// 边界（空 / 规模 / 分工）：空壳 ⇒ `Ok`；`$defs` 含 100 个类条目（每类带
+/// `"type": "object"` 且 `properties` 有镜像 `$ref`）⇒ `Ok` 且不 panic；`x-class` 条目带
+/// ctor 但 `params[].name` 非法 ⇒ 名字闸（`contract::verify`）先报，`verify_defs` 不再报。
+#[test]
+fn validate_schema空壳规模与分工() {
+    assert!(
+        validate_schema(FQN, &schema_text("", "")).is_ok(),
+        "空壳合法"
+    );
+
+    let definitions: Vec<String> = (0..100)
+        .map(|index| {
+            format!(r#""T{index}": {{"type": "object", "x-class": true, "properties": {{}}}}"#)
+        })
+        .collect();
+    let mirrors: Vec<String> = (0..100)
+        .map(|index| format!(r##""T{index}": {{"$ref": "#/$defs/T{index}"}}"##))
+        .collect();
+    assert!(
+        validate_schema(
+            FQN,
+            &schema_text(&definitions.join(", "), &mirrors.join(", "))
+        )
+        .is_ok(),
+        "100 个类条目（超大文档）⇒ Ok 且不 panic"
+    );
+
+    let text = schema_text(
+        r#""Gate": {"type": "object", "x-class": true, "x-constructor": {"x-function": {"params": [{"name": "bad-name"}]}}}"#,
+        r##""Gate": {"$ref": "#/$defs/Gate"}"##,
+    );
+    let message = parse_error(validate_schema(FQN, &text));
+    assert!(
+        message.contains("参数名") && message.contains("bad-name"),
+        "名字闸先报：{message}"
+    );
+    assert!(
+        !message.contains("$defs.Gate.x-constructor"),
+        "形态正确时 `verify_defs` 不再报：{message}"
+    );
+}
+
+/// 回归（源码锚 D-1 / 闸 ⑨ doc 同批）：两条别名常量经 `super::contract::X_*` 引用（协议词汇
+/// 单点持有），`validate_schema` 的闸 ⑨ doc 描述「五条 `$defs` 规则 + 骨架四判据 + 两键形态
+/// 与落点」。
+#[test]
+fn schema闸九别名与doc随动() {
+    let source = include_str!("schema.rs");
+    assert_eq!(
+        source
+            .matches("const X_CONSTRUCTOR: &str = super::contract::X_CONSTRUCTOR;")
+            .count(),
+        1,
+        "构造入口别名引用 `super::contract`（零散落字面量）"
+    );
+    assert_eq!(
+        source
+            .matches("const X_STATIC: &str = super::contract::X_STATIC;")
+            .count(),
+        1,
+        "静态方法表别名引用 `super::contract`"
+    );
+    for needle in ["骨架四判据", "两键形态", "落点"] {
+        assert!(
+            source.contains(needle),
+            "闸 ⑨ 的 doc 含 `{needle}`（与判据同批）"
+        );
+    }
 }

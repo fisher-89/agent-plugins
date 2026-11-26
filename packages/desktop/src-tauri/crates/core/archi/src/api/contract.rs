@@ -1,8 +1,8 @@
 //! `Contract` 投影与复用三闸：接口真相是**手写的 `<叶段>.schema.json`**，`Contract` 只是它的进程内
 //! 投影（[`Contract::from_schema`] 解包 `x-function`、`$defs` 二分；无失败面——调用它时已跑过
-//! ③–⑧ 闸）。**[`verify`] 是写闸与装载期共用的复用面**（七族名字 / 落点 / 自洽三闸），文本层重复键
-//! 另由 [`duplicate_keys`] 判。三闸同趟收口 ⇒ 渲染期零标识符判据；错误带 `file` 前缀与（可能的）
-//! 行号——接口文件坏了要能直接改到那一处。
+//! ③–⑧ 闸）。**[`verify`] 是写闸与装载期共用的复用面**（七族名字 / 落点（封闭四处）/ 自洽三闸），
+//! 文本层重复键另由 [`duplicate_keys`] 判。三闸同趟收口 ⇒ 渲染期零标识符判据；错误带 `file`
+//! 前缀与（可能的）行号——接口文件坏了要能直接改到那一处。
 
 use serde_json::{Map, Value};
 
@@ -10,6 +10,13 @@ use super::{kind_of, ApiError};
 
 /// 函数标记层关键字（D47 落点闸判的对象；`schema` 的形态闸与 `dto` 的键名摘要同调本常量）。
 pub(crate) const X_FUNCTION: &str = "x-function";
+
+/// 构造入口关键字（`x-` 协议词汇的单点持有者，MUST NOT 散落字面量）：`x-class` 条目的
+/// 规范构造入口，名字固定 `new`、只声明 `params`。
+pub(crate) const X_CONSTRUCTOR: &str = "x-constructor";
+
+/// 静态方法表关键字（同上，单点持有）：`x-class` 条目的「名字 → 签名」类型级可调用成员。
+pub(crate) const X_STATIC: &str = "x-static";
 
 /// 构造器名的精确匹配集与前缀集（契约 MUST NOT 声明构造器——构造器由生成器自动产出）。
 const CONSTRUCTOR_NAMES: [&str; 6] = ["new", "default", "build", "empty", "never", "open"];
@@ -102,12 +109,15 @@ fn defs(schema: &Value) -> impl Iterator<Item = (&String, &Value)> {
 ///
 /// **七族名字闸**（D45，语言无关）：名字 MUST 是 ASCII 标识符 `[A-Za-z_][A-Za-z0-9_]*` ——
 /// ① `properties` 的 op 键；② `$defs` 键名；③ `x-function` 的 `params[].name`（模块操作与
-/// `$defs` 的方法同判）；④ `$defs` 条目的 `properties` 键；⑤ `owner` 键；⑥ 所有 `$ref` 的
-/// 末段名；⑦ 透传导出名的键（由 ② 覆盖）。名字类的错是**接口文件的错**，须在写盘前 / 装载期
-/// 中止——渲染期 MUST NOT 重复校验同一事实（「缺名落 `arg`」的兜底属渲染期）。
+/// `$defs` 的方法同判，含 `x-class` 条目的构造器与静态方法）；④ `$defs` 条目的 `properties` 键；
+/// ⑤ `owner` 键；⑥ 所有 `$ref` 的末段名；⑦ 透传导出名的键（由 ② 覆盖）。名字类的错是
+/// **接口文件的错**，须在写盘前 / 装载期中止——渲染期 MUST NOT 重复校验同一事实（「缺名落
+/// `arg`」的兜底属渲染期）。
 ///
 /// 同趟续判**落点闸**（D47）与**自洽闸**（`required` ⊆ `properties`），二者判集合关系与键位置、
-/// 不占族别编号。**各族分趟扫、MUST NOT 合并成单趟**——族别与遍历序即错误面。
+/// 不占族别编号；`x-class` 条目的**三条预留名**（`x-static` 名非 `new` / `properties` 键非 `new`
+/// / 两表不重名）同属自洽面——它们拦的是「写闸放行 ⇒ 必然 `E0428`」的两条路径。
+/// **各族分趟扫、MUST NOT 合并成单趟**——族别与遍历序即错误面。
 pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
     for op in &contract.ops {
         if !is_identifier(&op.id) {
@@ -178,6 +188,9 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
                 return Err(identifier_error(contract, "$ref 末段名", &name, None));
             }
         }
+        if let Some(object) = definition.as_object() {
+            verify_class_reserved_names(contract, name, object)?;
+        }
     }
     for name in contract.reexports.keys() {
         if !is_identifier(name) {
@@ -187,24 +200,105 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
     verify_x_function_positions(contract, schema)
 }
 
-/// `$defs` 条目里带 `x-function` 的 `properties` 项（trait 方法与函数指针字段同形；返回
-/// （方法名，该 `x-function` 值））——③ 族的收集面唯一入口。
+/// `$defs` 条目里带 `x-function` 的成员（③ 族的收集面唯一入口）：`properties` 的方法 / 函数
+/// 指针字段，加 `x-class` 条目的构造器（名字固定 `new`）与 `x-static` 成员（返回
+/// （名字，该 `x-function` 值））。
+///
+/// 两个新键**仅当该条目 `x-class: true`** 才入族：非类条目上的新键由
+/// [`super::schema::verify_defs`] 的落点闸报（文案点名位置与出路），MUST NOT 被名字错抢先。
 fn methods_of(definition: &Value) -> Vec<(String, &Value)> {
     let fields = definition.get("properties").and_then(Value::as_object);
-    fields
+    let mut methods: Vec<(String, &Value)> = fields
         .into_iter()
         .flatten()
         .filter_map(|(method, property)| {
             let function = property.get(X_FUNCTION)?;
             Some((method.clone(), function))
         })
-        .collect()
+        .collect();
+    if definition.get("x-class").and_then(Value::as_bool) != Some(true) {
+        return methods;
+    }
+    let constructor = definition
+        .get(X_CONSTRUCTOR)
+        .and_then(Value::as_object)
+        .and_then(|constructor| constructor.get(X_FUNCTION));
+    if let Some(function) = constructor {
+        methods.push(("new".to_owned(), function));
+    }
+    let statics = definition.get(X_STATIC).and_then(Value::as_object);
+    for (member, value) in statics.into_iter().flatten() {
+        let Some(function) = value.get(X_FUNCTION) else {
+            continue;
+        };
+        methods.push((member.clone(), function));
+    }
+    methods
 }
 
-/// 落点闸（D47）：`x-function` 的合法落点**封闭二处**——① `properties.<k>` 的值（模块操作）；
-/// ② `$defs` 条目**第一层** `properties` 的**值**（方法 / 函数指针字段）。判「键在哪儿」而非
-/// 「名字长什么样」，故不是名字闸的第八族；只有本函数同时持有 `Contract` 与 schema 的整体视角，
+/// `x-class` 条目的三条**预留名**判据（文件级自洽、零跨元素；写在 `$ref` 末段名检查之后）：
+/// ① `x-static` 的名字 MUST NOT 为 `new`（保留给构造器）；② `properties` 的键 MUST NOT 为
+/// `new`（与构造器在同一 trait body 产两处 `fn new` ⇒ `E0428`）；③ `x-static` 的名字 MUST NOT
+/// 与该条目 `properties` 的键重名（两表在目标语言的 trait body 合成同一命名空间 ⇒ `E0428`）。
+///
+/// 三条都是「写闸放行 ⇒ 必然不可编译」的路径，故在装载期即死；非 `x-class` 条目不判
+/// （其新键由落点闸报）。
+fn verify_class_reserved_names(
+    contract: &Contract,
+    name: &str,
+    definition: &Map<String, Value>,
+) -> Result<(), ApiError> {
+    if definition.get("x-class").and_then(Value::as_bool) != Some(true) {
+        return Ok(());
+    }
+    let statics = definition.get(X_STATIC).and_then(Value::as_object);
+    if statics.is_some_and(|statics| statics.contains_key("new")) {
+        return Err(ApiError::Contract(format!(
+            "{}: `$defs.{name}.{X_STATIC}.new` 用了保留名 `new`——构造入口的名字固定为 `new`，\
+             MUST NOT 再作静态方法名；构造入口用 `{X_CONSTRUCTOR}` 声明（同名的别名工厂请改名）",
+            contract.file
+        )));
+    }
+    let fields = definition.get("properties").and_then(Value::as_object);
+    if fields.is_some_and(|fields| fields.contains_key("new")) {
+        return Err(ApiError::Contract(format!(
+            "{}: `$defs.{name}.properties.new` 用了保留名 `new`（JSON pointer \
+             `$defs.{name}.properties.new`）——构造入口的名字固定为 `new`，与它同名的 trait 方法\
+             会在同一 body 产两处 `fn new`；构造入口用 `{X_CONSTRUCTOR}` 声明，方法改名",
+            contract.file
+        )));
+    }
+    let shared = statics
+        .into_iter()
+        .flatten()
+        .map(|(member, _)| member)
+        .find(|member| {
+            fields
+                .into_iter()
+                .flatten()
+                .any(|(field, _)| field == *member)
+        });
+    if let Some(member) = shared {
+        return Err(ApiError::Contract(format!(
+            "{}: `$defs.{name}` 的 `{X_STATIC}.{member}` 与 `properties.{member}` 重名——两张表在\
+             目标语言的 trait body 合成同一命名空间（重名即两处同名方法）；请改名或把两者合并\
+             成一处（JSON pointer `$defs.{name}.{X_STATIC}.{member}`）",
+            contract.file
+        )));
+    }
+    Ok(())
+}
+
+/// 落点闸（D47）：`x-function` 的合法落点**封闭四处**——① `properties.<k>` 的值（模块操作）；
+/// ② `$defs` 条目**第一层** `properties` 的**值**（方法 / 函数指针字段）；
+/// ③ `$defs.<T>.x-constructor`（构造入口）；④ `$defs.<T>.x-static.<名>`（静态方法）——
+/// 后两处只在 `x-class: true` 的条目内可达。判「键在哪儿」而非「名字长什么样」，故不是名字闸
+/// 的第八族；只有本函数同时持有 `Contract` 与 schema 的整体视角，
 /// **MUST NOT** 落 [`super::schema::verify_defs`]。
+///
+/// 非 `x-class` 条目的两个新键整条跳过：其落点由 [`super::schema::verify_defs`] 的全文档落点
+/// 单趟判，MUST NOT 让 `x-function` 落点错抢先（同一种「新键放错条目」的文法，两条文案
+/// 不能打架）。
 fn verify_x_function_positions(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
     for op in &contract.ops {
         // 投影已解包 ⇒ 这里从 `x-function` 的**内层**起扫：本节点上的 `x-function`
@@ -222,6 +316,7 @@ fn verify_x_function_positions(contract: &Contract, schema: &Value) -> Result<()
         if object.contains_key(X_FUNCTION) {
             return Err(x_function_position_error(contract, &pointer));
         }
+        let class = object.get("x-class").and_then(Value::as_bool) == Some(true);
         for (key, value) in object {
             if key == "properties" {
                 if let Some(fields) = value.as_object() {
@@ -231,6 +326,28 @@ fn verify_x_function_positions(contract: &Contract, schema: &Value) -> Result<()
                     }
                     continue;
                 }
+            }
+            if !class && (key == X_CONSTRUCTOR || key == X_STATIC) {
+                // 非类条目的新键落点归 `verify_defs` 的全文档单趟判：此处整条跳过，
+                // 否则 `x-function` 落点错会抢先于「只有 `x-class` 条目可声明」的文案
+                continue;
+            }
+            if class && key == X_CONSTRUCTOR {
+                // 形态（非对象 / 缺 `x-function`）由 `verify_defs` 判，本函数只判位置
+                if value.is_object() {
+                    let pointer = format!("{pointer}.{X_CONSTRUCTOR}");
+                    scan_x_function(value, &pointer, true, contract)?;
+                }
+                continue;
+            }
+            if class && key == X_STATIC {
+                if let Some(members) = value.as_object() {
+                    for (member, member_value) in members {
+                        let pointer = format!("{pointer}.{X_STATIC}.{member}");
+                        scan_x_function(member_value, &pointer, true, contract)?;
+                    }
+                }
+                continue;
             }
             scan_x_function(value, &format!("{pointer}.{key}"), false, contract)?;
         }
@@ -275,7 +392,8 @@ fn scan_x_function(
 fn x_function_position_error(contract: &Contract, pointer: &str) -> ApiError {
     ApiError::Contract(format!(
         "{}: x-function 落点非法（JSON pointer `{pointer}`）——`{X_FUNCTION}` 只许出现在 \
-         `properties.<k>` 的值与 `$defs` 条目第一层 `properties` 的值二处；\
+         四处：`properties.<k>` 的值、`$defs.<T>.properties.<k>` 的值、`$defs.<T>.{X_CONSTRUCTOR}`、\
+         `$defs.<T>.{X_STATIC}.<名>`（后两处只在 `x-class` 条目内）；\
          其余位置（`items` / `additionalProperties` / `oneOf` / `anyOf` 的元素内、\
          `properties` 的第二层及更深、`$defs` 条目自身顶层、`x-function` 自身的子树）\
          都表达不了「函数作为具名值」：请去掉标记层，或把该形状提升为具名 `$defs` 条目",

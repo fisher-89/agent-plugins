@@ -1,6 +1,11 @@
 //! `.i.ts` 渲染：`export interface` / `as const` + `type` / 别名 / union /
 //! 透传 `export type { … } from` / 头注释。
 //!
+//! **值声明只在构造器或静态方法在场时产出**：`x-class` 条目保持 `export interface T { … }`
+//! （形状承诺），并在 `x-constructor` / `x-static` 至少一项在场时追加同名值声明
+//! `export declare const T: { new (…): T; <名> (…): R };`（类型级可调用成员只有值位置表达得
+//! 了）。两者皆无时零值声明——产物与今天逐字节相同。
+//!
 //! **ambient-free**：产物是普通模块（MUST NOT 用 `.d.ts`），实现侧 `import type` 引用
 //! 并标注返回类型——形状不符即 `tsc` 报 TS2322（TS 侧形状校验的唯一机制）。
 //!
@@ -21,7 +26,7 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value};
 
 use super::{declared_ops, local_defs, notice_lines, reexport_defs, EmitTarget, ModuleRef};
-use crate::api::contract::{is_constructor, Contract};
+use crate::api::contract::{is_constructor, Contract, X_CONSTRUCTOR, X_STATIC};
 use crate::api::extract::{nullable_breakdown, Position};
 use crate::api::paths::{self, EntryForm};
 use crate::api::{protocol_key, reexport_target, ref_name, ApiMeta, CommonRule};
@@ -198,6 +203,10 @@ fn type_block(name: &str, definition: &Value, common: &BTreeMap<String, CommonRu
 
 /// `object` / `x-class` → `export interface`（非 `required` 字段 → `{field}?:`，
 /// 零 `| null` 拼接——两个事实各只落自己的符号）。
+///
+/// `x-class` 条目在此之后按条件追加**同名值声明**（[`value_declaration`]）：interface 是形状
+/// 承诺，值声明才是类型级可调用成员的载体（类型 / 值同名共存，`isolatedModules` 下成立）。
+/// 构造器与静态方法皆无时零值声明——产物与今天逐字节相同。
 fn interface_block(
     name: &str,
     object: &Map<String, Value>,
@@ -234,7 +243,47 @@ fn interface_block(
     } else {
         out.push_str(&format!("export interface {name} {{\n{body}}}\n"));
     }
+    if class {
+        out.push_str(&value_declaration(name, object, common));
+    }
     out
+}
+
+/// `x-class` 条目的同名值声明（`export declare const T: { … };`）：`new` 在前、`x-static`
+/// 成员按 `serde_json::Map` 迭代序，缩进 2 空格（同 interface body），紧跟 interface 的 `}`
+/// 之后零空行。
+///
+/// **产出条件**：构造器在场 ∨ `x-static` 非空（`{}` 视同不在场）；两者皆无即零字节。
+/// 成员读取只走 [`function_of`]（`x-function` 解包的唯一单点）；成员**不套整签名包装**
+/// （`common_type` 的整签名形态留给 [`function_type`]）——值声明的成员是「可调用成员」而不是
+/// 「函数类型」，返回位仍经 `value_type(returns, Return)` 拿到按位置的映射。
+fn value_declaration(
+    name: &str,
+    object: &Map<String, Value>,
+    common: &BTreeMap<String, CommonRule>,
+) -> String {
+    let constructor = object.get(X_CONSTRUCTOR).map(function_of);
+    let statics = object.get(X_STATIC).and_then(Value::as_object);
+    let has_statics = statics.is_some_and(|statics| !statics.is_empty());
+    if constructor.is_none() && !has_statics {
+        return String::new();
+    }
+    let mut body = String::new();
+    if let Some(function) = constructor {
+        body.push_str(&format!(
+            "  new ({}): {name};\n",
+            parameter_list(function, common)
+        ));
+    }
+    for (member, value) in statics.into_iter().flatten() {
+        let function = function_of(value);
+        body.push_str(&format!(
+            "  {member} ({}): {};\n",
+            parameter_list(function, common),
+            return_text(function, common)
+        ));
+    }
+    format!("export declare const {name}: {{\n{body}}};\n")
 }
 
 /// `enum` → `as const` 数组 + 同名类型（`isolatedModules` 下同名值 / 类型共存）。
@@ -258,13 +307,27 @@ fn function_of(signature: &Value) -> &Value {
 }
 
 /// `x-function` → `(<入参序列>) => <返回>`（`async` → `Promise<R>`）。
+///
+/// 两段文本各由 [`parameter_list`] / [`return_text`] 单点拼装；**整签名包装**
+/// （`common_type` 的 `x-function.<承载键>` 形态）**只在本函数**——值声明成员不套它。
 fn function_type(function: &Value, common: &BTreeMap<String, CommonRule>) -> String {
     // 协议级包装（如异步信封）经**同一查表出口**（D54 ③）：命中即整条签名交回资产
     // 的 `typescript` 槽位，MUST NOT 在本函数另硬编码语言侧包装形。
     if let Some(mapped) = common_type(function, Position::Return, common) {
         return mapped;
     }
-    let params = function
+    format!(
+        "({}) => {}",
+        parameter_list(function, common),
+        return_text(function, common)
+    )
+}
+
+/// 入参序列（`name: T` 以 `, ` 连接；`optional` → `T | undefined`）——**入参拼装的唯一单点**：
+/// `function_type` 与值声明成员两处共用（与字段面的 `{field}?:` 分立：可选参靠类型、可选字段
+/// 靠标记）。
+fn parameter_list(function: &Value, common: &BTreeMap<String, CommonRule>) -> String {
+    function
         .get("params")
         .and_then(Value::as_array)
         .map(|params| {
@@ -282,16 +345,20 @@ fn function_type(function: &Value, common: &BTreeMap<String, CommonRule>) -> Str
                 .collect::<Vec<String>>()
                 .join(", ")
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+/// 返回位文本（`returns` 缺省即 `void`；`async` → `Promise<R>`）——**返回位拼装的唯一单点**。
+fn return_text(function: &Value, common: &BTreeMap<String, CommonRule>) -> String {
     let returns = match function.get("returns") {
         Some(schema) => value_type(schema, Position::Return, common),
         None => "void".to_owned(),
     };
     // 异步函数：错误通道走 Promise reject（不在类型系统内 → 记 degraded）
     if function.get("async").and_then(Value::as_bool) == Some(true) {
-        return format!("({params}) => Promise<{returns}>");
+        return format!("Promise<{returns}>");
     }
-    format!("({params}) => {returns}")
+    returns
 }
 
 /// 映射规则查表（D54 ③ 的唯一查表面）：承载键经 [`protocol_key`] 求出，命中即取

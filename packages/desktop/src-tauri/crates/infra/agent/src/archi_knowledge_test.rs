@@ -1,7 +1,7 @@
 //! `archi_knowledge` / `archi-knowledge.md` 的单元测试：知识面收窄后的五段结构（三资产
 //! 分工 / 设计顺序 / 三条不可越界 / 工具面 / 留给判断 + 兼容一句）、零语法教学（零示例
 //! 围栏 / 零键形示例 / 零字段值域行 / 零 `metadata` 示例）、零结构诊断可执行词、双门限
-//! 体量冻结（骨架 ≤ 1800 B / 全文 ≤ 2000 B）、两处派生目录仍在行程、指路只指向真实工具、
+//! 体量冻结（骨架 ≤ 1831 B / 全文 ≤ 2031 B）、两处派生目录仍在行程、指路只指向真实工具、
 //! 旧立场零残留，以及拼装 / 降级语义零回归。
 //!
 //! 零 mock：`include_str!("archi-knowledge.md")` 取编译期内嵌的同一份字节（禁测试内
@@ -135,30 +135,30 @@ fn 零结构诊断可执行词() {
 // 体量门限
 // ---------------------------------------------------------------------------
 
-/// 边界（矩阵 2 数）：骨架 1777 B ≤ 1800 B、全文 1966 B ≤ 2000 B，两值同批冻结
-/// （内容变更须同批更新，MUST NOT 抬锚）。
+/// 边界（矩阵 2 数）：骨架 1808 B ≤ 1831 B、全文 1997 B ≤ 2031 B，两值同批冻结
+/// （抬锚须显式豁免并同批更新四数）。
 #[test]
 fn 骨架与全文双门限冻结() {
     let skeleton_bytes = lf_bytes(skeleton().trim_end());
     assert_eq!(
-        skeleton_bytes, 1777,
-        "骨架体量实测 1777 B（LF 归一，五段骨架 + 三资产分工）已冻结；内容变更须同批更新\
-         本值与全文锚"
+        skeleton_bytes, 1808,
+        "骨架体量实测 1808 B（LF 归一，五段骨架 + 三资产分工）已冻结；抬锚须显式豁免并同批\
+         更新本值与全文锚"
     );
     assert!(
-        skeleton_bytes <= 1800,
-        "骨架体量 {skeleton_bytes} B 超过门限 1800 B"
+        skeleton_bytes <= 1831,
+        "骨架体量 {skeleton_bytes} B 超过门限 1831 B"
     );
 
     let full_bytes = lf_bytes(&text());
     assert_eq!(
-        full_bytes, 1966,
-        "全文体量实测 1966 B（LF 归一，派生段含两条资产路径）已冻结；内容变更须同批更新\
-         本值与骨架锚"
+        full_bytes, 1997,
+        "全文体量实测 1997 B（LF 归一，派生段含两条资产路径）已冻结；抬锚须显式豁免并同批\
+         更新本值与骨架锚"
     );
     assert!(
-        full_bytes <= 2000,
-        "全文体量 {full_bytes} B 超过门限 2000 B"
+        full_bytes <= 2031,
+        "全文体量 {full_bytes} B 超过门限 2031 B"
     );
 }
 
@@ -243,6 +243,8 @@ fn 指令表收窄且新行集可判() {
         "MUST NOT 手改",
         "`$defs {}`",
         "`x-function`",
+        "`x-constructor`",
+        "`x-static`",
     ] {
         assert!(source.contains(needle), "收窄后的行集含 `{needle}`");
     }
@@ -376,4 +378,146 @@ fn 立场换面() {
         "新立场「schema 是唯一凭据」在场"
     );
     assert!(source.contains("md 答理由"), "文档侧表述为「答理由」");
+}
+
+// ---------------------------------------------------------------------------
+// 「三条不可越界」② 的 `x-` 面五项逐名（AC-10）
+// ---------------------------------------------------------------------------
+
+/// 骨架内「`x-` 面封闭为 …」那一行（五项枚举的唯一落点）。
+fn x_surface_line() -> &'static str {
+    skeleton()
+        .lines()
+        .find(|line| line.contains("`x-` 面封闭为"))
+        .expect("骨架应含 `x-` 面封闭的那一行")
+}
+
+/// 正向（AC-10）：五项逐名在场（带反引号原样）、按「 / 」逐个连接；三条不可越界各至少
+/// 一处；「空 schema」/「不要编造导出」/「历史 fence 读面不读、MUST NOT 新增」在案。
+#[test]
+fn 五项逐名在场() {
+    let line = x_surface_line();
+    let ordered = "`x-function` / `x-class` / `x-common` / `x-constructor` / `x-static`";
+    assert!(line.contains(ordered), "五项按名逐个连接：{line}");
+
+    let source = skeleton();
+    for needle in [
+        "文档不列接口",
+        "schema 不写理由",
+        "TOML 不造空元素",
+        "空 schema",
+        "不要编造导出",
+        "历史 fence 读面不读、MUST NOT 新增",
+    ] {
+        assert!(source.contains(needle), "骨架含 `{needle}`");
+    }
+}
+
+/// 边界（枚举形态）：五项零缩写 / 零「等」/ 零「见 spec」类指路；不带反引号的裸词不计入
+/// （needle 带反引号原样）；`x-` 面以外零新协议词。
+#[test]
+fn 五项枚举形态可判() {
+    let line = x_surface_line();
+    assert!(line.contains("封闭为"), "枚举以「封闭为」起手：{line}");
+    for forbidden in ["见 spec", "等", "…", "etc"] {
+        assert!(
+            !line.contains(forbidden),
+            "枚举零指路 `{forbidden}`：{line}"
+        );
+    }
+    for name in [
+        "x-function",
+        "x-class",
+        "x-common",
+        "x-constructor",
+        "x-static",
+    ] {
+        assert!(
+            line.contains(&format!("`{name}`")),
+            "带反引号原样（裸词不计入）：缺 `{name}`"
+        );
+    }
+    assert_eq!(
+        line.matches(" / ").count(),
+        4,
+        "五项之间恰四个分隔符：{line}"
+    );
+
+    let source = skeleton();
+    for stray in ["x-interface", "x-nominal", "x-singleSource"] {
+        assert!(!source.contains(stray), "`x-` 面以外零新协议词 `{stray}`");
+    }
+}
+
+/// 边界（增量口径）：全文增量 == 骨架增量——派生段体量固定（189 B），内容变更全在骨架；
+/// 全文以骨架 `trim_end()` 起手、派生段为零追加。
+#[test]
+fn 增量全在骨架() {
+    let full = text();
+    let head = skeleton().trim_end();
+    assert!(full.starts_with(head), "全文以骨架 `trim_end` 起手");
+
+    let suffix = &full[head.len()..];
+    let suffix_bytes = lf_bytes(suffix);
+    assert_eq!(
+        suffix_bytes, 189,
+        "派生段体量 189 B 已冻结（两条 layout 目录 + 固定文案）；骨架的任何增量都使全文等量增长"
+    );
+    assert_eq!(
+        lf_bytes(&full) - lf_bytes(head),
+        189,
+        "全文增量 == 骨架增量（增量全在骨架）"
+    );
+}
+
+/// 异常（判据面事实不进骨架）：零「构造通路」/「object 等同 JSON 对象」类表述、零
+/// `<>` 占位符、零示例围栏 / 零 `[element.` 前缀。
+#[test]
+fn 判据面事实不进骨架() {
+    let source = skeleton();
+    for forbidden in ["构造通路", "object 等同 JSON 对象"] {
+        assert!(
+            !source.contains(forbidden),
+            "判据面事实不进骨架 `{forbidden}`"
+        );
+    }
+    assert_eq!(source.matches("```").count(), 0, "零示例围栏");
+    assert!(!source.contains("[element."), "零 `[element.` 前缀");
+    assert!(!source.contains("<>"), "零占位符形态");
+}
+
+/// 回归（体量与文案随动）：测试模块头写「骨架 ≤ 1831 B / 全文 ≤ 2031 B」，测试 doc 写
+/// 「抬锚须显式豁免并同批更新四数」；两处 `assert_eq!` 失败文案写死 1808 / 1997；退役阈值
+/// 与旧实测值零残留（产品模块零旧门限）。
+#[test]
+fn 体量门限文案随动() {
+    let tests = include_str!("archi_knowledge_test.rs");
+    assert!(
+        tests.contains("≤ 1831 B") && tests.contains("≤ 2031 B"),
+        "测试模块头写新门限"
+    );
+    assert!(
+        tests.contains("抬锚须显式豁免并同批更新四数"),
+        "测试 doc 写抬锚纪律"
+    );
+    assert!(
+        tests.contains("1808") && tests.contains("1997"),
+        "两条 assert_eq! 失败文案写死实测值"
+    );
+
+    let retired = [
+        ["≤ ", "1800 B"].concat(),
+        ["1", "777"].concat(),
+        ["19", "66"].concat(),
+    ];
+    for phrase in retired {
+        assert!(
+            !tests.contains(&phrase),
+            "退役阈值 / 旧实测值零残留：`{phrase}`"
+        );
+    }
+    let product = include_str!("archi_knowledge.rs");
+    for phrase in [["1800", " B"].concat(), ["2000", " B"].concat()] {
+        assert!(!product.contains(&phrase), "产品模块零旧门限：`{phrase}`");
+    }
 }

@@ -342,6 +342,7 @@ fn render的x_class为trait() {
     let text = render_types(
         r#"{
   "Runner": {
+    "type": "object",
     "x-class": true,
     "properties": {"run": {"x-function": {"params": [{"name": "input", "schema": {"type": "string"}}], "returns": {"type": "boolean"}}}}
   }
@@ -360,7 +361,7 @@ fn render的x_class为trait() {
         "MUST NOT 产 struct + 方法的混装：\n{text}"
     );
 
-    let bare = render_types(r#"{"Marker": {"x-class": true}}"#);
+    let bare = render_types(r#"{"Marker": {"type": "object", "x-class": true}}"#);
     assert!(
         bare.contains("pub trait Marker {"),
         "零 properties 的 x-class → 空 trait：\n{bare}"
@@ -1320,10 +1321,11 @@ fn scan_product_rs(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
 // ---------------------------------------------------------------------------
 
 /// 边界（**AC-25 ②** / D47）：**逐函数体**判（**MUST NOT 用文件级 `grep -c`**——`rust.rs`
-/// 的合法命中点恒 **3**（`struct_block` 的 `is_some` + `unwrap_or`、`trait_block` 一处），
-/// 任何「恰 N / 相等」的文件级断言都无区分能力）：`value_type` 体内 `"x-function"` 字面量
-/// **恰 0**；`struct_block` / `trait_block` 两处 `x-function` 读取点**仍在**（`properties`
-/// 值的方法分流）。行为面：`{"type":"array","items":{"x-function":…}}` 形态的渲染需求在
+/// 的合法命中点恒 **5**（`struct_block` 的 `is_some` + `unwrap_or`、`trait_block` 的
+/// `properties` 方法 / 构造器 / `x-static` 成员三处），任何「恰 N / 相等」的文件级断言都无
+/// 区分能力）：`value_type` 体内 `"x-function"` 字面量**恰 0**；`struct_block` / `trait_block`
+/// 两处 `x-function` 读取点**仍在**（`properties` 值的方法分流，后者另有构造器与静态方法的
+/// 两处成员读取）。行为面：`{"type":"array","items":{"x-function":…}}` 形态的渲染需求在
 /// 装载期已被 D47 中止（本层结构上收不到，故**不给**兜底形态——那正是「同一 schema
 /// 两侧产物形态不同」的静默源）。
 #[test]
@@ -1925,4 +1927,398 @@ fn render的幂等与不动点全语料() {
             "{label}：同一输入两次渲染逐字相等"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// x-class 的构造入口与静态方法（AC-2 / AC-7 / AC-8）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-2 构造器正例）：`x-constructor` ⇒ trait body 内 `fn new(<params>) -> Self;`，
+/// 全文**零** `impl Store`、**零** `const _: fn() -> super::Store`。
+#[test]
+fn render构造器产trait成员() {
+    let text = render_types(
+        r#"{
+  "Store": {
+    "type": "object",
+    "x-class": true,
+    "properties": {"count": {"x-function": {}}},
+    "x-constructor": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}]}}
+  }
+}"#,
+    );
+    assert!(
+        text.contains("pub trait Store {\n    fn count();\n    fn new(path: &str) -> Self;\n}\n"),
+        "body 行序 = properties 方法 → 构造器：\n{text}"
+    );
+    assert!(
+        !text.contains("impl Store"),
+        "零 impl（类是 trait）：\n{text}"
+    );
+    assert!(
+        !text.contains("const _: fn() -> super::Store"),
+        "零构造器见证（trait 不可 impl / 不可 new）：\n{text}"
+    );
+}
+
+/// 正向（AC-2 静态方法正例）：`x-static` 两成员 + ctor + `properties.count` ⇒ body 行序
+/// properties 方法 → `fn new(…)` → static 按声明序（`open` → `default_path`）；整块逐字。
+#[test]
+fn render静态方法按声明序追加() {
+    let text = render_types(
+        r##"{
+  "Store": {
+    "type": "object",
+    "x-class": true,
+    "properties": {"count": {"x-function": {}}},
+    "x-constructor": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}]}},
+    "x-static": {
+      "open": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}], "returns": {"$ref": "#/$defs/Store"}}},
+      "default_path": {"x-function": {"returns": {"type": "string"}}}
+    }
+  }
+}"##,
+    );
+    assert!(
+        text.contains(
+            "pub trait Store {\n    fn count();\n    fn new(path: &str) -> Self;\n    \
+             fn open(path: &str) -> Store;\n    fn default_path() -> String;\n}\n"
+        ),
+        "三段按序 + 声明序 static：\n{text}"
+    );
+    assert!(
+        !text.contains("impl Store") && !text.contains("const _: fn() -> super::Store"),
+        "类条目不产自动构造器 / 见证：\n{text}"
+    );
+}
+
+/// 边界（构造器 params 四臂）：缺省 ⇒ `fn new() -> Self;`；`[]` ⇒ 同；单参 ⇒
+/// `fn new(path: &str) -> Self;`；100 参 ⇒ 一行内逗号连接、零尾逗号、零换行。
+#[test]
+fn render构造器params四臂() {
+    let bare = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-constructor": {"x-function": {}}}}"#,
+    );
+    assert!(
+        bare.contains("    fn new() -> Self;\n"),
+        "params 缺省：\n{bare}"
+    );
+
+    let empty = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-constructor": {"x-function": {"params": []}}}}"#,
+    );
+    assert!(
+        empty.contains("    fn new() -> Self;\n"),
+        "params 为空：\n{empty}"
+    );
+
+    let single = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-constructor": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}]}}}}"#,
+    );
+    assert!(
+        single.contains("    fn new(path: &str) -> Self;\n"),
+        "单参：\n{single}"
+    );
+
+    let params: Vec<serde_json::Value> = (0..100)
+        .map(|index| serde_json::json!({"name": format!("p{index}"), "schema": {"type": "string"}}))
+        .collect();
+    let definition = serde_json::json!({
+        "Store": {"type": "object", "x-class": true, "x-constructor": {"x-function": {"params": params}}}
+    });
+    let wide = render_types(&definition.to_string());
+    let line = wide
+        .lines()
+        .find(|line| line.contains("fn new("))
+        .unwrap_or_else(|| panic!("应产构造器行：\n{wide}"));
+    assert_eq!(line.matches(", ").count(), 99, "100 参逗号连接：{line}");
+    assert!(line.ends_with("-> Self;"), "零尾逗号且闭合：{line}");
+}
+
+/// 边界（静态方法形态）：`returns` 缺省 ⇒ `fn m();`（无 `->`）；`async: true` 沿用既有
+/// `method_signature`（Rust 侧不改产物形态）；成员名 1200 字符合法 ASCII ⇒ 行内含该名。
+#[test]
+fn render静态方法形态边界() {
+    let no_return = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-static": {"m": {"x-function": {}}}}}"#,
+    );
+    assert!(
+        no_return.contains("    fn m();\n"),
+        "returns 缺省 ⇒ 无 `->`：\n{no_return}"
+    );
+
+    let asynchronous = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-static": {"m": {"x-function": {"async": true, "returns": {"type": "string"}}}}}}"#,
+    );
+    assert!(
+        asynchronous.contains("    fn m() -> String;\n"),
+        "async 不改 Rust 产物形态：\n{asynchronous}"
+    );
+
+    let long = "a".repeat(1200);
+    let mut statics = serde_json::Map::new();
+    statics.insert(long.clone(), serde_json::json!({"x-function": {}}));
+    let definition = serde_json::json!({
+        "Store": {
+            "type": "object",
+            "x-class": true,
+            "x-static": serde_json::Value::Object(statics),
+        }
+    });
+    let text = render_types(&definition.to_string());
+    assert!(
+        text.contains(&format!("    fn {long}();")),
+        "超长成员名在行内"
+    );
+}
+
+/// 异常（`trait_block` 渲染期零判据）：`x-class` 条目 `properties` 含非函数值（绕过写闸直喂）
+/// ⇒ 该行被跳过、零 panic、`render` 仍只出 `String`（错误面只在 `schema.rs`）。
+#[test]
+fn render类条目非函数属性跳过该行() {
+    let mixed = render_types(
+        r#"{"Gate": {"type": "object", "x-class": true, "properties": {"count": {"type": "integer"}, "run": {"x-function": {}}}}}"#,
+    );
+    assert!(
+        mixed.contains("pub trait Gate {\n    fn run();\n}\n"),
+        "非函数属性零行、方法行按声明序在案：\n{mixed}"
+    );
+    assert!(
+        !mixed.contains("fn count"),
+        "非函数值不产 trait 方法行（本层零判据）：\n{mixed}"
+    );
+
+    let only_field = render_types(
+        r#"{"Gate": {"type": "object", "x-class": true, "properties": {"count": {"type": "integer"}}}}"#,
+    );
+    assert!(
+        only_field.contains("pub trait Gate {\n}\n"),
+        "全非函数属性 ⇒ 空 trait body、零 panic：\n{only_field}"
+    );
+    assert!(
+        !only_field.contains("impl Gate {"),
+        "`x-class` 条目零自动 impl（非函数属性不进 body）：\n{only_field}"
+    );
+}
+
+/// 边界（零成员三类）：`properties: {}` + 无 ctor / static ⇒ 恰 `pub trait Gate {\n}\n`；
+/// 有 ctor 无 props ⇒ body 只有 `new` 行；有 static 无 props ⇒ body 只有 static 行。
+#[test]
+fn render零成员三类() {
+    let empty = render_types(r#"{"Gate": {"type": "object", "x-class": true, "properties": {}}}"#);
+    assert!(
+        empty.contains("pub trait Gate {\n}\n"),
+        "空 trait：\n{empty}"
+    );
+
+    let only_constructor = render_types(
+        r#"{"Gate": {"type": "object", "x-class": true, "properties": {}, "x-constructor": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}]}}}}"#,
+    );
+    assert!(
+        only_constructor.contains("pub trait Gate {\n    fn new(path: &str) -> Self;\n}\n"),
+        "body 只有 new 行：\n{only_constructor}"
+    );
+
+    let only_statics = render_types(
+        r#"{"Gate": {"type": "object", "x-class": true, "properties": {}, "x-static": {"open": {"x-function": {}}}}}"#,
+    );
+    assert!(
+        only_statics.contains("pub trait Gate {\n    fn open();\n}\n"),
+        "body 只有 static 行：\n{only_statics}"
+    );
+}
+
+/// 正向（AC-7 空 trait 不产 impl）：`{"type":"object","x-class":true,"properties":{}}` ⇒
+/// `render` 只出 `pub trait Gate {\n}\n`，零 `impl Gate {`、零
+/// `const _: fn() -> super::Gate`；源码锚：`is_zero_field_object` 体内含 `x-class` 排除、
+/// 调用点（`constructible` 收集）恰 1 处。
+#[test]
+fn render的零字段类不产构造器() {
+    let text = render_types(r#"{"Gate": {"type": "object", "x-class": true, "properties": {}}}"#);
+    assert!(text.contains("pub trait Gate {\n}\n"), "空 trait：\n{text}");
+    assert!(!text.contains("impl Gate {"), "MUST NOT 出 impl：\n{text}");
+    assert!(
+        !text.contains("const _: fn() -> super::Gate"),
+        "MUST NOT 出构造器见证：\n{text}"
+    );
+
+    let source = include_str!("rust.rs");
+    assert_eq!(
+        source.matches("is_zero_field_object").count(),
+        2,
+        "判据函数单点定义 + `constructible` 收集唯一调用点"
+    );
+    let body = function_body(source, "fn is_zero_field_object(");
+    assert!(
+        body.contains("x-class"),
+        "判据体内含 `x-class` 排除：{body}"
+    );
+    assert_eq!(
+        source.matches("let constructible").count(),
+        1,
+        "`constructible` 收集恰一处（零第二份判据）"
+    );
+}
+
+/// 边界（AC-8 良性对照）：`{"type":"object"}` / `{"type":"object","properties":{}}` /
+/// `{"type":"object","additionalProperties":{"type":"string"}}`（三者均无 `x-class`）⇒ 仍产
+/// `impl T { … pub fn new() -> Self … }` 与 `const _: fn() -> super::T = super::T::new;`。
+#[test]
+fn render良性对照仍产自动构造器() {
+    for definition in [
+        r#"{"Item": {"type": "object"}}"#,
+        r#"{"Item": {"type": "object", "properties": {}}}"#,
+        r#"{"Item": {"type": "object", "additionalProperties": {"type": "string"}}}"#,
+    ] {
+        let text = render_types(definition);
+        assert!(
+            text.contains("impl Item {") && text.contains("pub fn new() -> Self {"),
+            "无 x-class 的零字段 object 仍产自动构造器：\n{text}"
+        );
+        assert!(
+            text.contains("const _: fn() -> super::Item = super::Item::new;"),
+            "构造器见证仍在：\n{text}"
+        );
+    }
+}
+
+/// 异常（`is_zero_field_object` 非命中形态）：字符串 / 数组 / `null` / 纯 `$ref` alias /
+/// 有字段 `object` ⇒ 不产自动构造器（零 panic、零误产 `impl`）。
+#[test]
+fn render非命中形态零impl() {
+    for definition in [
+        r#"{"Item": {"type": "string"}}"#,
+        r#"{"Item": [1, 2]}"#,
+        r#"{"Item": null}"#,
+        r##"{"Other": {"type": "object"}, "Item": {"$ref": "#/$defs/Other"}}"##,
+        r#"{"Item": {"type": "object", "properties": {"a": {"type": "string"}}}}"#,
+    ] {
+        let text = render_types(definition);
+        assert!(
+            !text.contains("impl Item {"),
+            "非零字段 object 不产自动构造器（{definition}）：\n{text}"
+        );
+        assert!(
+            !text.contains("const _: fn() -> super::Item"),
+            "非零字段 object 不产见证（{definition}）：\n{text}"
+        );
+    }
+}
+
+/// 异常（渲染期零判据）：`params` 值非数组 ⇒ 视为缺省出 `()`；`x-function` 非法 ⇒ 按
+/// 缺省兜底、零 panic（非法形态在装载期已死，渲染器不给第二份判据）。
+#[test]
+fn render构造器参数兜底() {
+    for declaration in [
+        r#"{"x-function": {"params": "oops"}}"#,
+        r#"{"x-function": {"params": {"a": 1}}}"#,
+        r#"{"x-function": {"params": null}}"#,
+        r#"{"x-function": 42}"#,
+    ] {
+        let text = render_types(&format!(
+            r#"{{"Store": {{"type": "object", "x-class": true, "x-constructor": {declaration}}}}}"#
+        ));
+        assert!(
+            text.contains("    fn new() -> Self;\n"),
+            "非法 params / x-function ⇒ 零参兜底（{declaration}）：\n{text}"
+        );
+    }
+
+    // 缺 `x-function` 包裹的构造器在装载期即死（本层跳过，零第二份判据）
+    let unwrapped = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-constructor": {"params": []}}}"#,
+    );
+    assert!(
+        !unwrapped.contains("fn new"),
+        "缺 `x-function` 包裹 ⇒ 本层不产成员：\n{unwrapped}"
+    );
+}
+
+/// 异常（非法形态不可达）：`x-class` 条目带 `type: "string"`（绕过写闸直喂）⇒ 仍按 trait
+/// 渲染、不报错；`x-constructor` 带 `returns` ⇒ 渲染器不读取（装载期已禁）；`verify_defs`
+/// 复现拦截面。
+#[test]
+fn render非法形态不可达() {
+    let wrong_type = render_types(
+        r#"{"Ghost": {"type": "string", "x-class": true, "properties": {"run": {"x-function": {}}}}}"#,
+    );
+    assert!(
+        wrong_type.contains("pub trait Ghost {\n    fn run();\n}\n"),
+        "渲染器按 trait 走、零报错路径：\n{wrong_type}"
+    );
+
+    let with_returns = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-constructor": {"x-function": {"returns": {"type": "string"}}}}}"#,
+    );
+    assert!(
+        with_returns.contains("    fn new() -> Self;\n"),
+        "构造器返回面固定为本类型（不读 returns）：\n{with_returns}"
+    );
+
+    let value: serde_json::Value = serde_json::from_str(
+        r#"{"$defs": {"Store": {"type": "object", "x-class": true, "x-constructor": {"x-function": {"returns": {"type": "string"}}}}}}"#,
+    )
+    .expect("夹具必须是合法 JSON");
+    let message = match crate::api::schema::verify_defs(&value) {
+        Ok(()) => panic!("写闸应拦下构造器的 returns"),
+        Err(ApiError::Contract(message)) => message,
+        Err(other) => panic!("期望 ApiError::Contract，实际：{other:?}"),
+    };
+    assert!(message.contains("returns"), "拦截面点名禁项：{message}");
+}
+
+/// 回归（AC-1 / 幂等）：同一 schema 两次渲染逐字相等；非类条目（零字段 object / 有字段
+/// object / `enum` / `oneOf` / 标量）与既有产物形态一致。
+#[test]
+fn render幂等且非类条目形态不变() {
+    let source = mirrored_schema_text(
+        FQN,
+        r##""Unit": {"type": "object", "properties": {}},
+            "Item": {"type": "object", "properties": {"a": {"type": "string"}}},
+            "Choice": {"enum": ["a", "b"]},
+            "Variant": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
+            "Scalar": {"type": "integer"}"##,
+        "",
+    );
+    let first = render_source(&source);
+    let second = render_source(&source);
+    assert_eq!(first, second, "同一 schema 两次渲染逐字相等");
+
+    for needle in [
+        "pub struct Unit;",
+        "pub struct Item {",
+        "pub enum Choice {",
+        "pub enum Variant {",
+        "pub struct Scalar(pub i64);",
+    ] {
+        assert!(
+            first.contains(needle),
+            "非类条目形态不变（缺 `{needle}`）：\n{first}"
+        );
+    }
+    assert!(
+        !first.contains("pub trait"),
+        "非类条目零 trait 产物：\n{first}"
+    );
+}
+
+/// 正向（入参拼装兜底）：`params[].name` 缺省回退 `arg`、参数 `schema` 缺省回退 param 自身
+/// （`param_list` 是构造器与 `method_signature` 共用的唯一拼装点）。
+#[test]
+fn render入参拼装兜底() {
+    let constructor = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-constructor": {"x-function": {"params": [{"type": "integer"}]}}}}"#,
+    );
+    assert!(
+        constructor.contains("    fn new(arg: i64) -> Self;\n"),
+        "缺 name ⇒ `arg`、schema 缺省回退 param 自身：\n{constructor}"
+    );
+
+    let statics = render_types(
+        r#"{"Store": {"type": "object", "x-class": true, "x-static": {"open": {"x-function": {"params": [{"name": "raw", "schema": {"type": "object", "additionalProperties": {"type": "integer"}}}]}}}}}"#,
+    );
+    assert!(
+        statics.contains("    fn open(raw: BTreeMap<String, i64>);\n"),
+        "静态方法复用同一拼装点：\n{statics}"
+    );
 }

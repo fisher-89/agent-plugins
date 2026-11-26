@@ -1745,7 +1745,7 @@ path = [\"src/shapes/\"]
     let fqn = "App.Core.Shapes";
     temp.write_pair_schema(
         fqn,
-        &mirrored_schema_text(fqn, r##""Reexport": {"$ref": "#/$defs/Alpha"}, "Class": {"x-class": true}, "Variant": {"oneOf": [{"$ref": "#/$defs/Alpha"}]}, "Choice": {"enum": ["a", "b"]}, "Scalar": {"type": "integer"}, "Object": {"type": "object", "properties": {}}, "Both": {"x-class": true, "oneOf": [{"$ref": "#/$defs/Alpha"}]}, "Alpha": {"type": "object", "properties": {}}"##, ""),
+        &mirrored_schema_text(fqn, r##""Reexport": {"$ref": "#/$defs/Alpha"}, "Class": {"type": "object", "x-class": true}, "Variant": {"oneOf": [{"$ref": "#/$defs/Alpha"}]}, "Choice": {"enum": ["a", "b"]}, "Scalar": {"type": "integer"}, "Object": {"type": "object", "properties": {}}, "Both": {"type": "object", "x-class": true, "oneOf": [{"$ref": "#/$defs/Alpha"}]}, "Alpha": {"type": "object", "properties": {}}"##, ""),
     );
     temp.write("src/shapes/lib.rs", "pub fn f() {}\n");
 

@@ -1,4 +1,4 @@
-//! `api::contract` 的单元测试：`verify` 三闸（七族名字 / `x-function` 落点封闭二处 /
+//! `api::contract` 的单元测试：`verify` 三闸（七族名字 / `x-function` 落点封闭四处 /
 //! `required ⊆ properties`）与构造器封闭集判据（`is_constructor`）。
 //!
 //! 零 mock：`verify` 吃「投影 + schema 值」两个纯值入参（零落盘、零读盘）；
@@ -7,7 +7,7 @@
 
 use serde_json::Value;
 
-use super::contract::{is_constructor, verify, Contract};
+use super::contract::{is_constructor, verify, Contract, X_CONSTRUCTOR, X_STATIC};
 use super::ApiError;
 use crate::api::mod_test::mirrored_schema_text;
 
@@ -205,7 +205,7 @@ fn fn_name_of(line: &str) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// 落点闸：`x-function` 的合法落点封闭二处（D47 / AC-25）
+// 落点闸：`x-function` 的合法落点封闭四处（D47 / AC-25）
 // ---------------------------------------------------------------------------
 
 /// 边界（**AC-25 ①** / D47）：实现形态二选一、判据不绑死——**硬判据只取三条**：
@@ -275,7 +275,7 @@ fn verify落点闸判据不绑死实现形态() {
 /// 边界（**AC-25 ③** / D47）：收集面不扩、零递归——`fn function_param_names` 恰 1 处定义、
 /// 调用点恰 2 处（`op.signature` 与 `methods_of` 的顶层 `properties` 值）⇒ 带括号计数
 /// 恰 **3**；`methods_of(` 恰 **2**（定义 + `verify` 内唯一调用点）。**增至 3 处调用即
-/// 红**——那意味着改成递归遍历任意深度，与 D47「把射程降成可穷举的二处」相反。
+/// 红**——那意味着改成递归遍历任意深度，与 D47「把射程降成可穷举的四处」相反。
 #[test]
 fn verify落点闸收集面不扩零递归() {
     let source = include_str!("contract.rs");
@@ -736,7 +736,7 @@ fn 投影零过滤() {
 
 /// 异常（AC-1）：md 解析器整体退场——`parse` / `FENCE_OP` / `FENCE_TYPES` /
 /// `collect_reexport_prose` / `collect_surface_table` / `ContractSection` /
-/// `reexport_prose` 零命中；文件体量在设计要约内（≤ 500 行）。
+/// `reexport_prose` 零命中；文件体量在设计要约内（≤ 640 行）。
 #[test]
 fn md解析器整体退场() {
     let source = include_str!("contract.rs");
@@ -758,8 +758,8 @@ fn md解析器整体退场() {
         );
     }
     assert!(
-        source.lines().count() <= 500,
-        "`contract.rs` 体量在设计要约内（≤ 500 行，实际 {}）",
+        source.lines().count() <= 640,
+        "`contract.rs` 体量在设计要约内（≤ 640 行，实际 {}）",
         source.lines().count()
     );
     assert!(
@@ -847,4 +847,635 @@ fn 七族名字闸唯一判据() {
     });
     let contract = Contract::from_schema(FQN, FILE, &schema);
     assert_eq!(verify(&contract, &schema), Ok(()), "合法 ASCII 标识符 ⇒ Ok");
+}
+
+// ---------------------------------------------------------------------------
+// x-class 的构造入口与静态方法（AC-4 / AC-6）：名字族、预留名、落点封闭四处
+// ---------------------------------------------------------------------------
+
+/// 单条目 `$defs.<名>` 取给定 JSON 原值的（契约, schema）对（镜像 `$ref` 自动补齐）。
+fn class_pair(name: &str, definition: Value) -> (Contract, Value) {
+    let mut defs = serde_json::Map::new();
+    defs.insert(name.to_owned(), definition);
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        name.to_owned(),
+        serde_json::json!({ "$ref": format!("#/$defs/{name}") }),
+    );
+    let schema = serde_json::json!({
+        "$id": format!("{FQN}.schema.json"),
+        "title": FQN,
+        "$defs": Value::Object(defs),
+        "properties": Value::Object(properties),
+    });
+    let contract = Contract::from_schema(FQN, FILE, &schema);
+    (contract, schema)
+}
+
+/// 单条目契约经 `verify` 的结果。
+fn class_verify(name: &str, definition: Value) -> Result<(), ApiError> {
+    let (contract, schema) = class_pair(name, definition);
+    verify(&contract, &schema)
+}
+
+/// 断言单条目契约报契约错误并返回文案。
+fn class_error(name: &str, definition: Value) -> String {
+    match class_verify(name, definition.clone()) {
+        Ok(()) => panic!("期望契约错误，实际 Ok：{definition}"),
+        Err(ApiError::Contract(message)) => message,
+        Err(other) => panic!("期望 ApiError::Contract，实际：{other:?}"),
+    }
+}
+
+/// 断言 `verify_defs` 报契约错误并返回文案（跨函数的落点分工用）。
+fn defs_error(schema: &Value) -> String {
+    match crate::api::schema::verify_defs(schema) {
+        Ok(()) => panic!("期望 `verify_defs` 报错，实际 Ok"),
+        Err(ApiError::Contract(message)) => message,
+        Err(other) => panic!("期望 ApiError::Contract，实际：{other:?}"),
+    }
+}
+
+/// 正向（AC-4 正例面）：四处合法落点——模块 op 顶层签名 + 类条目的 `properties` 方法 +
+/// `x-constructor.x-function` + `x-static.<名>.x-function` ⇒ 全 `Ok`；`x-static` 成员
+/// `returns` 指向本类型（工厂）⇒ `Ok`；三种 pointer 形态下零错误文案。
+#[test]
+fn verify类条目四处落点合法() {
+    let definition = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "properties": {"run": {"x-function": {"params": []}}},
+        "x-constructor": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}]}},
+        "x-static": {
+            "open": {"x-function": {"params": [{"name": "path", "schema": {"type": "string"}}], "returns": {"$ref": "#/$defs/Ship"}}},
+            "default_path": {"x-function": {"returns": {"type": "string"}}},
+        },
+    });
+    assert_eq!(class_verify("Ship", definition), Ok(()), "四处落点全合法");
+
+    let mut defs = serde_json::Map::new();
+    defs.insert(
+        "Ship".to_owned(),
+        serde_json::json!({"type": "object", "x-class": true, "properties": {"run": {"x-function": {}}}}),
+    );
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "run".to_owned(),
+        serde_json::json!({"x-function": {"params": [{"name": "input", "schema": {"type": "string"}}], "returns": {"type": "boolean"}}}),
+    );
+    properties.insert(
+        "Ship".to_owned(),
+        serde_json::json!({"$ref": "#/$defs/Ship"}),
+    );
+    let schema =
+        serde_json::json!({"$defs": Value::Object(defs), "properties": Value::Object(properties)});
+    let contract = Contract::from_schema(FQN, FILE, &schema);
+    assert_eq!(
+        verify(&contract, &schema),
+        Ok(()),
+        "模块 op + 类条目同场合法"
+    );
+}
+
+/// 异常（AC-4）：合法位之外的落点——`items` 内 / `additionalProperties` 内 / `oneOf`
+/// 分支内 / `x-function` 自身子树 / 构造器 `returns` 内 ⇒ 各 `Err` 点名 JSON pointer 与
+/// 定形族别串 `x-function 落点`。
+#[test]
+fn verify落点四处之外各报错() {
+    let cases = [
+        (
+            "items 内",
+            serde_json::json!({"type": "object", "properties": {"m": {"x-function": {"params": [{"name": "xs", "schema": {"type": "array", "items": {"x-function": {}}}}]}}}}),
+        ),
+        (
+            "additionalProperties 内",
+            serde_json::json!({"type": "object", "additionalProperties": {"x-function": {}}}),
+        ),
+        (
+            "oneOf 分支内",
+            serde_json::json!({"oneOf": [{"x-function": {}}]}),
+        ),
+        (
+            "x-function 自身子树",
+            serde_json::json!({"type": "object", "x-class": true, "x-static": {"open": {"x-function": {"params": [{"name": "p", "schema": {"x-function": {}}}]}}}}),
+        ),
+        (
+            "构造器 x-function 的 returns 内",
+            serde_json::json!({"type": "object", "x-class": true, "x-constructor": {"x-function": {"params": [], "returns": {"x-function": {}}}}}),
+        ),
+    ];
+    for (label, definition) in cases {
+        let message = class_error("Widget", definition);
+        assert!(
+            message.contains("x-function 落点"),
+            "{label} ⇒ 定形族别串：{message}"
+        );
+        assert!(
+            message.contains("JSON pointer"),
+            "{label} ⇒ 点名 pointer：{message}"
+        );
+        assert!(
+            !message.contains("ASCII 标识符"),
+            "{label} ⇒ 落点错与名字错是两类错误面：{message}"
+        );
+    }
+}
+
+/// 边界（跨函数分工）：非类条目上的 `x-constructor` 经 `verify` ⇒ `Ok`（落点错不抢先、
+/// `verify` 内零骨架复核）；同一 schema 经 `verify_defs` ⇒ `Err`——两函数分工可红绿。
+#[test]
+fn verify非类条目落点错不抢先() {
+    let definition = serde_json::json!({"type": "object", "x-constructor": {"x-function": {}}});
+    assert_eq!(
+        class_verify("Plain", definition.clone()),
+        Ok(()),
+        "`verify` 内零骨架复核（落点归 `verify_defs`）"
+    );
+    let (_, schema) = class_pair("Plain", definition);
+    let message = defs_error(&schema);
+    assert!(
+        message.contains("$defs.Plain.x-constructor"),
+        "`verify_defs` 报落点：{message}"
+    );
+}
+
+/// 异常（AC-6 / ③ 族并入）：`x-static` 名族——`open-it` / `""` / `🎯` / `带 空格` /
+/// `带\n换行` ⇒ 各 `Err` 点名「方法名」族与该名字；1200 字符合法 ASCII ⇒ `Ok`（族别数
+/// 仍七）。
+#[test]
+fn verify的x_static名字族() {
+    for name in ["open-it", "", "🎯", "带 空格", "带\n换行"] {
+        let mut statics = serde_json::Map::new();
+        statics.insert(name.to_owned(), serde_json::json!({"x-function": {}}));
+        let definition = serde_json::json!({
+            "type": "object",
+            "x-class": true,
+            "x-static": Value::Object(statics),
+        });
+        let message = class_error("Ship", definition);
+        assert!(message.contains("方法名"), "点名族别：{message}");
+        assert!(message.contains("ASCII 标识符"), "点名判据：{message}");
+    }
+
+    let long = "a".repeat(1200);
+    let mut statics = serde_json::Map::new();
+    statics.insert(long.clone(), serde_json::json!({"x-function": {}}));
+    let definition = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "x-static": Value::Object(statics),
+    });
+    assert_eq!(
+        class_verify("Ship", definition),
+        Ok(()),
+        "超长合法 ASCII 名仍是标识符"
+    );
+}
+
+/// 异常（AC-6 签名族）：`x-static` 成员的 `params[].name` 非法 ⇒ `Err`（③ 族的参数面）；
+/// `owner` 非法 ⇒ `Err`（⑤ 族）；`description` 任意文本 ⇒ `Ok`（自由形状）。
+#[test]
+fn verify的x_static签名族() {
+    let illegal_param = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "x-static": {"open": {"x-function": {"params": [{"name": "bad-name"}]}}},
+    });
+    let message = class_error("Ship", illegal_param);
+    assert!(message.contains("参数名"), "点名参数族：{message}");
+    assert!(message.contains("bad-name"), "点名非法名：{message}");
+
+    let illegal_owner = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "x-static": {"open": {"x-function": {"owner": "not-an-owner"}}},
+    });
+    let message = class_error("Ship", illegal_owner);
+    assert!(message.contains("owner 键"), "点名 owner 族：{message}");
+
+    let free_form = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "x-static": {"open": {"x-function": {"description": "随便写的 描述 🎯", "params": [], "returns": {"type": "string"}}}},
+    });
+    assert_eq!(
+        class_verify("Ship", free_form),
+        Ok(()),
+        "`description` 是自由文本"
+    );
+}
+
+/// 正向（内部接线的收集面）：`x-class` 条目含 `properties.m` + `x-constructor` +
+/// `x-static.{open, default_path}` ⇒ 四个名字全入 ③ 族——逐个把该面弄非法即各报一条，
+/// 证明收集面确实覆盖三处。
+#[test]
+fn methods_of收集面覆盖四名字() {
+    let full = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "properties": {"m": {"x-function": {}}},
+        "x-constructor": {"x-function": {"params": []}},
+        "x-static": {"open": {"x-function": {}}, "default_path": {"x-function": {}}},
+    });
+    assert_eq!(class_verify("Ship", full), Ok(()), "四名字全合法 ⇒ Ok");
+
+    let illegal_method = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "properties": {"m-1": {"x-function": {}}},
+    });
+    assert!(
+        class_error("Ship", illegal_method).contains("方法名"),
+        "properties 方法名入族"
+    );
+
+    let illegal_new_param = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "x-constructor": {"x-function": {"params": [{"name": "bad-name"}]}},
+    });
+    assert!(
+        class_error("Ship", illegal_new_param).contains("参数名"),
+        "构造器入族（名字固定 new、参数面同判）"
+    );
+
+    let illegal_static = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "x-static": {"open-it": {"x-function": {}}},
+    });
+    assert!(
+        class_error("Ship", illegal_static).contains("方法名"),
+        "x-static 成员名入族"
+    );
+
+    let illegal_static_param = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "x-static": {"open": {"x-function": {"params": [{"name": "bad-name"}]}}},
+    });
+    assert!(
+        class_error("Ship", illegal_static_param).contains("参数名"),
+        "x-static 成员参数入族"
+    );
+}
+
+/// 异常（超大与非类）：`x-static` 100 个成员 + 1 个非法名 ⇒ 恰报那一个；非类条目带
+/// `x-static`（落点非法）⇒ `verify` 零收集、零名字错（不抢先）。
+#[test]
+fn methods_of超大与非类() {
+    let mut statics = serde_json::Map::new();
+    for index in 0..100 {
+        statics.insert(format!("m{index}"), serde_json::json!({"x-function": {}}));
+    }
+    statics.insert("bad-name".to_owned(), serde_json::json!({"x-function": {}}));
+    let definition = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "x-static": Value::Object(statics),
+    });
+    let message = class_error("Ship", definition);
+    assert!(message.contains("bad-name"), "点名那一个非法名：{message}");
+    assert!(!message.contains("m0"), "合法成员零误报：{message}");
+
+    let non_class = serde_json::json!({
+        "type": "object",
+        "x-static": {"open": {"x-function": {}}},
+    });
+    assert_eq!(
+        class_verify("Plain", non_class),
+        Ok(()),
+        "非类条目的新键整条跳过（落点归 `verify_defs`）"
+    );
+}
+
+/// 边界（收集面三臂）：空面（无 ctor / 无 `x-static` / `x-static: {}` / `x-class: false`）
+/// ⇒ 收集面零新增、`Ok`；1200 字符合法名仍入 ③ 族（其参数面同判即证明该成员被收集到）；
+/// `properties` 键与 `x-static` 名同名 ⇒ 两路收集都可见（N-2 文案同时点名两张表）。
+#[test]
+fn methods_of收集面边界() {
+    for definition in [
+        serde_json::json!({"type": "object", "x-class": true, "properties": {"run": {"x-function": {}}}}),
+        serde_json::json!({"type": "object", "x-class": true, "properties": {"run": {"x-function": {}}}, "x-static": {}}),
+        serde_json::json!({
+            "type": "object",
+            "x-class": false,
+            "properties": {"run": {"x-function": {}}},
+            "x-static": {"open": {"x-function": {}}},
+        }),
+    ] {
+        assert_eq!(
+            class_verify("Ship", definition.clone()),
+            Ok(()),
+            "空面零新增、非类条目零收集：{definition}"
+        );
+    }
+
+    let long = "a".repeat(1200);
+    let mut statics = serde_json::Map::new();
+    statics.insert(
+        long.clone(),
+        serde_json::json!({"x-function": {"params": [{"name": "bad-name"}]}}),
+    );
+    let definition = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "x-static": Value::Object(statics),
+    });
+    let message = class_error("Ship", definition);
+    assert!(
+        message.contains("参数名"),
+        "1200 字符合法名仍入 ③ 族（参数面同判）：{message}"
+    );
+    assert!(message.contains("bad-name"), "点名非法参数：{message}");
+
+    let same_name = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "properties": {"open": {"x-function": {}}},
+        "x-static": {"open": {"x-function": {}}},
+    });
+    let message = class_error("Ship", same_name);
+    assert!(
+        message.contains("$defs.Ship.x-static.open"),
+        "两路收集都可见（static 侧 pointer）：{message}"
+    );
+    assert!(
+        message.contains("properties.open"),
+        "两路收集都可见（properties 侧键位）：{message}"
+    );
+}
+
+/// 边界（空面）：`$defs: {}` / 条目无 ctor / 无 `x-static` / `x-static: {}` ⇒ `Ok`；
+/// `x-class: "true"`（字符串）条目 ⇒ 不触发三条预留名判据；`properties` / `$defs` 缺省
+/// ⇒ `Ok`（投影为零）。
+#[test]
+fn verify空面与投影为零() {
+    for definition in [
+        serde_json::json!({"type": "object", "x-class": true, "properties": {}}),
+        serde_json::json!({"type": "object", "x-class": true, "x-static": {}}),
+        serde_json::json!({"type": "object", "x-class": true}),
+    ] {
+        assert_eq!(class_verify("Ship", definition), Ok(()), "缺省面应过");
+    }
+
+    let string_flag = serde_json::json!({
+        "type": "object",
+        "x-class": "true",
+        "properties": {"new": {"x-function": {}}},
+    });
+    assert_eq!(
+        class_verify("Ship", string_flag),
+        Ok(()),
+        "字符串 x-class 不算类条目 ⇒ 不触发预留名判据"
+    );
+
+    let schema = serde_json::json!({});
+    let contract = Contract::from_schema(FQN, FILE, &schema);
+    assert_eq!(verify(&contract, &schema), Ok(()), "零投影 ⇒ Ok");
+}
+
+/// 异常（AC-6 预留名 N-3 / N-1 / N-2）：`x-static` 名 = `new` ⇒ `Err` 点名保留名与出路；
+/// 与 `x-constructor` 并存时仍报该错；`properties` 键 = `new` ⇒ `Err`；两表重名 ⇒ `Err`
+/// 点名重名方法与「改名或合并」出路。
+#[test]
+fn verify类条目三条预留名() {
+    let static_new = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "x-static": {"new": {"x-function": {}}},
+    });
+    let message = class_error("Ship", static_new.clone());
+    assert!(message.contains("保留名"), "点名保留名：{message}");
+    assert!(
+        message.contains("x-constructor"),
+        "出路指向构造入口：{message}"
+    );
+
+    let with_constructor = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "x-constructor": {"x-function": {}},
+        "x-static": {"new": {"x-function": {}}},
+    });
+    assert!(
+        class_error("Ship", with_constructor).contains("保留名"),
+        "构造器在场不豁免 x-static 侧的保留名判据"
+    );
+
+    let field_new = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "properties": {"new": {"x-function": {}}},
+    });
+    let message = class_error("Ship", field_new);
+    assert!(
+        message.contains("properties.new"),
+        "点名 properties 侧键位：{message}"
+    );
+    assert!(message.contains("保留名"), "点名保留名：{message}");
+
+    let shared = serde_json::json!({
+        "type": "object",
+        "x-class": true,
+        "properties": {"open": {"x-function": {}}},
+        "x-static": {"open": {"x-function": {}}},
+    });
+    let message = class_error("Ship", shared);
+    assert!(message.contains("重名"), "点名重名：{message}");
+    assert!(
+        message.contains("改名或把两者合并"),
+        "含可执行出路：{message}"
+    );
+}
+
+/// 边界（射程边界）：非 `x-class` 条目的 `properties.new`（函数指针字段）⇒ `verify` `Ok`
+/// ——条目面判据与模块面判据分立；另一条目的 `x-static.open` 与本条目 `properties.open`
+/// ⇒ `Ok`（文件级自洽、零跨元素）。
+#[test]
+fn verify预留名射程边界() {
+    let plain = serde_json::json!({
+        "type": "object",
+        "properties": {"new": {"x-function": {}}},
+    });
+    assert_eq!(
+        class_verify("Plain", plain),
+        Ok(()),
+        "非类条目的 properties.new 不触发预留名判据"
+    );
+
+    let mut defs = serde_json::Map::new();
+    defs.insert(
+        "Ship".to_owned(),
+        serde_json::json!({"type": "object", "x-class": true, "properties": {"open": {"x-function": {}}}}),
+    );
+    defs.insert(
+        "Other".to_owned(),
+        serde_json::json!({"type": "object", "x-class": true, "x-static": {"open": {"x-function": {}}}}),
+    );
+    let mut properties = serde_json::Map::new();
+    for name in ["Ship", "Other"] {
+        properties.insert(
+            name.to_owned(),
+            serde_json::json!({"$ref": format!("#/$defs/{name}")}),
+        );
+    }
+    let schema =
+        serde_json::json!({"$defs": Value::Object(defs), "properties": Value::Object(properties)});
+    let contract = Contract::from_schema(FQN, FILE, &schema);
+    assert_eq!(
+        verify(&contract, &schema),
+        Ok(()),
+        "跨条目的同名不算重名（文件级自洽、零跨元素）"
+    );
+
+    let false_flag = serde_json::json!({
+        "type": "object",
+        "x-class": false,
+        "properties": {"new": {"x-function": {}}},
+        "x-static": {"open": {"x-function": {}}},
+    });
+    assert_eq!(
+        class_verify("Plain", false_flag.clone()),
+        Ok(()),
+        "非类条目不触发三条预留名判据"
+    );
+    let (_, schema) = class_pair("Plain", false_flag);
+    assert!(
+        defs_error(&schema).contains("$defs.Plain.x-static"),
+        "非类条目的新键由落点闸报"
+    );
+}
+
+/// 正向（D-1 单点持有）：`X_CONSTRUCTOR` / `X_STATIC` 两常量逐字取值；`contract.rs` 内各
+/// 恰一处定义；`schema.rs` / 两渲染器内零**带引号字面量**（经常量名引用）。
+#[test]
+fn x_constructor与x_static常量单点() {
+    assert_eq!(X_CONSTRUCTOR, "x-constructor", "构造入口关键字逐字");
+    assert_eq!(X_STATIC, "x-static", "静态方法表关键字逐字");
+
+    let contract = include_str!("contract.rs");
+    assert_eq!(
+        contract.matches("pub(crate) const X_CONSTRUCTOR").count(),
+        1,
+        "`X_CONSTRUCTOR` 单点定义"
+    );
+    assert_eq!(
+        contract.matches("pub(crate) const X_STATIC").count(),
+        1,
+        "`X_STATIC` 单点定义"
+    );
+
+    for (label, source) in [
+        ("schema.rs", include_str!("schema.rs")),
+        ("emit/rust.rs", include_str!("emit/rust.rs")),
+        ("emit/ts.rs", include_str!("emit/ts.rs")),
+    ] {
+        for literal in ["\"x-constructor\"", "\"x-static\""] {
+            assert!(
+                !source.contains(literal),
+                "{label} 内零散落字面量 {literal}（经常量名引用）"
+            );
+        }
+    }
+}
+
+/// 异常（近形键）：`$defs` 条目顶层写 `x-construct` / `x-Statics` / `x_constructor` ⇒ 不命中
+/// 新键判据、不新增错误面（当作普通未知键由既有闸处置）。
+#[test]
+fn 近形键不误判() {
+    for key in ["x-construct", "x-Statics", "x_constructor"] {
+        let mut definition = serde_json::Map::new();
+        definition.insert("type".to_owned(), serde_json::json!("object"));
+        definition.insert(key.to_owned(), serde_json::json!({"params": []}));
+        let definition = Value::Object(definition);
+        assert_eq!(
+            class_verify("Plain", definition.clone()),
+            Ok(()),
+            "近形键 `{key}` 不被当新键"
+        );
+        let (_, schema) = class_pair("Plain", definition);
+        assert_eq!(
+            crate::api::schema::verify_defs(&schema),
+            Ok(()),
+            "近形键 `{key}` 不新增落点错误面"
+        );
+    }
+}
+
+/// 异常（AC-4 文案面）：定形族别串 `x-function 落点` + `JSON pointer` + 「封闭四处」+
+/// 四条 pointer 形态 + 出路「去掉标记层，或把该形状提升为具名 `$defs` 条目」。
+#[test]
+fn x_function_position_error文案面() {
+    let definition = serde_json::json!({
+        "type": "object",
+        "properties": {"m": {"x-function": {"params": [{"name": "xs", "schema": {"type": "array", "items": {"x-function": {}}}}]}}},
+    });
+    let message = class_error("Widget", definition);
+    assert!(message.contains("x-function 落点"), "定形族别串：{message}");
+    assert!(message.contains("JSON pointer"), "点名 pointer：{message}");
+    for pointer_form in [
+        "properties.<k>",
+        "$defs.<T>.properties.<k>",
+        "x-constructor",
+        "x-static.<名>",
+    ] {
+        assert!(
+            message.contains(pointer_form),
+            "四条 pointer 形态在内（缺 `{pointer_form}`）：{message}"
+        );
+    }
+    assert!(
+        message.contains("去掉标记层，或把该形状提升为具名 `$defs` 条目"),
+        "含可执行出路：{message}"
+    );
+}
+
+/// 边界（四种 pointer 形态可读）：`properties.<k>` / `$defs.<T>.properties.<k>` /
+/// `$defs.<T>.x-constructor` / `$defs.<T>.x-static.<名>` 各产出可读 pointer（数组下标
+/// `[0]` 形态亦在案）；全部经 `verify` 的错误文案观测（私有函数零直调、零新增导出）。
+#[test]
+fn x_function_position_error四种pointer形态() {
+    let cases = [
+        (
+            "properties.<k>",
+            "properties.run.params[0].schema",
+            serde_json::json!({"properties": {"run": {"x-function": {"params": [{"name": "p", "schema": {"x-function": {}}}]}}}}),
+            false,
+        ),
+        (
+            "$defs.<T>.properties.<k>",
+            "$defs.Widget.properties.m.x-function.params[0].schema",
+            serde_json::json!({"type": "object", "properties": {"m": {"x-function": {"params": [{"name": "p", "schema": {"x-function": {}}}]}}}}),
+            true,
+        ),
+        (
+            "$defs.<T>.x-constructor",
+            "$defs.Widget.x-constructor.x-function.params[0].schema",
+            serde_json::json!({"type": "object", "x-class": true, "x-constructor": {"x-function": {"params": [{"name": "p", "schema": {"x-function": {}}}]}}}),
+            true,
+        ),
+        (
+            "$defs.<T>.x-static.<名>",
+            "$defs.Widget.x-static.open.x-function.params[0].schema",
+            serde_json::json!({"type": "object", "x-class": true, "x-static": {"open": {"x-function": {"params": [{"name": "p", "schema": {"x-function": {}}}]}}}}),
+            true,
+        ),
+    ];
+    for (label, pointer, definition, single) in cases {
+        let message = if single {
+            class_error("Widget", definition)
+        } else {
+            let contract = Contract::from_schema(FQN, FILE, &definition);
+            verify_error(&contract, &definition)
+        };
+        assert!(
+            message.contains(pointer),
+            "{label} ⇒ pointer 可读（期望 `{pointer}`）：{message}"
+        );
+        assert!(
+            message.contains("[0]"),
+            "{label} ⇒ 数组下标形态在案：{message}"
+        );
+    }
 }

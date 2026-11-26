@@ -8,7 +8,7 @@ TOML 答拓扑：谁在谁的里面、谁依赖谁。schema（唯一凭据）答
 
 ## 三条不可越界
 - 文档不列接口：导出名的唯一持有者是 schema；历史 fence 读面不读、MUST NOT 新增（清理中）。
-- schema 不写理由：`x-function.description` 只写调用方要知道的语义，MUST NOT 复述签名；`x-` 面封闭为 `x-function` / `x-class` / `x-common`。
+- schema 不写理由：`x-function.description` 只写调用方要知道的语义，MUST NOT 复述签名；`x-` 面封闭为 `x-function` / `x-class` / `x-common` / `x-constructor` / `x-static`。
 - TOML 不造空元素：每个元素至少一条接触面。
 
 ## 工具面

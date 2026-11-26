@@ -11,6 +11,12 @@
 //!
 //! **索引零语言词**：`INDEX.toml` 里不出现 `crate` / `Cargo.toml` / `Rust` /
 //! `TypeScript`——语言特定只落取数器与渲染器。
+//!
+//! **`x-class` 的骨架与两个行为面键的判据只在本模块**：[`verify_defs`] 一趟判
+//! ① 骨架四判据（`type: "object"` / 无 `additionalProperties` / 无 `required` /
+//! `properties` 全为方法）、② 两个新键（`x-constructor` / `x-static`）的形态、③ 它们的落点
+//! （只许在 `x-class` 条目顶层，全文档单趟）。名字族与预留名归 [`super::contract::verify`]，
+//! 渲染期零判据——同一事实 MUST NOT 有第二份实现。
 
 use std::collections::BTreeMap;
 
@@ -143,8 +149,10 @@ fn collect_degraded<'a>(value: &'a Value, pointer: &str, marks: &mut Vec<(String
 /// ⑥ 镜像            `$defs` 每个键在 `properties` 有指向自己的 `$ref`
 /// ⑦ `$ref` 前缀     跨元素串的文件部分逐字等于 `ref_relative(本FQN, 目标FQN)`
 /// ⑧ 顶层键封闭      六键封闭；`$id` / `title` / `$defs` / `properties` 四键必在场
-/// ⑨ 复用三闸        [`super::contract::verify`]（七族名字 / 落点 / `required ⊆ properties`）
-///                   + [`verify_defs`]（`$defs` 五条规则与降级词表）
+/// ⑨ 复用三闸        [`super::contract::verify`]（七族名字 / 落点（封闭四处）/ `required ⊆ properties`
+///                   / `x-class` 条目的三条预留名）
+///                   + [`verify_defs`]（五条 `$defs` 规则、`x-class` 骨架四判据与两键形态、
+///                   两键落点单趟、降级词表）
 /// ```
 ///
 /// `Contract.file` 取接口文件的 repo 相对路径（`<models>/<分层目录…>/<叶段>.schema.json`，
@@ -372,8 +380,9 @@ pub fn verify_ref_prefix(fqn: &str, value: &Value) -> Result<(), ApiError> {
 /// 闸 ⑧：顶层键**封闭六项**（`$schema` / `$id` / `title` / `$comment` / `$defs` /
 /// `properties`），其中 `$id` / `title` / `$defs` / `properties` 四键 MUST 在场。
 ///
-/// 自造的 `x-` 前缀键在这一层就被拒：`x-` 面封闭为 `x-function` / `x-class` /
-/// `x-common` 三项，且它们只在条目内部（不在顶层）。
+/// 自造的 `x-` 前缀键在这一层就被拒：`x-` 面封闭为 `x-function` / `x-class` / `x-common` /
+/// `x-constructor` / `x-static` 五项（逐名，MUST NOT 写「等」），且五项都只在条目内部
+/// （不在顶层）。
 pub fn verify_top_level_keys(value: &Value) -> Result<(), ApiError> {
     let Some(object) = value.as_object() else {
         return Err(ApiError::Contract(
@@ -383,8 +392,8 @@ pub fn verify_top_level_keys(value: &Value) -> Result<(), ApiError> {
     for key in object.keys() {
         if !TOP_LEVEL_KEYS.contains(&key.as_str()) {
             return Err(ApiError::Contract(format!(
-                "顶层出现未知键 `{key}`——顶层封闭为 {}；`x-` 面只有 `x-function` / `x-class` / \
-                 `x-common` 三项且只在条目内部",
+                "顶层出现未知键 `{key}`——顶层封闭为 {}；`x-` 面封闭为 `{X_FUNCTION}` / \
+                 `x-class` / `x-common` / `{X_CONSTRUCTOR}` / `{X_STATIC}` 五项，且只在条目内部",
                 TOP_LEVEL_KEYS.join(" / ")
             )));
         }
@@ -415,6 +424,12 @@ const REQUIRED_TOP_LEVEL_KEYS: [&str; 4] = ["$id", "title", "$defs", "properties
 
 /// 函数标记层关键字（单点定义在 [`super::contract`]，形态闸与键名摘要共用）。
 const X_FUNCTION: &str = super::contract::X_FUNCTION;
+
+/// 构造入口关键字（单点定义在 [`super::contract`]；形态与落点判据、两个渲染器同调）。
+const X_CONSTRUCTOR: &str = super::contract::X_CONSTRUCTOR;
+
+/// 静态方法表关键字（同上）。
+const X_STATIC: &str = super::contract::X_STATIC;
 
 /// `$defs` 表（缺省 / 非对象 → `None`）。
 fn defs_of(value: &Value) -> Option<&Map<String, Value>> {
@@ -461,7 +476,7 @@ fn locate(file: &str, error: ApiError) -> ApiError {
     ApiError::Contract(format!("{file}: {message}"))
 }
 
-/// `$defs` 五条规则 + 透传条目纯 `$ref` 校验 + `x-class` 带属性判错：
+/// `$defs` 五条规则 + 透传条目纯 `$ref` 校验 + `x-class` 的骨架 / 形态 / 落点判据：
 ///
 /// 1. 身份 = 键名（JSON 对象天然键唯一）；
 /// 2. 嵌套 `$defs` MUST 为空——名字提升后原名保留，MUST NOT 构成作用域；
@@ -473,10 +488,20 @@ fn locate(file: &str, error: ApiError) -> ApiError {
 ///    （**非字符串亦拒收**），错误点名该标记的 JSON pointer 并列四值；`x-common.note`
 ///    不受校验、不进债表（自由注记）。
 ///
-/// `x-class: true` 的类型是 trait，**仅允许方法**：条目带 `required`，或某个
-/// `properties` 值不是 `x-function`（即声明了数据属性），即契约错误——本条拦在装载期
-/// （[`super::load_contracts`] 随即中止、不产出半真报告）；反方向的
-/// 「`properties` 全为函数却未标 `x-class`」只是意图提示（警告），落
+/// `x-class: true` 的类型是 trait，**仅允许方法**，且骨架与行为面分两处声明。判序固定
+/// （判序即错误面）：
+///
+/// ① 条目缺 `type: "object"`（骨架不在场：标准校验器视作任意值，且 `type: "string"` 一类会被
+/// 静默吞成 trait）→ 错误；
+/// ② 条目带 `additionalProperties`（对象 / 布尔形态同拒：字典断言与「仅允许方法的 trait」
+/// 语义互斥，放行即静默丢，且会反噬出 `impl <trait>`）→ 错误；
+/// ③ 条目带 `required` → 错误（既有）；
+/// ④ 某个 `properties` 值不是 `x-function`（声明了数据属性）→ 错误（既有）；
+/// ⑤ `x-constructor` / `x-static` 的形态（[`verify_class_members`]）。
+///
+/// 逐条目循环之后另有**两个新键的落点单趟**（[`verify_class_key_positions`]），最后是降级
+/// 词表扫描。全部拦在装载期（[`super::load_contracts`] 随即中止、不产出半真报告）；
+/// 反方向的「`properties` 全为函数却未标 `x-class`」只是意图提示（警告），落
 /// [`super::emit::render_target`] 的语言分派处。
 pub fn verify_defs(schema: &Value) -> Result<(), ApiError> {
     let Some(defs) = schema.get("$defs").and_then(Value::as_object) else {
@@ -518,12 +543,34 @@ pub fn verify_defs(schema: &Value) -> Result<(), ApiError> {
                 }
             }
         }
-        // `x-class: true` 的 trait **仅允许方法**：带 `required`，或某个 `properties` 值
-        // 不是 `x-function`（即声明了数据字段）⇒ 契约错误。排在嵌套 `$defs` 与 `$ref`
-        // 两条之后（同一 `$defs` 骨架）。反方向的「`properties` 全为函数却未标
-        // `x-class`」是合法意图（函数指针结构体），只产警告，落
-        // `emit::render_target` 的语言分派处。
+        // `x-class: true` 的 trait **仅允许方法**，且骨架与行为面分两处声明。判序固定（判序即
+        // 错误面）：`type: "object"` → 无 `additionalProperties` → 无 `required` →
+        // `properties` 全为方法 → 两键形态。①② 两条排在既有两条**之前**——「你不是 object」
+        // 与「你是字典」都比「你不能有 required」更根本；排在嵌套 `$defs` 与 `$ref` 两条之后
+        // （外层规则优先，MUST NOT 遮蔽既有五条 `$defs` 规则）。
         if definition.get("x-class").and_then(Value::as_bool) == Some(true) {
+            if definition.get("type").and_then(Value::as_str) != Some("object") {
+                let actual = match definition.get("type") {
+                    Some(Value::String(text)) => format!("`{text}`"),
+                    Some(other) => format!("{} `{other}`", kind_of(other)),
+                    None => "缺省".to_owned(),
+                };
+                return Err(ApiError::Contract(format!(
+                    "`$defs.{name}.type` 必须是 `\"object\"`（实际为 {actual}）——`x-class` 声明\
+                     行为面，骨架（标准 JSON Schema 能看见的形状）MUST 同时在场：补 \
+                     `\"type\": \"object\"` 即通过（不写 `type` 的条目在标准校验器里是「任意值」，\
+                     而 `type: \"string\"` 一类会被静默吞成 trait）"
+                )));
+            }
+            if definition.contains_key("additionalProperties") {
+                return Err(ApiError::Contract(format!(
+                    "`$defs.{name}` 标了 `x-class` 却带 `additionalProperties`——它断言「键任意、\
+                     值同型、无行为」，与「仅允许方法的 trait」语义互斥，放行即静默丢。两条出路：\
+                     ① 去掉 `x-class` 把它变纯数据（注意：条目层的 map 形态本期不渲染，键值对容器\
+                     写在值位——`x-function.params[].schema` / `returns` / 字段位）；\
+                     ② 若本意是「方法集合」，去掉 `additionalProperties`——trait 没有实例数据面"
+                )));
+            }
             if definition.contains_key("required") {
                 return Err(ApiError::Contract(format!(
                     "`$defs.{name}` 标了 `x-class` 却同时带 `required`——trait 仅允许方法；\
@@ -545,9 +592,12 @@ pub fn verify_defs(schema: &Value) -> Result<(), ApiError> {
                      普通对象去掉 `x-class` 即通过"
                 )));
             }
+            verify_class_members(name, definition)?;
         }
         collect_nested_refs(name, definition)?;
     }
+    // 两个新键的落点（全文档单趟；排在逐条目循环之后 ⇒ 外层规则先命中，`degraded` 词表仍在最后）
+    verify_class_key_positions(schema)?;
     // 降级词表（与计数同源的 `degraded_marks` 单点扫描）：取值 MUST ∈ 四值词表，非字符串
     // 亦拒收——`true` 不携带任何原因信息，债表不可读。错误面沿用本函数既有形态
     // （`$defs.<名>…` 的 pointer 文案，签名只有 schema）。
@@ -570,6 +620,140 @@ pub fn verify_defs(schema: &Value) -> Result<(), ApiError> {
         )));
     }
     Ok(())
+}
+
+/// `x-class` 条目的两个行为面键的**形态**判点（单个对象 + 对象型 `x-function` + 禁项）。
+///
+/// | 键 | 外层 | 允许的内层 | 禁项 |
+/// |---|---|---|---|
+/// | `x-constructor` | **单个对象**（不是「名字 → 签名」表） | `x-function: { params?, … }` | `returns` MUST NOT 出现（返回面由语义固定为本类型）；`async` MUST NOT 为 `true` |
+/// | `x-static` | 「名字 → `{ "x-function": { … } }`」对象 | `params` / `returns` / `async` / `description`（自由形状） | 成员缺对象型 `x-function`（缺包裹即静默丢） |
+///
+/// `params` 可省（= 零参）；**外层另加键不判**（沿用「`x-function` 内层自由形状、不设未知键闸」
+/// 的既有纪律）。名字合法性 / 保留名不在这里——那是 [`super::contract::verify`] 的名字族与
+/// 预留名判据（名字错与形态错分属两个函数，文案互不吞并）。
+fn verify_class_members(name: &str, definition: &Map<String, Value>) -> Result<(), ApiError> {
+    if let Some(constructor) = definition.get(X_CONSTRUCTOR) {
+        let Some(constructor) = constructor.as_object() else {
+            return Err(ApiError::Contract(format!(
+                "`$defs.{name}.{X_CONSTRUCTOR}` 的值必须是对象（实际为 {}）——构造入口是**单个** \
+                 `{{ \"x-function\": {{ \"params\": [ … ] }} }}`（不是「名字 → 签名」表；名字固定 \
+                 `new`，别名构造写给 `{X_STATIC}` 并返回本类型）",
+                kind_of(constructor)
+            )));
+        };
+        let Some(function) = constructor.get(X_FUNCTION).and_then(Value::as_object) else {
+            let actual = match constructor.get(X_FUNCTION) {
+                Some(value) => format!("{} `{value}`", kind_of(value)),
+                None => "缺省".to_owned(),
+            };
+            return Err(ApiError::Contract(format!(
+                "`$defs.{name}.{X_CONSTRUCTOR}` 缺对象型 `{X_FUNCTION}`（实际为 {actual}）——\
+                 构造入口的入参表写在 `{{ \"x-function\": {{ \"params\": [ … ] }} }}` 内\
+                 （`params` 可省 = 零参）；直接写 `params` 会被静默丢"
+            )));
+        };
+        if function.contains_key("returns") {
+            return Err(ApiError::Contract(format!(
+                "`$defs.{name}.{X_CONSTRUCTOR}.{X_FUNCTION}` 带 `returns`——构造器的返回面由语义\
+                 固定为本类型（MUST NOT 声明 `returns`）；要别名构造（`open` / `from_path`）就写给 \
+                 `{X_STATIC}` 并返回本类型"
+            )));
+        }
+        if function.get("async").and_then(Value::as_bool) == Some(true) {
+            return Err(ApiError::Contract(format!(
+                "`$defs.{name}.{X_CONSTRUCTOR}.{X_FUNCTION}` 带 `\"async\": true`——构造器是个值\
+                 而非 future（两语言都没有异步构造，放行只能静默丢该标志）；去掉该键，\
+                 异步初始化写给 `{X_STATIC}` 并返回本类型"
+            )));
+        }
+    }
+    let Some(statics) = definition.get(X_STATIC) else {
+        return Ok(());
+    };
+    let Some(statics) = statics.as_object() else {
+        return Err(ApiError::Contract(format!(
+            "`$defs.{name}.{X_STATIC}` 的值必须是对象（实际为 {}）——它是「名字 → \
+             `{{ \"x-function\": {{ … }} }}`」的类型级静态方法表",
+            kind_of(statics)
+        )));
+    };
+    for (member, value) in statics {
+        let Some(item) = value.as_object() else {
+            return Err(ApiError::Contract(format!(
+                "`$defs.{name}.{X_STATIC}.{member}` 的值必须是对象（实际为 {}）——每个静态成员 \
+                 MUST 用 `{{ \"x-function\": {{ … }} }}` 包裹",
+                kind_of(value)
+            )));
+        };
+        if item.get(X_FUNCTION).is_some_and(Value::is_object) {
+            continue;
+        }
+        let actual = match item.get(X_FUNCTION) {
+            Some(value) => format!("{} `{value}`", kind_of(value)),
+            None => "缺省".to_owned(),
+        };
+        return Err(ApiError::Contract(format!(
+            "`$defs.{name}.{X_STATIC}.{member}` 缺对象型 `{X_FUNCTION}`（实际为 {actual}）——\
+             每个静态成员的签名 MUST 用 `{{ \"x-function\": {{ … }} }}` 包裹（缺包裹即静默丢）"
+        )));
+    }
+    Ok(())
+}
+
+/// 两个新键的**落点**单趟（全文档、含递归）：合法 pointer 集合恰为「`$defs.<T>` 且该条目
+/// `x-class: true` 的顶层」。
+///
+/// 覆盖四种非法位：非类 `$defs` 条目（object / enum / 标量 / 纯 `$ref` alias）的顶层、条目内
+/// 更深层、模块 `properties` 子树、`x-function` 内层——后者是 `x-function` 内层**自由形状**里
+/// 唯一被禁的两个**协议词汇**（禁的是词，不是未知键闸）。顶层与 `properties.<k>` 两处仍由既有
+/// 闸 ⑧ / ⑤ 先拒（本函数结构上排在它们之后）。
+///
+/// 排在逐条目循环之后、`degraded` 词表扫描之前：外层 `$defs` 规则先命中，降级词表仍最后。
+fn verify_class_key_positions(schema: &Value) -> Result<(), ApiError> {
+    scan_class_key_positions(schema, "$", false)
+}
+
+/// [`verify_class_key_positions`] 的递归体：`class_top` 只在该 `$defs.<T>` 条目顶层为真。
+fn scan_class_key_positions(value: &Value, pointer: &str, class_top: bool) -> Result<(), ApiError> {
+    match value {
+        Value::Object(object) => {
+            for (key, inner) in object {
+                if !class_top && (key == X_CONSTRUCTOR || key == X_STATIC) {
+                    return Err(ApiError::Contract(format!(
+                        "`{pointer}.{key}` 的落点非法——只有 `x-class` 条目可声明构造入口与静态\
+                         方法（`{X_CONSTRUCTOR}` / `{X_STATIC}` 只许出现在 `$defs.<T>` 且该条目 \
+                         `x-class: true` 的顶层；`object` / `enum` / 标量 / 纯 `$ref` alias 都是\
+                         纯数据或非类形态，实例由 `properties` + `required` 的字面量构造）。\
+                         出路：把该键移到该类条目的顶层；若本意是给纯数据类型声明行为，先补 \
+                         `\"type\": \"object\"` 与 `\"x-class\": true`（类与数据的分界 = 有没有方法）"
+                    )));
+                }
+                if pointer == "$" && key == "$defs" {
+                    if let Some(defs) = inner.as_object() {
+                        for (name, definition) in defs {
+                            let nested_pointer = format!("$defs.{name}");
+                            // 类条目判据的严格布尔形态（字符串 `"true"` 不算——那种写法走
+                            // 「未标 class」的既有警告面，不是错误面）
+                            let class_top =
+                                definition.get("x-class").and_then(Value::as_bool) == Some(true);
+                            scan_class_key_positions(definition, &nested_pointer, class_top)?;
+                        }
+                        continue;
+                    }
+                }
+                scan_class_key_positions(inner, &format!("{pointer}.{key}"), false)?;
+            }
+            Ok(())
+        }
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                scan_class_key_positions(item, &format!("{pointer}[{index}]"), false)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }
 
 /// `INDEX.toml` 文本装配：顶部说明段（生成警示 / review 口径 / 生成器标识）+

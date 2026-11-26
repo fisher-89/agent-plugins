@@ -424,7 +424,7 @@ fn render_target的x_class零警告形态() {
     let cases = [
         (
             "Marked",
-            r#"{"Marked": {"x-class": true, "properties": {"run": {"x-function": {"params": []}}}}}"#,
+            r#"{"Marked": {"type": "object", "x-class": true, "properties": {"run": {"x-function": {"params": []}}}}}"#,
             "pub trait Marked",
         ),
         (
@@ -526,7 +526,7 @@ fn render_target的x_class警告不进报告面() {
 fn render_target不复制x_class错误判据() {
     let invalid = mirrored_schema_text(
         FQN,
-        r#""Gate": {"x-class": true, "properties": {"count": {"type": "integer"}}}"#,
+        r#""Gate": {"type": "object", "x-class": true, "properties": {"count": {"type": "integer"}}}"#,
         "",
     );
     let (_contract, schema) = prepare(&invalid, FQN, FILE);

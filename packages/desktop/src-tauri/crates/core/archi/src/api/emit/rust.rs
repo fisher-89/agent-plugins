@@ -1,6 +1,11 @@
 //! `.i.rs` 渲染：类型定义（`struct` / `trait` / `enum` / newtype）+ 自动构造器 +
 //! 透传 `pub use` + 头注释 + 签名见证。
 //!
+//! **trait body 的两类新成员**（`x-class` 条目）：构造入口（`fn new(<params>) -> Self;`，名字
+//! 由协议固定、返回面由语义固定）与静态方法（`fn <名><method_signature>;`）——排在既有
+//! `properties` 方法之后，读写面来自装载期的形态判据（本层零判错）。trait 不出 `T::new`
+//! 见证：绑定由 `impl` 处的编译器强制，`impl <trait>` 不可编译。
+//!
 //! **签名见证必须写 `super::Type::method` 形态**：`#[path] mod api_gen` 内的裸名看不见
 //! crate 根的 inherent 方法（实测报 `E0425`）；`super::LocalArchiCheck::file_stem` 有效
 //! ——`super::` 在 `#[path]` mod 内指向 crate 根，而 crate 根的 `LocalArchiCheck` 正是
@@ -21,7 +26,7 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value};
 
 use super::{declared_ops, local_defs, notice_lines, reexport_defs, EmitTarget, ModuleRef};
-use crate::api::contract::{is_constructor, Contract, ContractOp};
+use crate::api::contract::{is_constructor, Contract, ContractOp, X_CONSTRUCTOR, X_STATIC};
 use crate::api::extract::{nullable_breakdown, Position};
 use crate::api::{protocol_key, reexport_target, ref_name, ApiMeta, CommonRule};
 
@@ -204,6 +209,10 @@ fn struct_block(
 /// [`super::super::schema::verify_defs`] 在装载期拦住（本函数因此只会看到方法）；
 /// 反方向的「`properties` 全为函数却未标 `x-class`」是警告，由
 /// [`super::render_target`] 在语言分派处提示。两侧都不在本渲染器内。
+///
+/// body 三段按序：`properties` 方法 → 构造器（`fn new(<params>) -> Self;`）→ `x-static`
+/// 成员（`fn <名><method_signature>;`），各按 `serde_json::Map` 迭代序。构造器与静态方法的
+/// 读写面来自装载期的形态判据（`returns` / `async` 已在那里禁掉），本函数不重复判错。
 fn trait_block(
     name: &str,
     object: &Map<String, Value>,
@@ -217,6 +226,27 @@ fn trait_block(
             };
             body.push_str(&format!(
                 "    fn {method}{};\n",
+                method_signature(function, common)
+            ));
+        }
+    }
+    if let Some(constructor) = object
+        .get(X_CONSTRUCTOR)
+        .and_then(|constructor| constructor.get("x-function"))
+    {
+        // 返回面由语义固定为本类型（装载期已禁 `returns`），故不读它
+        body.push_str(&format!(
+            "    fn new({}) -> Self;\n",
+            param_list(constructor, common)
+        ));
+    }
+    if let Some(statics) = object.get(X_STATIC).and_then(Value::as_object) {
+        for (member, value) in statics {
+            let Some(function) = value.get("x-function") else {
+                continue;
+            };
+            body.push_str(&format!(
+                "    fn {member}{};\n",
                 method_signature(function, common)
             ));
         }
@@ -291,9 +321,11 @@ fn op_witness(op: &ContractOp, common: &BTreeMap<String, CommonRule>) -> String 
     format!("const _: fn({params}) -> {returns} = {reference};")
 }
 
-/// 方法签名尾段（`(<入参序列>) -> <返回>`；无返回即 `(<入参序列>)`）。
-fn method_signature(function: &Value, common: &BTreeMap<String, CommonRule>) -> String {
-    let params = function
+/// 入参序列（`name: T` 以 `, ` 连接；`params` 缺省 / 非数组即空串）——**入参拼装的唯一
+/// 单点**：`method_signature` / `function_pointer` / trait body 的构造器三处共用，MUST NOT
+/// 存在第二份签名拼装（`value_type` 的 `Position::Param` 分派面因此仍只此一条出口）。
+fn param_list(function: &Value, common: &BTreeMap<String, CommonRule>) -> String {
+    function
         .get("params")
         .and_then(Value::as_array)
         .map(|params| {
@@ -307,7 +339,12 @@ fn method_signature(function: &Value, common: &BTreeMap<String, CommonRule>) -> 
                 .collect::<Vec<String>>()
                 .join(", ")
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+/// 方法签名尾段（`(<入参序列>) -> <返回>`；无返回即 `(<入参序列>)`）。
+fn method_signature(function: &Value, common: &BTreeMap<String, CommonRule>) -> String {
+    let params = param_list(function, common);
     match function.get("returns") {
         Some(schema) => {
             let returns = value_type(schema, Position::Return, common);
@@ -331,10 +368,10 @@ fn function_pointer(function: &Value, common: &BTreeMap<String, CommonRule>) -> 
 /// 本文件只 `use` 不自建——D43）。
 ///
 /// **`value_type` 零 `x-function` 分支是不变量**（D47 ②）：`x-function` 的合法落点被
-/// [`crate::api::contract::verify`] 的落点闸封闭在二处（`api-op` 顶层签名与 `$defs`
-/// 条目第一层 `properties` 的值），故本函数结构上收不到「函数作为值」的形态——深层
-/// `x-function` 在装载期即契约错误，TS 侧 `value_type` 同批收敛为同一形态（MUST NOT
-/// 在两侧任一侧重开该分支，否则同一 schema 两侧产物形态不同）。
+/// [`crate::api::contract::verify`] 的落点闸封闭在四处（模块 op 顶层签名、`$defs` 条目第一层
+/// `properties` 的值、`x-class` 条目的构造入口与静态方法），故本函数结构上收不到「函数作为值」
+/// 的形态——深层 `x-function` 在装载期即契约错误，TS 侧 `value_type` 同批收敛为同一形态
+/// （MUST NOT 在两侧任一侧重开该分支，否则同一 schema 两侧产物形态不同）。
 /// 映射规则查表（D54 ③ 的唯一查表面）：承载键经 [`protocol_key`] 求出，命中即取本
 /// 语言槽位并把 `{}` 换成本 schema 的内容位类型；未命中 / 无内容位 ⇒ 交回普通
 /// `type` 分派。**渲染器零 IO、四参签名不扩**（规则表已进 [`ApiMeta`]）。
@@ -478,10 +515,15 @@ fn scalar_type(object: &Map<String, Value>) -> Option<&'static str> {
     }
 }
 
-/// 零字段 object 判据（决定是否产出自动构造器与构造器见证）。
+/// 零字段 object 判据（决定是否由生成器自动产出零参 `new` 与构造器见证行）。
+///
+/// **`x-class` 条目排除**：trait 不是类型本体（`impl <trait>` 报 `E0404`、
+/// `const _: fn() -> super::<trait>` 同样不可编译），自动构造器与见证行只对纯数据产出。
+/// 唯一消费点是 `render_scope` 的 `constructible` 收集。
 fn is_zero_field_object(definition: &Value) -> bool {
     definition.as_object().is_some_and(|object| {
         object.get("type").and_then(Value::as_str) == Some("object")
+            && object.get("x-class").and_then(Value::as_bool) != Some(true)
             && object
                 .get("properties")
                 .and_then(Value::as_object)

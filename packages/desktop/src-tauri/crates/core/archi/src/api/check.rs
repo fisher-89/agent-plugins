@@ -473,8 +473,10 @@ fn signature_mismatch(
     ))
 }
 
-/// 一致性第三序 `apiConstructorDeclared`：接口声明了构造器（自身矛盾——构造器由
-/// 生成器产出）。
+/// 一致性第三序 `apiConstructorDeclared`：**模块级** `properties` 声明了构造器（自身矛盾
+/// ——构造器由生成器产出：零字段 `object` 自动产 `new()`，类型级构造写进 `$defs.<T>.x-constructor`）。
+/// 射程只有 `contract.ops`（模块级 `properties` 的投影）——`$defs` 条目里的类型级构造入口
+/// MUST NOT 触发本判据。
 fn constructor_declared(
     element: &ArchiElement,
     contract: Option<&Contract>,
@@ -486,7 +488,7 @@ fn constructor_declared(
         element,
         Some(op.id.clone()),
         format!(
-            "接口定义 {} 声明了构造器 `{}`——构造器由生成器的 `$defs` 条目自动产出，接口 MUST NOT 声明它（否则必然误报实现缺失）",
+            "接口定义 {} 的模块级 `properties` 声明了构造器 `{}`——零字段 `object` 由生成器自动产 `new()`，类型级构造写进 `$defs.<T>.x-constructor`；模块级 `properties` MUST NOT 声明它（否则必然误报实现缺失）",
             contract.file, op.id
         ),
         Vec::new(),
