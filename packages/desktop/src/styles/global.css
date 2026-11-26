@@ -176,3 +176,13 @@
 .react-flow__attribution {
   display: none !important;
 }
+
+.prose-sm {
+  :where(table):not(:where([class~='not-prose'], [class~='not-prose'] *)) {
+    font-size: inherit;
+  }
+
+  :where(pre):not(:where([class~='not-prose'], [class~='not-prose'] *)) {
+    font-size: inherit;
+  }
+}

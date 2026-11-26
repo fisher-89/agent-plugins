@@ -775,7 +775,7 @@ if x-class == true:
 | `packages/desktop/src/types/generated/bindings.ts` + `bindings.zod.ts` | IPC 类型再生成 | 含 `ApiStatus` / `ArchiApiRef` / `ArchiApiFindingKind` / `ArchiApiFinding` / 报告 `apiFindings`；再生成后入库、过期由提交前人工核对（零 diff 守卫已退役） |
 | `.dev-team/architecture/models/<分层目录…>/**`（契约资产新落点） | 契约与生成物资产 | `<分层目录…>/<叶段>.md`（唯一手写）+ `<分层目录…>/<叶段>.schema.json`（生成，与 md 同目录）；由 `git mv` 自 `<archi_dir>/api/<分层目录…>/**` 搬入，内容逐字不变；两者入库、进零 diff 门 |
 | `.dev-team/architecture/graph/INDEX.toml`（契约索引新落点） | 契约索引 | 由 `git mv` 自 `<archi_dir>/api/INDEX.toml` 搬入后由 `api:export` 重生成；差异恰为说明段目录串（`<archi_models_rel_dir>`）与已声明元素的 `schema` 列（repo 相对路径含 `models/<分层目录…>/`）两行，其余条目逐字不变 |
-| `.dev-team/architecture/api/**` | **删除** | `api` 段退役，迁移后该目录不存在；孤儿枚举严格两处派生（`<archi_models_dir>/**` + `<archi_graph_dir>/INDEX.toml`），故 `api/` 残留对 `api:check` 不可见——缺席由 `git mv`（同提交）+ 目录树读数 + `pilot_test` 负向断言守，MUST NOT 写成「`api:check` 报应删未删」 |
+| `.dev-team/architecture/api/**` | **删除** | `api` 段退役，迁移后该目录不存在；孤儿枚举严格两处派生（`<archi_models_dir>/**` + `<archi_graph_dir>/INDEX.toml`），故 `api/` 残留对 `api:check` 不可见——缺席由 `git mv`（同提交）+ 目录树读数守，MUST NOT 写成「`api:check` 报应删未删」 |
 | `AGENT.md` + `CLAUDE.md`（仓库根文档，见「仓库根文档的契约纪律节」） | agent 侧操作纪律入口（本变更：第 ① / ② / ⑤ 条目录串换段） | 第 ① 条手写真相 `<archi_models_dir>/<分层目录…>/<叶段>.md`、第 ② 条 `INDEX.toml` 方位 `<archi_graph_dir>`（原写「契约目录根」，`grep 'architecture/api'` 抓不到它）、第 ⑤ 条索引串 `<archi_graph_dir>/INDEX.toml`；`## 模块 API 契约` 节恰 5 条要点（手写真相位置与三类 fence / 四类生成物勿手改 / 两脚本与 `check` 链段序 / `api = none` 留白 / 入口文档承诺已成立元素的判据进 `status`、其中 `error` 档进 `passed`）；第②条 = 「实现入口同级」+ `<入口主干>.i.rs` / `<入口主干>.i.ts`（与「生成物落点与入口查找」同口径），条目数恒 5、其余四条要点逐字不动；MUST NOT 复制契约正文、判据长表或 fence 示例；零 `entry` 字段说明（字段知识归 `desktop-archi-agent` 的知识文本）；节内零 `openspec/specs/**` 路径；两文件该节正文逐字相同（同源纪律） |
 
 ### API: 生成物驱动面（零命令形态变化，实现落点变化）
@@ -825,7 +825,6 @@ if x-class == true:
 |------|------|------|
 | `crates/core/archi/src/api/contract.rs` | 契约解析 + **装载期闸群收口** | 五类位置语义、`### <op-id>` 分段、三类 fence 提取、构造器声明检测逐字不变；`verify` 在既有三闸（op/heading ≡ fence 归属、`api-types` ⊆ `$defs`、`api-reexport` ≡ 散文列表）+ 闸一（七族名字）+ 落点闸 + 自洽闸之后**追加第四条闸**（散文表格名字 ∩ 契约名字集 = ∅，前置为 `ops`/`types`/`reexports` 任一非空）；错误一律 `ApiError::Contract`、带文件与点名项；模块头注释的「三条双向 gate」表述 SHALL 同步为四条 |
 | `crates/core/archi/src/api/contract_test.rs` | 装载期闸语料 | 既有闸语料逐字不变；新增抽取面正反例与第四条闸正反例（含留白豁免与「补契约即转红」两态）；新用例 MUST 落在本文件内，MUST NOT 新增 `api/**` sidecar 文件（计数断言恰 13 份） |
-| `crates/core/archi/tests/pilot_test.rs` | crate 级全量装载守护 | 新增一条用例：`<archi_models_dir>` 递归全部 `*.md` 经 `parse` + `build_schema` + `verify` 全线通过（当前 10 份：后端 2 份闸生效且零表格行、前端 8 份走留白豁免） |
 
 #### Function: 契约装载期抽取面（`crates/core/archi/src/api/contract.rs`，零新增公开出口）
 

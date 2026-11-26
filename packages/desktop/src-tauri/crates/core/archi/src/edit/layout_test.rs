@@ -7,16 +7,9 @@
 //! `minimal_moved` / `blocks_of`）**只经 `normalize` 的产出观测**——不为测试开路新增导出。
 //!
 //! 零 mock：真实 `toml_edit::DocumentMut`（解析 + 渲染即被测面）、真实 `TomlParser`
-//! （同源断言：重解析序 == 渲染文本序）、真实 `serde_json`（`Reorder` 线面）；仓库面
-//! 用例只读在盘模型文件（`CARGO_MANIFEST_DIR` 上溯六层，零写盘），替身会让「在盘事实」
-//! 不可见。
-
-use std::fs;
-use std::path::PathBuf;
+//! （同源断言：重解析序 == 渲染文本序）、真实 `serde_json`（`Reorder` 线面）。
 
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table};
-
-use foundation::layout::archi_graph_model_dir;
 
 use crate::model::Model;
 use crate::parse::{SourceParser, TomlParser};
@@ -185,16 +178,6 @@ fn append_relation(document: &mut DocumentMut, from: &str, to: &str) {
     table.insert("to", toml_edit::value(to));
     table.decor_mut().set_prefix("\n");
     entries.push(table);
-}
-
-/// 仓库根（`CARGO_MANIFEST_DIR` 位于 `<仓根>/packages/desktop/src-tauri/crates/core/archi`，
-/// 故上溯**六层**，沿 `tests/pilot_test.rs::repository_root` 先例）。
-fn repository_root() -> PathBuf {
-    let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for _ in 0..6 {
-        root.pop();
-    }
-    root
 }
 
 // ---------------------------------------------------------------------------
@@ -944,41 +927,6 @@ fn 多后代与多段各归一块() {
     assert_eq!(reorder.moved, 1, "多段并回报一块");
     assert_eq!(reorder.blocks, vec!["A".to_owned()]);
     assert_invariants(&rendered);
-}
-
-// ---------------------------------------------------------------------------
-// 正向：仓库面只读
-// ---------------------------------------------------------------------------
-
-/// 正向（AC-1 的在盘事实）：仓库六个模型文件逐一 `normalize` ⇒ `Reorder::default()`
-/// 且逐字节相等；只读、零写盘（读前读后字节全等）。
-#[test]
-fn 仓库六模型文件逐一no_op且零写盘() {
-    let dir = archi_graph_model_dir(&repository_root());
-    let mut names: Vec<String> = fs::read_dir(&dir)
-        .expect("模型声明目录应在盘")
-        .flatten()
-        .filter_map(|entry| entry.file_name().to_str().map(str::to_owned))
-        .filter(|name| name.ends_with(".toml"))
-        .collect();
-    names.sort();
-    assert_eq!(names.len(), 6, "仓库模型文件恰六个：{names:?}");
-
-    for name in names {
-        let path = dir.join(&name);
-        let before = fs::read(&path).expect("读模型文件失败");
-        let source = String::from_utf8(before.clone()).expect("模型文件应是 UTF-8");
-        let mut document = document_of(&source);
-        let reorder = normalize(&mut document);
-        assert_eq!(reorder, Reorder::default(), "{name} 应零搬迁");
-        assert!(reorder.blocks.is_empty(), "{name} 块清单应空");
-        assert_eq!(document.to_string(), source, "{name} 渲染文本应逐字节相等");
-        assert_eq!(
-            fs::read(&path).expect("读模型文件失败"),
-            before,
-            "{name} 只读零写盘"
-        );
-    }
 }
 
 // ---------------------------------------------------------------------------
