@@ -876,8 +876,9 @@ fn render的透传模块路径零fqn派生() {
     );
 
     // 两形态不相等：`reexport_target` 给 FQN 形态，`ModuleRef.module_path` 给 `crate::*`
-    let reference = "./App.Frontend.Components.Agent.schema.json#/$defs/Input";
-    let fqn = crate::api::reexport_target(reference).expect("外部文件引用取目标 FQN");
+    let reference = "./Agent.schema.json#/$defs/Input";
+    let fqn = crate::api::reexport_target("App.Frontend.Components.ToolCards", reference)
+        .expect("外部文件引用取目标 FQN");
     assert_eq!(fqn, "App.Frontend.Components.Agent");
     let module_path = format!(
         "crate::{}",

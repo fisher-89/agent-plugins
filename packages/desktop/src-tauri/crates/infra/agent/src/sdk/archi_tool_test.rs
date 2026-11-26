@@ -76,10 +76,10 @@ fn healthy(tag: &str) -> tempfile::TempDir {
     let dir = tempdir(tag);
     write_model(dir.path(), "01-core.toml", CORE);
     write_file(dir.path(), "src/auth/README.md", "# 认证说明\n\n正文\n");
-    // 检索语料 = `path` 非空元素的在盘派生资产（两条固定规则），故落一份 `<FQN>.md`
+    // 检索语料 = `path` 非空元素的在盘派生资产（两条固定规则），故落一份 `<叶段>.md`
     write_file(
         dir.path(),
-        ".dev-team/architecture/models/App/App.Auth.md",
+        ".dev-team/architecture/models/App/Auth.md",
         "# App.Auth\n\n## 职能\n\n认证域。\n",
     );
     dir
@@ -480,12 +480,12 @@ fn api_root(tag: &str) -> tempfile::TempDir {
     );
     write_file(
         dir.path(),
-        ".dev-team/architecture/models/App/Api/App.Api.Subject.md",
+        ".dev-team/architecture/models/App/Api/Subject.md",
         "# App.Api.Subject\n\n## 职能\n\n工具语料。\n",
     );
     write_file(
         dir.path(),
-        ".dev-team/architecture/models/App/Api/App.Api.Subject.schema.json",
+        ".dev-team/architecture/models/App/Api/Subject.schema.json",
         concat!(
             "{\n",
             "  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n",
@@ -726,11 +726,11 @@ async fn archi_api输出过cap_result() {
         ));
     }
     write_model(dir.path(), "01.toml", &model);
-    // 接口面启用需要一份 declared 元素的 `<FQN>.schema.json` 在盘；其余元素的
+    // 接口面启用需要一份 declared 元素的 `<叶段>.schema.json` 在盘；其余元素的
     // `docMissing`（派生 md 不在盘）即规模面的 3000 条判据来源
     write_file(
         dir.path(),
-        ".dev-team/architecture/models/App/App.Carrier.schema.json",
+        ".dev-team/architecture/models/App/Carrier.schema.json",
         "{\"$id\": \"App.Carrier.schema.json\", \"title\": \"App.Carrier\", \"$defs\": {}, \"properties\": {}}\n",
     );
 
@@ -891,10 +891,10 @@ fn doc_shape_dir(tag: &str) -> tempfile::TempDir {
     );
     write_file(dir.path(), "src/auth/README.md", "# 认证说明\n\n正文\n");
     write_file(dir.path(), "src/billing/README.md", "# 计费说明\n\n正文\n");
-    // 检索语料 = `path` 非空元素的在盘派生文档（`<FQN>.md`）
+    // 检索语料 = `path` 非空元素的在盘派生文档（`<叶段>.md`）
     write_file(
         dir.path(),
-        ".dev-team/architecture/models/App/App.Auth.md",
+        ".dev-team/architecture/models/App/Auth.md",
         "# App.Auth\n\n## 职能\n\n认证域。\n",
     );
     dir
@@ -3174,7 +3174,7 @@ async fn archi_module只有接口文件() {
     let dir = assets_root("assets-interface");
     write_file(
         dir.path(),
-        ".dev-team/architecture/models/App/App.Auth.schema.json",
+        ".dev-team/architecture/models/App/Auth.schema.json",
         concat!(
             "{\n",
             "  \"$id\": \"App.Auth.schema.json\",\n",
@@ -3219,7 +3219,7 @@ async fn archi_module只有文档() {
     let dir = assets_root("assets-doc");
     write_file(
         dir.path(),
-        ".dev-team/architecture/models/App/App.Auth.md",
+        ".dev-team/architecture/models/App/Auth.md",
         "# App.Auth\n\n## 职能\n\n认证域。\n\n## 不变量\n\n令牌不过期。\n",
     );
     let context = ArchiContext::new(dir.path().to_path_buf());
@@ -3257,7 +3257,7 @@ async fn archi_module只有文档() {
 // ---------------------------------------------------------------------------
 
 /// 正向（AC-7 / D-15）：两形态互斥且前缀单点——跨元素形态的串 = `ref_relative(from, to)` +
-/// `<to>.schema.json#/$defs/<name>`（前缀**不比 spec 示例字面**，与 `paths::ref_relative` 的
+/// `<to 叶段>.schema.json#/$defs/<name>`（前缀**不比 spec 示例字面**，与 `paths::ref_relative` 的
 /// 输出逐字对拍）；本模块形态 = `#/$defs/<name>`；同批给两形态 ⇒ `Err`。
 #[tokio::test]
 async fn archi_api_link两形态且前缀单点() {
@@ -3279,11 +3279,11 @@ async fn archi_api_link两形态且前缀单点() {
     let expected = format!(
         "{}{}.schema.json#/$defs/Piece",
         archi::api::paths::ref_relative("App.Api.Subject", "App.Api.Subject.Part"),
-        "App.Api.Subject.Part"
+        archi::api::paths::leaf_name("App.Api.Subject.Part")
     );
     assert_eq!(
         reference, expected,
-        "跨元素串 = ref_relative 输出 + 目标文件名 + 片段（层数由单点求出）"
+        "跨元素串 = ref_relative 输出 + 目标叶段文件名 + 片段（层数由单点求出）"
     );
     assert!(
         reference.starts_with("./Subject/"),
@@ -3421,7 +3421,7 @@ async fn archi_api_link纯计算零io() {
     assert!(
         payload["ref"]
             .as_str()
-            .is_some_and(|reference| reference.ends_with("Ghost.Right.schema.json#/$defs/Thing")),
+            .is_some_and(|reference| reference.ends_with("Right.schema.json#/$defs/Thing")),
         "模型里没有该元素也照算：{}",
         payload["ref"]
     );
@@ -3453,12 +3453,12 @@ async fn archi_api_link到write到check可达() {
     // 两元素的派生 md 在盘（`apiRefMissing` 的第四种问题＝目标 md 不在盘 ⇒ 零命中）
     write_file(
         dir.path(),
-        ".dev-team/architecture/models/App/Api/App.Api.Subject.md",
+        ".dev-team/architecture/models/App/Api/Subject.md",
         "# App.Api.Subject\n\n## 职能\n\n引用方。\n",
     );
     write_file(
         dir.path(),
-        ".dev-team/architecture/models/App/Api/Subject/App.Api.Subject.Part.md",
+        ".dev-team/architecture/models/App/Api/Subject/Part.md",
         "# App.Api.Subject.Part\n\n## 职能\n\n被引用方。\n",
     );
     let context = ArchiContext::new(dir.path().to_path_buf());
@@ -3485,7 +3485,7 @@ async fn archi_api_link到write到check可达() {
     );
     let target = dir
         .path()
-        .join(".dev-team/architecture/models/App/Api/App.Api.Subject.schema.json");
+        .join(".dev-team/architecture/models/App/Api/Subject.schema.json");
     let written = crate::sdk::tools::execute(
         dir.path(),
         "write",

@@ -1,5 +1,5 @@
 # 由 archi-api-gen 生成 · 勿手改
-# review 口径：读 `<FQN>.schema.json`（接口，手写真相）与 `<FQN>.md`（理由）；status 的 declared = 接口文件在案；本文件与 `*.i.*` 的 diff 视为机械噪声。
+# review 口径：读 `<叶段>.schema.json`（接口，手写真相）与 `<叶段>.md`（理由；同目录、叶段即 FQN 末段）；status 的 declared = 接口文件在案；本文件与 `*.i.*` 的 diff 视为机械噪声。
 # 契约面：目录 .dev-team/architecture/models · 生成器 archi-api 0.1.0 · 映射规则摘要 sha256:1f8f0ec14abb
 
 [[entry]]
@@ -53,7 +53,7 @@ status = "declared"
 types = 0
 ops = 9
 degraded = 0
-schema = ".dev-team/architecture/models/Backend/Core/Backend.Core.Foundation.schema.json"
+schema = ".dev-team/architecture/models/Backend/Core/Foundation.schema.json"
 generated = "packages/desktop/src-tauri/crates/core/foundation/src/lib.i.rs"
 
 [[entry]]
@@ -98,7 +98,7 @@ status = "declared"
 types = 1
 ops = 1
 degraded = 0
-schema = ".dev-team/architecture/models/Backend/Infra/Backend.Infra.ArchiRuntime.schema.json"
+schema = ".dev-team/architecture/models/Backend/Infra/ArchiRuntime.schema.json"
 generated = "packages/desktop/src-tauri/crates/infra/archi/src/lib.i.rs"
 
 [entry.categories]
@@ -191,7 +191,7 @@ status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Desktop/Components/Desktop.Components.Agent.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent.schema.json"
 generated = "packages/desktop/src/components/agent/index.i.ts"
 
 [[entry]]
@@ -200,7 +200,7 @@ status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Desktop/Components/Agent/Desktop.Components.Agent.AgentBlocks.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent/AgentBlocks.schema.json"
 generated = "packages/desktop/src/components/agent/message-cards/blocks.i.ts"
 
 [[entry]]
@@ -209,7 +209,7 @@ status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Desktop/Components/Agent/Desktop.Components.Agent.AgentError.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent/AgentError.schema.json"
 generated = "packages/desktop/src/components/agent/agent-error.i.ts"
 
 [[entry]]
@@ -218,7 +218,7 @@ status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Desktop/Components/Agent/Desktop.Components.Agent.AgentInput.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent/AgentInput.schema.json"
 generated = "packages/desktop/src/components/agent/agent-input.i.ts"
 
 [[entry]]
@@ -227,7 +227,7 @@ status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Desktop/Components/Agent/Desktop.Components.Agent.AgentMessages.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent/AgentMessages.schema.json"
 generated = "packages/desktop/src/components/agent/agent-messages.i.ts"
 
 [[entry]]
@@ -236,7 +236,7 @@ status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Desktop/Components/Agent/Desktop.Components.Agent.AgentSessionView.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent/AgentSessionView.schema.json"
 generated = "packages/desktop/src/components/agent/agent-session-view.i.ts"
 
 [[entry]]
@@ -245,7 +245,7 @@ status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Desktop/Components/Agent/Desktop.Components.Agent.SessionPanel.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent/SessionPanel.schema.json"
 generated = "packages/desktop/src/components/agent/session-panel.i.ts"
 
 [[entry]]
@@ -254,7 +254,7 @@ status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Desktop/Components/Agent/Desktop.Components.Agent.ToolCards.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Components/Agent/ToolCards.schema.json"
 generated = "packages/desktop/src/components/agent/message-cards/tool-cards.i.ts"
 
 [[entry]]
@@ -362,7 +362,7 @@ status = "declared"
 types = 0
 ops = 0
 degraded = 0
-schema = ".dev-team/architecture/models/Desktop/Views/Desktop.Views.Architecture.schema.json"
+schema = ".dev-team/architecture/models/Desktop/Views/Architecture.schema.json"
 generated = "packages/desktop/src/views/architecture/index.i.ts"
 
 [[entry]]

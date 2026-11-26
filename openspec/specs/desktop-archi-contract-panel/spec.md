@@ -12,19 +12,19 @@
 
 | 字段 | 类型 | 语义 |
 |---|---|---|
-| `enabled` | `bool` | 接口面是否启用（**存在任一 `path` 非空 ∧ `api = declared` 元素的 `<FQN>.schema.json` 在盘**），`api::enabled` 单点判定，MUST NOT 在命令层另判一套 |
+| `enabled` | `bool` | 接口面是否启用（**存在任一 `path` 非空 ∧ `api = declared` 元素的 `<叶段>.schema.json` 在盘**），`api::enabled` 单点判定，MUST NOT 在命令层另判一套 |
 | `meta` | `ArchiApiMeta` | 生成载元：`toolVersion`（生成器 crate 版本）+ `commonDigest`（映射规则资产摘要 `sha256:<hex>`，渲染侧截前 12 位）；取自 `api::meta()`，MUST NOT 在命令层重算摘要 |
 | `mismatched` | `Vec<String>` | 内容不符：文件在盘但字节与渲染结果不同 |
 | `orphaned` | `Vec<String>` | 应删未删：盘上存在、命名符合生成物判据、不在应生成集 |
 | `missing` | `Vec<String>` | 应生成未生成 |
 
-- **应生成集只剩三类**：`INDEX.toml` / `.i.rs` / `.i.ts`。`<FQN>.schema.json` MUST NOT 进应生成集（它是手写真相），因此 MUST NOT 出现在 `mismatched` / `orphaned` / `missing` 任一列——收面漏改的症状是「11 份手写文件全进 `orphaned`」（全红而不是少一条）。
+- **应生成集只剩三类**：`INDEX.toml` / `.i.rs` / `.i.ts`。`<叶段>.schema.json` MUST NOT 进应生成集（它是手写真相），因此 MUST NOT 出现在 `mismatched` / `orphaned` / `missing` 任一列——收面漏改的症状是「11 份手写文件全进 `orphaned`」（全红而不是少一条）。
 - **薄包装形态**：命令 SHALL 为薄包装（`check_root` → 调 `core/archi` 领域函数 → 映射错误），领域装配在 `archi_api_check_inner(root: &Path)` 内以便离 Tauri 测试（沿 `commands/archi/` 既有 `*_inner` 形态）；命令层 MUST NOT 承载渲染、比对或路径归一。`enabled` 的计算需要模型元素表（`elements_of` 单点取数，与判据面同源），命令层 MUST NOT 自行读模型。
 - **零写盘零 spawn**：命令 MUST NOT 创建 / 覆盖 / 删除任何文件，MUST NOT 派生进程，MUST NOT 引入 watch 或轮询。
 - **三类差异即生成预览**：三列合起来 SHALL 恰好是「点生成会写什么」的完整清单（内容不符的会被覆盖、缺失的会被创建、孤儿不会被删）——面板据此先看清单再点生成。
 - **`enabled = false` 仍照跑**：接口面未启用时命令 SHALL 返回 `Ok`（而非 `Err` 或空壳），三类差异照实计算——此时应生成集只含 `INDEX.toml`，故 `missing` 通常就是那一条（其落点为 `<archi_graph_dir>/INDEX.toml`）；MUST NOT 因 `enabled = false` 返回空的结构化结果让面板无从呈现冷启动态。
-- **`enabled` 判据（本变更换锚）**：判据 SHALL 为「存在任一 `path` 非空 ∧ `api = declared` 元素在盘 `<FQN>.schema.json`」。三条后果必须说准：
-  1. **冷启动态**是「没有任何元素的接口文件在盘」——`graph/model/` 一级的六个 `NN-<域>.toml`、`models/notes.md`（非元素载体）、`models/Backend/notes.schema.json`（非 `<FQN>` 主干）三者都 MUST NOT 构成启用证据；
+- **`enabled` 判据（本变更换锚）**：判据 SHALL 为「存在任一 `path` 非空 ∧ `api = declared` 元素在盘 `<叶段>.schema.json`」。三条后果必须说准：
+  1. **冷启动态**是「没有任何元素的接口文件在盘」——`graph/model/` 一级的六个 `NN-<域>.toml`、`models/notes.md`（非元素载体）、`models/Backend/notes.schema.json`（反查不中任何元素）三者都 MUST NOT 构成启用证据；
   2. 本仓读数**仍为 `true`**（11 份 schema 在盘），MUST NOT 被改写成「模型在即启用」；
   3. 判据与判据面同源，命令层 MUST NOT 另判一套、MUST NOT 缓存。`api = none` 元素在盘的 schema 是 `apiUnexpected` 违约，MUST NOT 构成启用证据。
 - **路径串口径**：三列元素 SHALL 为 repo 相对 POSIX 串（剥 `root` 前缀、`\` → `/`、去前导 `./`），经 `archi::display` 单点产出；MUST NOT 在命令层或前端另写一份归一。
@@ -39,17 +39,17 @@
 
 #### Scenario: 冷启动态照实报告
 
-- **WHEN** 观察根的 `graph/model/` 含六个 `NN-<域>.toml`、`models/` 含一份 `notes.md` 与一份非 `<FQN>` 主干的 `*.schema.json`，且没有任何 `declared` 元素的 schema 在盘
+- **WHEN** 观察根的 `graph/model/` 含六个 `NN-<域>.toml`、`models/` 含一份 `notes.md` 与一份反查不中任何元素的 `*.schema.json`，且没有任何 `declared` 元素的 schema 在盘
 - **THEN** `enabled = false` 且命令返回 `Ok`；`missing` 含 `<archi_graph_dir>/INDEX.toml` 一条（应生成集仅含索引），`mismatched` / `orphaned` 依盘上实况列出；MUST NOT 返回 `Err`、MUST NOT 返回全空的伪造结果、MUST NOT 因「模型文件在场」或「有杂项文件」把 `enabled` 报成 `true`
 
 #### Scenario: 手写接口文件不进三列
 
-- **WHEN** 手改一份 `<FQN>.schema.json`（合法改动）后调用 `archi_api_check`
+- **WHEN** 手改一份 `<叶段>.schema.json`（合法改动）后调用 `archi_api_check`
 - **THEN** 三列中该文件零出现（既不 `mismatched` 也不 `orphaned`）；`.i.rs` / `.i.ts` / `INDEX.toml` 的随动差异（若有）照实列出
 
 #### Scenario: 接口文件在盘才启用
 
-- **WHEN** 给某 `api = declared` 元素补一份合法 `<FQN>.schema.json` 后重跑
+- **WHEN** 给某 `api = declared` 元素补一份合法 `<叶段>.schema.json` 后重跑
 - **THEN** `enabled` 由 `false` 翻为 `true`，三类差异按新应生成集重算；判定函数与判据面相同，命令层零第二份判断
 
 #### Scenario: 结构错与非法接口一律 Err
@@ -60,7 +60,7 @@
 #### Scenario: 三条路径串同源
 
 - **WHEN** 审查出参三列的串形态与 `archi::display` 的输出
-- **THEN** 逐条相等（反斜杠归一为 `/`、无前导 `./`、无绝对路径）；`orphaned` / `mismatched` 里出现的契约生成物串形如 `.dev-team/architecture/models/<分层目录…>/<FQN>.schema.json`、索引串形如 `.dev-team/architecture/graph/INDEX.toml`；源码内零第二份「strip 前缀」实现
+- **THEN** 逐条相等（反斜杠归一为 `/`、无前导 `./`、无绝对路径）；`orphaned` / `mismatched` 里出现的契约生成物串形如 `.dev-team/architecture/models/<分层目录…>/<叶段>.schema.json`、索引串形如 `.dev-team/architecture/graph/INDEX.toml`；源码内零第二份「strip 前缀」实现
 
 ### Requirement: 生成命令契约（archi_api_generate）
 
@@ -243,7 +243,7 @@
 
 - **本元素判据**：SHALL 从父级同一份 `apiFindings` 按 `element === fqn` 过滤后逐条列出（`kind` + `message`），零命中时一句「本元素无漂移」（空态 testid `archi-contract-drawer-empty`，不按 `api.status` 分叉）；MUST NOT 为面板单独 invoke 检查或报告。`docMissing` 按同一规则呈现，MUST NOT 为它另写分支。
 - **三路径面归右栏「文档」分段（换语义）**：`ArchiApiRef` 的三条路径 SHALL 由右栏 `CardContent` 的「文档」分段承接——按**各自非空**逐条出文件页签并挂载 `FileViewerBlock`（首条页签缺省激活、正文经通用 `read_file` 自取）。三条路径现在是**各自独立**的事实（`contractPath` = 文档、`schemaPath` = 接口、`generatedPath` = 生成物），故「只有接口在盘」或「只有文档在盘」时 MUST NOT 出现「三条全空」；元素信息面板 MUST NOT 再渲路径行、MUST NOT 内联路径串。
-- **文档页签＝资产①**：`declared` 元素的第一条非空路径（`contractPath`）承担「入口文档」的呈现职责——面板 MUST NOT 为**同一份派生 `<FQN>.md`** 另渲第二条路径行；`api = none` 元素的入口文档走面板的「入口文档」段（`ArchiModuleDetail.doc`，见 `desktop-archi-canvas`「元素信息面板内容与本期边界」），`declared` 元素若写了 `doc` 也照原样投影（该字段零判据，本变更不为它新增呈现规则）。
+- **文档页签＝资产①**：`declared` 元素的第一条非空路径（`contractPath`）承担「入口文档」的呈现职责——面板 MUST NOT 为**同一份派生 `<叶段>.md`** 另渲第二条路径行；`api = none` 元素的入口文档走面板的「入口文档」段（`ArchiModuleDetail.doc`，见 `desktop-archi-canvas`「元素信息面板内容与本期边界」），`declared` 元素若写了 `doc` 也照原样投影（该字段零判据，本变更不为它新增呈现规则）。
 - **接口页签＝资产②**：`schemaPath` 的页签呈现的是**手写真相**（不是生成物），故本段 MUST NOT 给它挂「生成物 / 勿手改」一类标记；生成物页签（`generatedPath`）沿用既有呈现。
 - **零新取数**：本段数据 SHALL 全部来自父级已取的报告（`apiFindings`）——MUST NOT 新增 IPC、MUST NOT 为契约段发起额外 `archi_module`（元素信息面板与右栏文档分段各自复用既有 `useArchiModule` 的同一次取数）。
 - **不与入口文档段混装**：契约正文 MUST NOT 进面板正文通路（正文仍由通用 `read_file` 按路径承担，原「`docs` 关联集」一说不存在）；本段只呈判据，MUST NOT 内联契约 md 内容。
@@ -358,7 +358,7 @@
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `packages/desktop/src-tauri/src/commands/archi/mod.rs` | 命令面（**零改动**） | `archi_api_check` / `archi_api_generate` 的签名、薄包装、`*_inner` 测试缝、`Err` 面与 `display` 单点逐字不变；`enabled` 与三列全部来自 `core/archi` |
-| `crates/core/archi/src/api/mod.rs::enabled` | 启用判据（换锚） | = 任一 `path` 非空 ∧ `api = declared` 元素 `<FQN>.schema.json` 在盘；命令层 MUST NOT 另判一套、MUST NOT 缓存 |
+| `crates/core/archi/src/api/mod.rs::enabled` | 启用判据（换锚） | = 任一 `path` 非空 ∧ `api = declared` 元素 `<叶段>.schema.json` 在盘；命令层 MUST NOT 另判一套、MUST NOT 缓存 |
 | `crates/core/archi/src/api/diff.rs::api_dir_artifacts` | 收面（少一类） | 只枚举 `<archi_graph_dir>/INDEX.toml`；`*.schema.json` 退出孤儿扫描 ⇒ 面板三列永不含手写接口文件 |
 | `crates/core/archi/src/api/render.rs::workspace_render` | 应生成集（少一类） | 只产出 `INDEX.toml` / `.i.rs` / `.i.ts`；命令与 CLI 共用（零第二份渲染） |
 | `packages/desktop/src/views/architecture/components/dashboard/contract-panel.tsx` + `hooks/use-archi-api-check.ts` | 呈现面（零功能改动） | 两轴呈现 / 五态 / chip 聚合 / 聚焦与打开通路逐字不变；`category` chip 由数据聚合（成员收缩自动生效）；「契约面未启用」文案改为「接口面未启用」 |

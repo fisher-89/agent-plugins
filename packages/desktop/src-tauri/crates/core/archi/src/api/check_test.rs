@@ -165,7 +165,13 @@ fn schema_of(
     for (name, target) in reexports {
         defs.insert(
             (*name).to_owned(),
-            json!({ "$ref": format!("{target}.schema.json#/$defs/{name}") }),
+            json!({
+                "$ref": format!(
+                    "{}{}.schema.json#/$defs/{name}",
+                    paths::ref_relative(fqn, target),
+                    paths::leaf_name(target)
+                )
+            }),
         );
     }
     let mut properties = serde_json::Map::new();
@@ -209,7 +215,12 @@ fn schema_from_contract(contract: &Contract) -> Value {
         let prefix = paths::ref_relative(&contract.fqn, target);
         defs.insert(
             name.clone(),
-            json!({ "$ref": format!("{prefix}{target}.schema.json#/$defs/{name}") }),
+            json!({
+                "$ref": format!(
+                    "{prefix}{}.schema.json#/$defs/{name}",
+                    paths::leaf_name(target)
+                )
+            }),
         );
     }
     let mut properties = serde_json::Map::new();
@@ -236,7 +247,7 @@ struct Fixture {
     contracts: Vec<Contract>,
     schemas: BTreeMap<String, Value>,
     symbols: BTreeMap<String, Vec<ApiSymbol>>,
-    /// 文档事实覆写（缺表项按「派生 `<FQN>.md` 在盘」折算——用例只关心判据面，
+    /// 文档事实覆写（缺表项按「派生 `<叶段>.md` 在盘」折算——用例只关心判据面，
     /// 不重复驱动一遍文档落盘；`docMissing` 的用例在此显式覆写）。
     doc_overrides: BTreeMap<String, bool>,
 }
@@ -289,7 +300,7 @@ impl Fixture {
         })
     }
 
-    /// 文档事实（`api::doc_presence` 的夹具等价）：缺省按「派生 `<FQN>.md` 在盘」折算，
+    /// 文档事实（`api::doc_presence` 的夹具等价）：缺省按「派生 `<叶段>.md` 在盘」折算，
     /// `docMissing` 的用例经 [`Fixture::with_doc_fact`] 显式覆写。
     fn doc_present(&self) -> BTreeMap<String, bool> {
         let mut facts: BTreeMap<String, bool> = self
@@ -1054,10 +1065,10 @@ fn 跨文件引用三种文案() {
         "$id": format!("{parent}.schema.json"),
         "title": parent,
         "$defs": {
-            "MissingFile": { "$ref": "../Core/App.Core.Unknown.schema.json#/$defs/MissingFile" },
-            "BlankTarget": { "$ref": format!("../Core/{blank_child}.schema.json#/$defs/BlankTarget") },
-            "DeepTarget": { "$ref": format!("../Core/{deep}.schema.json#/$defs/DeepTarget") },
-            "OkTarget": { "$ref": format!("../Core/{child}.schema.json#/$defs/OkTarget") },
+            "MissingFile": { "$ref": "./Unknown.schema.json#/$defs/MissingFile" },
+            "BlankTarget": { "$ref": format!("./Alpha/{}.schema.json#/$defs/BlankTarget", paths::leaf_name(blank_child)) },
+            "DeepTarget": { "$ref": format!("./Alpha/Beta/{}.schema.json#/$defs/DeepTarget", paths::leaf_name(deep)) },
+            "OkTarget": { "$ref": format!("./Alpha/{}.schema.json#/$defs/OkTarget", paths::leaf_name(child)) },
         },
         "properties": {
             "MissingFile": { "$ref": "#/$defs/MissingFile" },
@@ -2313,7 +2324,7 @@ fn 两类缺口各一条且不拆第二kind() {
 // 元素循环之外，序恒 `nested → ref → shadowing`。
 // ===========================================================================
 
-/// 正向（留白支）：`api = none` + 派生 `<FQN>.md` 在盘 + 接口文件不在盘 → 零判据；
+/// 正向（留白支）：`api = none` + 派生 `<叶段>.md` 在盘 + 接口文件不在盘 → 零判据；
 /// `doc` 字段写值同样零判据（它是约定，不是机械判据）。
 #[test]
 fn 留白支正向_载体在盘零判据() {
@@ -2391,7 +2402,7 @@ fn 判据一留白契约在盘时不叠加docmissing() {
 }
 
 /// 边界（D-23）：`api = declared` 且写了 `doc` ⇒ **零判据**——`doc` 是零判据读者（只在
-/// 产品面呈现），判据面只看派生 `<FQN>.md` 与接口文件两处文件事实。
+/// 产品面呈现），判据面只看派生 `<叶段>.md` 与接口文件两处文件事实。
 #[test]
 fn 判据六声明支写doc零判据() {
     let fqn = "App.Core.Alpha";
@@ -2460,7 +2471,7 @@ fn 一致性三档首错即停() {
                 ("new", json!({"params": [], "returns": {"type": "object"}})),
             ],
             &["T"],
-            &[("Pass", "../Core/App.Core.Other.schema.json#/$defs/Pass")],
+            &[("Pass", "App.Core.Other")],
         ))
         .with_element(element("App.Core.Other", &["src/other/"]))
         .with_symbols(fqn, vec![type_symbol("T", ApiSymbolKind::Type)]);
@@ -2543,7 +2554,7 @@ fn pair锚点序恒三值() {
         "title": parent,
         "$defs": {
             "Shared": { "type": "object", "properties": {} },
-            "Dangling": { "$ref": "../Core/App.Core.Unknown.schema.json#/$defs/Dangling" },
+            "Dangling": { "$ref": "../../Core/Unknown.schema.json#/$defs/Dangling" },
         },
         "properties": {
             "Shared": { "$ref": "#/$defs/Shared" },
@@ -2716,7 +2727,7 @@ fn pair判据不落relation槽位() {
         "title": parent,
         "$defs": {
             "Shared": { "type": "object", "properties": {} },
-            "Dangling": { "$ref": "../Core/App.Core.Unknown.schema.json#/$defs/Dangling" },
+            "Dangling": { "$ref": "../../Core/Unknown.schema.json#/$defs/Dangling" },
         },
         "properties": {
             "Shared": { "$ref": "#/$defs/Shared" },
@@ -2757,7 +2768,7 @@ fn pair判据不落relation槽位() {
 // 纯 alias 判据：单一判据 / 三消费者 / 退役三值的零产出
 // ===========================================================================
 
-/// 落一份派生 `<FQN>.md`（只为「文档在盘」这一独立事实；正文形态不参与判据）。
+/// 落一份派生 `<叶段>.md`（只为「文档在盘」这一独立事实；正文形态不参与判据）。
 fn write_doc(temp: &TempDir, fqn: &str, body: &str) {
     let path = paths::contract_path(temp.root(), fqn).expect("测试 FQN 恒为合法形态");
     let relative = path
@@ -2777,7 +2788,7 @@ fn write_doc(temp: &TempDir, fqn: &str, body: &str) {
 #[test]
 fn 纯alias判据单一() {
     let aliases = [
-        json!({ "$ref": "../Core/App.Core.Other.schema.json#/$defs/Pass" }),
+        json!({ "$ref": "./Other.schema.json#/$defs/Pass" }),
         json!({ "$ref": "#/$defs/Local" }),
         json!({ "$ref": null }),
     ];

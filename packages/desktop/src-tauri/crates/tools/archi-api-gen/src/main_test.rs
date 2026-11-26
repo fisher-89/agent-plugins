@@ -95,14 +95,13 @@ const TS_FQN: &str = "Desktop.Views.Welcome";
 /// 试点元素的生成物（`.i.rs`，落实现入口同级）。
 const GENERATED_RS: &str = "crates/core/archi/src/lib.i.rs";
 
-/// 试点元素的手写接口定义（`<FQN>.schema.json`，生成输入面）。
-const SCHEMA_REL: &str =
-    ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json";
+/// 试点元素的手写接口定义（`<叶段>.schema.json`，分层目录下；生成输入面）。
+const SCHEMA_REL: &str = ".dev-team/architecture/models/Backend/Core/Archi.schema.json";
 
 /// 接口定义内容（1 op `file_stem` + 1 类型 `LocalArchiCheck`）。
 ///
-/// `generate` / `check` 的输入面是**手写的** `.schema.json`（唯一凭据）；文档 `<FQN>.md`
-/// 不参与生成，只在判据面作独立事实。
+/// `generate` / `check` 的输入面是**手写的** `.schema.json`（唯一凭据）；文档
+/// `<叶段>.md` 不参与生成，只在判据面作独立事实。
 fn contract_schema(fqn: &str) -> String {
     format!(
         r##"{{
@@ -146,7 +145,7 @@ fn stage_crate(temp: &TempDir) {
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
     );
     temp.write(
-        ".dev-team/architecture/models/Backend/Core/Backend.Core.Archi.schema.json",
+        ".dev-team/architecture/models/Backend/Core/Archi.schema.json",
         &contract_schema(CRATE_FQN),
     );
 }
@@ -169,7 +168,7 @@ fn stage_ts(temp: &TempDir) {
         "export function view(): string { return ''; }\n",
     );
     temp.write(
-        ".dev-team/architecture/models/Desktop/Views/Desktop.Views.Welcome.schema.json",
+        ".dev-team/architecture/models/Desktop/Views/Welcome.schema.json",
         &contract_schema(TS_FQN),
     );
 }

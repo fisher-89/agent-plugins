@@ -2581,13 +2581,13 @@ fn dto_doc方位串换段() {
     let source = include_str!("dto.rs");
     assert_eq!(
         source
-            .matches("<archi_models_dir>/<分层目录…>/<FQN>.md")
+            .matches("<archi_models_dir>/<分层目录…>/<叶段>.md")
             .count(),
         1,
         "`ArchiApiRef::contract_path` 的文档方位串按分层目录改写"
     );
     assert!(
-        source.contains("同目录 `<FQN>.schema.json`"),
+        source.contains("同目录 `<叶段>.schema.json`"),
         "`ArchiApiRef::schema_path` 的接口方位串在案（与文档并列各自出线）"
     );
     assert!(
@@ -2598,26 +2598,26 @@ fn dto_doc方位串换段() {
 
 /// 正向（AC-5 ③）：三份产品源文各含分层口径的方位串——`dto.rs` 两处
 /// `models/<分层目录…>/`；`api/extract/mod.rs` 一处
-/// `<archi_models_dir>/<分层目录…>/<FQN>.md`；`model.rs` 一处
-/// `models/<分层目录…>/<FQN>.md`（入口文档派生串）。
+/// `<archi_models_dir>/<分层目录…>/<叶段>.md`；`model.rs` 一处
+/// `models/<分层目录…>/<叶段>.md`（入口文档派生串）。
 #[test]
 fn 三份产品源文doc方位串换段() {
     let dto = include_str!("dto.rs");
     assert_eq!(
-        dto.matches("<archi_models_dir>/<分层目录…>/<FQN>.md")
+        dto.matches("<archi_models_dir>/<分层目录…>/<叶段>.md")
             .count(),
         1,
         "`dto.rs` 的 `ArchiApiRef::contract_path` doc 方位串按分层目录改写"
     );
     assert!(
-        dto.contains("同目录 `<FQN>.schema.json`"),
+        dto.contains("同目录 `<叶段>.schema.json`"),
         "`dto.rs` 的接口方位串在案（两份资产并列各自出线）"
     );
 
     let extract = include_str!("api/extract/mod.rs");
     assert_eq!(
         extract
-            .matches("<archi_models_dir>/<分层目录…>/<FQN>.md")
+            .matches("<archi_models_dir>/<分层目录…>/<叶段>.md")
             .count(),
         1,
         "`api/extract/mod.rs` 模块 doc 一行换段（取数面零改动）"
@@ -2625,7 +2625,7 @@ fn 三份产品源文doc方位串换段() {
 
     let model = include_str!("model.rs");
     assert_eq!(
-        model.matches("`<models>/<分层目录…>/<FQN>.md`").count(),
+        model.matches("`<models>/<分层目录…>/<叶段>.md`").count(),
         1,
         "`model.rs` 的 `api` 字段 doc 派生串按分层目录改写"
     );
@@ -2868,7 +2868,7 @@ fn module_detail异常与零旧键() {
 #[test]
 fn search_doc数组为路径串() {
     let temp = doc_dir("search-doc");
-    // 语料 = `path` 非空元素的在盘派生资产：落一份 `<FQN>.md` 后即可命中
+    // 语料 = `path` 非空元素的在盘派生资产：落一份 `<叶段>.md` 后即可命中
     let doc_path = paths::contract_path(temp.root(), "App.Auth").expect("合法 FQN");
     let doc_relative = doc_path
         .strip_prefix(temp.root())
@@ -4131,7 +4131,7 @@ fn write_interface(temp: &TempDir, fqn: &str, defs: &str, properties: &str) {
     );
 }
 
-/// 落文档（`<FQN>.md`，只写理由 + 若干 `##` 段名）。
+/// 落文档（`<叶段>.md`，只写理由 + 若干 `##` 段名）。
 fn write_doc_asset(temp: &TempDir, fqn: &str, body: &str) {
     let path = paths::contract_path(temp.root(), fqn).expect("合法 FQN");
     let relative = path

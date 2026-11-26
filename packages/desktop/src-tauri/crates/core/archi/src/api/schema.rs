@@ -1,6 +1,6 @@
 //! 接口定义文件的**唯一**校验单点、`$defs` 规则校验与 `INDEX.toml` 装配。
 //!
-//! **真相方向**：`<FQN>.schema.json` 是**手写的接口真相**（人写、写闸校验），`INDEX.toml`
+//! **真相方向**：`<叶段>.schema.json` 是**手写的接口真相**（人写、写闸校验），`INDEX.toml`
 //! 与 `.i.rs` / `.i.ts` 是生成物。故本模块的公开入口是
 //! [`validate_schema`]（写闸与装载期共用的九道闸），而不再是「由 md 装配 schema」。
 //!
@@ -43,7 +43,7 @@ pub(crate) const DEGRADED_KINDS: [&str; 4] = [
 /// [`crate::dto::ApiStatus`] 分立——后者是「承诺有接口」，前者是「文件在案」。
 ///
 /// **值域不动**（`declared` / `absent`）：`present`（`declared` 的判定）改为直判
-/// 「`<FQN>.schema.json` 在盘」，命名债（`declared` 读起来像意图）并入清理轮。
+/// 「`<叶段>.schema.json` 在盘」，命名债（`declared` 读起来像意图）并入清理轮。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApiFormStatus {
     /// 接口文件在案
@@ -67,7 +67,7 @@ impl ApiFormStatus {
 pub struct IndexEntry {
     /// 元素 FQN
     pub fqn: String,
-    /// 接口文件事实（`declared` = `<FQN>.schema.json` 在盘）
+    /// 接口文件事实（`declared` = `<叶段>.schema.json` 在盘）
     pub status: ApiFormStatus,
     /// `$defs` 条目数
     pub types: usize,
@@ -134,8 +134,9 @@ fn collect_degraded<'a>(value: &'a Value, pointer: &str, marks: &mut Vec<(String
 /// ```text
 /// ① 文本层重复键    serde_json 会把重复键折叠成「后者胜」，手写「同名两处定义」会静默
 /// ② JSON 可解析
-/// ③ identity        `$id` == `<FQN>.schema.json`、`title` == `<FQN>`（第三处是文件名，
-///                   由调用方经 `paths::schema_fqn` 反查 ⇒ 与前两处逐字相同即成立）
+/// ③ identity        `$id` == `<FQN>.schema.json`、`title` == `<FQN>`（第三处是落点：
+///                   分层目录段 + 文件主干由调用方经 `paths::schema_fqn` 反查出 FQN
+///                   ⇒ 与 `$id` / `title` 承载的元素身份逐字相同即成立）
 /// ④ 键空间          op 键集（带 `x-function` 的 `properties` 键）∩ `$defs` 键集 = ∅
 /// ⑤ 形态白名单      `properties.<k>` 恰一键二选一：`{ "x-function": {…} }` 或
 ///                   `{ "$ref": "#/$defs/<名>" }`（且 `<名> ∈ $defs`）
@@ -146,10 +147,11 @@ fn collect_degraded<'a>(value: &'a Value, pointer: &str, marks: &mut Vec<(String
 ///                   + [`verify_defs`]（`$defs` 五条规则与降级词表）
 /// ```
 ///
-/// `Contract.file` 取 `<FQN>.schema.json`（本函数无路径入参）；装载期在成功后把它覆写为
-/// repo 相对路径（报告的 `occurrences.file` 口径）。
+/// `Contract.file` 取接口文件的 repo 相对路径（`<models>/<分层目录…>/<叶段>.schema.json`，
+/// 本函数无 root 入参，经 [`paths::schema_rel`] 派生）；装载期在成功后把它覆写为实际
+/// 相对路径（报告的 `occurrences.file` 口径）。
 pub fn validate_schema(fqn: &str, text: &str) -> Result<Contract, ApiError> {
-    let file = format!("{fqn}{SCHEMA_FILE_SUFFIX}");
+    let file = paths::schema_rel(fqn).unwrap_or_else(|| format!("{fqn}{SCHEMA_FILE_SUFFIX}"));
     if let Some((key, offset)) = contract::duplicate_keys(text) {
         return Err(contract::duplicate_key_error(&file, &key, offset));
     }
@@ -179,8 +181,9 @@ pub fn validate_schema(fqn: &str, text: &str) -> Result<Contract, ApiError> {
 
 /// 闸 ③：`$id` / `title` 与 FQN 逐字一致。
 ///
-/// **三处持有同一事实**（`$id` / `title` / 文件名）：漂移会让反查（`reexport_target` 取
-/// 文件主干）与报告文案指向不同元素。文件名一处由调用方经
+/// **元素身份三处持有**（`$id` / `title` / 落点）：`$id` 与 `title` 都写 FQN，落点由
+/// 分层目录段 + 叶段文件主干拼回 FQN（文件名只取叶段，故不再与 `$id` 同串）。漂移会让
+/// 反查（`reexport_target` 解 `$ref` 前缀）与报告文案指向不同元素。落点一处由调用方经
 /// [`super::paths::schema_fqn`] 反查出 FQN 后与本入参比较，故这里只判两处。
 pub fn verify_identity(fqn: &str, value: &Value) -> Result<(), ApiError> {
     let expected_id = format!("{fqn}{SCHEMA_FILE_SUFFIX}");
@@ -188,8 +191,8 @@ pub fn verify_identity(fqn: &str, value: &Value) -> Result<(), ApiError> {
         Some(id) if id == expected_id => {}
         Some(id) => {
             return Err(ApiError::Contract(format!(
-                "`$id` 是 `{id}`，期望 `{expected_id}`——`$id` / `title` / 文件名三处持有同一\
-                 事实，必须逐字相同（改成 `{expected_id}`）"
+                "`$id` 是 `{id}`，期望 `{expected_id}`——`$id` / `title` / 落点三处持有同一\
+                 元素身份，必须逐字相同（改成 `{expected_id}`）"
             )))
         }
         None => {
@@ -201,8 +204,8 @@ pub fn verify_identity(fqn: &str, value: &Value) -> Result<(), ApiError> {
     match value.get("title").and_then(Value::as_str) {
         Some(title) if title == fqn => Ok(()),
         Some(title) => Err(ApiError::Contract(format!(
-            "`title` 是 `{title}`，期望 `{fqn}`——`title` 与 FQN 逐字相同（跨元素 `$ref` 的反查\
-             与报告文案都靠它）"
+            "`title` 是 `{title}`，期望 `{fqn}`——`title` 与 FQN 逐字相同（元素身份的\
+             报告口径，与 `$id` 并列）"
         ))),
         None => Err(ApiError::Contract(format!("缺 `title`（MUST 为 `{fqn}`）"))),
     }
@@ -324,27 +327,37 @@ pub fn verify_mirror(value: &Value) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// 闸 ⑦：跨元素 `$ref` 的文件部分逐字等于 `ref_relative(本FQN, 目标FQN) + <目标FQN>`。
+/// 闸 ⑦：跨元素 `$ref` 的文件部分逐字等于 `ref_relative(本FQN, 目标FQN) + <目标叶段>`。
 ///
-/// 少一个 `../` 会绕过 `apiRefMissing` 并在 `.i.ts` 里 import 一个不存在的路径、到编译期
-/// 才炸；因此前缀校验留在这里（只需两个 FQN 做纯计算，仍是文件级自洽）。文案并列
-/// 「当前串」与「期望串」。同文件引用（`#/$defs/<名>`）不在射程。
+/// 目标 FQN 由「本元素分层目录 + 相对前缀」解出（文件部分带 `.schema.json` 即入判；
+/// 解不出——越界 / 带点的段——同样是错）。少一个 `../` 会绕过 `apiRefMissing` 并在
+/// `.i.ts` 里 import 一个不存在的路径、到编译期才炸；因此前缀校验留在这里（只需两个
+/// FQN 做纯计算，仍是文件级自洽）。文案并列「当前串」与「期望串」。同文件引用
+/// （`#/$defs/<名>`）不在射程。
 pub fn verify_ref_prefix(fqn: &str, value: &Value) -> Result<(), ApiError> {
     let mut references: Vec<String> = Vec::new();
     collect_refs(value, &mut references);
     for reference in references {
-        let Some(target) = super::reexport_target(&reference) else {
+        let Some(file) = reference.split_once('#').map(|(file, _)| file) else {
             continue;
         };
+        if file.is_empty() || !file.ends_with(SCHEMA_FILE_SUFFIX) {
+            continue;
+        }
+        let Some(target) = paths::ref_target(fqn, file) else {
+            return Err(ApiError::Contract(format!(
+                "跨元素 `$ref` 的文件部分 `{file}` 解析不出目标元素（当前引用串 `{reference}`）\
+                 ——MUST 是 `<相对前缀><目标叶段>.schema.json`，前缀由 \
+                 `ref_relative(本元素, 目标元素)` 逐段求出，MUST NOT 手算层数（用 \
+                 `archi_api` 的 `link` 算）"
+            )));
+        };
         let expected_file = format!(
-            "{}{target}{SCHEMA_FILE_SUFFIX}",
-            paths::ref_relative(fqn, &target)
+            "{}{}{SCHEMA_FILE_SUFFIX}",
+            paths::ref_relative(fqn, &target),
+            paths::leaf_name(&target)
         );
-        let current_file = reference
-            .split_once('#')
-            .map(|(file, _)| file)
-            .unwrap_or("");
-        if current_file == expected_file {
+        if file == expected_file {
             continue;
         }
         return Err(ApiError::Contract(format!(
@@ -453,7 +466,7 @@ fn locate(file: &str, error: ApiError) -> ApiError {
 /// 1. 身份 = 键名（JSON 对象天然键唯一）；
 /// 2. 嵌套 `$defs` MUST 为空——名字提升后原名保留，MUST NOT 构成作用域；
 /// 3. 所有 `$ref` target MUST 是顶层条目（`#/$defs/<名>`）或外部文件形式
-///    （`<相对前缀><FQN>.schema.json#/$defs/<名>`）；
+///    （`<相对前缀><叶段>.schema.json#/$defs/<名>`）；
 /// 4. 同名只定义一次；
 /// 5. **MUST NOT 按结构去重**（本函数不做任何合并动作即满足；相等形状不合并）；
 /// 6. 任意对象位的 `x-common.degraded` 取值 MUST ∈ 封闭四值词表 [`DEGRADED_KINDS`]
@@ -562,7 +575,7 @@ pub fn verify_defs(schema: &Value) -> Result<(), ApiError> {
 /// `INDEX.toml` 文本装配：顶部说明段（生成警示 / review 口径 / 生成器标识）+
 /// 按 FQN 字典序的条目。
 ///
-/// 说明段承载两件事：**手写 / 生成分界**（`<FQN>.schema.json` 与 `<FQN>.md` 是手写资产，
+/// 说明段承载两件事：**手写 / 生成分界**（`<叶段>.schema.json` 与 `<叶段>.md` 是手写资产，
 /// 本文件与 `.i.*` 是生成物）与 P6 的命名债注解（`status` 的 `declared` = 接口文件在案，
 /// 值域不动）。
 pub fn build_index(entries: &[IndexEntry], meta: &ApiMeta) -> String {
@@ -575,7 +588,7 @@ pub fn build_index(entries: &[IndexEntry], meta: &ApiMeta) -> String {
     let digest = short_digest(&meta.common_digest);
     let header = format!(
         "由 archi-api-gen 生成 · 勿手改\n\
-         review 口径：读 `<FQN>.schema.json`（接口，手写真相）与 `<FQN>.md`（理由）；status 的 declared = 接口文件在案；本文件与 `*.i.*` 的 diff 视为机械噪声。\n\
+         review 口径：读 `<叶段>.schema.json`（接口，手写真相）与 `<叶段>.md`（理由；同目录、叶段即 FQN 末段）；status 的 declared = 接口文件在案；本文件与 `*.i.*` 的 diff 视为机械噪声。\n\
          契约面：目录 {} · 生成器 archi-api {} · 映射规则摘要 {}\n",
         contract_dir, meta.tool_version, digest
     );
@@ -626,7 +639,7 @@ fn is_top_level_ref(reference: &str) -> bool {
         .is_some_and(|name| !name.is_empty() && !name.contains('/'))
 }
 
-/// 外部契约文件引用（`<相对前缀><FQN>.schema.json#/$defs/<名>`）。
+/// 外部契约文件引用（`<相对前缀><叶段>.schema.json#/$defs/<名>`）。
 fn is_external_ref(reference: &str) -> bool {
     match reference.split_once(DEFS_FRAGMENT) {
         Some((file, name)) => {

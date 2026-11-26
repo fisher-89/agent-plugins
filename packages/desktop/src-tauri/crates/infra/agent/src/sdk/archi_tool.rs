@@ -211,7 +211,7 @@ impl ArchiContext {
 
     /// `link` 动作：算一条 `$ref` 串（两形态互斥，纯计算零 IO）。
     ///
-    /// - 跨元素：`{ from, to, name }` → `<ref_relative(from, to)><to>.schema.json#/$defs/<name>`
+    /// - 跨元素：`{ from, to, name }` → `<ref_relative(from, to)><to 叶段>.schema.json#/$defs/<name>`
     /// - 本文件：`{ element, name }` → `#/$defs/<name>`
     ///
     /// 前缀取 [`archi::api::paths::ref_relative`]（MUST NOT 手算层数），文件名取

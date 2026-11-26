@@ -22,11 +22,11 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_module`（不在七通用工具
   "assets": {
     "topology":  { "file": "<模型声明文件>", "line": 105, "out": 0, "in": 3 },
     "interface": {                                       // 唯一凭据
-      "path": "<models>/…/<FQN>.schema.json", "present": true, "bytes": 276,
+      "path": "<models>/…/<叶段>.schema.json", "present": true, "bytes": 276,
       "ops": [], "types": [], "reexports": [],            // 键名即定义
       "abstract": "接口面留白（schema 在盘且无 op / 无类型）" },
     "doc": {
-      "path": "<models>/…/<FQN>.md", "present": true, "bytes": 3680, "lines": 62,
+      "path": "<models>/…/<叶段>.md", "present": true, "bytes": 3680, "lines": 62,
       "headings": ["职能", "公共面", "不变量", "承载理由"] }
   }
   ```
@@ -44,7 +44,7 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_module`（不在七通用工具
 - 模型结构错时 SHALL 返回结构化诊断清单作为 `Err`（绝不 panic），使 agent 能看出"模型本身坏了"而不是"没有这个模块"。
 - 响应 SHALL 经 `archi::dto` 单点投影产出（MUST NOT 在工具执行体内另拼一份 JSON）。
 - **`api` 并列字段（换锚）**：SHALL 仍为四字段对象（`status` / `contractPath` / `schemaPath` / `generatedPath`），但——
-  - `status` SHALL 为「接口定义在案」的事实值：`declared` ⟺ `<FQN>.schema.json` 在盘，否则 `none`；
+  - `status` SHALL 为「接口定义在案」的事实值：`declared` ⟺ `<叶段>.schema.json` 在盘，否则 `none`；
   - 三条路径 SHALL **各自按自身在盘事实出线**（`contractPath` = 文档路径、`schemaPath` = 接口路径、`generatedPath` = 入口同级生成物路径，即便文件未生成也给路径串）；MUST NOT 再要求「文档与接口同时在盘」才报路径（旧的全或无投影会把三份资产的存在事实压成一个开关）；
   - 路径派生全经 `foundation::layout` 的派生族与 `api::paths` 单点产出（MUST NOT 行内拼路径），契约资产落在契约资产目录 `models/` 的 `<分层目录…>/` 子目录内；该字段 MUST NOT 承载协议正文（正文由 agent 用 `read` 按路径自取），MUST NOT 成为独立工具、MUST NOT 改变本工具的只读属性与注入矩阵；
   - 模型意图（`api = declared` / `none`）由 `element.api` 承载，MUST NOT 与 `api.status` 混说；字段名 MUST NOT 在本变更改名（`contractPath` 一直是文档路径，语义在 JSDoc 点明）。
@@ -132,7 +132,7 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_search`，语义为**发现**�
     "scope": "可选。'elements' | 'doc' | 'all'（缺省 all）" } }
 ```
 
-- 匹配对象 SHALL 恰为：元素 FQN、`summary`、`metadata` 值、**资产路径与文件名**（`path` 非空元素的在盘资产：派生 `<FQN>.md`（文档）与 `<FQN>.schema.json`（接口）两条固定规则，与 `api` 状态无关）。MUST NOT 匹配文档正文、MUST NOT 匹配 `openspec/specs/` 下任何路径或内容、MUST NOT 匹配 `decisions/*.md`（ADR 已退出自动检索语料）。
+- 匹配对象 SHALL 恰为：元素 FQN、`summary`、`metadata` 值、**资产路径与文件名**（`path` 非空元素的在盘资产：派生 `<叶段>.md`（文档）与 `<叶段>.schema.json`（接口）两条固定规则，与 `api` 状态无关）。MUST NOT 匹配文档正文、MUST NOT 匹配 `openspec/specs/` 下任何路径或内容、MUST NOT 匹配 `decisions/*.md`（ADR 已退出自动检索语料）。
 - 匹配方式 SHALL 为 ASCII 大小写不敏感子串 + **驼峰分词**（`AuthToken` → `auth` / `token`，两段均参与匹配）。
 - `scope = "elements"` 时文档结果恒为空数组；`scope = "doc"` 时 `elements` 恒为空数组。**`scope` 的值名 SHALL 恰为 `elements` / `doc` / `all`**：`docs` 是非法值（`parse` 报错并列出三个合法值），MUST NOT 保留别名——双词会让 scope 语义二义。
 - 文档结果条目 SHALL 退化为**一条 repo 相对路径字符串**（`ArchiSearchResult.doc: Vec<String>`），无 `title` / `kind` / `source` 四字段形态；排序 SHALL 按路径字典序（元素仍按 FQN 字典序），MUST NOT 引入相关度打分或来源强度序（来源概念已不存在）。
@@ -140,7 +140,7 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_search`，语义为**发现**�
 - `query` 为空白串 SHALL 显式 `Err`（参数校验），MUST NOT 返回全量。
 - 结果 SHALL 受既有单结果字节上限约束。
 - **描述面（`mount.rs`）**：`scope` enum 与值名不变；描述内「入口文档路径」改为「资产路径（文档 / 接口）」。
-- **语料面两条固定规则**（替换旧的「载体派生」口径）：文档语料 = 「`path` 非空且在盘的 `<FQN>.md`」∪「`path` 非空且在盘的 `<FQN>.schema.json`」。两条都不经 `api` 分支、都不经 `doc` 字段——`carrier_path` 已退役，检索面 MUST NOT 复活第二次载体派生；容器 / 包根仍不进语料（与判据面同一集合）。
+- **语料面两条固定规则**（替换旧的「载体派生」口径）：文档语料 = 「`path` 非空且在盘的 `<叶段>.md`」∪「`path` 非空且在盘的 `<叶段>.schema.json`」。两条都不经 `api` 分支、都不经 `doc` 字段——`carrier_path` 已退役，检索面 MUST NOT 复活第二次载体派生；容器 / 包根仍不进语料（与判据面同一集合）。
 
 #### Scenario: 关键词同时命中两资产
 
@@ -468,7 +468,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 - **新元素缺省档**：两入口生成的新元素均缺省 `gate = "off"`（ratchet 逐块收紧）。
 - **通路 B 的边界（软约束，非写入面强制）**：会话知识 SHALL 要求「禁止修改架构目录之外的文件（源码 / 配置 / 脚本 / 域外文档一律不改，用户要求亦不越界；生成物重生成除外）」，但写入面 MUST NOT 为该约束设硬隔离——该缺口 SHALL 在能力 spec 中如实留痕，MUST NOT 被表述为「会话只能改模型」。
 - **生成物同权但不可手改（本变更由四类改三类）**：`.schema.json` **不再是生成物**（它是手写真相，走 `write` / `edit`），生成物只剩 `INDEX.toml` / `.i.rs` / `.i.ts`。三类生成物与模型文件同属磁盘可写面，但**没有专用写工具**——两写工具的 `file` 只接受模型声明目录一级 `*.toml`，射程 MUST NOT 扩到生成物；会话知识 SHALL 要求「MUST NOT 手改生成物，用既有命令重生成」——该约束同样只有事后兜底（零 diff 门 + 契约面板），MUST NOT 表述为写入面拦截；手改通路对生成物仍零写前校验。
-- **手写接口面有一处显式写前校验（本变更新增的唯一例外）**：`write` / `edit` 落 `<archi_models_dir>/**/<FQN>.schema.json` 时 SHALL 先过接口校验（坏文本 `Err` 零落盘，见 `desktop-agent-execution`「`write` / `edit` 的接口定义写闸」）。该例外 MUST NOT 被读成写权护栏或保护面：它只判「文件级自洽」，与谁能写无关；手改通路对**其余一切文件**（含 `INDEX.toml` / `.i.*` / 模型 TOML / 普通源码）仍零预校验。
+- **手写接口面有一处显式写前校验（本变更新增的唯一例外）**：`write` / `edit` 落 `<archi_models_dir>/**/<叶段>.schema.json` 时 SHALL 先过接口校验（坏文本 `Err` 零落盘，见 `desktop-agent-execution`「`write` / `edit` 的接口定义写闸」）。该例外 MUST NOT 被读成写权护栏或保护面：它只判「文件级自洽」，与谁能写无关；手改通路对**其余一切文件**（含 `INDEX.toml` / `.i.*` / 模型 TOML / 普通源码）仍零预校验。
 
 #### Scenario: worktree 内直改模型成功（白名单相位）
 
@@ -514,7 +514,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 
 `source = "archi"` 会话与 **change 臂的两写权相位** SHALL 注入同一段架构会话知识到 `SessionInjections.preamble`，内容 SHALL 覆盖以下**五段**（本变更是骨架的第三次改写：三资产分工与设计顺序取代语法类知识，散文只留不可脚本化的判断面）：
 
-- **三资产分工（C）**：模型 TOML 答「谁在谁的里面、谁依赖谁」（拓扑）；`<FQN>.schema.json`（与文档同目录）答「跨过这条边时接触面长什么样」（接口，**唯一凭据**）；`<FQN>.md`（同目录）答「为什么这样切、有什么坑、什么不归它管」（理由）。**过度设计 = 回答自己不该回答的那个问题**：文档不列接口、schema 不写理由、TOML 不造空元素。**文档是产品面**——架构页「文档」段直接渲染给用户读，人 + AI 共读；接口由写闸校验、人经 UI 阅读。
+- **三资产分工（C）**：模型 TOML 答「谁在谁的里面、谁依赖谁」（拓扑）；`<叶段>.schema.json`（与文档同目录）答「跨过这条边时接触面长什么样」（接口，**唯一凭据**）；`<叶段>.md`（同目录）答「为什么这样切、有什么坑、什么不归它管」（理由）。**过度设计 = 回答自己不该回答的那个问题**：文档不列接口、schema 不写理由、TOML 不造空元素。**文档是产品面**——架构页「文档」段直接渲染给用户读，人 + AI 共读；接口由写闸校验、人经 UI 阅读。
 - **设计顺序（B/C）**：① 定位现状（`archi_search` 发现 → `archi_module` 一次取全邻居 / 三份资产 / 声明位置）；② 画拓扑（`archi_element` / `archi_relation`）——**先边界、后接触面、最后写理由**；③ 补两份资产（`archi_api` 的 `bootstrap` 取双草稿 → 接口用 `write` / `edit` 落 `.schema.json`（坏文本零落盘）→ 理由落 `.md`，段落按内容自定）。
 - **三条不可越界（C）**：① **文档不列接口**——导出名 / 签名 / 类型的唯一持有者是 schema；历史 `api-*` fence 是遗留内容（读面不读、清理中），MUST NOT 新增；② **schema 不写理由**——`x-function.description` 只写调用方要知道的语义（做什么 / 边界 / 为什么），MUST NOT 写实现细节、MUST NOT 复述签名；`x-` 面封闭为 `x-function` / `x-class` / `x-common` 三项，MUST NOT 自造新前缀键；③ **TOML 不造空元素**——每个元素至少一条接触面（`path` / 边 / 导出）。
 - **工具面（A/B，指路）**：字段面、键形、缺省、值域、祖先与计数全部由工具承担——MUST NOT 凭记忆手拼 TOML。读五件各一句「何时用」（`archi_search` 发现 / `archi_module` 定位与三资产 / `archi_drift` 漂移读数 / `archi_api` 接口三动作 / `archi_scaffold` 字段词典）；写两件（`archi_element` / `archi_relation`，参数面即字段清单、坏文本零落盘）；**手改出口（永久内容）**：工具表达不了的（重排文件 / 批量整理）才手改 TOML，改完必须 `archi_module` 自查——坏模型由读取面报错（结构诊断带 `file:line`）；生成物过期用既有命令重生成、MUST NOT 手改。自检纪律：改完 `archi_drift` 非空即逐条修、`archi_api`（`check`）查两轴。契约资产 `config.json` 管 `ignore` / `exclude`，非法由 `archi_drift` 点名。
@@ -578,7 +578,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 | 2 | 检索与工具响应不返回文档正文 | 正文按路径自取（agent 用 `grep` / `read`，前端用 `read_file`）；返回正文会让工具响应体随文档膨胀且与单结果字节上限冲突 |
 | 3 | 不提供跨元素的文档反向索引 | 反查「这份文档描述哪些模块」不在本期，避免用户开始写「给 archi 看的文档」 |
 
-- **语料面封闭（本变更换面）**：检索语料 SHALL 恰为「`path` 非空元素的在盘资产」两条固定规则——在盘 `<FQN>.md`（文档）与在盘 `<FQN>.schema.json`（接口）；MUST NOT 新增第三条来源（不出 `specs`、不出 `decisions`、不扫元素 `path` 目录内的散落 md、不扫 `<archi_dir>` 其它子树、MUST NOT 读模型 `doc` 字段——`carrier_path` 已退役，载体派生不再存在）。两条规则都与 `api` 状态无关。
+- **语料面封闭（本变更换面）**：检索语料 SHALL 恰为「`path` 非空元素的在盘资产」两条固定规则——在盘 `<叶段>.md`（文档）与在盘 `<叶段>.schema.json`（接口）；MUST NOT 新增第三条来源（不出 `specs`、不出 `decisions`、不扫元素 `path` 目录内的散落 md、不扫 `<archi_dir>` 其它子树、MUST NOT 读模型 `doc` 字段——`carrier_path` 已退役，载体派生不再存在）。两条规则都与 `api` 状态无关。
 - **正文不返回（结构性成立）**：`ArchiSearchResult.doc` 只承载**路径字符串**（文档与接口各一条规则），模型 `doc` 字段只承载一条路径串——字段里没有 `title` / 摘要 / 正文 / 行区间的容身之处，故「不返回正文」不靠纪律而由形状保证。
 - **反向索引零预铺**：MUST NOT 引入「文档 → 元素集合」的索引、缓存或 IPC；`grep` 与文件树是反向查找的既有面。
 - **零 `specs` 读取路径**：产品源码 MUST NOT 出现 `openspec` 路径拼接（路径一律经 `foundation::layout`），本能力 MUST NOT 引入 `spec ↔ element` 映射。
@@ -597,7 +597,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 #### Scenario: 关联来源封闭
 
 - **WHEN** 审查文档检索语料来源清单
-- **THEN** 语料只取两条规则（在盘 `<FQN>.md` ∪ 在盘 `<FQN>.schema.json`），与 `api` 状态、`doc` 字段均无关；`decisions/**` 与元素 `path` 目录内的散落 md 都不在语料内，MUST NOT 出现来源分支
+- **THEN** 语料只取两条规则（在盘 `<叶段>.md` ∪ 在盘 `<叶段>.schema.json`），与 `api` 状态、`doc` 字段均无关；`decisions/**` 与元素 `path` 目录内的散落 md 都不在语料内，MUST NOT 出现来源分支
 
 ### Requirement: 知识分层与工具面同批移动
 
@@ -807,7 +807,7 @@ SDK 引擎 SHALL 提供两个专用**写**工具（不在七通用工具 `TOOL_N
 |------|------|----------|
 | `crates/core/agent/src/runner.rs` | 注入词表 | `SessionInjections` 六位（`preamble` / `tools` / `finish` / `ask` / `protect` / `before_done`）；`before_done: Option<BeforeDoneSpec>` 为收口前钩子档位（serde additive，`None` = 不装配；`BeforeDoneSpec::ArchiPreclose` 由 archi 臂唯一置位）；`SessionToolset` / `toolset` 已退役（产品源码零命中，`sdk/runner_test.rs` 有零命中断言），本表不再登记该枚举 |
 | `crates/infra/agent/src/compose.rs` | 注入装配 | `assemble_injections`：explore 臂逐字不变 → **archi 臂**（`source == "archi"` 短路命中：`preamble = Some(knowledge())`、`tools = Some(七内建全量 + 五个 archi 工具名)`、`before_done = Some(ArchiPreclose)`，不碰相位解析）→ change 臂（7 行矩阵 + fail-closed，`archi_matrix` 为矩阵单点）→ default（显式构造，非默认值兜底）；`ARCHI_SOURCE` 常量为来源词单点 |
-| `crates/infra/agent/src/archi_knowledge.rs` | 骨架 + 派生段拼装（本变更：目录方位串换段） | 注入段 SHALL 由「契约目录：`<archi_api_rel_dir>`」改为「契约资产：`<archi_models_rel_dir>/<分层目录…>/<FQN>.md`（索引 `<archi_graph_rel_dir>/INDEX.toml`）」——`api` 段串零残留；四面词表注入、纯函数零 IO、降级为 `None` 的语义逐字不变。原拼接面：`knowledge() -> Option<String>`：`include_str!("archi-knowledge.md")` + `ElementKind::ALL` / `GateTier::ALL` / `GateTier::default()` / `ApiStatus::ALL` / `DiagnosticKind::ALL` / `foundation::layout` 相对路径派生族；`entry` / `doc` MUST NOT 进派生词表（开放值集）；纯函数零 IO；降级为 `None` 而非 `Err` |
+| `crates/infra/agent/src/archi_knowledge.rs` | 骨架 + 派生段拼装（本变更：目录方位串换段） | 注入段 SHALL 由「契约目录：`<archi_api_rel_dir>`」改为「契约资产：`<archi_models_rel_dir>/<分层目录…>/<叶段>.md`（索引 `<archi_graph_rel_dir>/INDEX.toml`）」——`api` 段串零残留；四面词表注入、纯函数零 IO、降级为 `None` 的语义逐字不变。原拼接面：`knowledge() -> Option<String>`：`include_str!("archi-knowledge.md")` + `ElementKind::ALL` / `GateTier::ALL` / `GateTier::default()` / `ApiStatus::ALL` / `DiagnosticKind::ALL` / `foundation::layout` 相对路径派生族；`entry` / `doc` MUST NOT 进派生词表（开放值集）；纯函数零 IO；降级为 `None` 而非 `Err` |
 | `crates/infra/agent/src/archi-knowledge.md`（新） | 知识静态骨架（`include_str!` 内嵌） | 格式与键形约定（「格式约定」段的元素字段面为八项：`kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata`，并含 `entry` 三条纪律与 `doc` 的「只有 `api = none` 可写」纪律）/ 层级推导 / `gate` 缺省 / 边界 / 自检 / 写面与可见性 / 历史会话续接 + 两段形态的可解析示例 TOML（`api = "none"` + `doc` / declared 零 `doc` 行；经 `TomlParser` 零诊断）；零 `<>` 占位符、体量受上限约束、零 `include_str!` 之外的动态指令 |
 | `crates/infra/agent/src/archi_knowledge_test.rs` | 知识语料（本变更：断言串换段） | 「契约目录：」引导语断言改为「契约资产：」+「契约索引：」两条并各断言 `<archi_models_rel_dir>` / `<archi_graph_rel_dir>` 逐字注入；示例片段可解析（含 `entry` 单值形态）、四面词表在场、体量上限、纯函数性（三次调用逐字相等）四条语义不变 |
 | `crates/core/archi/src/dto.rs` | 词汇单点（补 `ALL`） | `ArchiDiagnosticKind::ALL: [Self; 9]`，与 `as_str` 同源；既有 `ElementKind::ALL` / `GateTier::ALL` 复用 |
@@ -1034,7 +1034,7 @@ SDK 引擎 SHALL 提供两个专用**写**工具（不在七通用工具 `TOOL_N
 | `crates/infra/agent/src/sdk/mount.rs` | 工具定义面 | `archi_module_definition()` 五句（三资产一次给全 / 接口唯一凭据 / 文档整读 / `resolvedEntry` + `fileHash` / 两路径语义）；`archi_api_definition()` 四句（双草稿 / `link` / 三类生成物 / 冷启动口径）；`archi_scaffold_definition()` 一句（接口草稿指路）；工具名常量、参数 schema、`ToolTier::Read` / `ToolExec::Archi` 归属与 `build_registry` 项数零变化 |
 | `crates/infra/agent/src/compose.rs` | 装配单点 | `archi_matrix` 两格追加 `archi_api`；change 臂在 `model_write_lock(provenance) == None` 时注入 `archi_knowledge::knowledge()`（失败降级 `None`）；archi 臂与 config 臂逐字不变 |
 | `crates/infra/agent/src/archi-knowledge.md` | 知识静态骨架 | 五段（三资产分工 / 设计顺序 / 三条不可越界 / 工具面 / 留给判断 + 兼容）；零围栏、零值域行、零诊断词、零 `<>` 占位符；体量锚 1800 / 2000 B |
-| `crates/infra/agent/src/archi_knowledge.rs` | 拼装 | 派生段改为「模型目录 + 契约资产（`<FQN>.md` 理由 + `<FQN>.schema.json` 接口，同目录）」；`build` 的占位符 / 空骨架校验与降级语义逐字不变 |
+| `crates/infra/agent/src/archi_knowledge.rs` | 拼装 | 派生段改为「模型目录 + 契约资产（`<叶段>.md` 理由 + `<叶段>.schema.json` 接口，同目录）」；`build` 的占位符 / 空骨架校验与降级语义逐字不变 |
 | `crates/infra/agent/src/sdk/policy.rs` | 静态权限表 | `READONLY_TOOLS` 三工具名与三档全放行逐字不变（`archi_api` 的矩阵扩面不改档位） |
 | `crates/core/archi/src/api/paths.rs` | 路径单点（供 `link`） | `ref_relative` 签名与语义零变化；`carrier_path` / `doc_path` 退役后本能力零新依赖（`link` 只用 `ref_relative`） |
 
@@ -1052,4 +1052,4 @@ SDK 引擎 SHALL 提供两个专用**写**工具（不在七通用工具 `TOOL_N
 |---|---|---|
 | `archi_module` 单元素响应 | 加字段 | `assets`（三段各自 `present`）+ `reading`；`api` / `doc` / `resolvedEntry` / `fileHash` / `hasPath` 位置与形状不变 |
 | `archi_module` 薄概览 | 零变化 | 仍为 `fqn` / `kind` / `gate` / `summary` / `api.status` / `hasPath` |
-| `archi_search` 语料 | 换面 | 两条固定规则（在盘 `<FQN>.md` ∪ 在盘 `<FQN>.schema.json`），与 `api` 状态无关 |
+| `archi_search` 语料 | 换面 | 两条固定规则（在盘 `<叶段>.md` ∪ 在盘 `<叶段>.schema.json`），与 `api` 状态无关 |

@@ -3,8 +3,8 @@
 //! 路径拼成单条文本。
 //!
 //! 纪律：
-//! 1. **目录路径只从代码派生**：模型声明目录与资产目录（文档 `<FQN>.md` + 接口
-//!    `<FQN>.schema.json`）取自 `foundation::layout` 的相对路径派生族，作为唯一程序追加
+//! 1. **目录路径只从代码派生**：模型声明目录与资产目录（文档 `<叶段>.md` + 接口
+//!    `<叶段>.schema.json`）取自 `foundation::layout` 的相对路径派生族，作为唯一程序追加
 //!    段——骨架 MUST NOT 手写目录字面量；
 //! 2. **尽力增强、不炸 run**：拼装失败（骨架为空 / 含占位符）降级 [`knowledge`]
 //!    为 `None`，装配层只丢 `preamble` 位，工具面与 run 不受影响。
@@ -23,7 +23,7 @@ pub(crate) fn knowledge() -> Option<String> {
 
 /// 骨架 + 目录路径段拼装：骨架 trim 后为空 / 含 `<>` 占位符即 `Err`（触发点写进
 /// 文案），否则以 `skeleton.trim_end()` 起手追加两处 `foundation::layout` 派生路径
-/// （模型声明目录 / 资产目录及其两种文件：文档 `<FQN>.md`、接口 `<FQN>.schema.json`）。
+/// （模型声明目录 / 资产目录及其两种文件：文档 `<叶段>.md`、接口 `<叶段>.schema.json`）。
 pub(crate) fn build(skeleton: &str) -> Result<String, String> {
     if skeleton.trim().is_empty() {
         return Err("知识骨架为空".to_owned());
@@ -34,7 +34,7 @@ pub(crate) fn build(skeleton: &str) -> Result<String, String> {
     Ok(format!(
         "{}\n\n\
          模型目录：{}；\
-         契约资产：{}/<分层目录…>/<FQN>.md（理由）+ <FQN>.schema.json（接口，手写真相）",
+         契约资产：{}/<分层目录…>/<叶段>.md（理由）+ <叶段>.schema.json（接口，手写真相）",
         skeleton.trim_end(),
         foundation::layout::archi_graph_model_rel_dir(),
         foundation::layout::archi_models_rel_dir(),

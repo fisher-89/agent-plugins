@@ -68,7 +68,7 @@ fn is_generated_module_file(path: &Path) -> bool {
 /// 枚举因而经 [`crate::scan::walk_source_files`]（与文件树同源，gitignore 感知）；索引
 /// （`<archi_graph_dir>/INDEX.toml`）经 [`api_dir_artifacts`] 派生。
 ///
-/// **`<FQN>.schema.json` 不在枚举面**：它是手写真相（第二份资产），进孤儿扫描就会让每份
+/// **`<叶段>.schema.json` 不在枚举面**：它是手写真相（第二份资产），进孤儿扫描就会让每份
 /// 手写接口文件全进 `orphaned`——症状是「全红」而不是「少一条」。
 fn generated_files_on_disk(root: &Path) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = crate::scan::walk_source_files(root)

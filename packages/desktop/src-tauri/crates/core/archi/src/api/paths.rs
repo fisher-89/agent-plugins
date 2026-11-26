@@ -1,6 +1,6 @@
-//! 模块资产与生成物路径单点：`<root>` 归一、资产落点（`<FQN>.md` 文档 /
-//! `<FQN>.schema.json` 接口）、生成物落点、入口解析链与形态判定、TS import specifier、
-//! 跨域 `$ref` 相对前缀。
+//! 模块资产与生成物路径单点：`<root>` 归一、资产落点（`<叶段>.md` 文档 /
+//! `<叶段>.schema.json` 接口，文件名只取 FQN 叶段）、生成物落点、入口解析链与形态判定、
+//! TS import specifier、跨域 `$ref` 相对前缀。
 //!
 //! **几乎全是路径运算，零 IO**：[`entry_state`] 的存在性探测是唯一例外——它必须看盘
 //! 才能回答「入口在哪」；[`entry_candidates`] 的候选派生**纯文本、零 IO**。资产目录
@@ -20,7 +20,7 @@
 //! 写。判据与 `scan::rust::normalize_rel` 同一条纪律（repo
 //! 相对：`/` 分隔、无绝对前缀、无盘符、无 `.` / `..` / 空段），MUST NOT 靠调用方自觉。
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use foundation::layout::{archi_graph_dir, archi_models_dir};
 
@@ -232,8 +232,8 @@ pub fn rust_module_path(element_root: &str) -> String {
 ///
 /// 根段就是包级元素本身（`Backend` / `Desktop`），它参与目录分层（`Backend/Core/`、
 /// `Desktop/Components/Agent/`）——不再被剥掉。目录与元素身份**解耦**：父子层级由段链
-/// 镜像，元素身份仍是 FQN（文件名恒为完整 FQN），同名段（`Backend.Core.Agent` 与
-/// `Desktop.Components.Agent`）因而落在不同层次、互不混装。
+/// 镜像，元素身份仍是 FQN（文件名只取叶段，祖先链由目录承载），同名段
+/// （`Backend.Core.Agent` 与 `Desktop.Components.Agent`）因而落在不同层次、互不混装。
 pub fn dir_segments(fqn: &str) -> Option<Vec<String>> {
     let segments: Vec<&str> = fqn.split('.').collect();
     if fqn.is_empty() {
@@ -247,7 +247,7 @@ pub fn dir_segments(fqn: &str) -> Option<Vec<String>> {
     )
 }
 
-/// 契约目录本身（== `<archi_models_dir>`：分层目录段与 `<FQN>.md` / `.schema.json` 的
+/// 契约目录本身（== `<archi_models_dir>`：分层目录段与 `<叶段>.md` / `.schema.json` 的
 /// base）——本文件是它的唯一派生点。
 pub fn directory(root: &Path) -> PathBuf {
     archi_models_dir(root)
@@ -276,38 +276,85 @@ pub fn generated_kind(language: Language) -> GeneratedKind {
     }
 }
 
-/// 文档（资产①）路径：`<archi_models_dir>/<分层目录段…>/<FQN>.md`。
+/// FQN 叶段（最后一个点分段）——契约资产文件名的主干。
+///
+/// 祖先链已由目录镜像（[`dir_segments`]），文件名再带全 FQN 会把同一段前缀在路径里
+/// 累计两次（`Desktop/Components/Agent/Desktop.Components.Agent.AgentInput.md`），深层
+/// FQN 很快顶到 Windows 的 `MAX_PATH`。目录 + 叶段仍唯一：同目录同叶段 ⟺ 同 FQN。
+pub fn leaf_name(fqn: &str) -> &str {
+    fqn.rsplit('.').next().unwrap_or(fqn)
+}
+
+/// 文档（资产①）路径：`<archi_models_dir>/<分层目录段…>/<叶段>.md`。
 ///
 /// **落点恒由 FQN 派生，与 `api` 状态、模型 `doc` 字段都无关**——`declared` 与 `none`
 /// 元素共用这一条派生（`doc` 是零判据读者的呈现事实，不进派生面）。
 ///
 /// FQN 形态非法（空 / 含路径分隔符 / `.` 或 `..` 段 / 绝对前缀）→ `None`：FQN 同时
-/// 充当**文件名**，放行即让下层的 `is_file()` 探测与工具 crate 的写盘越出契约目录。
+/// 充当**分层目录段与文件名锚**，放行即让下层的 `is_file()` 探测与工具 crate 的写盘
+/// 越出契约目录。
 pub fn contract_path(root: &Path, fqn: &str) -> Option<PathBuf> {
     if !is_fqn(fqn) {
         return None;
     }
-    Some(dir_of(root, fqn).join(format!("{fqn}.md")))
+    Some(dir_of(root, fqn).join(format!("{}.md", leaf_name(fqn))))
 }
 
-/// 接口（资产②）路径：与文档同目录的 `<FQN>.schema.json`（形态判据同
+/// 接口（资产②）路径：与文档同目录的 `<叶段>.schema.json`（形态判据同
 /// [`contract_path`]）。**它是手写真相，不是生成物**。
 pub fn schema_path(root: &Path, fqn: &str) -> Option<PathBuf> {
     if !is_fqn(fqn) {
         return None;
     }
-    Some(dir_of(root, fqn).join(format!("{fqn}.schema.json")))
+    Some(dir_of(root, fqn).join(format!("{}{SCHEMA_FILE_SUFFIX}", leaf_name(fqn))))
 }
 
-/// 文件名 → 元素 FQN 的**唯一**反查（`<FQN>.schema.json` 去后缀；非该后缀 / 主干为空
-/// → `None`）。
+/// 接口定义文件的 repo 相对路径（`<archi_models_rel_dir>/<分层目录段…>/<叶段>.schema.json`）
+/// ——错误文案与报告里的「文件」口径（`validate_schema` 无 root 入参，用它代替）。
+pub fn schema_rel(fqn: &str) -> Option<String> {
+    if !is_fqn(fqn) {
+        return None;
+    }
+    let mut segments = dir_segments(fqn).unwrap_or_default();
+    segments.push(format!("{}{SCHEMA_FILE_SUFFIX}", leaf_name(fqn)));
+    Some(format!(
+        "{}/{}",
+        foundation::layout::archi_models_rel_dir(),
+        segments.join("/")
+    ))
+}
+
+/// 接口文件名主干（剥 `.schema.json` 的**唯一**后缀切分点；非该后缀 → `None`）。
+fn schema_stem(file_name: &str) -> Option<&str> {
+    file_name.strip_suffix(SCHEMA_FILE_SUFFIX)
+}
+
+/// 接口文件相对路径（**相对 `<archi_models_dir>`**）→ 元素 FQN 的**唯一**反查：
+/// 分层目录段 + 文件主干（叶段）以 `.` 连接。
+///
+/// 反查必须看**整条相对路径**——文件名只剩叶段，单看文件名分不清 `Backend.Core.Agent`
+/// 与 `Desktop.Components.Agent`。主干带点（旧式 `<FQN>.schema.json`）、缺后缀、空段、
+/// `..` / 绝对前缀一律 `None`：那不是派生落点，拒绝即让写闸不把非规范位置的文件当接口。
 ///
 /// 消费面两处：写闸（`write` / `edit` 落盘前从路径反查 FQN）与
-/// [`super::reexport_target`]（跨元素 `$ref` 的文件主干反查目标元素）。MUST NOT 出现
+/// [`super::reexport_target`]（跨元素 `$ref` 的文件部分反查目标元素）。MUST NOT 出现
 /// 第二份后缀切分。
-pub fn schema_fqn(file_name: &str) -> Option<&str> {
-    let stem = file_name.strip_suffix(SCHEMA_FILE_SUFFIX)?;
-    (!stem.is_empty()).then_some(stem)
+pub fn schema_fqn(relative: &Path) -> Option<String> {
+    let mut segments: Vec<&str> = Vec::new();
+    for component in relative.components() {
+        match component {
+            Component::Normal(segment) => segments.push(segment.to_str()?),
+            _ => return None,
+        }
+    }
+    let file = segments.pop()?;
+    let stem = schema_stem(file)?;
+    if stem.contains('.') {
+        return None;
+    }
+    segments.push(stem);
+    let fqn = segments.join(".");
+    is_fqn(&fqn).then_some(fqn)
 }
 
 /// 元素生成物路径：`<入口目录>/<入口主干>.i.rs` / `.i.ts`（与**入口**同级）。
@@ -489,7 +536,7 @@ pub fn ts_import_specifier(form: EntryForm, name: &str) -> String {
 
 /// 跨文件 `$ref` 的相对前缀：由两侧**分层目录段**逐段求相对路径（同目录 → `./`、
 /// 向上一层 → `../`、向下一层 → `./<段>/`），返回串以 `/` 收尾（`$ref` 的值即
-/// `<前缀><目标 FQN>.schema.json#/$defs/<name>`）。MUST NOT 手算层数。
+/// `<前缀><目标叶段>.schema.json#/$defs/<name>`）。MUST NOT 手算层数。
 pub fn ref_relative(from_fqn: &str, to_fqn: &str) -> String {
     let from = dir_segments(from_fqn).unwrap_or_default();
     let to = dir_segments(to_fqn).unwrap_or_default();
@@ -508,6 +555,39 @@ pub fn ref_relative(from_fqn: &str, to_fqn: &str) -> String {
         (true, false) => format!("./{down}"),
         (false, _) => format!("{up}{down}"),
     }
+}
+
+/// 跨文件 `$ref` 的文件部分 → 目标元素 FQN：以本元素的**分层目录**为起点解相对路径
+/// （`.` 原地、`..` 上溯一层、其余段下沉），文件主干即目标叶段。
+///
+/// 反查必须带本元素 FQN——文件名只剩叶段，单看串已不知道它属于哪条祖先链。解析结果
+/// 仍过 [`is_fqn`]：越出契约根（`..` 多于层数）、空段、带点的段（旧式 `<FQN>` 文件名或
+/// 任意前缀残片）一律 `None`。前缀**是否逐字等于** [`ref_relative`] 的产物由校验侧比对
+/// （本函数只解路径，不做规范形判定）。
+pub fn ref_target(from_fqn: &str, file: &str) -> Option<String> {
+    let stem = schema_stem(file)?;
+    let mut segments = dir_segments(from_fqn)?;
+    let mut parts = stem.split('/').peekable();
+    while let Some(part) = parts.next() {
+        if parts.peek().is_none() {
+            if part.is_empty() || part.contains('.') {
+                return None;
+            }
+            segments.push(part.to_owned());
+        } else {
+            match part {
+                "" => return None,
+                "." => {}
+                ".." => {
+                    segments.pop()?;
+                }
+                _ if part.contains('.') => return None,
+                _ => segments.push(part.to_owned()),
+            }
+        }
+    }
+    let fqn = segments.join(".");
+    is_fqn(&fqn).then_some(fqn)
 }
 
 /// 按扩展名判语言（取数器分派的唯一判据；其余 `Unknown`——不猜测）。

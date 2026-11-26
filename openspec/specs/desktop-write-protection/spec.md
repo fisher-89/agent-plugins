@@ -384,7 +384,7 @@
 
 #### Scenario: 契约资产与生成物不锁
 
-- **WHEN** 以 `<id>/implement/executor/1` 会话分别写 `<archi_dir>/models/<分层…>/<FQN>.md`、`<archi_dir>/graph/INDEX.toml`、`<archi_dir>/config.json`
+- **WHEN** 以 `<id>/implement/executor/1` 会话分别写 `<archi_dir>/models/<分层…>/<叶段>.md`、`<archi_dir>/graph/INDEX.toml`、`<archi_dir>/config.json`
 - **THEN** 三者均放行（会话锁只命中 `graph/model/**`）；模型目录同轮的写入仍被拒
 
 #### Scenario: 畸形 source_ref 挂锁

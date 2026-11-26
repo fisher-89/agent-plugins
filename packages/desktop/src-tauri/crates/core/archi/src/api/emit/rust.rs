@@ -93,7 +93,7 @@ fn render_scope(
 
     // 透传（纯 `$ref` alias → `pub use <目标模块>::<名>`）：模块路径只来自调用方查表
     for (name, reference) in &reexports {
-        let Some(target) = reexport_target(reference) else {
+        let Some(target) = reexport_target(&contract.fqn, reference) else {
             continue;
         };
         let Some(module) = modules.get(&target) else {

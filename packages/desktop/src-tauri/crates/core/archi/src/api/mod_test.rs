@@ -1,5 +1,5 @@
 //! `api`（装配层）的单元测试：接口面启用判定（`declared` ∧ `path` 非空 ∧
-//! `<FQN>.schema.json` 在盘）、`load_contracts` 全链（schema 校验 → `Contract` 投影 →
+//! `<叶段>.schema.json` 在盘）、`load_contracts` 全链（schema 校验 → `Contract` 投影 →
 //! 三表装配）、`render_all` 三类生成物 / 幂等 / `INDEX` 覆盖与 `categories` 形状分布、
 //! `check` 的未启用短路与稳定排序、`bootstrap` 的双草稿形态与零写盘、`api_ref` 的三路径
 //! 独立投影、`ApiError` 三值文案。
@@ -81,7 +81,7 @@ impl TempDir {
         );
     }
 
-    /// 落契约（`<archi_models_dir>/<分层目录…>/<FQN>.md`）。
+    /// 落契约（`<archi_models_dir>/<分层目录…>/<叶段>.md`）。
     fn write_contract(&self, fqn: &str, content: &str) {
         let path = paths::contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
         if let Some(parent) = path.parent() {
@@ -90,7 +90,7 @@ impl TempDir {
         fs::write(&path, content).expect("写契约失败");
     }
 
-    /// 落接口定义（`<archi_models_dir>/<分层目录…>/<FQN>.schema.json`）。
+    /// 落接口定义（`<archi_models_dir>/<分层目录…>/<叶段>.schema.json`）。
     fn write_schema(&self, fqn: &str, content: &str) {
         let path = paths::schema_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
         if let Some(parent) = path.parent() {
@@ -267,13 +267,14 @@ pub(crate) fn op_schema(fqn: &str, op: impl AsRef<str>, signature: impl AsRef<st
     )
 }
 
-/// 跨元素透传 alias 的 `$defs` 片段：`$ref` 前缀经 [`paths::ref_relative`] 单点求出
-/// （夹具 MUST NOT 手算 `../` 层数）。
+/// 跨元素透传 alias 的 `$defs` 片段：`$ref` 前缀经 [`paths::ref_relative`] 单点求出、
+/// 文件名取目标叶段（夹具 MUST NOT 手算 `../` 层数或写全 FQN 文件名）。
 pub(crate) fn reexport_def(fqn: &str, name: impl AsRef<str>, target: impl AsRef<str>) -> String {
     let (name, target) = (name.as_ref(), target.as_ref());
     format!(
-        "\"{name}\": {{ \"$ref\": \"{}{target}.schema.json#/$defs/{name}\" }}",
-        paths::ref_relative(fqn, target)
+        "\"{name}\": {{ \"$ref\": \"{}{}.schema.json#/$defs/{name}\" }}",
+        paths::ref_relative(fqn, target),
+        paths::leaf_name(target)
     )
 }
 
@@ -291,10 +292,17 @@ pub(crate) fn schema_of(contract: &Contract) -> Value {
     for (name, definition) in &contract.types {
         defs.insert(name.clone(), definition.clone());
     }
-    for name in contract.reexports.keys() {
+    for (name, target) in &contract.reexports {
+        let target = target.as_str().unwrap_or_default();
         defs.insert(
             name.clone(),
-            serde_json::json!({ "$ref": format!("{name}.schema.json#/$defs/{name}") }),
+            serde_json::json!({
+                "$ref": format!(
+                    "{}{}.schema.json#/$defs/{name}",
+                    paths::ref_relative(&contract.fqn, target),
+                    paths::leaf_name(target)
+                )
+            }),
         );
     }
     let mut properties = serde_json::Map::new();
@@ -335,7 +343,7 @@ fn element(fqn: &str, paths: &[&str]) -> ArchiElement {
     }
 }
 
-/// 派生 `<FQN>.md`（理由面）：只为「文档在盘」这一独立事实，零 fence（历史 `api-*`
+/// 派生 `<叶段>.md`（理由面）：只为「文档在盘」这一独立事实，零 fence（历史 `api-*`
 /// 形态已退场——读面不读文档正文）。
 pub(crate) fn doc_of(fqn: &str) -> String {
     format!("# {fqn}\n\n## 职能\n\n门禁执行体。\n")
@@ -385,7 +393,7 @@ fn empty_snapshot() -> ApiSnapshot {
 // enabled：declared ∧ path 非空 ∧ schema 在盘
 // ---------------------------------------------------------------------------
 
-/// 正向（D-5）：启用判据五形态——`declared` ∧ `path` 非空 ∧ `<FQN>.schema.json` 在盘 ⇒
+/// 正向（D-5）：启用判据五形态——`declared` ∧ `path` 非空 ∧ `<叶段>.schema.json` 在盘 ⇒
 /// `true`；同条件 schema 缺席（文档在盘）⇒ `false`；`api = none` ∧ schema 在盘 ⇒ `false`
 /// （越界契约不是启用证据）；`path = []` ∧ schema 在盘 ⇒ `false`；空元素表 ⇒ `false`。
 #[test]
@@ -426,7 +434,7 @@ fn 启用只认declared且schema在盘() {
 }
 
 /// 异常（D-5）：散落文件不构成启用证据——目录缺席 / 空目录 / `<archi_models_dir>` 一级的
-/// 笔记 / 与任何元素无关的 `<FQN>.schema.json`，以及元素 `doc` 字段指向的在盘文档，一律不算。
+/// 笔记 / 与任何元素无关的 `<叶段>.schema.json`，以及元素 `doc` 字段指向的在盘文档，一律不算。
 #[test]
 fn 散落文件不构成启用证据() {
     let bare = TempDir::new("enabled-bare");
@@ -485,7 +493,7 @@ fn enabled容器元素零参与() {
 // load_contracts：全链 / 缺 md / 跳过 / 路径空 / 异常面
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-1 + AC-9）：单元素 `path` 非空 + 同目录 `<FQN>.schema.json`（1 op + 1 类型、
+/// 正向（AC-1 + AC-9）：单元素 `path` 非空 + 同目录 `<叶段>.schema.json`（1 op + 1 类型、
 /// 零文档）→ `Ok`；签名即 `x-function` 解包值、`file` 覆写为 repo 相对 schema 路径、三表
 /// 与文档事实各就位。
 #[test]
@@ -520,8 +528,8 @@ fn load_contracts全链() {
     );
     assert_eq!(
         snapshot.contracts[0].file,
-        ".dev-team/architecture/models/App/Backend/Infra/App.Backend.Infra.ArchiRuntime.schema.json",
-        "`file` 覆写为 repo 相对 schema 路径"
+        ".dev-team/architecture/models/App/Backend/Infra/ArchiRuntime.schema.json",
+        "`file` 覆写为 repo 相对 schema 路径（分层目录 + 叶段文件名）"
     );
     assert_eq!(snapshot.contracts[0].types.len(), 1, "一个自有类型");
     assert!(snapshot.schemas.contains_key(fqn), "schema 装配在案");
@@ -538,7 +546,7 @@ fn load_contracts全链() {
     );
 }
 
-/// 异常（AC-1 / Q4）：**零 md 回落**——只有派生 `<FQN>.md`（含历史 `api-op` fence）而 schema
+/// 异常（AC-1 / Q4）：**零 md 回落**——只有派生 `<叶段>.md`（含历史 `api-op` fence）而 schema
 /// 缺席 ⇒ 该元素零装载且 `schemas` 无该键；两者都不在 ⇒ 同样零条目。
 #[test]
 fn load_contracts缺md零装载() {
@@ -610,7 +618,7 @@ fn 快照无缺契约清单字段() {
     );
 }
 
-/// 边界（D16 ⑤）：`api = none` 元素即便 `<FQN>.schema.json` 在盘也不装载（越界事实由
+/// 边界（D16 ⑤）：`api = none` 元素即便 `<叶段>.schema.json` 在盘也不装载（越界事实由
 /// `apiUnexpected` 判据报，装载器不替它建契约）。
 #[test]
 fn load_contracts跳过api_none() {
@@ -688,7 +696,7 @@ fn load_contracts坏契约即报错() {
         match &error {
             ApiError::Contract(message) => {
                 assert!(
-                    message.contains(&format!("{fqn}.schema.json")),
+                    message.contains(&paths::schema_rel(fqn).expect("合法 FQN")),
                     "{label} 的文案含文件名：{message}"
                 );
                 assert!(
@@ -788,7 +796,7 @@ fn load_contracts闸一违例即中止() {
                     "{label} 点明判据：{message}"
                 );
                 assert!(
-                    message.contains(&format!("{fqn}.schema.json")),
+                    message.contains(&paths::schema_rel(fqn).expect("合法 FQN")),
                     "{label} 的文案带文件名定位：{message}"
                 );
             }
@@ -871,7 +879,7 @@ fn load_contracts落点闸违例即中止() {
                     "{label} 的文案点名 JSON pointer `{pointer}`：{message}"
                 );
                 assert!(
-                    message.contains(&format!("{fqn}.schema.json")),
+                    message.contains(&paths::schema_rel(fqn).expect("合法 FQN")),
                     "{label} 的文案带文件名定位：{message}"
                 );
             }
@@ -973,7 +981,7 @@ fn load_contracts规模边界() {
 // ---------------------------------------------------------------------------
 
 /// 正向（AC-12 / D-13）：试点形态 → 文件集含 `INDEX.toml` 与 `<root>.i.rs`，且**不含**
-/// `<FQN>.schema.json`（手写真相不进应生成集）；`.i.ts` 按元素语言缺席；每份 `path` 与
+/// `<叶段>.schema.json`（手写真相不进应生成集）；`.i.ts` 按元素语言缺席；每份 `path` 与
 /// `paths` 单点产出值逐字相等。
 #[test]
 fn render_all三类生成物齐备() {
@@ -1003,7 +1011,7 @@ path = [\"crates/infra/archi/\"]
                 .expect("合法 FQN")
                 .as_path()
         ),
-        "`<FQN>.schema.json` 是手写真相，MUST NOT 出现在应生成集"
+        "`<叶段>.schema.json` 是手写真相，MUST NOT 出现在应生成集"
     );
     assert!(
         paths_set.contains(&paths::index_path(temp.root()).as_path()),
@@ -2829,7 +2837,7 @@ fn api_ref_of元素与表不同源互不污染() {
         reference
             .contract_path
             .as_deref()
-            .is_some_and(|path| path.contains("App.Core.Ghost")),
+            .is_some_and(|path| path.contains("App/Core/Ghost")),
         "契约路径按传入元素 FQN 派生：{:?}",
         reference.contract_path
     );
@@ -3083,7 +3091,7 @@ fn meta零io零spawn() {
 }
 
 /// 边界（D36 ⑤ 单点抽取）：`ref_name` 把任何 `$ref` 形态归一成**类型名**——同文件
-/// `#/$defs/<名>` 与外部文件 `<相对前缀><FQN>.schema.json#/$defs/<名>` 都取 `$defs`
+/// `#/$defs/<名>` 与外部文件 `<相对前缀><叶段>.schema.json#/$defs/<名>` 都取 `$defs`
 /// 之后那一段；无 `$defs` 片段时退化为路径末段；空串原样返回（不 panic）。
 ///
 /// 该函数是 `check`（签名归一）与 `emit::{rust, ts}`（类型映射）的**唯一**切分点，
@@ -3091,7 +3099,7 @@ fn meta零io零spawn() {
 #[test]
 fn ref_name归一类型名单点() {
     let same_file = "#/$defs/AgentInput";
-    let external = "../Core/App.Backend.Core.Agent.schema.json#/$defs/AgentInput";
+    let external = "../Core/Agent.schema.json#/$defs/AgentInput";
     assert_eq!(super::ref_name(same_file), "AgentInput");
     assert_eq!(super::ref_name(external), "AgentInput", "外部形态取末段");
     assert_eq!(
@@ -3135,42 +3143,51 @@ fn ref_name归一类型名单点() {
 }
 
 /// 边界（D36 ⑤ 单点抽取）：`reexport_target` 只对**外部文件引用**返回目标元素 FQN；
-/// 同文件引用（`#/$defs/<名>`）、无 `.schema.json` 后缀、无 `#` 片段、空串 → `None`
-/// （同文件条目不是透传，零猜测）。
+/// 目标由「本元素分层目录 + 相对前缀」解出（文件名只剩叶段）。同文件引用
+/// （`#/$defs/<名>`）、无 `.schema.json` 后缀、无 `#` 片段、越界 / 带点的段、空串 →
+/// `None`（同文件条目不是透传，零猜测）。
 #[test]
 fn reexport_target只认外部文件引用() {
+    const FROM: &str = "App.Backend.Core.Foundation";
     assert_eq!(
-        super::reexport_target("../Core/App.Backend.Core.Agent.schema.json#/$defs/AgentInput"),
+        super::reexport_target(FROM, "../Core/Agent.schema.json#/$defs/AgentInput"),
         Some("App.Backend.Core.Agent".to_owned()),
-        "外部形态取中间段的目标 FQN"
+        "同层跨子树：相对前缀解出目标 FQN"
+    );
+    assert_eq!(
+        super::reexport_target(FROM, "../Infra/ArchiRuntime.schema.json#/$defs/X"),
+        Some("App.Backend.Infra.ArchiRuntime".to_owned()),
+        "兄弟层目标同式"
     );
     for reference in [
         "#/$defs/AgentInput",
-        "../Core/App.Backend.Core.Agent#/$defs/AgentInput",
-        "../Core/App.Backend.Core.Agent.schema.json",
+        "../Core/Agent#/$defs/AgentInput",
+        "../Core/Agent.schema.json",
+        "../../../../Agent.schema.json#/$defs/AgentInput",
+        "../Core/Agent.Input.schema.json#/$defs/AgentInput",
         "",
     ] {
         assert_eq!(
-            super::reexport_target(reference),
+            super::reexport_target(FROM, reference),
             None,
             "非外部文件引用 → None：{reference:?}"
         );
     }
 
-    // 源码自证：后缀剥法单点在 `paths::schema_fqn`（`mod.rs` 只委托，零第二份切分）
+    // 源码自证：后缀剥法单点在 `paths::schema_stem`（`schema_fqn` / `ref_target` 共用）
     let paths_source = include_str!("paths.rs");
     assert_eq!(
         paths_source
             .matches("strip_suffix(SCHEMA_FILE_SUFFIX)")
             .count(),
         1,
-        "后缀剥法单点（`paths::schema_fqn`）"
+        "后缀剥法单点（`paths::schema_stem`）"
     );
     let source = include_str!("mod.rs");
     assert_eq!(
-        source.matches("paths::schema_fqn(").count(),
+        source.matches("paths::ref_target(").count(),
         1,
-        "`mod.rs` 经 `paths::schema_fqn` 反查（零自写后缀切分）"
+        "`mod.rs` 经 `paths::ref_target` 反查（零自写后缀切分）"
     );
     assert!(!source.contains("strip_suffix("), "`mod.rs` 内零后缀切分");
     for (file, text) in [
@@ -3364,8 +3381,8 @@ fn 整链路装配通过() {
     assert_eq!(contract.title, FQN_PILOT);
     assert_eq!(
         contract.file,
-        format!("{FQN_PILOT}.schema.json"),
-        "`Contract.file` 缺省取文件名（装载期再覆写为 repo 相对路径）"
+        paths::schema_rel(FQN_PILOT).expect("试点 FQN 合法"),
+        "`Contract.file` 取接口文件的 repo 相对路径（装载期再覆写为实际路径）"
     );
     assert_eq!(contract.ops.len(), 1, "一个操作（`file_stem`）");
     assert_eq!(contract.ops[0].id, "file_stem");
@@ -3991,7 +4008,7 @@ fn artifact_check三列与compare逐列相等() {
     );
     assert!(
         !dto.orphaned.contains(&schema_rel) && !dto.mismatched.contains(&schema_rel),
-        "`<FQN>.schema.json` 不进三列：{dto:?}"
+        "`<叶段>.schema.json` 不进三列：{dto:?}"
     );
     assert_eq!(
         dto.mismatched,
@@ -4347,7 +4364,9 @@ fn findings契约非法即err() {
         "非法接口归 Contract：{error:?}"
     );
     assert!(
-        error.message().contains("App.Core.Alpha.schema.json"),
+        error
+            .message()
+            .contains(&paths::schema_rel(fqn).expect("合法 FQN")),
         "文案点名文件：{}",
         error.message()
     );
@@ -5266,10 +5285,10 @@ fn findings离线可推读数四十四减二减一() {
 }
 
 // ===========================================================================
-// 启用判据：`<FQN>.schema.json` 在盘
+// 启用判据：`<叶段>.schema.json` 在盘
 // ===========================================================================
 
-/// 正向：两份元素其一 `<FQN>.schema.json` 在盘即启用；元素顺序与 `path` 段数无关。
+/// 正向：两份元素其一 `<叶段>.schema.json` 在盘即启用；元素顺序与 `path` 段数无关。
 #[test]
 fn enabled任一份载体含fence即启用() {
     let temp = TempDir::new("enabled-any-carrier");
@@ -5282,7 +5301,7 @@ fn enabled任一份载体含fence即启用() {
         "两份元素其一 schema 在盘即启用"
     );
 
-    // 深度无关：任意分层深度的 `<FQN>.schema.json` 都按 FQN 派生落点判定
+    // 深度无关：任意分层深度的 `<叶段>.schema.json` 都按 FQN 派生落点判定
     for index in ["App.Core.Deep", "App.Backend.Infra.Agent.Session"] {
         let temp = TempDir::new(&format!("enabled-depth-{index}"));
         temp.write_schema(index, &pilot_schema(index));
@@ -5335,7 +5354,7 @@ fn enabled旧判据残留形态一律不启用() {
     assert!(!enabled(bare.root(), &[]), "零元素 ⇒ 未启用（零读盘）");
 }
 
-/// 边界：启用后缺派生 `<FQN>.md` 的 declared 元素 ⇒ 恰一条 `docMissing`（warn 档，不是
+/// 边界：启用后缺派生 `<叶段>.md` 的 declared 元素 ⇒ 恰一条 `docMissing`（warn 档，不是
 /// `Err`；单因单义，与接口文件在盘与否无关）；空元素表 → 空 `Vec`；两次调用逐条相等。
 #[test]
 fn findings边界_单条docmissing与去重稳定() {
@@ -5352,7 +5371,7 @@ impl LocalArchiCheck {
 }
 ",
     );
-    // 未写文档的 declared 元素：派生 `<FQN>.md` 不在盘 ⇒ 恰一条 `docMissing`
+    // 未写文档的 declared 元素：派生 `<叶段>.md` 不在盘 ⇒ 恰一条 `docMissing`
     let no_doc = "App.Core.NoDoc";
     let elements = [
         element(live, &["src/live/"]),
@@ -5735,8 +5754,8 @@ fn 五名可经crate根调用() {
     let text = mirrored_schema_text("App.Core.Export", "", "");
     crate::validate_schema("App.Core.Export", &text).expect("空壳应过九闸");
     assert_eq!(
-        crate::schema_fqn("App.Core.Export.schema.json"),
-        Some("App.Core.Export")
+        crate::schema_fqn(std::path::Path::new("App/Core/Export.schema.json")),
+        Some("App.Core.Export".to_owned())
     );
     assert!(crate::is_fqn("App.Core.Export"));
     assert!(crate::is_identifier("file_stem"));
@@ -5744,7 +5763,7 @@ fn 五名可经crate根调用() {
 
 /// 边界（源码锚 · 三路径派生单点）：`ref_projection` 体内三条路径各取一次派生单点
 /// （`paths::contract_path(` / `schema_path(` / `generated_path(`），零手拼
-/// `format!("<FQN>.md")`；`api_ref` 与 `api_ref_of` 同源（两入口都委托
+/// `format!("<叶段>.md")`；`api_ref` 与 `api_ref_of` 同源（两入口都委托
 /// `ref_projection`，装配面恰一处）。
 #[test]
 fn 三路径派生单点() {

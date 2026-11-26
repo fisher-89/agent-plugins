@@ -63,7 +63,7 @@ impl TempDir {
         self.write(".dev-team/architecture/graph/model/01-test.toml", content);
     }
 
-    /// 落接口定义（`<archi_models_dir>/<分层目录…>/<FQN>.schema.json`）。
+    /// 落接口定义（`<archi_models_dir>/<分层目录…>/<叶段>.schema.json`）。
     fn write_schema(&self, fqn: &str, content: &str) {
         let path = crate::api::paths::schema_path(self.root(), fqn).expect("合法 FQN");
         let relative = path

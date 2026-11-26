@@ -210,7 +210,7 @@ pub enum ArchiApiFindingKind {
     ApiUndeclared,
     /// 契约签名与代码签名（归一后）不一致
     ApiSignatureMismatch,
-    /// 留白与其反面矛盾（**单形态**：`api = none` 而 `<FQN>.schema.json` 在盘）
+    /// 留白与其反面矛盾（**单形态**：`api = none` 而 `<叶段>.schema.json` 在盘）
     ApiUnexpected,
     /// 父 `$defs` 与子元素 `$defs` 类型名交集非空
     ApiShadowing,
@@ -220,7 +220,7 @@ pub enum ArchiApiFindingKind {
     ApiNestedCrossCrate,
     /// 契约 `### 操作` 声明了构造器（应由生成器产出）
     ApiConstructorDeclared,
-    /// 文档未就位（单成因）：派生的 `<archi_models_dir>/<分层目录…>/<FQN>.md` 不在盘，
+    /// 文档未就位（单成因）：派生的 `<archi_models_dir>/<分层目录…>/<叶段>.md` 不在盘，
     /// **与 `api` 状态、`doc` 字段都无关**
     DocMissing,
 }

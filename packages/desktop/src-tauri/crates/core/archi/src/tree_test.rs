@@ -1387,7 +1387,7 @@ fn 超大语料的规模与确定性() {
 // 契约资产 / 契约索引的枚举面（`module-entry-docs-semantics` / AC-1）
 //
 // 判据仍是扩展名收面（`scan::is_source_file` 的五扩展名）+ `ExcludeSet`：契约资产
-// （`models/<分层目录…>/<FQN>.md` / `.schema.json`）与契约索引（`graph/INDEX.toml`）因此
+// （`models/<分层目录…>/<叶段>.md` / `.schema.json`）与契约索引（`graph/INDEX.toml`）因此
 // 不进 `entries`——本变更为零源码改动的机械事实补证。
 // ===========================================================================
 

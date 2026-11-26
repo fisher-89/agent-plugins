@@ -1,4 +1,4 @@
-//! `Contract` 投影与复用三闸：接口真相是**手写的 `<FQN>.schema.json`**，`Contract` 只是它的进程内
+//! `Contract` 投影与复用三闸：接口真相是**手写的 `<叶段>.schema.json`**，`Contract` 只是它的进程内
 //! 投影（[`Contract::from_schema`] 解包 `x-function`、`$defs` 二分；无失败面——调用它时已跑过
 //! ③–⑧ 闸）。**[`verify`] 是写闸与装载期共用的复用面**（七族名字 / 落点 / 自洽三闸），文本层重复键
 //! 另由 [`duplicate_keys`] 判。三闸同趟收口 ⇒ 渲染期零标识符判据；错误带 `file` 前缀与（可能的）
@@ -73,7 +73,7 @@ impl Contract {
                 let target = definition
                     .get("$ref")
                     .and_then(Value::as_str)
-                    .and_then(super::reexport_target);
+                    .and_then(|reference| super::reexport_target(fqn, reference));
                 if let Some(target) = target {
                     reexports.insert(name.clone(), Value::String(target));
                 }

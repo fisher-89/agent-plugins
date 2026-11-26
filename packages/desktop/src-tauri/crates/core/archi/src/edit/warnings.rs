@@ -111,7 +111,7 @@ fn path_warnings(root: &Path, element: &Element, warnings: &mut Vec<EditWarning>
     }
 }
 
-/// 第 3 条：`created` 且派生 `<FQN>.md` 不在盘（**只由 `created` 诱发**，与 `api` 无关）。
+/// 第 3 条：`created` 且派生 `<叶段>.md` 不在盘（**只由 `created` 诱发**，与 `api` 无关）。
 ///
 /// 与判据面的 `docMissing` 同义（单成因：派生 md 不在盘）；只由 `created` 诱发是为了避免
 /// 既有元素的每次 upsert 都复读一条存量债（写面是高频动作）。
@@ -130,7 +130,7 @@ fn doc_warnings(root: &Path, element: &Element, warnings: &mut Vec<EditWarning>)
     ));
 }
 
-/// 第 4 条：`api = none` 但 `<FQN>.schema.json` 已在盘（留白被违反）。
+/// 第 4 条：`api = none` 但 `<叶段>.schema.json` 已在盘（留白被违反）。
 fn api_warnings(root: &Path, element: &Element, warnings: &mut Vec<EditWarning>) {
     if element.api != ApiStatus::None || !schema_on_disk(root, &element.fqn) {
         return;
@@ -172,12 +172,12 @@ fn path_on_disk(root: &Path, path: &str) -> bool {
     checked_root(path).is_some_and(|relative| root.join(relative).exists())
 }
 
-/// 派生 `<FQN>.md` 是否在盘（形态非法的 FQN 一律按「不在盘」处理——它派生不出路径）。
+/// 派生 `<叶段>.md` 是否在盘（形态非法的 FQN 一律按「不在盘」处理——它派生不出路径）。
 fn contract_on_disk(root: &Path, fqn: &str) -> bool {
     contract_path(root, fqn).is_some_and(|path| path.is_file())
 }
 
-/// `<FQN>.schema.json` 是否在盘（形态非法的 FQN 同样按「不在盘」处理）。
+/// `<叶段>.schema.json` 是否在盘（形态非法的 FQN 同样按「不在盘」处理）。
 fn schema_on_disk(root: &Path, fqn: &str) -> bool {
     schema_path(root, fqn).is_some_and(|path| path.is_file())
 }

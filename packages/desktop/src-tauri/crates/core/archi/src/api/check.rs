@@ -5,11 +5,11 @@
 //!
 //! ```text
 //! api = none 支（两步；不依赖入口）
-//!   ① apiUnexpected   `<FQN>.schema.json` 在盘 ⇒ 留白被违反（必须先判）
-//!   ② docMissing      派生 `<FQN>.md` 不在盘
+//!   ① apiUnexpected   `<叶段>.schema.json` 在盘 ⇒ 留白被违反（必须先判）
+//!   ② docMissing      派生 `<叶段>.md` 不在盘
 //!
 //! api = declared 支（四步）
-//!   ③ docMissing      派生 `<FQN>.md` 不在盘（文档未就位；单成因）
+//!   ③ docMissing      派生 `<叶段>.md` 不在盘（文档未就位；单成因）
 //!   ④ apiEntryMissing entry_state = Absent / Invalid（code 面的结构前提）
 //!   ⑤ apiMissing      schema 在盘时：接口声明 op / `$defs` 类型而代码导出集里没有
 //!   ⑥ 一致性（首条命中即停）：apiSignatureMismatch → apiConstructorDeclared
@@ -24,7 +24,7 @@
 //! 非 `Resolved` 时导出集为空，⑤⑥ 无对象可判，故短路的不是真问题而是**尚不存在的
 //! 对象**。
 //!
-//! **③ 判的是文档，不是接口**：`docMissing` 在本变更收成单因（派生 `<FQN>.md` 不在盘），
+//! **③ 判的是文档，不是接口**：`docMissing` 在本变更收成单因（派生 `<叶段>.md` 不在盘），
 //! 与 `api` 状态、模型 `doc` 字段都无关。**「接口未写」（schema 不在盘）不产任何判据**：
 //! 它在 ⑤⑥ 表现为「声明集不存在 ⇒ 零对象」（`schemaMissing` 归后续 change，MUST NOT
 //! 以别名预铺）。
@@ -104,8 +104,10 @@ pub fn check(input: ApiCheckInput<'_>) -> Vec<ArchiApiFinding> {
                         element,
                         None,
                         format!(
-                            "元素 {} 声明 `api = none`（本模块无接口面），但派生路径上存在接口定义文件——要么删掉 `{}.schema.json`，要么把模型改成 `declared`",
-                            element.fqn, element.fqn
+                            "元素 {} 声明 `api = none`（本模块无接口面），但派生路径上存在接口定义文件——要么删掉 `{}`，要么把模型改成 `declared`",
+                            element.fqn,
+                            paths::schema_rel(&element.fqn)
+                                .unwrap_or_else(|| format!("{}.schema.json", element.fqn))
                         ),
                         Vec::new(),
                     ));
@@ -177,7 +179,7 @@ pub fn check(input: ApiCheckInput<'_>) -> Vec<ArchiApiFinding> {
     findings
 }
 
-/// `docMissing` 的唯一文案（单因单义）：派生 `<FQN>.md` 不在盘，两支同义。
+/// `docMissing` 的唯一文案（单因单义）：派生 `<叶段>.md` 不在盘，两支同义。
 ///
 /// **不含「入口文档」一类指针措辞**——文档就是文档（产品面内容），与 `api` 状态、
 /// 模型 `doc` 字段无关；「接口未写」不归本值。
@@ -540,7 +542,7 @@ fn ref_missing(input: &ApiCheckInput<'_>, findings: &mut Vec<ArchiApiFinding>) {
             continue;
         };
         for (name, reference) in cross_file_refs(schema) {
-            let Some(target) = reference_target(&reference) else {
+            let Some(target) = reference_target(&element.fqn, &reference) else {
                 continue;
             };
             let target_element = input
@@ -667,9 +669,9 @@ fn cross_file_refs(schema: &Value) -> Vec<(String, String)> {
 }
 
 /// 跨文件 `$ref` → 目标元素 FQN（[`super::reexport_target`] 的单点封装；本文件零
-/// 第二份切分逻辑）。
-fn reference_target(reference: &str) -> Option<String> {
-    super::reexport_target(reference)
+/// 第二份切分逻辑）。目标靠本元素 FQN 解相对前缀（文件名只剩叶段）。
+fn reference_target(from_fqn: &str, reference: &str) -> Option<String> {
+    super::reexport_target(from_fqn, reference)
 }
 
 /// 条目构造（`category` 只经 [`category_of`] 打标——本文件零分类字面量）。

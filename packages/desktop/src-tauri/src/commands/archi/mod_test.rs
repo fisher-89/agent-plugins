@@ -1331,7 +1331,7 @@ async fn archi_drift增量模式取变更集失败即err() {
 // 命令层仍是薄包装：`api` 由 `dto::module_detail` 填充，本层零特判、零路径拼装。
 // ===========================================================================
 
-/// 落一份元素文档（`<archi_models_dir>/<Domain>/<FQN>.md`；理由，零结构）。
+/// 落一份元素文档（`<archi_models_dir>/<Domain>/<叶段>.md`；理由，零结构）。
 fn write_contract(root: &Path, fqn: &str, content: &str) {
     let relative = archi::api::paths::contract_path(root, fqn).expect("合法 FQN");
     let relative = relative
@@ -1346,7 +1346,7 @@ fn write_contract(root: &Path, fqn: &str, content: &str) {
     fs::write(&path, content).expect("写契约失败");
 }
 
-/// 落一份接口定义（`<archi_models_dir>/<Domain>/<FQN>.schema.json`；判据面的唯一凭据）。
+/// 落一份接口定义（`<archi_models_dir>/<Domain>/<叶段>.schema.json`；判据面的唯一凭据）。
 fn write_schema(root: &Path, fqn: &str, content: &str) {
     let relative = archi::api::paths::schema_path(root, fqn).expect("合法 FQN");
     let relative = relative
@@ -2063,12 +2063,9 @@ fn api_fixture(tag: &str) -> TempDir {
         "crates/api/subject/src/lib.rs",
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
     );
+    temp.write(".dev-team/architecture/models/App/Api/Subject.md", API_DOC);
     temp.write(
-        ".dev-team/architecture/models/App/Api/App.Api.Subject.md",
-        API_DOC,
-    );
-    temp.write(
-        ".dev-team/architecture/models/App/Api/App.Api.Subject.schema.json",
+        ".dev-team/architecture/models/App/Api/Subject.schema.json",
         API_SCHEMA,
     );
     temp

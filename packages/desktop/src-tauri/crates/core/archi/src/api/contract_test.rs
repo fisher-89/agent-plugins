@@ -660,7 +660,7 @@ fn 透传与类型按纯alias二分() {
     let prefix = super::paths::ref_relative(FQN, target);
     let schema = serde_json::json!({
         "$defs": {
-            "AgentInput": {"$ref": format!("{prefix}{target}.schema.json#/$defs/AgentInput")},
+            "AgentInput": {"$ref": format!("{prefix}{}.schema.json#/$defs/AgentInput", super::paths::leaf_name(target))},
             "Local": {"$ref": "#/$defs/Widget"},
             "Widget": {"type": "object", "properties": {}}
         }

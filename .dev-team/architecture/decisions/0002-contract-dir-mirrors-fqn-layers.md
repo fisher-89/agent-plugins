@@ -2,21 +2,23 @@
 
 > 记录 `.dev-team/architecture/models/` 的落位规则变更：由「`<Domain>` 平铺一层」改为「镜像元素祖先链的分层目录」。
 > 判据只有一条：**目录必须让真实分层一眼可见，且同名末段的不同元素不许混装**。元素身份仍是 FQN，目录只是布局。
+>
+> **2026-11-26 修订**：文件名由「完整 FQN」改为「只取叶段」（`ArchiRuntime.md` / `ArchiRuntime.schema.json`）——祖先链已由目录镜像，再写进文件名会把同一段前缀在路径里累计两次，深层 FQN 很快顶到 Windows 的 `MAX_PATH`。「目录不承担身份」相应改为「身份 = 目录段 + 叶段拼回」。
 
 ## 1. 结论
 
-契约资产目录段 = 元素 FQN 段链**去掉叶段**后的逐段路径：
+契约资产目录段 = 元素 FQN 段链**去掉叶段**后的逐段路径，文件名 = FQN **叶段**：
 
 ```
-Backend.Infra.ArchiRuntime        → models/Backend/Infra/Backend.Infra.ArchiRuntime.md
-Backend.Core.Foundation           → models/Backend/Core/Backend.Core.Foundation.md
-Desktop.Components.Agent         → models/Desktop/Components/Desktop.Components.Agent.md
+Backend.Infra.ArchiRuntime        → models/Backend/Infra/ArchiRuntime.md
+Backend.Core.Foundation           → models/Backend/Core/Foundation.md
+Desktop.Components.Agent         → models/Desktop/Components/Agent.md
 Desktop.Components.Agent.AgentInput
-                                      → models/Desktop/Components/Agent/Desktop.Components.Agent.AgentInput.md
+                                      → models/Desktop/Components/Agent/AgentInput.md
 Backend → models/Backend.md
 ```
 
-文件名恒为完整 FQN（`<FQN>.md` / `<FQN>.schema.json`），目录不承担身份。单一派生点仍是 `api::paths`：`dir_segments(fqn)` → `dir_of(root, fqn)`，`contract_path` / `schema_path` 共用它。
+文件名只取叶段（`<叶段>.md` / `<叶段>.schema.json`），祖先链由目录承载；`$id` / `title` 仍写完整 FQN（元素身份的文本锚）。单一派生点仍是 `api::paths`：`dir_segments(fqn)` → `dir_of(root, fqn)`，`contract_path` / `schema_path` 共用它。
 
 ## 2. 为什么换
 

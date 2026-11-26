@@ -80,7 +80,7 @@ impl GateTier {
 ///
 /// 语义：`declared` = 本模块承诺有公共接口面（缺省）、`none` = 显式声明本模块
 /// 无 API。它是元素的**属性**而非协议正文——签名 / 符号 / 接口定义 MUST NOT 出现在
-/// 模型里（接口权威在同目录的 `<FQN>.schema.json`，本枚举只是状态指针）。
+/// 模型里（接口权威在同目录的 `<叶段>.schema.json`，本枚举只是状态指针）。
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type,
 )]
@@ -292,9 +292,9 @@ impl SearchScope {
 
 /// 接口状态与三条路径的线面投影（并列字段，**投影只报文件在案事实**）：
 ///
-/// - `status` = **接口文件在案**（`declared` ⟺ `<FQN>.schema.json` 在盘；`none` 否则）；
-/// - 三条路径**各自独立**：`contractPath` 是文档（`<FQN>.md`，理由）、`schemaPath` 是
-///   接口（`<FQN>.schema.json`，手写真相）、`generatedPath` 是生成物（`.i.rs` /
+/// - `status` = **接口文件在案**（`declared` ⟺ `<叶段>.schema.json` 在盘；`none` 否则）；
+/// - 三条路径**各自独立**：`contractPath` 是文档（`<叶段>.md`，理由）、`schemaPath` 是
+///   接口（`<叶段>.schema.json`，手写真相）、`generatedPath` 是生成物（`.i.rs` /
 ///   `.i.ts`）——各自在盘才出串（生成物有可用入口即给串，即便尚未生成）。
 ///
 /// 该字段 MUST NOT 回写模型字段（模型存的是意图，投影报的是事实——「`declared`
@@ -306,9 +306,9 @@ impl SearchScope {
 pub struct ArchiApiRef {
     /// 接口状态（接口文件在案事实）
     pub status: ApiStatus,
-    /// **文档**（`<archi_models_dir>/<分层目录…>/<FQN>.md`）的 repo 相对路径
+    /// **文档**（`<archi_models_dir>/<分层目录…>/<叶段>.md`）的 repo 相对路径
     pub contract_path: Option<String>,
-    /// **接口**（同目录 `<FQN>.schema.json`，手写真相而非生成物）的 repo 相对路径
+    /// **接口**（同目录 `<叶段>.schema.json`，手写真相而非生成物）的 repo 相对路径
     pub schema_path: Option<String>,
     /// 元素生成物（实现入口同级的 `<入口主干>.i.rs` / `<入口主干>.i.ts`）的 repo 相对
     /// 路径；无可用入口（`Absent` / `Invalid`）⇒ `null`
@@ -579,9 +579,9 @@ pub struct ArchiDependedBy {
 pub struct ArchiAssetSet {
     /// 拓扑（模型声明位置与出入度数；零额外读盘）
     pub topology: ArchiTopologyAsset,
-    /// 接口（`<FQN>.schema.json`；只给键名摘要，不给 content）
+    /// 接口（`<叶段>.schema.json`；只给键名摘要，不给 content）
     pub interface: ArchiInterfaceAsset,
-    /// 文档（`<FQN>.md`；只给 `##` 段名与体量，不给正文）
+    /// 文档（`<叶段>.md`；只给 `##` 段名与体量，不给正文）
     pub doc: ArchiDocAsset,
 }
 
@@ -601,7 +601,7 @@ pub struct ArchiTopologyAsset {
     pub in_degree: usize,
 }
 
-/// 接口资产：`<FQN>.schema.json` 的键名摘要与一句话判读（**零 content**）。
+/// 接口资产：`<叶段>.schema.json` 的键名摘要与一句话判读（**零 content**）。
 ///
 /// 三个数组即定义：`ops` = 带 `x-function` 的 `properties` 键、`types` = `$defs` 本地定义
 /// 键、`reexports` = 纯 `$ref` alias 键。整读接口文件会灌爆上下文，且键名已够定位。
@@ -625,7 +625,7 @@ pub struct ArchiInterfaceAsset {
     pub abstract_note: String,
 }
 
-/// 文档资产：`<FQN>.md` 的段名与体量（**零正文**）。
+/// 文档资产：`<叶段>.md` 的段名与体量（**零正文**）。
 ///
 /// 文档无结构（段名任意），故只报段名让调用方判断「要不要整读」；正文一律用 `read` 取。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -673,7 +673,7 @@ fn topology_asset(element: &Element, neighborhood: &Neighborhood<'_>) -> ArchiTo
     }
 }
 
-/// 接口资产装配：只读 `<FQN>.schema.json` 的**键名**与体量。
+/// 接口资产装配：只读 `<叶段>.schema.json` 的**键名**与体量。
 ///
 /// **坏 JSON 不 `Err`**（D-9）：`archi_module` 是定位 / 导航面，坏文件不能让 agent 连拓扑都
 /// 看不见——`present = true`、`bytes` 照实、三数组为空、`abstract` 指向 `archi_api` 的

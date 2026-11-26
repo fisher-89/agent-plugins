@@ -21,7 +21,7 @@ use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
 
 use super::paths::{
     checked_root, contract_path, dir_segments, directory, entry_candidates, entry_state,
-    generated_kind, generated_path, index_path, is_fqn, is_module_segment, language_of,
+    generated_kind, generated_path, index_path, is_fqn, is_module_segment, language_of, leaf_name,
     module_name, normalize_root, ref_relative, rust_module_path, schema_fqn, schema_path,
     ts_import_specifier, EntryForm, EntryProblem, EntryState, GeneratedKind, Language,
 };
@@ -81,7 +81,7 @@ impl TempDir {
         );
     }
 
-    /// 落两资产：文档（`<archi_models_dir>/<分层目录…>/<FQN>.md`，只为「在盘」这一事实）+
+    /// 落两资产：文档（`<archi_models_dir>/<分层目录…>/<叶段>.md`，只为「在盘」这一事实）+
     /// 手写接口定义原文（`.schema.json`）。渲染的输入面是接口定义，两资产成对落盘。
     fn write_contract(&self, fqn: &str, schema: &str) {
         let path = contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
@@ -292,15 +292,15 @@ fn contract_path与schema_path同目录同前缀() {
         contract
             .file_name()
             .map(|name| name.to_string_lossy().into_owned()),
-        Some(format!("{fqn}.md")),
-        "契约文件名 = <FQN>.md"
+        Some(format!("{}.md", leaf_name(fqn))),
+        "契约文件名 = <叶段>.md"
     );
     assert_eq!(
         schema
             .file_name()
             .map(|name| name.to_string_lossy().into_owned()),
-        Some(format!("{fqn}.schema.json")),
-        "schema 文件名 = <FQN>.schema.json"
+        Some(format!("{}.schema.json", leaf_name(fqn))),
+        "schema 文件名 = <叶段>.schema.json"
     );
     assert_eq!(
         contract.parent(),
@@ -1899,12 +1899,12 @@ fn 形态判据三单点各一处定义() {
         );
     }
 
-    // 形态校验只经三处：`contract_path` / `schema_path` 各调 `is_fqn` 一次（共 2）；
+    // 形态校验只经四处：`contract_path` / `schema_path` / `schema_rel` 各调 `is_fqn` 一次（共 3）；
     // `checked_root` 定义 1 + 三个消费面（`generated_path` / `entry_candidates` / `form_of`）
     assert_eq!(
         source.matches("!is_fqn(").count(),
-        2,
-        "`contract_path` / `schema_path` 的形态校验各经 `is_fqn` 一次"
+        3,
+        "`contract_path` / `schema_path` / `schema_rel` 的形态校验各经 `is_fqn` 一次"
     );
     assert_eq!(
         source.matches("checked_root(").count(),
@@ -2636,7 +2636,7 @@ fn index_file_name单点持有与跨模块消费() {
     );
 }
 
-/// 边界（AC-1）：`schema_path` 末段恒 `<FQN>.schema.json`、单段 FQN 落契约目录根、root
+/// 边界（AC-1）：`schema_path` 末段恒 `<叶段>.schema.json`、单段 FQN 落契约目录根、root
 /// 三形态父链与 `contract_path` 同源。
 #[test]
 fn schema_path边界形态与contract同源() {
@@ -2646,7 +2646,7 @@ fn schema_path边界形态与contract同源() {
         assert_eq!(
             path.file_name().and_then(|name| name.to_str()),
             Some("App.schema.json"),
-            "末段恒 `<FQN>.schema.json`：root = {root:?}"
+            "末段恒 `<叶段>.schema.json`：root = {root:?}"
         );
         assert_eq!(
             path.parent(),
@@ -2705,59 +2705,71 @@ fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
 }
 
 // ---------------------------------------------------------------------------
-// schema_fqn：`<FQN>.schema.json` 去后缀的唯一反查
+// schema_fqn：接口文件相对路径（分层目录段 + 叶段主干）的唯一反查
 // ---------------------------------------------------------------------------
 
-/// 正向：`App.Auth.schema.json` ⇒ `Some("App.Auth")`；四段 FQN 同式；与
-/// `schema_path` 的落盘名往返一致（同一后缀常量）。
+/// 正向：分层目录段 + 叶段主干拼回 FQN；与 `schema_path` 的落盘（相对契约目录）往返一致。
 #[test]
-fn 文件名反查唯一() {
-    assert_eq!(schema_fqn("App.Auth.schema.json"), Some("App.Auth"));
+fn 路径反查唯一() {
     assert_eq!(
-        schema_fqn("App.Backend.Infra.ArchiRuntime.schema.json"),
-        Some("App.Backend.Infra.ArchiRuntime")
+        schema_fqn(Path::new("App/Auth.schema.json")),
+        Some("App.Auth".to_owned())
+    );
+    assert_eq!(
+        schema_fqn(Path::new("App/Backend/Infra/ArchiRuntime.schema.json")),
+        Some("App.Backend.Infra.ArchiRuntime".to_owned())
     );
     for fqn in ["App.Auth", "App.Backend.Infra.ArchiRuntime"] {
         let path = schema_path(Path::new(""), fqn).expect("合法 FQN");
-        let name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .expect("文件名");
-        assert_eq!(schema_fqn(name), Some(fqn), "落盘名往返一致：{name}");
+        let relative = path
+            .strip_prefix(directory(Path::new("")))
+            .expect("落点恒在契约目录内");
+        assert_eq!(
+            schema_fqn(relative),
+            Some(fqn.to_owned()),
+            "落盘路径往返一致：{fqn}"
+        );
     }
     assert_eq!(
-        schema_fqn("App.schema.json"),
-        Some("App"),
-        "单段 FQN ⇒ Some"
+        schema_fqn(Path::new("App.schema.json")),
+        Some("App".to_owned()),
+        "单段 FQN 落契约目录根 ⇒ Some"
     );
 }
 
-/// 异常：`App.Auth.md` / `schema.json`（零主干）/ `X.schema.JSON`（大写）/ 空串 ⇒ 全 `None`。
+/// 异常：非接口后缀 / 旧式全 FQN 文件名（主干带点）/ 空主干 / `..` / 绝对前缀 ⇒ 全 `None`
+/// ——反查只认「分层目录段 + 无点叶段」这一种派生形态。
 #[test]
-fn 非schema名零命中() {
-    for name in ["App.Auth.md", "schema.json", "X.schema.JSON", ""] {
-        assert_eq!(schema_fqn(name), None, "非接口文件名零命中：{name:?}");
+fn 非派生形态零命中() {
+    for path in [
+        Path::new("App/Auth.md"),
+        Path::new("schema.json"),
+        Path::new("App/Auth.schema.JSON"),
+        Path::new("App.Core.Auth.schema.json"),
+        Path::new("App/../App/Auth.schema.json"),
+        Path::new("/App/Auth.schema.json"),
+    ] {
+        assert_eq!(schema_fqn(path), None, "非派生形态零命中：{path:?}");
     }
 }
 
-/// 边界：超长名 / 含 emoji / 多重后缀 `.schema.json.json` ⇒ 按既有后缀规则裁定、`None` 或
-/// 去一层后缀（不 panic）；单段 FQN ⇒ `Some`。
+/// 边界：超长叶段 / 含 emoji 的叶段原样保留；多重后缀 ⇒ 主干仍带点 ⇒ `None`（不 panic）。
 #[test]
-fn 边界不panic() {
-    let long = format!("{}.schema.json", "a".repeat(1200));
+fn 叶段边界不panic() {
+    let long = PathBuf::from(format!("App/{}.schema.json", "a".repeat(1200)));
     assert!(
-        schema_fqn(&long).is_some_and(|stem| stem.len() == 1200),
-        "超长名仍按后缀切分"
+        schema_fqn(&long).is_some_and(|fqn| fqn == format!("App.{}", "a".repeat(1200))),
+        "超长叶段仍按后缀切分"
     );
     assert_eq!(
-        schema_fqn("App.🎯.schema.json"),
-        Some("App.🎯"),
-        "emoji 主干原样保留"
+        schema_fqn(Path::new("App/🎯.schema.json")),
+        Some("App.🎯".to_owned()),
+        "emoji 叶段原样保留"
     );
     assert_eq!(
-        schema_fqn("App.schema.json.json"),
+        schema_fqn(Path::new("App/Auth.schema.json.json")),
         None,
-        "后缀不在串尾 ⇒ None（后缀常量唯一，零模糊匹配）"
+        "后缀不在串尾 ⇒ 主干带点 ⇒ None（后缀常量唯一，零模糊匹配）"
     );
 }
 
@@ -2801,7 +2813,7 @@ fn 写面复用同一归一() {
 }
 
 /// 异常（资产① 落点单份）：`paths.rs` 内 `carrier_path` / `doc_path` 零命中——文档落点
-/// 恒为派生 `<FQN>.md`，不存在第二份载体派生。
+/// 恒为派生 `<叶段>.md`，不存在第二份载体派生。
 #[test]
 fn 载体派生单份() {
     let source = include_str!("paths.rs");

@@ -378,7 +378,7 @@ infra crate 声明平台 API 绑定依赖时 SHALL 落 `[target.'<cfg>'.dependen
 | `crates/tools/archi-api-gen/Cargo.toml`（新） | 工具 crate 落位与依赖 | 裸名 `archi-api-gen`；workspace 内依赖恰为 `archi` + `foundation` + `archi-runtime`（后者唯一用途 = 调写盘单点 `write_artifacts`，带用途注释）；外部 `serde_json`；零 Tauri / 零 store / 零 config / 零直接 orchestration / 零 workflow / 零壳 |
 | `crates/tools/archi-api-gen/src/main.rs`（新） | CLI 唯一入口 | 三子命令 `generate` / `--check` / `bootstrap`；`--check` 零写入、有差异即非零退出并列文件；目录创建经 `foundation::layout` 派生；零判定逻辑 |
 | `src-tauri/Cargo.toml`（workspace 成员登记） | 工具 crate 成员 | `members` 增 `crates/tools/archi-api-gen`；`[workspace.dependencies]` 增 `archi-api-gen = { path = "crates/tools/archi-api-gen" }`（入口注释说明「CLI 工具，不被 app 依赖」）；壳 `[dependencies]` MUST NOT 增该 crate |
-| `packages/desktop/package.json`（脚本面） | 驱动入口 | `api:export` = `cargo run -q --manifest-path src-tauri/Cargo.toml -p archi-api-gen -- generate`（写盘）；`api:check` = 同一调用加 `--check`（零写入、工具内比对，覆盖四类生成物：`<FQN>.schema.json` / `INDEX.toml` / `<root>.i.rs` / `<root>.i.ts`）；`check` 链在 `bindings:export` 之后插 `api:check` |
+| `packages/desktop/package.json`（脚本面） | 驱动入口 | `api:export` = `cargo run -q --manifest-path src-tauri/Cargo.toml -p archi-api-gen -- generate`（写盘）；`api:check` = 同一调用加 `--check`（零写入、工具内比对，覆盖四类生成物：`<叶段>.schema.json` / `INDEX.toml` / `<root>.i.rs` / `<root>.i.ts`）；`check` 链在 `bindings:export` 之后插 `api:check` |
 | `crates/core/archi/Cargo.toml`（契约面依赖面） | 依赖面零新增 | 契约面无需新外部依赖（`syn` / `oxc_*` / `sha2` / `globset` / `serde_json` / `specta` 均已在案）；零 Tauri / 零 store / 零 spawn / 零 `workflow` 四条结论零变化 |
 
 ### CLI: `crates/tools/archi-api-gen`

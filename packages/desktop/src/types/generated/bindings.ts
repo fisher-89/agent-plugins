@@ -721,7 +721,7 @@ export type AgentRunStatus =
  * 
  *  语义：`declared` = 本模块承诺有公共接口面（缺省）、`none` = 显式声明本模块
  *  无 API。它是元素的**属性**而非协议正文——签名 / 符号 / 接口定义 MUST NOT 出现在
- *  模型里（接口权威在同目录的 `<FQN>.schema.json`，本枚举只是状态指针）。
+ *  模型里（接口权威在同目录的 `<叶段>.schema.json`，本枚举只是状态指针）。
  */
 export type ApiStatus = 
 /**  承诺有接口面（缺省） */
@@ -808,7 +808,7 @@ export type ArchiApiFindingKind =
 "apiUndeclared" | 
 /**  契约签名与代码签名（归一后）不一致 */
 "apiSignatureMismatch" | 
-/**  留白与其反面矛盾（**单形态**：`api = none` 而 `<FQN>.schema.json` 在盘） */
+/**  留白与其反面矛盾（**单形态**：`api = none` 而 `<叶段>.schema.json` 在盘） */
 "apiUnexpected" | 
 /**  父 `$defs` 与子元素 `$defs` 类型名交集非空 */
 "apiShadowing" | 
@@ -819,7 +819,7 @@ export type ArchiApiFindingKind =
 /**  契约 `### 操作` 声明了构造器（应由生成器产出） */
 "apiConstructorDeclared" | 
 /**
- *  文档未就位（单成因）：派生的 `<archi_models_dir>/<分层目录…>/<FQN>.md` 不在盘，
+ *  文档未就位（单成因）：派生的 `<archi_models_dir>/<分层目录…>/<叶段>.md` 不在盘，
  *  **与 `api` 状态、`doc` 字段都无关**
  */
 "docMissing";
@@ -841,9 +841,9 @@ export type ArchiApiMeta = {
 /**
  *  接口状态与三条路径的线面投影（并列字段，**投影只报文件在案事实**）：
  * 
- *  - `status` = **接口文件在案**（`declared` ⟺ `<FQN>.schema.json` 在盘；`none` 否则）；
- *  - 三条路径**各自独立**：`contractPath` 是文档（`<FQN>.md`，理由）、`schemaPath` 是
- *    接口（`<FQN>.schema.json`，手写真相）、`generatedPath` 是生成物（`.i.rs` /
+ *  - `status` = **接口文件在案**（`declared` ⟺ `<叶段>.schema.json` 在盘；`none` 否则）；
+ *  - 三条路径**各自独立**：`contractPath` 是文档（`<叶段>.md`，理由）、`schemaPath` 是
+ *    接口（`<叶段>.schema.json`，手写真相）、`generatedPath` 是生成物（`.i.rs` /
  *    `.i.ts`）——各自在盘才出串（生成物有可用入口即给串，即便尚未生成）。
  * 
  *  该字段 MUST NOT 回写模型字段（模型存的是意图，投影报的是事实——「`declared`
@@ -854,9 +854,9 @@ export type ArchiApiMeta = {
 export type ArchiApiRef = {
 	/**  接口状态（接口文件在案事实） */
 	status: ApiStatus,
-	/**  **文档**（`<archi_models_dir>/<分层目录…>/<FQN>.md`）的 repo 相对路径 */
+	/**  **文档**（`<archi_models_dir>/<分层目录…>/<叶段>.md`）的 repo 相对路径 */
 	contractPath: string | null,
-	/**  **接口**（同目录 `<FQN>.schema.json`，手写真相而非生成物）的 repo 相对路径 */
+	/**  **接口**（同目录 `<叶段>.schema.json`，手写真相而非生成物）的 repo 相对路径 */
 	schemaPath: string | null,
 	/**
 	 *  元素生成物（实现入口同级的 `<入口主干>.i.rs` / `<入口主干>.i.ts`）的 repo 相对
@@ -887,9 +887,9 @@ export type ArchiApiWriteOutcome = {
 export type ArchiAssetSet = {
 	/**  拓扑（模型声明位置与出入度数；零额外读盘） */
 	topology: ArchiTopologyAsset,
-	/**  接口（`<FQN>.schema.json`；只给键名摘要，不给 content） */
+	/**  接口（`<叶段>.schema.json`；只给键名摘要，不给 content） */
 	interface: ArchiInterfaceAsset,
-	/**  文档（`<FQN>.md`；只给 `##` 段名与体量，不给正文） */
+	/**  文档（`<叶段>.md`；只给 `##` 段名与体量，不给正文） */
 	doc: ArchiDocAsset,
 };
 
@@ -987,7 +987,7 @@ export type ArchiDiagnosticKind =
 "orphanHierarchy";
 
 /**
- *  文档资产：`<FQN>.md` 的段名与体量（**零正文**）。
+ *  文档资产：`<叶段>.md` 的段名与体量（**零正文**）。
  * 
  *  文档无结构（段名任意），故只报段名让调用方判断「要不要整读」；正文一律用 `read` 取。
  */
@@ -1243,7 +1243,7 @@ export type ArchiGraph = {
 };
 
 /**
- *  接口资产：`<FQN>.schema.json` 的键名摘要与一句话判读（**零 content**）。
+ *  接口资产：`<叶段>.schema.json` 的键名摘要与一句话判读（**零 content**）。
  * 
  *  三个数组即定义：`ops` = 带 `x-function` 的 `properties` 键、`types` = `$defs` 本地定义
  *  键、`reexports` = 纯 `$ref` alias 键。整读接口文件会灌爆上下文，且键名已够定位。

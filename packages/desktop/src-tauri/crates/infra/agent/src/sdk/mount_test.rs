@@ -1633,7 +1633,7 @@ fn mount描述含doc纪律两半() {
         "入口文档单值 doc",
         "api.schemaPath",
         "手写真相",
-        "派生 <FQN>.md 与 <FQN>.schema.json 两条固定规则",
+        "派生 <叶段>.md 与 <叶段>.schema.json 两条固定规则",
     ] {
         assert!(
             source.contains(piece),

@@ -352,7 +352,7 @@ fn archi_search_definition() -> ToolDefinition {
     ToolDefinition {
         name: ARCHI_SEARCH_TOOL.to_owned(),
         description: "在架构模型里按关键词检索元素与资产路径（发现：还不知道这功能归谁管时先搜）。\
-             匹配对象为元素 FQN / summary / metadata 值 / 资产路径与文件名（派生 <FQN>.md 与 <FQN>.schema.json 两条固定规则；\
+             匹配对象为元素 FQN / summary / metadata 值 / 资产路径与文件名（派生 <叶段>.md 与 <叶段>.schema.json 两条固定规则；\
              不搜文档正文——正文用 read 整读），大小写不敏感且支持驼峰分词（AuthToken → auth / token）。\
              返回元素薄条目与命中的资产路径（文档 / 接口）"
             .to_owned(),

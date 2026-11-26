@@ -43,10 +43,10 @@ pub struct Element {
     /// gate 档位（缺省 `off`）
     pub gate: GateTier,
     /// 接口承诺开关（缺省 `declared`）：`declared` = 断言本模块应有一份
-    /// `<models>/<分层目录…>/<FQN>.schema.json`、`none` = 显式无接口面（schema 在盘即违约）。
+    /// `<models>/<分层目录…>/<叶段>.schema.json`、`none` = 显式无接口面（schema 在盘即违约）。
     ///
     /// **它不再兼任入口文档载体的开关**：文档（资产①）的落点恒为派生
-    /// `<models>/<分层目录…>/<FQN>.md`，与 `api` 无关。协议正文 MUST NOT 进模型——签名 /
+    /// `<models>/<分层目录…>/<叶段>.md`，与 `api` 无关。协议正文 MUST NOT 进模型——签名 /
     /// 导出符号 / 接口定义写在架构域 `models/` 目录的接口定义文件里（与文档同目录）。
     pub api: ApiStatus,
     /// 实现入口指针（缺省 `None`）：单值、repo 相对 POSIX，与 `path` 同口径

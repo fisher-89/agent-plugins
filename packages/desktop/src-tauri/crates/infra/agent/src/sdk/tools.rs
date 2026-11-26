@@ -438,7 +438,7 @@ async fn edit(root: &Path, input: &Value) -> Result<String, String> {
 /// 写闸通过后的回执尾行（只在目标是接口定义文件时追加；其余路径响应逐字不变）。
 const INTERFACE_VERIFIED_NOTE: &str = "\n接口已校验";
 
-/// 接口定义写闸：目标路径落在 `<root>/<archi_models_rel_dir>/**/<FQN>.schema.json` 时，
+/// 接口定义写闸：目标路径落在 `<root>/<archi_models_rel_dir>/**/<叶段>.schema.json` 时，
 /// 用 [`archi::validate_schema`] 校验候选正文。
 ///
 /// 返回「是否校验过」（回执据此加一行）。**射程封闭**：只有接口文件进校验面，其余一切
@@ -454,12 +454,12 @@ fn validate_interface(root: &Path, path: &str, content: &str) -> Result<bool, St
     Ok(true)
 }
 
-/// 路径 → 接口文件主干（FQN）：命中 `<root>/<archi_models_rel_dir>/**/<FQN>.schema.json`
+/// 路径 → 接口文件元素 FQN：命中 `<root>/<archi_models_rel_dir>/**/<叶段>.schema.json`
 /// 时返回 FQN，否则 `None`。
 ///
-/// 前缀经 [`foundation::layout`] 派生（MUST NOT 行内拼 `models` 段），文件主干经
-/// [`archi::schema_fqn`] 反查（MUST NOT 在此再切一次后缀）。相对路径按 `root` 拼绝对；
-/// `sandbox` 已把入参改写成 root 内绝对路径，此处两种形态都接住。
+/// 前缀经 [`foundation::layout`] 派生（MUST NOT 行内拼 `models` 段），FQN 由相对路径
+/// （分层目录段 + 文件主干）经 [`archi::schema_fqn`] 反查（MUST NOT 在此再切一次后缀）。
+/// 相对路径按 `root` 拼绝对；`sandbox` 已把入参改写成 root 内绝对路径，此处两种形态都接住。
 fn schema_target_fqn(root: &Path, path: &str) -> Option<String> {
     let candidate = Path::new(path);
     let absolute = if candidate.is_absolute() {
@@ -477,6 +477,5 @@ fn schema_target_fqn(root: &Path, path: &str) -> Option<String> {
             resolved.strip_prefix(&prefix).ok()?.to_path_buf()
         }
     };
-    let file_name = relative.file_name()?.to_str()?;
-    archi::schema_fqn(file_name).map(str::to_owned)
+    archi::schema_fqn(&relative)
 }

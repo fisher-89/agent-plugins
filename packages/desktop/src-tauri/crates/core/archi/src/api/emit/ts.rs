@@ -142,7 +142,7 @@ fn render_scope(
 
     // 透传段（`isolatedModules` 下标 `export type`）：`<name>` 只来自调用方给的查表
     for (name, reference) in &reexports {
-        let Some(target) = reexport_target(reference) else {
+        let Some(target) = reexport_target(&contract.fqn, reference) else {
             continue;
         };
         let Some(module) = modules.get(&target) else {

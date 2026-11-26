@@ -185,7 +185,7 @@ fn workspace_render四类生成物齐备() {
         let schema = paths::schema_path(temp.root(), fqn).expect("合法 FQN");
         assert!(
             !paths_of.contains(&schema.as_path()),
-            "`<FQN>.schema.json` 是手写真相，MUST NOT 出现在应生成集：{schema:?}"
+            "`<叶段>.schema.json` 是手写真相，MUST NOT 出现在应生成集：{schema:?}"
         );
     }
 

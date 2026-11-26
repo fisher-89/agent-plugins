@@ -742,7 +742,7 @@ fn 槽位隔离() {
 
 use archi::drift::report::ArchiApiFindingKind;
 
-/// 落一份契约 md（`<archi_models_dir>/<分层目录…>/<FQN>.md`；目录取 FQN 祖先链去根段）。
+/// 落一份契约 md（`<archi_models_dir>/<分层目录…>/<叶段>.md`；目录取 FQN 祖先链去根段）。
 fn write_contract(root: &Path, fqn: &str, content: &str) {
     let path = archi::api::paths::contract_path(root, fqn).expect("合法 FQN");
     let relative = path
@@ -753,7 +753,7 @@ fn write_contract(root: &Path, fqn: &str, content: &str) {
     write(root, &relative, content);
 }
 
-/// 落一份**接口定义文件**（`<FQN>.schema.json`，手写真相；空留白形态即合法最小件）。
+/// 落一份**接口定义文件**（`<叶段>.schema.json`，手写真相；空留白形态即合法最小件）。
 ///
 /// 判据面只在「`api = declared` ∧ schema 在盘」时纳管——需要一条**纳管档**判据的夹具
 /// 必须先把接口文件放到盘上。
@@ -777,7 +777,7 @@ fn write_schema(root: &Path, fqn: &str) {
 /// 与代码签名**不一致**的接口定义（`file_stem` 的返回位声明为 `integer`）。
 ///
 /// 判据面的事实源是 `.schema.json`（手写真相），故不一致必须落在接口文件上——文档
-/// `<FQN>.md` 只写理由、零结构，改了它不影响任何判据。
+/// `<叶段>.md` 只写理由、零结构，改了它不影响任何判据。
 fn write_mismatched_schema(root: &Path, fqn: &str) {
     let path = archi::api::paths::schema_path(root, fqn).expect("合法 FQN");
     let relative = path
@@ -1354,8 +1354,8 @@ fn 透传查表值经paths单点() {
 /// 异常（AC-4）：仅 `warn` 档 apiFindings（`docMissing`）⇒ `passed == true` 且摘要
 /// 仍为「通过」（OQ-5 的呈现缺口按现文案断言，MUST NOT 顺手修）。
 ///
-/// 纳管口径 = `api = declared` ∧ `<FQN>.schema.json` 在盘，故 pending 落**空留白接口件**
-/// 且**不落**派生 `<FQN>.md` ⇒ 唯一判据是 `docMissing`（warn 且纳管），`status` 抬到
+/// 纳管口径 = `api = declared` ∧ `<叶段>.schema.json` 在盘，故 pending 落**空留白接口件**
+/// 且**不落**派生 `<叶段>.md` ⇒ 唯一判据是 `docMissing`（warn 且纳管），`status` 抬到
 /// `warnings` 而门禁仍通过。
 #[test]
 fn warn档判据不阻断门禁() {

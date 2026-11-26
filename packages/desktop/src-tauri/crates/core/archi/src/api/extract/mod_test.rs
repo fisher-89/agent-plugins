@@ -1047,7 +1047,7 @@ fn schema_type的nullable三分支() {
 /// 关键字 → `Unknown`、零 panic；同文件引用同形。
 #[test]
 fn schema_type的ref与unknown留痕() {
-    let external = json!({"$ref": "../Mod/App.Mod.schema.json#/$defs/SummaryReport"});
+    let external = json!({"$ref": "../Mod/Summary.schema.json#/$defs/SummaryReport"});
     assert_eq!(
         schema_type(&external, Position::Param),
         ApiType::Unknown("SummaryReport".to_owned()),

@@ -8,7 +8,7 @@ use crate::model::Element;
 pub struct SearchOutcome {
     /// 命中元素 FQN（字典序）
     pub element_fqns: Vec<String>,
-    /// 命中的资产路径（`path` 非空元素的在盘 `<FQN>.md` ∪ 在盘 `<FQN>.schema.json`，
+    /// 命中的资产路径（`path` 非空元素的在盘 `<叶段>.md` ∪ 在盘 `<叶段>.schema.json`，
     /// 路径字典序）
     pub doc: Vec<String>,
 }
@@ -41,7 +41,7 @@ pub fn search(
         outcome.element_fqns.dedup();
     }
     if scope != SearchScope::Elements {
-        // 语料 = 两条固定规则：在盘 `<FQN>.md`（文档）∪ 在盘 `<FQN>.schema.json`（接口）。
+        // 语料 = 两条固定规则：在盘 `<叶段>.md`（文档）∪ 在盘 `<叶段>.schema.json`（接口）。
         // 两条都不经 `api` 状态、不经模型 `doc` 字段——`carrier_path` 已退役，检索面 MUST NOT
         // 复活第二次载体派生。
         outcome.doc = graph

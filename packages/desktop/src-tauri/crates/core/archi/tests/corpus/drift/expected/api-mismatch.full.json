@@ -55,7 +55,7 @@
       "message": "元素 App.Mod 的接口签名与代码不一致（归一后仍需相等）：file_stem：接口 fn(str) -> int / 代码 fn(str) -> String",
       "occurrences": [
         {
-          "file": ".dev-team/architecture/models/App/App.Mod.schema.json",
+          "file": ".dev-team/architecture/models/App/Mod.schema.json",
           "line": 0,
           "specifier": "file_stem",
           "typeOnly": false

@@ -51,17 +51,17 @@ apis = ["ErrorCode"]        # 选填：这条依赖实际用到 `to` 元素的�
 - **字段面封闭**：元素字段 SHALL 为标量 / 数组 / **表**三形态；`metadata` 的内联表（`metadata = { … }`）与其子表形态（`[element."X".metadata]`，写在已声明元素之后）**语义等价**——TOML 表语义，两种形态都读出同一 `metadata` 表、零诊断。元素身份只由表头键决定：两种形态都 MUST NOT 产出名为 `X.metadata` 的元素。子表形态若成为该 FQN 的**唯一**声明（元素表只有 `metadata`、缺必填的 `kind`）即 `missingField`，整份源全或无。**MUST NOT 再表述为「子表会被读成另一个元素」**——该因果不成立（行为锚：`parse/toml_test.rs` 的 `metadata子表与内联表等价` / `metadata子表成为唯一声明即缺kind`）。
 - **关系条目字段面（本变更新增第四键）**：每条 `[[relation]]` SHALL 为四键——`from` / `to` 必填，`desc` / **`apis`** 可选；`apis` SHALL 为**字符串数组**（缺省空 = 不声明 API 粒度）。`deny_unknown_fields` 语义不变：`api = ["X"]`（单数拼错）报 `unknownField`，与元素表的 `api` 字段互不干扰。
 - **`apis` 的值面四条（只许名字）**：① **只许名字**——逐项 MUST NOT 含空白、MUST NOT 含 `::`、MUST NOT 表达签名 / 参数 / 类型形状，即不得是「`config_path() -> PathBuf`」或「`scan::ImportFact`」一类形态；② **非空**——逐项 MUST NOT 为空串；③ **不重复**——同一关系的 `apis` 内同名重复即拒收（MUST NOT 静默去重，静默去重会让「写重了」与「写对了」不可辨）；④ **空数组拒收**——`apis = []` 与省略同义，显式空数组报 `invalidValue`（同 `doc = [..]` / `entry = [..]` 的「显式错形态直接拒收」先例）。四条违反一律 `invalidValue` + 位置，模型整体停摆。
-- **`apis` 的取值域 = `to` 元素的代码导出名**：与扫描事实（`ImportFact.names` / `DependencyEdge.names`）同一名字空间，比对 SHALL **逐字符**（MUST NOT 大小写折叠、MUST NOT 驼峰归一——否则判定侧常驻第二处映射规则）。取值域 MUST NOT 收窄为「接口定义（`<FQN>.schema.json`）声明的 op / `$defs` 名」：接口声明面是留白面（前端元素的空 schema），收窄即不可用；也 MUST NOT 放宽为「协议正文」（见下条）。
+- **`apis` 的取值域 = `to` 元素的代码导出名**：与扫描事实（`ImportFact.names` / `DependencyEdge.names`）同一名字空间，比对 SHALL **逐字符**（MUST NOT 大小写折叠、MUST NOT 驼峰归一——否则判定侧常驻第二处映射规则）。取值域 MUST NOT 收窄为「接口定义（`<叶段>.schema.json`）声明的 op / `$defs` 名」：接口声明面是留白面（前端元素的空 schema），收窄即不可用；也 MUST NOT 放宽为「协议正文」（见下条）。
 - **`apis` 是开放值集，不进封闭词汇对拍**：与 `doc` / `entry` 同列——它的值域是任意代码标识符（开放集），不是封闭词汇；因此四组派生 `ALL` 常量与「消费面词汇集一致性对拍」的词表 MUST NOT 因本字段扩张，知识文本也只给纪律句、不给词表。
 - **值域封闭**：`kind` 必填且 SHALL 为 `package` / `domain` / `module` / `composite` 四值之一（类型层级从大到小：包 > 领域 > 模块，`domain` 层可省略；`composite` 无实际层级，仅把过多的同级元素分类，可嵌套在任意类型之上）；`gate` 可选且 SHALL 为 `off` / `warn` / `strict` 三值之一（缺省 `off`）；**`api`** 可选且 SHALL 为 `declared` / `none` 二值之一（缺省 `declared`）；**`entry`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「一个入口只属于一个模块」这条约束不可表达）；`path` SHALL 为字符串数组（缺省空；基数随 `kind`，见下条）；**`doc`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「入口文档唯一」不可表达）；`summary` 可选字符串；`metadata` SHALL 为字符串→字符串的自由表（未知键忽略，非字符串值即 `invalidValue`）。**`docs` 已退役**：字段面 MUST NOT 含 `docs`，写了即 `unknownField`。
 - **`path` 的基数是 `kind` 的属性（`root` 与 `paths` 两种语义在此点名）**：`package` 是**一个包**（最小编译单元 / 独立依赖），`path` SHALL **至多 1 条**——0 条合法（纯容器，不对应任何目录），写 1 条即该包的**包根**目录；≥2 条 SHALL 报 `invalidValue`，诊断位置指向**第 2 条** `path` 的源码位置（比元素表头更准），message 点名「一个包至多一条包根目录（纯容器可留空）——多条 path 属 `module`」，模型经 `graph_view` **整图停摆**（既有全或无语义，MUST NOT 改成「跳过该元素」）。`module` 的 `path` 是**若干根的清单**，不设上界（目录型 / 单文件 / 多文件装配同形）；`domain` / `composite` 的 `path` 选填且不设上界。本条只守 `package` 的上界，MUST NOT 顺手扩张出 `module ≥ 1`、目录尾 `/` 一类形态校验；容错面为零是已知代价（`package` 写两条 `path` 在契约面本就只有 `path[0]` 可见）。
 - **未知字段拒绝**：元素表内出现未列出的字段（如 `gatte` / `docs`）SHALL 由 `deny_unknown_fields` 拒绝（`unknownField`）。
 - **属性与语义分离**：`gate` 档位 SHALL 是模型属性（本能力定义其值域与缺省）；档位的**语义消费**（参与归属、违例定级、门禁结论）归 `desktop-archi-drift` 与 `desktop-archi-gate`，本能力 MUST NOT 定义任何定级规则。
-- **`api` 状态指针（显式字段，非 `metadata`）**：元素 SHALL 有封闭二值的 `api` 字段（`declared` 缺省 / `none`，附 `ApiStatus::ALL`），语义为「本模块是否有公共 API 契约」的状态指针：**`declared` ⇒ 接口真相 = 同目录 `<FQN>.schema.json`；`none` ⇒ 无接口面（schema 在盘即违约）**。本变更起它**不再兼任入口文档载体的开关**——资产① 的落点恒为派生 `<models>/<分层目录…>/<FQN>.md`（= `contract_path`），与 `api` 无关；`doc` 零判据读者（`declared` 元素写了也不报，`apiUnexpected` 形态②已删除）。该字段 MUST NOT 承载任何协议正文（签名 / 符号 / 接口 / 规范全文）。走显式字段而非 `metadata` 自由键的理由是可获得 `deny_unknown_fields` 的拼写校验：`api = "non"` 报 `invalidValue` 并列全合法值，而 `metadata = { api = "non" }` 会静默变成「未声明」。完备性判据（`api = none` 而 schema 在盘 ⇒ `apiUnexpected`）归 `desktop-archi-api-check`。
+- **`api` 状态指针（显式字段，非 `metadata`）**：元素 SHALL 有封闭二值的 `api` 字段（`declared` 缺省 / `none`，附 `ApiStatus::ALL`），语义为「本模块是否有公共 API 契约」的状态指针：**`declared` ⇒ 接口真相 = 同目录 `<叶段>.schema.json`；`none` ⇒ 无接口面（schema 在盘即违约）**。本变更起它**不再兼任入口文档载体的开关**——资产① 的落点恒为派生 `<models>/<分层目录…>/<叶段>.md`（= `contract_path`），与 `api` 无关；`doc` 零判据读者（`declared` 元素写了也不报，`apiUnexpected` 形态②已删除）。该字段 MUST NOT 承载任何协议正文（签名 / 符号 / 接口 / 规范全文）。走显式字段而非 `metadata` 自由键的理由是可获得 `deny_unknown_fields` 的拼写校验：`api = "non"` 报 `invalidValue` 并列全合法值，而 `metadata = { api = "non" }` 会静默变成「未声明」。完备性判据（`api = none` 而 schema 在盘 ⇒ `apiUnexpected`）归 `desktop-archi-api-check`。
 - **`entry` 是实现入口指针（显式字段，非 `metadata`）**：语义为「本模块的实现入口文件」——**单值**、repo 相对 POSIX 路径（与 `path` 同口径，`./` 前缀由归一剥除、不参与身份）。四条判据（基准 / 落位 = 某条 `path` 或目录型 `path` 之内 / 存在 = 盘上必须有 / 跨元素唯一）与三态解析链（声明 → 语言约定默认 → 无入口）归 `desktop-archi-api`「生成物落点与入口查找」，本能力只定义字段本身的值域与解析面。走显式字段而非 `metadata` 自由键的理由同 `api`：`entry = ["a"]`（数组）与 `entery`（拼错）必须能机械拒收。
 - **`doc` 是入口文档指针（显式字段，更早变更已落地；本变更只把它的读者面降为零）**：语义为「本模块的入口文档路径」——**单值**、repo 相对 POSIX 路径（`./` 前缀由归一剥除、不参与身份；无绝对前缀 / 无盘符 / 无 `..` / 无空段）。形态与纪律各一条：① **只有 `api = none` 的元素会写**（`declared` 的文档在派生落点）——该条是**约定而非机械判据**（写了不报、指不到不报）；② **值 MUST NOT 指向** `<archi_dir>/models/<分层目录…>/**` 与 `openspec/specs/**`（机械拒收：`invalidValue`）。**`doc` 零判据读者**：判据面 / 纳管面 / 路径派生面都不读它（指不到盘也不报），其值仅供 `archi_module` 投影与画布「入口文档」段呈现；本能力只定义字段与值域。走显式字段而非 `metadata` 的理由同 `api`：数组形态与拼错键必须能机械拒收。
 - **三个指针都 MUST NOT 承载协议正文**：`entry` 是**位置**指针（文件在哪），`api` 是**状态**指针（有无公共 API），`doc` 是**入口文档**指针（读哪一份就懂这个模块）；三者都 MUST NOT 让模型开始携带签名 / 导出符号 / 接口定义。单文件根元素（`views/welcome-view.tsx` 一类）MUST NOT 声明 `entry`——它的根文件就是入口，声明即冗余；显式 `entry` 的正当用法只有「约定默认指不到」的两类：目录型壳（`src-tauri/src/` → 显式 `src/lib.rs`）与二进制 crate（只有 `src/main.rs`）。
-- **协议正文不经模型**（知情边界，防误加字段）：元素上 MUST NOT 出现接口 / 导出符号 / 签名一类协议**正文**字段——唯一允许的协议相关字段是上述三个指针（`api` / `entry` / `doc`）。原边界要求的两个问题：**契约权威在哪**——接口在 `<archi_models_dir>/<分层目录…>/<FQN>.schema.json`（理由在同目录 `<FQN>.md`，见 `desktop-archi-api`），模型只存状态指针；**两套提取器怎么对齐**——不提两套：单一 schema + 单一生成器，`scan/rust.rs` / `scan/ts.rs` 是既有取数器（非权威），只供一次性 bootstrap。模型内再存一份协议正文必然漂移，该做法仍被否决；重提须独立变更。
+- **协议正文不经模型**（知情边界，防误加字段）：元素上 MUST NOT 出现接口 / 导出符号 / 签名一类协议**正文**字段——唯一允许的协议相关字段是上述三个指针（`api` / `entry` / `doc`）。原边界要求的两个问题：**契约权威在哪**——接口在 `<archi_models_dir>/<分层目录…>/<叶段>.schema.json`（理由在同目录 `<叶段>.md`，见 `desktop-archi-api`），模型只存状态指针；**两套提取器怎么对齐**——不提两套：单一 schema + 单一生成器，`scan/rust.rs` / `scan/ts.rs` 是既有取数器（非权威），只供一次性 bootstrap。模型内再存一份协议正文必然漂移，该做法仍被否决；重提须独立变更。
 - **关系 `apis` 不属协议正文（本变更的边界区分，防被当作破例）**：上条禁令的对象是**元素**上的正文，理由是「存一份正文必然漂移」。`relation.apis` 在四个维度上都与之可分——① **位置**：在关系上（**消费方**的依赖选择），不是元素上（提供方的自我描述）；② **内容**：只有名字，没有签名 / 类型形状 / 接口定义；③ **权威**：名字的权威仍在代码导出集与契约 fence，模型只回答「这条依赖选了哪几个」；④ **抗漂移**：每次检查与扫描事实机械对差（两桶见 `desktop-archi-drift`），错名不会静默。因此**元素**上的正文禁令逐字保留，关系上的**名字清单**被本条显式授权；把签名 / 类型形状 / `::` 限定路径写进 `apis` 仍按上条拒收。
 - 新元素缺省 `gate = "off"`（ratchet：存量全 `off`，想收紧的模块逐个改 `strict`，一个 change 收紧一块）。
 
@@ -143,7 +143,7 @@ apis = ["ErrorCode"]        # 选填：这条依赖实际用到 `to` 元素的�
 #### Scenario: 模型不含协议正文
 
 - **WHEN** 审查任一模型文件的元素字段面
-- **THEN** 元素字段只有 `kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata` 八项（`docs` 零命中）；任何签名 / 导出符号 / 接口定义写在 `<archi_models_dir>/<分层目录…>/<FQN>.schema.json`（理由在同目录 `<FQN>.md`）而非模型内
+- **THEN** 元素字段只有 `kind` / `gate` / `api` / `entry` / `path` / `doc` / `summary` / `metadata` 八项（`docs` 零命中）；任何签名 / 导出符号 / 接口定义写在 `<archi_models_dir>/<分层目录…>/<叶段>.schema.json`（理由在同目录 `<叶段>.md`）而非模型内
 
 ### Requirement: 多文件聚合与声明定位
 
@@ -188,7 +188,7 @@ apis = ["ErrorCode"]        # 选填：这条依赖实际用到 `to` 元素的�
 
 #### Scenario: 模型声明目录与契约资产目录分家零干扰
 
-- **WHEN** `<archi_dir>/graph/model/` 一级为六个 `NN-<域>.toml`，`<archi_dir>/models/` 另有分层目录 `Backend/Core/<FQN>.md`、`Backend/Core/<FQN>.schema.json` 与 `Frontend/Components/Agent/<FQN>.md` 三级子目录，跑一次解析
+- **WHEN** `<archi_dir>/graph/model/` 一级为六个 `NN-<域>.toml`，`<archi_dir>/models/` 另有分层目录 `Backend/Core/<叶段>.md`、`Backend/Core/<叶段>.schema.json` 与 `Frontend/Components/Agent/<叶段>.md` 三级子目录，跑一次解析
 - **THEN** 元素 / 关系计数与只放六个 toml 时逐字相同、`diagnostics` 空、`modelFile` 仍指向 `graph/model/` 的六个文件；删掉全部六个 toml 后（契约目录保留）解析为空模型且零诊断；反向在 `models/` 一级放一份合法 `.toml` 亦 MUST NOT 进模型收面——两例 MUST NOT 出现「把契约目录里的文件当模型」或「因另一目录存在而报错」
 
 ### Requirement: 结构诊断九类分工与不 panic 纪律
@@ -455,7 +455,7 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 - 九个命令 SHALL 登记进命令清单并随 `bindings:export` 生成到 `bindings.ts`（再生成后入库，过期由提交前 `git status` / `git diff` 人工核对——零 diff 守卫已退役，`check` 链只前置重导出、不做生成物比对）。命令清单与出线类型清单的机械守卫（`bindings/mod_test.rs`）SHALL 在同一 change 内随动（条数断言只作清单长度连带核对，MUST NOT 作为语义判据）。本变更**不新增命令**：命令清单仍九条，diff 只来自 `ArchiModuleDetail` 的新字段。
 - **`ArchiElement.doc` 的授权进场口径**：判据 / 纳管 / 检索的入参是 `ArchiElement` 而非模型 AST，故 `paths::carrier_path`、`api::doc_facts`、`api::gating_findings` 的 `none` 支与 `check` 的两支求值都只能从该字段取 `doc` 事实——它是**同一事实的投影拷贝**，不是第二个事实源：与 `ArchiModuleDetail.doc` 同值同源（均拷自模型 `doc` 原文），`api = declared` 元素恒 `null`；`ArchiElementBrief` MUST NOT 带 `doc`（薄条目仍只有 `fqn` / `kind` / `gate` / `api` / `summary` 五项），`ArchiApiRef` 逐字不变。
 - **`ArchiRelation.apis` 的授权进场口径**：画布侧需要「这条边声明了哪几个名字」才能在点开前先呈现声明清单，故 `ArchiRelation` SHALL 带 `apis: Vec<String>`（模型字段的拷贝、缺省空数组、**字段不省略**）；它是**同一事实的投影拷贝**，不是第二个事实源，投影 MUST NOT 归一 / 排序以外的改写（顺序由模型原文保留，比对在 `archi` 判定侧做）。`modelFile` / `modelLine` MUST NOT 随本字段一起进 `ArchiRelation`（123 条边的图载荷不为「点开才用的两个字段」付账）——它们只在 `ArchiRelationDetail` 出线。
-- **`archi_module` 的 `api` 并列字段**：`ArchiModuleDetail` 的并列字段 `api`（`ArchiElement` 与薄概览条目同步带 `api` 状态），语义为「该元素的契约是否在案」——按 `<archi_models_dir>/<分层目录…>/<FQN>.md` 约定定位（模型声明迁入 `graph/model/` 后，`models/` 即契约资产目录，契约落其 `<分层目录…>/` 子目录内），文件不存在即 `status = none`（零配置，且「有契约 / 无契约」成为可枚举事实）。字段结构与定位规则定义归 `desktop-archi-api`，本能力只登记「`archi_module` 出参形状扩展、命令层仍零领域规则」。该字段 MUST NOT 承载协议正文（契约正文与模块文档正文同一通路：由调用方经 `read_file` 自取）。
+- **`archi_module` 的 `api` 并列字段**：`ArchiModuleDetail` 的并列字段 `api`（`ArchiElement` 与薄概览条目同步带 `api` 状态），语义为「该元素的契约是否在案」——按 `<archi_models_dir>/<分层目录…>/<叶段>.md` 约定定位（模型声明迁入 `graph/model/` 后，`models/` 即契约资产目录，契约落其 `<分层目录…>/` 子目录内），文件不存在即 `status = none`（零配置，且「有契约 / 无契约」成为可枚举事实）。字段结构与定位规则定义归 `desktop-archi-api`，本能力只登记「`archi_module` 出参形状扩展、命令层仍零领域规则」。该字段 MUST NOT 承载协议正文（契约正文与模块文档正文同一通路：由调用方经 `read_file` 自取）。
 - **`archi_module` 的 `doc` 并列字段**：`ArchiModuleDetail.doc: Option<String>` 为 repo 相对 POSIX 路径单值（无 `title` / `kind` / `source`），**只有 `api = none` 元素会填**；`api = declared` 元素的入口文档走既有 `api.contractPath`，MUST NOT 在 `doc` 里重复出线（否则元素信息面板会出现两条入口文档）。
 
 #### Scenario: 读命令零写盘
@@ -537,12 +537,12 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 |---|---|---|---|---|
 | 1 | `package` / `module` 且 `path` 空 | `ArchiDriftKind::NoPath` | warn | 纯分组容器请改 `composite` |
 | 2 | 某条 `path` 不在盘 | `ArchiDriftKind::PathNotFound` | warn | 先行声明可忽略 |
-| 3 | `created = true` 且派生 `<FQN>.md` 不在盘（与 `api` 无关） | `ArchiApiFindingKind::DocMissing` | warn | 新建元素待补文档：理由写 `.md`、接口写 `.schema.json`（`bootstrap` 取双草稿） |
-| 4 | `api = none` 但 `<FQN>.schema.json` 已在盘 | `ArchiApiFindingKind::ApiUnexpected` | warn | 删该 schema 或改 `declared` |
-| 5 | `action = delete` 成功且 `<FQN>.schema.json` 仍在盘 | `ArchiApiFindingKind::ApiUnexpected` | warn | 一并清理（否则无人看管） |
+| 3 | `created = true` 且派生 `<叶段>.md` 不在盘（与 `api` 无关） | `ArchiApiFindingKind::DocMissing` | warn | 新建元素待补文档：理由写 `.md`、接口写 `.schema.json`（`bootstrap` 取双草稿） |
+| 4 | `api = none` 但 `<叶段>.schema.json` 已在盘 | `ArchiApiFindingKind::ApiUnexpected` | warn | 删该 schema 或改 `declared` |
+| 5 | `action = delete` 成功且 `<叶段>.schema.json` 仍在盘 | `ArchiApiFindingKind::ApiUnexpected` | warn | 一并清理（否则无人看管） |
 
 - **三条 `doc` 事实已删除**：旧表里「`api = none` 且 `doc` 空 ⇒ `DocMissing`」「`api = none` 且 `doc` 指不到盘 ⇒ `DocNotFound`（error）」「由 `doc` 诱发 `ApiUnexpected`」三条随 `doc` 字段惰性化与 `DocNotFound` 契约判据值删除；**写面 MUST NOT 读 `doc`**（它的任何取值都不产 warning）。
-- **判据单源**：`kind` 字面量 SHALL 取自 `ArchiDriftKind::as_str` / `ArchiApiFindingKind::as_str`（MUST NOT 在写面新写字面量）；`severity` SHALL 取自 `ArchiApiFindingKind::severity()` 单点，drift 侧两值（`noPath` / `pathNotFound`）恒 `warn`；路径 SHALL 经单点函数派生——文档走 `api::paths::contract_path`（派生 `<FQN>.md`）、接口走 `api::paths::schema_path`（MUST NOT 在写面拼路径，MUST NOT 再引已退役的 `doc_path`）。
+- **判据单源**：`kind` 字面量 SHALL 取自 `ArchiDriftKind::as_str` / `ArchiApiFindingKind::as_str`（MUST NOT 在写面新写字面量）；`severity` SHALL 取自 `ArchiApiFindingKind::severity()` 单点，drift 侧两值（`noPath` / `pathNotFound`）恒 `warn`；路径 SHALL 经单点函数派生——文档走 `api::paths::contract_path`（派生 `<叶段>.md`）、接口走 `api::paths::schema_path`（MUST NOT 在写面拼路径，MUST NOT 再引已退役的 `doc_path`）。
 - **零 drift 调用**：warnings 的推导 MUST NOT 调 `drift::check`（含 scan），MUST NOT 读 parser 之外的第二套模型；只允许「已持有的字段值 + `Path::exists`」两类事实。
 - **降噪不变式**：`action = upsert` 时，warnings 的 kind 集合 SHALL ⊆ 由 `changed` 诱发的 kind 集合（`created = true` 视为全字段变化）——`noPath` / `pathNotFound` 只由 `path`（或 `kind`）诱发；`apiUnexpected` 只由 `api` 诱发；`docMissing` 只由 `created` 诱发（派生 md 的存在性与字段值无关）；**只改 `summary` / `gate` / `metadata` / `doc` ⇒ warnings 恒空**。`action = delete` 时仅允许第 5 条（由动作本身解释，不要求 `changed` 在场）。
 - **不改判据面**：这五条 MUST NOT 进入 `ArchiDriftReport`（不进 `errors` / `warnings` / `apiFindings`、不影响 `status` / `passed`），MUST NOT 让 `ArchiApiFindingKind` 扩张。

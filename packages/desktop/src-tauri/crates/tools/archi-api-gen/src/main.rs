@@ -3,8 +3,8 @@
 //! `crates/core/archi`，生成物写盘单点在 `crates/infra/archi::api_artifacts`——本文件
 //! 零判定、零文件系统写调用、零本地目录遍历实现。
 //!
-//! **三类生成物**（`INDEX.toml` / `.i.rs` / `.i.ts`）：手写的 `<FQN>.schema.json` 与
-//! `<FQN>.md` 不是生成物，故既不写也不比对。
+//! **三类生成物**（`INDEX.toml` / `.i.rs` / `.i.ts`）：手写的 `<叶段>.schema.json` 与
+//! `<叶段>.md` 不是生成物，故既不写也不比对。
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;

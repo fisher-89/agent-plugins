@@ -171,7 +171,7 @@ archi_graph_model_rel_dir() → <archi_graph_rel_dir>/model  （模型声明目�
 | `dev-team`（workspace 状态） | 当前 workspace 持有 | 持有选定的根目录 |
 | `foundation::layout`（常量组扩展，架构域段） | 架构域段名单点 | 新增架构域顶层目录名 `.dev-team`、`architecture` 段名与 `models` / `decisions` 子目录名常量；架构域与 `openspec` 域根分树；`Layout` 三字段与 `resolve` 语义零变化 |
 | `foundation::layout::archi_dir` | 架构域根派生单点 | `<root>/.dev-team/architecture`；架构域顶层段与架构域段唯一持有者 |
-| `foundation::layout::archi_models_dir` / `archi_decisions_dir` | 子目录派生 | 全从 `archi_dir` 派生；`archi_models_dir` 是契约资产目录（`<分层目录…>/<FQN>.md` + `.schema.json`）唯一入口；纯推导无 IO |
+| `foundation::layout::archi_models_dir` / `archi_decisions_dir` | 子目录派生 | 全从 `archi_dir` 派生；`archi_models_dir` 是契约资产目录（`<分层目录…>/<叶段>.md` + `.schema.json`）唯一入口；纯推导无 IO |
 | `foundation::layout::is_archi_rel_path` | 相对路径判定 | 反斜杠归一 + 祖先判定；core 侧归档冲突分流的唯一判据（零 `architecture` 字面量比较） |
 | `foundation::layout::archi_rel_dir` | 架构域根相对路径 | 由目录名常量组派生；`/` 分隔、零前导 `./`；零 IO |
 | `foundation::layout::archi_models_rel_dir` / `archi_decisions_rel_dir` | 子目录相对路径 | 全从 `archi_rel_dir` 派生；`archi_models_rel_dir` 供架构会话知识文本与契约索引 `INDEX.toml` 说明段（契约面目录）两处消费 |

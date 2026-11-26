@@ -1,9 +1,9 @@
-//! 模块 API 接口面：手写 `<FQN>.schema.json`（唯一凭据）+ 纯散文 `<FQN>.md` →
+//! 模块 API 接口面：手写 `<叶段>.schema.json`（唯一凭据）+ 纯散文 `<叶段>.md` →
 //! 三类生成物 → 十条判据的判定与装配层。
 //!
 //! **三资产分工**：拓扑在 `graph/model/*.toml`（谁在谁的里面、谁依赖谁）、接口在同目录
-//! `<FQN>.schema.json`（跨过这条边时接触面长什么样，**唯一凭据**）、理由在同目录
-//! `<FQN>.md`（纯散文、无结构、读面零解析）。
+//! `<叶段>.schema.json`（跨过这条边时接触面长什么样，**唯一凭据**）、理由在同目录
+//! `<叶段>.md`（纯散文、无结构、读面零解析）。
 //!
 //! **纯读盘、零写盘、零 spawn**（沿本 crate 既有纪律）：接口校验、`$defs` 规则、索引
 //! 装配、声明抽取、判据求值、渲染与比对全在这里。生成物写盘单点在
@@ -16,7 +16,7 @@
 //! 校验失败 ⇒ [`ApiError`] **停摆**（不产半真报告）。
 //!
 //! **接口面启用条件（冷启动纪律）**：任一 `path` 非空 ∧ `api = declared` 元素的
-//! `<FQN>.schema.json` 在盘 ⇒ 启用；否则判据返回空集且既有漂移语料逐字不变。散落的
+//! `<叶段>.schema.json` 在盘 ⇒ 启用；否则判据返回空集且既有漂移语料逐字不变。散落的
 //! 与任何元素无关的 `*.md` / `*.schema.json`、以及 `api = none` 元素在盘的 schema 都**不是**
 //! 启用证据。
 //! 一旦启用即**全部 `path` 非空元素**纳入判据，无白名单、无开关、无部分豁免。
@@ -122,7 +122,7 @@ pub struct GeneratedFile {
 /// （文档无结构，给段名等于把一条已废除的约定重新推荐）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BootstrapDrafts {
-    /// 接口骨架（`<FQN>.schema.json` 的初稿；可直接落盘并过写闸）
+    /// 接口骨架（`<叶段>.schema.json` 的初稿；可直接落盘并过写闸）
     pub schema: String,
     /// 文档骨架（`# <FQN>` + 一句指引；零 `##` 段名、零 fence）
     pub doc: String,
@@ -141,7 +141,7 @@ pub struct ApiSnapshot {
     pub schemas: BTreeMap<String, Value>,
     /// FQN → 代码符号集（取数器产出，判据的「代码导出集」一侧）
     pub symbols: BTreeMap<String, Vec<ApiSymbol>>,
-    /// FQN → 派生 `<FQN>.md` 是否在盘（与接口装载同批产出；`docMissing` 的唯一来源）
+    /// FQN → 派生 `<叶段>.md` 是否在盘（与接口装载同批产出；`docMissing` 的唯一来源）
     pub doc_present: BTreeMap<String, bool>,
 }
 
@@ -157,7 +157,7 @@ pub struct ApiCheckInput<'a> {
     pub schemas: &'a BTreeMap<String, Value>,
     /// FQN → 代码符号集
     pub symbols: &'a BTreeMap<String, Vec<ApiSymbol>>,
-    /// FQN → 派生 `<FQN>.md` 是否在盘（check 侧唯一读取面：零读盘）
+    /// FQN → 派生 `<叶段>.md` 是否在盘（check 侧唯一读取面：零读盘）
     pub doc_present: &'a BTreeMap<String, bool>,
     /// 接口面是否启用（`false` ⇒ 判据空集）
     pub enabled: bool,
@@ -317,7 +317,7 @@ pub fn findings(root: &Path, elements: &[ArchiElement]) -> Result<Vec<ArchiApiFi
 
 /// `status` 纳管子集筛选单点：口径 = **接口承诺已成立**（`api = declared` ∧ schema 在盘）。
 ///
-/// 入选 = `element` 非空 ∧ `api = declared` ∧ `<FQN>.schema.json` 在盘。**文档在盘与否
+/// 入选 = `element` 非空 ∧ `api = declared` ∧ `<叶段>.schema.json` 在盘。**文档在盘与否
 /// 退出纳管口径**——`docMissing` 恒 `warn` 且两侧都不成立 ⇒ 永不纳管（否则存量文档债会
 /// 把状态词常规化为永久 `warnings`）；`api = none` 元素因其 schema 在盘即违约
 /// （`apiUnexpected`、`warn`）⇒ 也不纳管：留白违约是判据面的债，不是「承诺未兑现」。
@@ -349,7 +349,7 @@ pub fn gating_findings(
 }
 
 /// 接口面启用的唯一判据：任一 `path` 非空 ∧ `api = declared` 元素的
-/// `<FQN>.schema.json` 在盘。
+/// `<叶段>.schema.json` 在盘。
 ///
 /// **单点纯函数**：[`artifact_check`]（生成预览）与 [`findings`]（判据面）同调本函数，
 /// MUST NOT 从快照反推、MUST NOT 在命令层另判一套。MUST NOT 退化为「`<archi_models_dir>`
@@ -368,7 +368,7 @@ fn schema_on_disk(root: &Path, fqn: &str) -> bool {
     paths::schema_path(root, fqn).is_some_and(|path| path.is_file())
 }
 
-/// 文档事实装配（**唯一装配点**）：派生 `<FQN>.md` 是否在盘，逐元素一次。
+/// 文档事实装配（**唯一装配点**）：派生 `<叶段>.md` 是否在盘，逐元素一次。
 ///
 /// 只回答「在不在」——文档无结构、零解析、零正文读取；`api` 状态与模型 `doc` 字段都
 /// 不参与（`docMissing` 单成因）。
@@ -382,7 +382,7 @@ fn doc_presence(root: &Path, elements: &[ArchiElement]) -> BTreeMap<String, bool
 }
 
 /// 逐元素装载接口定义：`api = none` / `path` 空跳过（留 `apiUnexpected` 自判）；
-/// `<FQN>.schema.json` 不在盘跳过（「接口未写」零判据）；在盘即经
+/// `<叶段>.schema.json` 不在盘跳过（「接口未写」零判据）；在盘即经
 /// [`schema::validate_schema`] 校验并装配 `Contract`。
 ///
 /// **零 md 回落**：文档正文不被读取（历史 `api-*` fence 视为普通内容）。
@@ -448,7 +448,7 @@ fn element_symbols(
 /// 装配三类生成物为内存清单（**零写盘**）：`INDEX.toml` / `<入口主干>.i.rs` /
 /// `<入口主干>.i.ts`（后两者落**实现入口同级**）。
 ///
-/// `<FQN>.schema.json` **不在应生成集**：它是手写真相（第二份资产），进应生成集就会让
+/// `<叶段>.schema.json` **不在应生成集**：它是手写真相（第二份资产），进应生成集就会让
 /// `generate` 覆写手写内容、让 `api:check` 一改即报 `mismatched`。
 ///
 /// 元素表经 [`elements_of`]（`dto::graph_view` 单点取数）——模型结构性坏 ⇒ `Err`
@@ -808,7 +808,7 @@ fn json_type(ty: &ApiType) -> String {
     }
 }
 
-/// 接口状态投影：`status` = **接口文件在案**（`declared` ⟺ `<FQN>.schema.json` 在盘），
+/// 接口状态投影：`status` = **接口文件在案**（`declared` ⟺ `<叶段>.schema.json` 在盘），
 /// 三条路径**各自按自身在盘事实出线**。
 ///
 /// **投影只报文件事实，MUST NOT 回写模型字段**——模型存的是意图（`declared` 而文件
@@ -959,7 +959,7 @@ fn elements_of(root: &Path) -> Result<Vec<ArchiElement>, ApiError> {
     Ok(graph.elements)
 }
 
-/// `$ref` → 类型名（`#/$defs/<名>` 与外部文件形态 `…/<FQN>.schema.json#/$defs/<名>`
+/// `$ref` → 类型名（`#/$defs/<名>` 与外部文件形态 `…/<叶段>.schema.json#/$defs/<名>`
 /// 都取末段；无 `$defs` 段时退化为路径末段）。
 ///
 /// **单点**：`check`（签名归一）与 `emit::{rust, ts}`（类型映射）共用本函数，
@@ -971,14 +971,17 @@ pub(crate) fn ref_name(reference: &str) -> String {
         .unwrap_or_else(|| reference.rsplit('/').next().unwrap_or(reference).to_owned())
 }
 
-/// 外部接口定义文件引用 → 目标元素 FQN（`<相对前缀><FQN>.schema.json#/$defs/<名>` 的
-/// 中间段）；同文件引用（`#/$defs/<名>`）与无 `.schema.json` 后缀者 → `None`。
+/// 外部接口定义文件引用 → 目标元素 FQN（`<相对前缀><目标叶段>.schema.json#/$defs/<名>`）；
+/// 同文件引用（`#/$defs/<名>`）与无 `.schema.json` 后缀者 → `None`。
+///
+/// 目标靠**本元素 FQN + 相对前缀**解出（文件名只剩叶段，单看文件名已无从定位祖先链）；
+/// 解析单点在 [`paths::ref_target`]。
 ///
 /// **单点**：`check::ref_missing`（跨模块引用检查）与 `emit::{rust, ts}`（透传渲染）
 /// 共用本函数。
-pub(crate) fn reexport_target(reference: &str) -> Option<String> {
+pub(crate) fn reexport_target(from_fqn: &str, reference: &str) -> Option<String> {
     let file = reference.split_once('#').map(|(file, _)| file)?;
-    paths::schema_fqn(file.rsplit('/').next()?).map(str::to_owned)
+    paths::ref_target(from_fqn, file)
 }
 
 /// JSON 值的类型名（错误文案用）。接口校验与索引装配共用同一份词表。

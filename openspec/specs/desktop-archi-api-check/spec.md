@@ -55,7 +55,7 @@
 - **纳管子集口径（本变更换锚）**：
 
   ```text
-  纳管(entry) ⟺ entry.element 非空 ∧ 该元素 api = declared ∧ <FQN>.schema.json 在盘
+  纳管(entry) ⟺ entry.element 非空 ∧ 该元素 api = declared ∧ <叶段>.schema.json 在盘
   ```
 
   纳管子集非空 ⇒ `status` 至少为 `warnings`，其中任一 `Error` 档条目 ⇒ `status = errors`；`element = None` 的条目落选。
@@ -137,7 +137,7 @@
 
 #### Scenario: 接口在盘后全量纳入
 
-- **WHEN** 同一根下给某 `api = declared` 元素补入合法 `<FQN>.schema.json` 后重跑
+- **WHEN** 同一根下给某 `api = declared` 元素补入合法 `<叶段>.schema.json` 后重跑
 - **THEN** 契约面转为启用，全部 `path` 非空元素（49 个）参与判据，产出基线表所述 **0** 条 `apiEntryMissing` 与 **38** 条 `docMissing`（该元素自身零命中）
 
 #### Scenario: 报告数与基线表逐项相等
@@ -181,12 +181,12 @@
 | `ApiMissing` | `apiMissing` | **有约定无兑现**：接口定义的 `properties` / `$defs` 声明的 op / 类型在代码里不存在 |
 | `ApiUndeclared` | `apiUndeclared` | 代码有 `external` 面但接口未声明（**唯一完备性判据**，档位 `off`） |
 | `ApiSignatureMismatch` | `apiSignatureMismatch` | 接口签名与代码签名（归一后）不一致 |
-| `ApiUnexpected` | `apiUnexpected` | 留白被违反（**单形态**）：`api = none` 而 `<FQN>.schema.json` 在盘 |
+| `ApiUnexpected` | `apiUnexpected` | 留白被违反（**单形态**）：`api = none` 而 `<叶段>.schema.json` 在盘 |
 | `ApiShadowing` | `apiShadowing` | 父 `$defs` 与子元素 `$defs` 类型名交集非空 |
 | `ApiRefMissing` | `apiRefMissing` | 跨模块 `$ref` 目标缺失 / 目标未 `declared` / 非直接子元素 |
 | `ApiNestedCrossCrate` | `apiNestedCrossCrate` | 嵌套元素父子分属不同 crate |
 | `ApiConstructorDeclared` | `apiConstructorDeclared` | 接口的 `properties` 声明了构造器（应由生成器产出） |
-| `DocMissing` | `docMissing` | **文档未就位**（单成因）：派生的 `<archi_models_dir>/<分层目录…>/<FQN>.md` 不在盘，**与 `api` 状态、`doc` 字段都无关** |
+| `DocMissing` | `docMissing` | **文档未就位**（单成因）：派生的 `<archi_models_dir>/<分层目录…>/<叶段>.md` 不在盘，**与 `api` 状态、`doc` 字段都无关** |
 
 - **三项删除的事实源口径（必须逐条说准，MUST NOT 读成「放宽」）**：
 
@@ -237,11 +237,11 @@
 
 ```text
 api = none 支（2 步；不依赖入口）
-  ① apiUnexpected   `<FQN>.schema.json` 在盘 ⇒ 留白被违反（必须先判）
-  ② docMissing      派生 `<FQN>.md` 不在盘
+  ① apiUnexpected   `<叶段>.schema.json` 在盘 ⇒ 留白被违反（必须先判）
+  ② docMissing      派生 `<叶段>.md` 不在盘
 
 api = declared 支（4 步；③ 与 ⑤⑥ 的对象条件互不替代）
-  ③ docMissing      派生 `<FQN>.md` 不在盘（文档未就位；单成因、与 `api` 无关）
+  ③ docMissing      派生 `<叶段>.md` 不在盘（文档未就位；单成因、与 `api` 无关）
   ④ apiEntryMissing entry_state = Absent / Invalid（code 面的结构前提）
   ⑤ apiMissing      schema 在盘时：接口声明 op / `$defs` 类型而代码导出集里没有
   ⑥ 一致性判据      schema 在盘时：apiSignatureMismatch / apiConstructorDeclared
@@ -250,29 +250,29 @@ pair 锚点（不进元素循环，与元素锚点并列、互不挤占）
   ⓐ apiNestedCrossCrate → ⓑ apiRefMissing → ⓒ apiShadowing
 ```
 
-- **③ 判的是派生 md，不是 schema**：`docMissing` 的语义在本变更收成单因（派生 `<FQN>.md` 不在盘），与 `api` 状态无关，故它在两支里同义。**「接口未写」（schema 不在盘）不产任何判据**：它在 ⑤⑥ 表现为「声明集不存在 ⇒ 零对象」（`schemaMissing` 归后续 change，MUST NOT 在本期以别名预铺）；③ 短路时 ⑤⑥ 自然无对象，而 schema 缺失但 md 在盘的元素直接跳过 ⑤⑥、不报 `apiMissing` / `apiSignatureMismatch`。
+- **③ 判的是派生 md，不是 schema**：`docMissing` 的语义在本变更收成单因（派生 `<叶段>.md` 不在盘），与 `api` 状态无关，故它在两支里同义。**「接口未写」（schema 不在盘）不产任何判据**：它在 ⑤⑥ 表现为「声明集不存在 ⇒ 零对象」（`schemaMissing` 归后续 change，MUST NOT 在本期以别名预铺）；③ 短路时 ⑤⑥ 自然无对象，而 schema 缺失但 md 在盘的元素直接跳过 ⑤⑥、不报 `apiMissing` / `apiSignatureMismatch`。
 - **两支互斥，跨支不比较**（同一元素只走一支）；支内序号即求值序，**顺序写死在 `check.rs` 函数体**，MUST NOT 由配置驱动。
 - **① 排第一的理由不变**：`apiUnexpected` 与 `doc` / 文档无关，而 `docMissing` 是 `warn` 且不纳管——若让它先短路，一个 `api = none` 元素只要没有文档，就能把它那份放错位置的接口遮住。
 - **④ 的判定 SHALL 单点取自 `paths::entry_state`**：`Resolved` ⇒ 继续 ⑤⑥；`Absent` / `Invalid(_)` ⇒ 一条 `apiEntryMissing`；判据面 MUST NOT 自行判文件存在性、MUST NOT 保留第二份入口探测。
 - **⑤ 的声明集 / 导出集口径**：声明集 = 接口 `properties` 的 `x-function` 键集（**构造器双向都不参与比对**；schema 不在盘 ⇒ 无声明集 ⇒ ⑤⑥ 零判据）；导出集 = 元素的 `external` 代码导出（Rust 经 `pub mod` 链或 `pub use` 白名单可达的 `pub fn`；TS 经**入口导出闭包**可达的导出，定义见 `desktop-archi-api`「TS 导出闭包的取数面」，本能力 MUST NOT 另立第二份口径）。签名比对 SHALL 在**归一后**进行（AST 归一单行、参数名与空白不参与）。
-- **`apiUndeclared` 只读 `<FQN>.schema.json` 的 `$defs` 键集**，MUST NOT 并读 markdown（markdown 已无结构）；其声明集前提依赖 schema 在盘（schema 不在盘的元素没有声明集可对拍，故档位虽 `off`、语义上也无对象）。
+- **`apiUndeclared` 只读 `<叶段>.schema.json` 的 `$defs` 键集**，MUST NOT 并读 markdown（markdown 已无结构）；其声明集前提依赖 schema 在盘（schema 不在盘的元素没有声明集可对拍，故档位虽 `off`、语义上也无对象）。
 - **pair 锚点的形状与内部序**逐字不变（nested → ref → shadowing）；pair 锚点 MUST NOT 引用 `Model.relations`。
 - **零第二份判定**：十条判据 SHALL 只有一处实现（`crates/core/archi/src/api/check.rs`），命令面与门禁面 MUST NOT 各写一份。
-- **契约面启用条件（换面）**：`api::enabled` SHALL 为「存在任一 `path` 非空 ∧ `api = declared` 元素的 `<FQN>.schema.json` 在盘」——与判据面同源。判据 MUST NOT 退化为「`<archi_models_dir>` 递归任意 `*.md` / `*.schema.json`」。启用后**全部 `path` 非空元素**（本仓 49 个）纳入判据，不存在「部分元素豁免」的中间态，也不设白名单或开关。
+- **契约面启用条件（换面）**：`api::enabled` SHALL 为「存在任一 `path` 非空 ∧ `api = declared` 元素的 `<叶段>.schema.json` 在盘」——与判据面同源。判据 MUST NOT 退化为「`<archi_models_dir>` 递归任意 `*.md` / `*.schema.json`」。启用后**全部 `path` 非空元素**（本仓 49 个）纳入判据，不存在「部分元素豁免」的中间态，也不设白名单或开关。
 
 #### Scenario: declared 支首错短路
 
-- **WHEN** 某 `api = declared` 元素的派生 `<FQN>.md` 不在盘
+- **WHEN** 某 `api = declared` 元素的派生 `<叶段>.md` 不在盘
 - **THEN** 只报一条 `docMissing`；同元素不出现 `apiEntryMissing` / `apiMissing` / `apiSignatureMismatch`（对象不存在）
 
 #### Scenario: 接口未写不产判据
 
-- **WHEN** 某 `api = declared` 元素的派生 md 在盘而 `<FQN>.schema.json` 不在盘（入口存在、代码有导出）
+- **WHEN** 某 `api = declared` 元素的派生 md 在盘而 `<叶段>.schema.json` 不在盘（入口存在、代码有导出）
 - **THEN** 该元素零判据（`docMissing` 不成立、⑤⑥ 无声明集）——「接口未写」本期不产条目（`schemaMissing` 归后续 change）；报告其余字段与「schema 在盘」场景的差异只在契约面计数
 
 #### Scenario: none 支两步与 apiUnexpected 前置
 
-- **WHEN** 构造两个 `api = none` 元素：一为派生目录里有 `<FQN>.schema.json` 且派生 md 不在盘；一为派生目录干净且派生 md 也不在盘
+- **WHEN** 构造两个 `api = none` 元素：一为派生目录里有 `<叶段>.schema.json` 且派生 md 不在盘；一为派生目录干净且派生 md 也不在盘
 - **THEN** 前者恰报 `apiUnexpected`（MUST NOT 同时报 `docMissing`）；后者恰报 `docMissing`；两者均零 `apiEntryMissing`
 
 #### Scenario: 接口声明 op 而代码无
@@ -297,7 +297,7 @@ pair 锚点（不进元素循环，与元素锚点并列、互不挤占）
 
 #### Scenario: 启用判据与接口文件同源
 
-- **WHEN** 观察根下 `graph/model/` 一级有六个 `NN-<域>.toml`，另有 `models/notes.md`（非任何元素的载体）与一份非 `<FQN>` 主干的 `*.schema.json`
+- **WHEN** 观察根下 `graph/model/` 一级有六个 `NN-<域>.toml`，另有 `models/notes.md`（非任何元素的载体）与一份反查不中任何元素的 `*.schema.json`
 - **THEN** `enabled = false` 且 `apiFindings = []`；随后给任一 `api = declared` 元素补一份合法 schema ⇒ `enabled = true`、全部 `path` 非空元素纳入判据
 
 #### Scenario: entry 优先互斥
@@ -356,7 +356,7 @@ pair 锚点（不进元素循环，与元素锚点并列、互不挤占）
 |------|------|----------|
 | `crates/core/archi/src/drift/report.rs` | 判据词汇单点 | `ArchiApiFindingKind` 十值 + `ALL: [Self; 10]`；`as_str` 十词；`severity()` 的 `error` 恰 `ApiMissing` / `ApiSignatureMismatch`、`off` 恰 `ApiUndeclared`、其余七项 `warn`；`category` 七值（`doc` 只剩 `doc_missing`）；`ArchiApiFinding` 形状逐字不变 |
 | `crates/core/archi/src/api/check.rs` | 十判据单点求值 | `ApiCheckInput.doc_facts` → `doc_present: bool`（派生 md 是否存在）；`none` 支 2 步、`declared` 支 4 步（③ 判派生 md；schema 不在盘 ⇒ ⑤⑥ 零对象、不产判据）+ pair 锚点三条；删三支与 `FENCE_*` 依赖；`enabled` 输入沿用（判据面零 fence 知识） |
-| `crates/core/archi/src/api/mod.rs` | 纳管子集单点 | `gating_findings(root, elements, findings)`：入选 = `element` 非空 ∧ `api = declared` ∧ `<FQN>.schema.json` 在盘（**文档在盘与否零参与**）；`findings` 装配入口零第二份判定 |
+| `crates/core/archi/src/api/mod.rs` | 纳管子集单点 | `gating_findings(root, elements, findings)`：入选 = `element` 非空 ∧ `api = declared` ∧ `<叶段>.schema.json` 在盘（**文档在盘与否零参与**）；`findings` 装配入口零第二份判定 |
 | `crates/core/archi/src/drift/mod.rs` | 报告装配 | `api_findings` 经 `api::findings` 单点；`derive_status` 分档逐字不变；`REPORT_VERSION = 3` 不变 |
 | `crates/core/archi/src/drift/{report,mod}_test.rs` + `api/check_test.rs` | 判据语料 | 十值三方对拍（长度 10）；`category` 七值无空组；`error` 恰两项；两支首错与 pair 锚点；纳管 = `declared` ∧ schema 在盘；`status == errors ⟺ passed == false`；三值离场反向断言 |
 | `crates/core/archi/tests/golden_test.rs` + `tests/corpus/drift/**` | 报告面语料 | `DRIFT_CASES` 登记面零改动（语料自足、不读本仓资产）；金样按十值词汇与新首错序重写（`DESKTOP_GOLDEN_REWRITE=1` + 人工确认）；`api-mismatch` case 仍非空 |

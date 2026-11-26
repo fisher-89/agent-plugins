@@ -1469,12 +1469,12 @@ fn 非空apiFindings金样在案() {
         finding["occurrences"][0]["file"].as_str(),
         Some(
             format!(
-                "{}/App/App.Mod.schema.json",
+                "{}/App/Mod.schema.json",
                 foundation::layout::archi_models_rel_dir()
             )
             .as_str()
         ),
-        "金样 occurrence 指向接口定义文件（真相所在）：{finding:?}"
+        "金样 occurrence 指向接口定义文件（真相所在，叶段文件名）：{finding:?}"
     );
     assert_eq!(
         finding["occurrences"][0]["line"],

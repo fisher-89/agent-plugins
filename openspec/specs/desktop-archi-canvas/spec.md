@@ -68,7 +68,7 @@
 无结构错时 SHALL 渲染完整图。**接口面的判据**（`apiFindings` 内的 `docMissing` 等）MUST NOT 触发停摆，也 MUST NOT 触发任何降级样式。
 
 - **判据词汇的呈现面 SHALL 与报告同源**：画布只消费 `apiFindings` 的**计数与标记**，不解释 `kind` 语义；本变更后该词汇收为**十值**（`apiReexportDrift` / `apiDocMissing` / `docNotFound` 三值离场）。画布 MUST NOT 残留按这三值分支的渲染逻辑或常量——旧条文把它们列为「不触发停摆的入口文档判据」，该列举随之作废（三者已不存在）。
-- **接口文件非法不是结构错**：某元素 `<FQN>.schema.json` 装载校验失败会让检查面以 `ApiError` 停摆（见 `desktop-archi-api` / `desktop-archi-api-check`），该错误走**命令面错误**（报告 `Err` + 面板行内错误），MUST NOT 被画布读成「模型结构错」而进入停摆态——停摆态的唯一成因仍是模型结构错。
+- **接口文件非法不是结构错**：某元素 `<叶段>.schema.json` 装载校验失败会让检查面以 `ApiError` 停摆（见 `desktop-archi-api` / `desktop-archi-api-check`），该错误走**命令面错误**（报告 `Err` + 面板行内错误），MUST NOT 被画布读成「模型结构错」而进入停摆态——停摆态的唯一成因仍是模型结构错。
 - **文档面零射程**：文档（`.md`）在不在盘、写了什么都不改变图渲染态。
 
 #### Scenario: 有结构错即停摆
@@ -83,7 +83,7 @@
 
 #### Scenario: 接口文件坏走命令面错误而非停摆
 
-- **WHEN** 某元素的 `<FQN>.schema.json` 被写坏（绕过写闸），随后请求画布数据与漂移报告
+- **WHEN** 某元素的 `<叶段>.schema.json` 被写坏（绕过写闸），随后请求画布数据与漂移报告
 - **THEN** 画布数据照常返回（模型无结构错 ⇒ 不停摆）；漂移 / 检查命令以 `ApiError` 返回 `Err`，面板呈行内错误——两者可分辨，MUST NOT 混为一个停摆态
 
 #### Scenario: 停摆态不给部分形状

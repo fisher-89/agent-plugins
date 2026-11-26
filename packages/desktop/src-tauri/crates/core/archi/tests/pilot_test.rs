@@ -66,14 +66,20 @@ fn pilot_element(fqn: &str, paths: &[&str]) -> archi::dto::ArchiElement {
     }
 }
 
-/// 试点契约的 repo 相对路径串。
+/// 试点契约的 repo 相对路径串（文件名取 FQN 叶段）。
 fn contract_rel() -> String {
-    format!(".dev-team/architecture/models/Backend/Infra/{FQN}.md")
+    format!(
+        ".dev-team/architecture/models/Backend/Infra/{}.md",
+        paths::leaf_name(FQN)
+    )
 }
 
-/// 试点 schema 生成物的 repo 相对路径串。
+/// 试点 schema 生成物的 repo 相对路径串（与文档同目录、同叶段主干）。
 fn schema_rel() -> String {
-    format!(".dev-team/architecture/models/Backend/Infra/{FQN}.schema.json")
+    format!(
+        ".dev-team/architecture/models/Backend/Infra/{}.schema.json",
+        paths::leaf_name(FQN)
+    )
 }
 
 /// 试点 `.i.rs` 生成物的 repo 相对路径串（落**实现入口同级**）。
@@ -131,8 +137,8 @@ fn 试点三件资产按单点派生落点在盘() {
         api_dir()
             .join("Backend")
             .join("Infra")
-            .join(format!("{FQN}.md")),
-        "契约路径 = `<archi_models_dir>/<分层目录…>/<FQN>.md`（零行内 `api` 段）"
+            .join(format!("{}.md", paths::leaf_name(FQN))),
+        "契约路径 = `<archi_models_dir>/<分层目录…>/<叶段>.md`（零行内 `api` 段）"
     );
     assert_eq!(
         generated,
@@ -210,7 +216,7 @@ fn 盘上schema是手写接口真相() {
     assert_eq!(
         schema["title"].as_str(),
         Some(FQN),
-        "`title` 取 H1 原文（与文件名同源）"
+        "`title` 取 FQN 原文（与 `$id` 同源；文件名只取叶段）"
     );
     assert!(
         schema["$id"]
@@ -519,8 +525,8 @@ fn 索引零语言词且计数与真实源文同源() {
         "首行是说明段注释"
     );
     assert!(
-        text.contains("<FQN>.md"),
-        "说明段给出 review 口径（只读 `<FQN>.md`）"
+        text.contains("<叶段>.md"),
+        "说明段给出 review 口径（只读 `<叶段>.md`）"
     );
     assert!(
         text.contains(&format!("archi-api {}", meta().tool_version)),
@@ -553,7 +559,7 @@ fn 投影三路径与单点派生逐字相等() {
     assert_eq!(
         projection.schema_path.as_deref(),
         Some(schema_rel().as_str()),
-        "schema 路径同目录同名（记录应生成物）"
+        "schema 路径同目录同叶段主干（接口文件与文档成对）"
     );
     assert_eq!(
         projection.generated_path.as_deref(),
@@ -676,23 +682,20 @@ fn walk_schema(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// 接口定义目录的在盘收面：`(repo 相对路径串, fqn)` 升序；fqn = 文件名去 `.schema.json`。
+/// 接口定义目录的在盘收面：`(repo 相对路径串, fqn)` 升序；fqn = 相对契约目录的
+/// 分层目录段 + 文件主干（经 `paths::schema_fqn` 反查，与写闸同一单点）。
 fn contract_files() -> Vec<(String, String)> {
     let root = repository_root();
-    let mut paths: Vec<PathBuf> = Vec::new();
-    walk_schema(&api_dir(), &mut paths);
-    paths.sort();
-    paths
+    let mut files: Vec<PathBuf> = Vec::new();
+    walk_schema(&api_dir(), &mut files);
+    files.sort();
+    files
         .into_iter()
         .map(|path| {
-            let name = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .expect("接口文件名应为合法 UTF-8");
-            let fqn = name
-                .strip_suffix(".schema.json")
-                .expect("收面只含 `<FQN>.schema.json`")
-                .to_owned();
+            let relative = path
+                .strip_prefix(api_dir())
+                .expect("收面只含契约目录内的文件");
+            let fqn = paths::schema_fqn(relative).expect("收面路径应可反查 FQN");
             (display(&root, &path), fqn)
         })
         .collect()
@@ -813,7 +816,7 @@ fn 组合链路前端留白契约全量通过() {
 /// MUST NOT 落成「静默跳过」。
 #[test]
 fn 组合链路失败可见且不静默跳过() {
-    let rel = ".dev-team/architecture/models/Backend/Core/Backend.Demo.Broken.schema.json";
+    let rel = ".dev-team/architecture/models/Backend/Demo/Broken.schema.json";
     let broken_json = "{\n  \"$id\": \"Backend.Demo.Broken.schema.json\",\n";
     let message = load_contract(rel, "Backend.Demo.Broken", broken_json)
         .expect_err("截断的 JSON ⇒ 应报装载期错误");
@@ -857,7 +860,7 @@ fn 组合链路收面为契约目录下全部md() {
         );
         assert!(
             !fqn.is_empty() && !fqn.ends_with(".schema.json"),
-            "fqn = 文件名去 `.schema.json`：{fqn}"
+            "fqn = 分层目录段 + 文件主干：{fqn}"
         );
     }
 

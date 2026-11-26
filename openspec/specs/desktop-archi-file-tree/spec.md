@@ -172,7 +172,7 @@ none               以上都不成立
 - **剪枝**：隐藏项、gitignore 命中项、`target` / `node_modules` / `dist` / `build` / `.git` MUST NOT 进树（沿既有遍历器的 `filter_entry` 语义）。
 - **排除矩阵**：SHALL 复用 `scan::exclude::ExcludeSet::build(archi_config.exclude)` 的完整矩阵（默认 13 条测试面约定 + 架构域配置追加），逐文件以 `matched(rel).is_some()` 丢弃；MUST NOT 新增「只配置不默认」的第二入口（`ExcludeSet` 语义即「默认在前、配置追加、最小下标优先」，正是所需）。
 - **测试面不在树中**：`**/*.test.{ts,tsx,js,jsx}` / `**/*.spec.{ts,tsx,js,jsx}` / `**/__tests__/**` / `**/*_test.rs` / `**/tests/**` / `**/fixtures/**` / `**/__mocks__/**` 命中项 MUST NOT 出现（本仓实测源文件 667 → 进树 358，其中 306 个测试文件被排除）。
-- **契约资产与契约索引不在树中（本变更后的显式事实）**：`<archi_dir>/models/<分层目录…>/**`（契约 `<FQN>.md` 与 `<FQN>.schema.json`）与 `<archi_dir>/graph/INDEX.toml` MUST NOT 出现在树里——它们不是五种源扩展名之一，故被**扩展名判据**排除，与 `ExcludeSet` 的排除矩阵无关。本能力 MUST NOT 为此新增目录白名单、MUST NOT 为契约文件新增条目类型或标记值；`graph/model/` 一级的六个 `NN-<域>.toml` 同样不进树（`.toml` 非源扩展名）——「模型声明目录里只有源文件才进树」与「archi 树整棵对文档面不可见」两条既有口径同时成立。
+- **契约资产与契约索引不在树中（本变更后的显式事实）**：`<archi_dir>/models/<分层目录…>/**`（契约 `<叶段>.md` 与 `<叶段>.schema.json`）与 `<archi_dir>/graph/INDEX.toml` MUST NOT 出现在树里——它们不是五种源扩展名之一，故被**扩展名判据**排除，与 `ExcludeSet` 的排除矩阵无关。本能力 MUST NOT 为此新增目录白名单、MUST NOT 为契约文件新增条目类型或标记值；`graph/model/` 一级的六个 `NN-<域>.toml` 同样不进树（`.toml` 非源扩展名）——「模型声明目录里只有源文件才进树」与「archi 树整棵对文档面不可见」两条既有口径同时成立。
 - **配置 `exclude` 生效**：架构域配置 `exclude` 命中项 MUST NOT 出现；非法配置（空白条目 / 无通配符 / glob 编译失败）SHALL 使命令 `Err`（文案沿用 `drift/config.rs` 与 `ExcludeSet::build` 的既有显式文案），树进错误态、MUST NOT 阻断画布。
 - **目录合成**：每个进树文件与其所属模块根 SHALL 逐级上溯合成目录节点（去重）；**合成目录不需要在盘存在**（元素根可能声明了不存在或已被排除的目录）。
 
@@ -198,7 +198,7 @@ none               以上都不成立
 
 #### Scenario: 契约资产与模型文件都不进树
 
-- **WHEN** 盘上 `<archi_dir>/graph/model/` 一级有六个 `NN-<域>.toml`、`<archi_dir>/models/Infra/` 有 `<FQN>.md` 与 `<FQN>.schema.json`、`<archi_dir>/graph/INDEX.toml` 存在，跑一次 `archi_file_tree`
+- **WHEN** 盘上 `<archi_dir>/graph/model/` 一级有六个 `NN-<域>.toml`、`<archi_dir>/models/Infra/` 有 `<叶段>.md` 与 `<叶段>.schema.json`、`<archi_dir>/graph/INDEX.toml` 存在，跑一次 `archi_file_tree`
 - **THEN** 上述文件与其合成目录节点均不出现在树里（三者的扩展名都不是五种源扩展名，判据是扩展名而非目录名）；树节点集合与迁移前逐字相同——反向判据：若把某契约 md 改名为 `.ts` 形态放进元素 `path` 内，它会立刻作为普通源文件进树（说明排除面不是「archi 目录豁免」而是「非源文件不收」）
 
 ### Requirement: 元素根缺失不静默

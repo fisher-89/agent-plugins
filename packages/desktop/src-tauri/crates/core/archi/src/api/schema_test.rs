@@ -9,6 +9,7 @@
 //! AC-4 / AC-5 的窄面。
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use serde_json::{json, Map, Value};
 use toml_edit::DocumentMut;
@@ -22,10 +23,10 @@ use super::schema::{
 };
 use super::{ApiError, ApiFormStatus, ApiMeta, IndexEntry};
 
-/// 接口文件（repo 相对 POSIX；`validate_schema` 无路径入参，`Contract.file` 取文件名）。
+/// `$id` 的期望值（= `<FQN>.schema.json`；文件名只取叶段，`$id` 仍写全 FQN）。
 const FILE: &str = "App.Backend.Infra.ArchiRuntime.schema.json";
 
-/// 元素 FQN（= `title` = 文件名主干）。
+/// 元素 FQN（= `title`；落点由分层目录 + 叶段文件名反查）。
 const FQN: &str = "App.Backend.Infra.ArchiRuntime";
 
 /// 装配用载元（`tool_version` 取编译期常量、摘要取真实值）。
@@ -96,15 +97,16 @@ fn comment_lines(text: &str) -> Vec<String> {
 // ---------------------------------------------------------------------------
 
 /// 正向（闸 ③–⑨ 全过）：空壳——`$defs {}` + `properties {}` 两空表、四顶层键齐备 ⇒ `Ok`，
-/// `Contract` 三表全空、`file` == `<FQN>.schema.json`。
+/// `Contract` 三表全空、`file` == 接口文件的 repo 相对路径（分层目录 + 叶段主干）。
 #[test]
 fn 空壳合法() {
     let contract = validate_schema(FQN, &schema_text("", "")).expect("空壳应合法");
     assert_eq!(contract.fqn, FQN, "FQN 取入参");
     assert_eq!(contract.title, FQN, "`title` 逐字");
     assert_eq!(
-        contract.file, FILE,
-        "`file` = `<FQN>.schema.json`（无路径入参）"
+        contract.file,
+        paths::schema_rel(FQN).expect("测试 FQN 恒为合法形态"),
+        "`file` = 接口文件的 repo 相对路径（分层目录 + 叶段文件名）"
     );
     assert!(contract.ops.is_empty() && contract.types.is_empty() && contract.reexports.is_empty());
 }
@@ -118,7 +120,8 @@ fn 合法面全过() {
     let text = schema_text(
         &format!(
             "\"Local\": {{ \"type\": \"object\", \"properties\": {{}} }}, \
-             \"AgentInput\": {{ \"$ref\": \"{prefix}{target}.schema.json#/$defs/AgentInput\" }}"
+             \"AgentInput\": {{ \"$ref\": \"{prefix}{}.schema.json#/$defs/AgentInput\" }}",
+            paths::leaf_name(target)
         ),
         concat!(
             r##""run": { "x-function": { "description": "跑", "params": [], "returns": "##,
@@ -204,10 +207,11 @@ fn 九闸各自独立可判() {
             "没有指向自己的镜像条目",
         ),
         (
-            "⑦ 跨元素前缀差一字符",
+            "⑦ 跨元素前缀非规范形",
             schema_text(
                 &format!(
-                    "\"AgentInput\": {{ \"$ref\": \"{prefix}x{target}.schema.json#/$defs/AgentInput\" }}"
+                    "\"AgentInput\": {{ \"$ref\": \"{prefix}./{}.schema.json#/$defs/AgentInput\" }}",
+                    paths::leaf_name(target)
                 ),
                 "\"AgentInput\": { \"$ref\": \"#/$defs/AgentInput\" }",
             ),
@@ -233,7 +237,10 @@ fn 九闸各自独立可判() {
 
     for (label, text, expected) in cases {
         let error = parse_error(validate_schema(FQN, &text));
-        assert!(error.contains(FILE), "{label} 的文案点名接口文件：{error}");
+        assert!(
+            error.contains(&paths::schema_rel(FQN).expect("测试 FQN 恒为合法形态")),
+            "{label} 的文案点名接口文件：{error}"
+        );
         assert!(
             error.contains(expected),
             "{label} 的文案含期望串 `{expected}`：{error}"
@@ -295,7 +302,7 @@ fn 文本边界不panic() {
 }
 
 /// 异常（闸 ③ 三合一）：`$id` 缺 / 非字符串 / 不等于 `<FQN>.schema.json`；`title` ≠ FQN；
-/// 文件主干 ≠ FQN（由 `paths::schema_fqn` 反查，同名判据）⇒ 各一条 `Err` 并列期望值。
+/// 落点（分层目录 + 叶段）反查 ⇒ 各一条 `Err` 并列期望值。
 #[test]
 fn identity三合一() {
     let cases: [(&str, Value, &str); 5] = [
@@ -324,8 +331,12 @@ fn identity三合一() {
             "{label} 的文案并列期望值 `{expected}`：{error}"
         );
     }
-    // 文件名主干的反查单点：`<FQN>.schema.json` → FQN，形态不符 ⇒ None
-    assert_eq!(paths::schema_fqn(FILE), Some(FQN), "文件名主干反查");
+    // 落点的反查单点：分层目录段 + 叶段主干 → FQN，形态不符 ⇒ None
+    assert_eq!(
+        paths::schema_fqn(Path::new("App/Backend/Infra/ArchiRuntime.schema.json")),
+        Some(FQN.to_owned()),
+        "落点路径反查"
+    );
 }
 
 /// 正向（闸 ③ 正例与逐字判据）：三者一致（四段 / 单段两形态）⇒ `Ok`；大小写差异 / 前后
@@ -477,17 +488,17 @@ fn 前缀由ref_relative单点决定() {
     ];
     for target in siblings {
         let prefix = paths::ref_relative(FQN, target);
-        let ok =
-            json!({"$defs": {"X": {"$ref": format!("{prefix}{target}.schema.json#/$defs/X")}}});
+        let leaf = paths::leaf_name(target);
+        let ok = json!({"$defs": {"X": {"$ref": format!("{prefix}{leaf}.schema.json#/$defs/X")}}});
         assert!(
             verify_ref_prefix(FQN, &ok).is_ok(),
             "前缀 == ref_relative 输出 ⇒ Ok：{target} / {prefix}"
         );
 
         for bad in [
-            format!("{prefix}x{target}.schema.json#/$defs/X"),
-            format!("{target}.schema.json#/$defs/X"),
-            format!("{prefix}extra/{target}.schema.json#/$defs/X"),
+            format!("././{leaf}.schema.json#/$defs/X"),
+            format!("{prefix}{leaf}/../{leaf}.schema.json#/$defs/X"),
+            format!("{prefix}extra/../{leaf}.schema.json#/$defs/X"),
         ] {
             let value = json!({"$defs": {"X": {"$ref": bad}}});
             let error = contract_error(verify_ref_prefix(FQN, &value));
@@ -496,6 +507,15 @@ fn 前缀由ref_relative单点决定() {
                 "文案并列当前串与期望串：{error}"
             );
         }
+
+        // 越界前缀（`..` 多于层数）解不出目标 ⇒ 同样是错
+        let escaped =
+            json!({"$defs": {"X": {"$ref": format!("../../../../{leaf}.schema.json#/$defs/X")}}});
+        let error = contract_error(verify_ref_prefix(FQN, &escaped));
+        assert!(
+            error.contains("解析不出目标元素"),
+            "越界前缀点明解析失败：{error}"
+        );
     }
 }
 
@@ -598,7 +618,7 @@ fn verify_defs键名身份唯一在文本层判() {
         "点名重复键与「同名即定义两次」：{error}"
     );
     assert!(
-        error.contains(FILE),
+        error.contains(&paths::schema_rel(FQN).expect("测试 FQN 恒为合法形态")),
         "文案带文件名与行号前缀（可直接改到那一行）：{error}"
     );
 
@@ -667,10 +687,7 @@ fn verify_defs的ref只能指顶层() {
         assert!(error.contains("顶层"), "点明 target 形态：{error}");
     }
 
-    for reference in [
-        "#/$defs/A",
-        "../Core/App.Backend.Core.Agent.schema.json#/$defs/AgentInput",
-    ] {
+    for reference in ["#/$defs/A", "../Core/Agent.schema.json#/$defs/AgentInput"] {
         let schema = json!({"$defs": {"A": {"$ref": reference}}});
         let result = verify_defs(&schema);
         assert!(
@@ -729,7 +746,7 @@ fn verify_defs透传条目不得带结构关键字() {
             _ => json!([{"type": "string"}]),
         };
         let schema = json!({"$defs": {"AgentInput": {
-            "$ref": "../Frontend/App.Frontend.Components.Agent.Input.schema.json#/$defs/AgentInput",
+            "$ref": "../Frontend/Agent.schema.json#/$defs/AgentInput",
             disallowed: value
         }}});
         let error = contract_error(verify_defs(&schema));
@@ -741,7 +758,7 @@ fn verify_defs透传条目不得带结构关键字() {
     }
 
     let pure = json!({"$defs": {"AgentInput": {
-        "$ref": "../Frontend/App.Frontend.Components.Agent.Input.schema.json#/$defs/AgentInput"
+        "$ref": "../Frontend/Agent.schema.json#/$defs/AgentInput"
     }}});
     assert!(verify_defs(&pure).is_ok(), "纯 $ref alias 合法");
 }
@@ -898,12 +915,12 @@ fn build_index说明段三行与语言词禁令() {
 
     assert!(lines[0].contains("勿手改"), "首行生成警示：{}", lines[0]);
     assert!(
-        lines[1].contains("review") && lines[1].contains("<FQN>.md"),
-        "次行 review 口径（只读元素目录下的 md）：{}",
+        lines[1].contains("review") && lines[1].contains("<叶段>.md"),
+        "次行 review 口径（只读同目录的叶段 md）：{}",
         lines[1]
     );
     assert!(
-        lines[1].contains("<FQN>.schema.json"),
+        lines[1].contains("<叶段>.schema.json"),
         "次行把接口定义文件（手写真相）与文档并列：{}",
         lines[1]
     );
@@ -961,7 +978,7 @@ fn build_index条目七字段() {
         ops: 1,
         degraded: 0,
         categories: BTreeMap::new(),
-        schema_rel: "Infra/App.Backend.Infra.ArchiRuntime.schema.json".to_owned(),
+        schema_rel: "Infra/ArchiRuntime.schema.json".to_owned(),
         generated_rel: Some("packages/desktop/src-tauri/crates/infra/archi.i.rs".to_owned()),
     };
     let absent = IndexEntry {
@@ -1366,8 +1383,8 @@ fn index_schema_rel与paths同源() {
     let root = std::path::Path::new("/ws");
     let expected = paths::schema_path(root, FQN).expect("测试 FQN 恒为合法形态");
     assert!(
-        expected.ends_with(format!("{FQN}.schema.json")),
-        "schema 路径文件名：{expected:?}"
+        expected.ends_with(format!("{}.schema.json", paths::leaf_name(FQN))),
+        "schema 路径文件名取叶段：{expected:?}"
     );
 }
 
@@ -1745,7 +1762,7 @@ fn verify_defs既有规则零回归() {
     );
 
     let reexport = json!({"$defs": {"A": {
-        "$ref": "../Core/App.Backend.Core.Agent.schema.json#/$defs/AgentInput",
+        "$ref": "../Core/Agent.schema.json#/$defs/AgentInput",
         "type": "object"
     }}});
     let reexport_error = contract_error(verify_defs(&reexport));

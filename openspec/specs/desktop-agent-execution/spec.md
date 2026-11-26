@@ -1706,7 +1706,7 @@ SDK 引擎 SHALL 消费 provider 记录的 `efforts{high, low}`，把「同一�
 
 ```text
 落盘前：目标路径（sandbox 之后的绝对路径）落在 <root>/<archi_models_rel_dir>/ 之下
-        ∧ 文件名主干是该目录内某元素的 FQN（形如 <FQN>.schema.json）？
+        ∧ 相对路径（分层目录段 + 无点叶段主干）反查出某元素的 FQN（形如 <分层目录…>/<叶段>.schema.json）？
   ├─ 否 → 原样落盘（零改动、零额外 IO）
   └─ 是 → 调 archi::api::schema::validate_schema(<FQN>, <候选文本>)
            ├─ Err → 工具 Err（第一行自足：文件 + 期望值 + 一条出路），零落盘
@@ -1714,7 +1714,7 @@ SDK 引擎 SHALL 消费 provider 记录的 `efforts{high, low}`，把「同一�
 ```
 
 - **同一实现**：写闸 SHALL 调 `desktop-archi-api`「接口定义文件的装载校验与写闸（零第二份校验）」定义的**同一个** `validate_schema`；装载期（`load_contracts`）也调它。MUST NOT 在本层另写一份 JSON / JSON Schema 校验，MUST NOT 只校验部分面。
-- **射程封闭**：只有 `<archi_models_dir>/**/<FQN>.schema.json` 进校验面；其余一切路径（普通源码 / 文档 / 模型 TOML / `INDEX.toml` / `.i.rs` / `.i.ts`）**写前零校验**的既有承诺逐字不变。目录前缀 SHALL 经 `foundation::layout` 派生（MUST NOT 行内 `models` / `archi` 字面量）。
+- **射程封闭**：只有 `<archi_models_dir>/**/<叶段>.schema.json` 进校验面；其余一切路径（普通源码 / 文档 / 模型 TOML / `INDEX.toml` / `.i.rs` / `.i.ts`）**写前零校验**的既有承诺逐字不变。目录前缀 SHALL 经 `foundation::layout` 派生（MUST NOT 行内 `models` / `archi` 字面量）。
 - **`root` 穿参**：`write` / `edit` 的执行体 SHALL 接收会话执行根 `root`（`tools::execute(root, name, input)` 已持有），用于派生接口目录前缀；`tools::execute` 的对外签名 MUST NOT 改动。
 - **`edit` 校验替换后的正文**：校验对象 SHALL 是 `old_string` → `new_string` 替换后的完整候选文本，MUST NOT 是替换前的旧文。
 - **失败语义**：`Err` 文案第一行自足（含文件、期望值、出路之一），MUST NOT 只写「非法」；`Err` 由模型在同一 turn 内自纠重试，**run 不中断**（与既有工具 `Err` 同构）。
@@ -1722,7 +1722,7 @@ SDK 引擎 SHALL 消费 provider 记录的 `efforts{high, low}`，把「同一�
 
 #### Scenario: 三类坏输入各一条 Err 且零落盘
 
-- **WHEN** 分别以「截断的 JSON」「`$id` 与文件名不符」「`T` 同时作 op 键与 `$defs` 键」经 `write` 落 `<models>/…/<FQN>.schema.json`
+- **WHEN** 分别以「截断的 JSON」「`$id` 与文件名不符」「`T` 同时作 op 键与 `$defs` 键」经 `write` 落 `<models>/…/<叶段>.schema.json`
 - **THEN** 三次均 `Err`（文案分别点名解析位置、期望 `$id`、冲突键与两个键空间），盘上字节零变化（新建文件不产生、既有文件不被截断或半写）
 
 #### Scenario: 合法落盘并回执
@@ -2137,7 +2137,7 @@ SDK 引擎 SHALL 消费 provider 记录的 `efforts{high, low}`，把「同一�
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/infra/agent/src/sdk/tools.rs` | 七通用工具执行体 | `write(input)` / `edit(input)` 增 `root: &Path` 入参（两个调用点机械改动）；落盘前判「是否 `<archi_models_rel_dir>/**/<FQN>.schema.json`」→ 是则调 `archi::api::schema::validate_schema`，`Err` 零落盘、成功追加「接口已校验」；`edit` 校验替换后正文；其余工具与 `tools::execute(root, name, input)` 对外签名零改动 |
+| `crates/infra/agent/src/sdk/tools.rs` | 七通用工具执行体 | `write(input)` / `edit(input)` 增 `root: &Path` 入参（两个调用点机械改动）；落盘前判「是否 `<archi_models_rel_dir>/**/<叶段>.schema.json`」→ 是则调 `archi::api::schema::validate_schema`，`Err` 零落盘、成功追加「接口已校验」；`edit` 校验替换后正文；其余工具与 `tools::execute(root, name, input)` 对外签名零改动 |
 | `crates/infra/agent/src/compose.rs` | 装配单点 | `assemble_injections` 的 change 臂：`preamble = model_write_lock(provenance).is_none().then(knowledge).flatten()`（单一判据、失败降级 `None`）；`archi_matrix` 两格追加 `ARCHI_API_TOOL`；archi 臂与 config 臂逐字不变 |
 | `crates/infra/agent/src/archi_knowledge.rs` | 知识生产 | `knowledge()` 由 archi 臂与 change 臂共用（同一函数、同一文本）；降级 `None` 语义不变 |
 | `crates/core/agent/src/runner.rs` | 注入词表 | `SessionInjections` 六位逐字不变（`preamble: Option<String>` 的语义由「archi / config 两处」扩为「archi / change 写权相位 / config 三处」——位形态零改动） |

@@ -96,7 +96,7 @@ fn doc_hits(graph: &ModelGraph, root: &Path, query: &str) -> Vec<String> {
         .doc
 }
 
-/// 落一份派生文档（`<archi_models_dir>/<分层目录…>/<FQN>.md`）并返回其 repo 相对路径。
+/// 落一份派生文档（`<archi_models_dir>/<分层目录…>/<叶段>.md`）并返回其 repo 相对路径。
 fn write_doc(temp: &TempDir, fqn: &str) -> String {
     let path = crate::api::paths::contract_path(temp.root(), fqn).expect("合法 FQN");
     let rel = crate::api::display(temp.root(), &path);
@@ -104,7 +104,7 @@ fn write_doc(temp: &TempDir, fqn: &str) -> String {
     rel
 }
 
-/// 落一份接口定义（同目录 `<FQN>.schema.json`）并返回其 repo 相对路径。
+/// 落一份接口定义（同目录 `<叶段>.schema.json`）并返回其 repo 相对路径。
 fn write_schema(temp: &TempDir, fqn: &str) -> String {
     let path = crate::api::paths::schema_path(temp.root(), fqn).expect("合法 FQN");
     let rel = crate::api::display(temp.root(), &path);
@@ -117,7 +117,7 @@ fn write_schema(temp: &TempDir, fqn: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// 正向：`query = "auth"`、`scope = All` → 命中 FQN 含 `auth` 的元素 + 路径 / 文件主干含
-/// `auth` 的派生资产（`<FQN>.md` ∪ `<FQN>.schema.json`）；元素按 FQN、资产按路径字典序。
+/// `auth` 的派生资产（`<叶段>.md` ∪ `<叶段>.schema.json`）；元素按 FQN、资产按路径字典序。
 ///
 /// 语料 = `path` 非空元素的在盘派生资产（与判据面同一集合），故夹具只落派生文件。
 #[test]
@@ -509,7 +509,7 @@ fn 检索面对entry零敏感() {
 // ===========================================================================
 
 /// 边界：语料派生的源码单点——零 `carrier_path` / `doc_path` 复活；`contract_path` 与
-/// `schema_path` 各恰一处；零手拼 `<FQN>.md`；`api` 状态与 `doc` 字段零参与。
+/// `schema_path` 各恰一处；零手拼 `<叶段>.md`；`api` 状态与 `doc` 字段零参与。
 #[test]
 fn 语料投影走元素单点() {
     let source = include_str!("search.rs");
@@ -529,7 +529,7 @@ fn 语料投影走元素单点() {
     );
     assert!(
         !source.contains("format!(\"{}.md"),
-        "零手拼 `<FQN>.md`（落点派生单点）"
+        "零手拼 `<叶段>.md`（落点派生单点）"
     );
     assert!(
         !source.contains("element.doc"),
@@ -594,8 +594,8 @@ fn adr语料不参与检索() {
 // 语料面：命中只由在盘事实决定 / `doc` 字段零参与
 // ===========================================================================
 
-/// 正向（四态 × 两值 `api`，八格）：语料恰为「在盘 `<FQN>.md`」∪「在盘
-/// `<FQN>.schema.json`」——只有文档 / 只有接口 / 两者都在 / 都没有四态的命中集逐格固定，
+/// 正向（四态 × 两值 `api`，八格）：语料恰为「在盘 `<叶段>.md`」∪「在盘
+/// `<叶段>.schema.json`」——只有文档 / 只有接口 / 两者都在 / 都没有四态的命中集逐格固定，
 /// 且 `api = declared` 与 `api = none` 两臂逐值相等（`api` 状态零参与语料）。
 #[test]
 fn 命中只由在盘事实决定() {

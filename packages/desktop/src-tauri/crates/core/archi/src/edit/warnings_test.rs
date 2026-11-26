@@ -252,7 +252,7 @@ fn path缺席逐条报pathNotFound() {
 
 #[test]
 #[allow(non_snake_case)]
-/// 正向：`created` 且派生 `<FQN>.md` 缺席 ⇒ `docMissing` / `warn` 且尾句指向 `bootstrap`；
+/// 正向：`created` 且派生 `<叶段>.md` 缺席 ⇒ `docMissing` / `warn` 且尾句指向 `bootstrap`；
 /// 文档在盘 ⇒ 零条；非 `created` 的 upsert 恒零条（存量债不在写面复读）。
 fn declared缺契约报docMissing() {
     let temp = TempDir::new("declared-missing");
@@ -480,7 +480,7 @@ fn message只写判据句事实与下一步() {
 // 删除面（第 7 条）与恒进场
 // ---------------------------------------------------------------------------
 
-/// 正向：元素删除后派生 `<FQN>.schema.json` 仍在盘 ⇒ 恰一条 `apiUnexpected` / `warn` 且
+/// 正向：元素删除后派生 `<叶段>.schema.json` 仍在盘 ⇒ 恰一条 `apiUnexpected` / `warn` 且
 /// 尾句为「一并清理」；接口文件不在盘 ⇒ 零条（文档 `md` 不构成孤儿——它是理由资产）。
 #[test]
 fn 删除后孤儿契约报一条() {

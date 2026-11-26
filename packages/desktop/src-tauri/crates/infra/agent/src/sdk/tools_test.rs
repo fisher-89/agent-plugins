@@ -1830,7 +1830,7 @@ fn archi_module描述含doc纪律两半() {
     assert!(
         search
             .description
-            .contains("派生 <FQN>.md 与 <FQN>.schema.json 两条固定规则"),
+            .contains("派生 <叶段>.md 与 <叶段>.schema.json 两条固定规则"),
         "检索描述点名两条固定派生规则：{}",
         search.description
     );
@@ -2107,18 +2107,19 @@ fn 常量同源且doc随动() {
 // ---------------------------------------------------------------------------
 // 接口定义写闸（`write` / `edit` → `archi::validate_schema`，AC-4 / AC-5）
 //
-// 射程只有 `<archi_models_dir>/**/<FQN>.schema.json`：命中即校验候选正文、失败零落盘
+// 射程只有 `<archi_models_dir>/**/<叶段>.schema.json`：命中即校验候选正文、失败零落盘
 // （父目录也不建）、成功回执追加「接口已校验」；其余路径的写盘语义逐字不变。
 // ---------------------------------------------------------------------------
 
-/// 被测元素 FQN（文件名主干与 `$id` / `title` 三处同源）。
+/// 被测元素 FQN（`$id` / `title` 两处同源；文件名只取叶段）。
 const SCHEMA_FQN: &str = "App.Auth";
 
-/// 接口文件在 root 内的规范相对路径（`<archi_models_rel_dir>/App/App.Auth.schema.json`）。
+/// 接口文件在 root 内的规范相对路径（`<archi_models_rel_dir>/App/Auth.schema.json`）。
 fn interface_rel(fqn: &str) -> String {
     format!(
-        "{}/App/{fqn}.schema.json",
-        foundation::layout::archi_models_rel_dir()
+        "{}/App/{}.schema.json",
+        foundation::layout::archi_models_rel_dir(),
+        fqn.rsplit('.').next().unwrap_or(fqn)
     )
 }
 
@@ -2204,8 +2205,8 @@ async fn 接口文件写闸三类坏输入零落盘() {
             "{label} 文案点明校验失败：{error}"
         );
         assert!(
-            error.contains("App.Auth.schema.json"),
-            "{label} 文案点名接口文件名：{error}"
+            error.contains("Auth.schema.json"),
+            "{label} 文案点名接口文件：{error}"
         );
         assert!(error.contains(needle), "{label} 判据文案：{error}");
         assert!(!path.exists(), "{label} 失败后文件零落盘");
@@ -2289,7 +2290,7 @@ async fn 接口文件写闸边界形态() {
     );
 }
 
-/// 边界（射程封闭）：同目录 `<FQN>.md`、`<models>` 外的 `<X>.schema.json`、`<root>` 内
+/// 边界（射程封闭）：同目录 `<叶段>.md`、`<models>` 外的 `<X>.schema.json`、`<root>` 内
 /// 他处的 `schema.json` 一律原样落盘、零校验、回执零「接口已校验」。
 #[tokio::test]
 async fn 非接口路径零校验零回执() {
@@ -2297,9 +2298,9 @@ async fn 非接口路径零校验零回执() {
     let root = root_of(&dir);
     let models = foundation::layout::archi_models_dir(&root);
     let cases = [
-        models.join("App").join(format!("{SCHEMA_FQN}.md")),
+        models.join("App").join("Auth.md"),
         root.join(".dev-team/architecture/models-x")
-            .join(format!("{SCHEMA_FQN}.schema.json")),
+            .join("Auth.schema.json"),
         root.join("schema.json"),
     ];
     for path in cases {
@@ -2326,30 +2327,27 @@ async fn 非接口路径零校验零回执() {
     }
 }
 
-/// 边界（命中判定五形态）：`<models>/**/<FQN>.schema.json` 命中（坏正文即 `Err`）；
+/// 边界（命中判定五形态）：`<models>/**/<叶段>.schema.json` 命中（坏正文即 `Err`）；
 /// `<models>` 之外的另一棵树、大写后缀 `.schema.JSON`、`<models>` 的兄弟目录同名文件皆不
-/// 命中（坏正文照常落盘）；命中判据是**文件名后缀**（`archi::schema_fqn` 反查），不预判
-/// 主干是否 FQN——主干形态由闸 ③ 的 `$id` 期望值兜住。
+/// 命中（坏正文照常落盘）；命中判据是**相对路径**（`archi::schema_fqn` 反查：分层目录段
+/// + 无点叶段），不预判叶段是否为模型里的元素——元素身份由闸 ③ 的 `$id` 期望值兜住。
 #[tokio::test]
 async fn 写闸命中判定五形态() {
     let dir = tempdir("gate-hit");
     let root = root_of(&dir);
     let models = foundation::layout::archi_models_dir(&root);
 
-    let deep = models
-        .join("Deep")
-        .join("Dir")
-        .join(format!("{SCHEMA_FQN}.schema.json"));
+    let deep = models.join("Deep").join("Dir").join("Auth.schema.json");
     let error = execute(&root, "write", &json!({ "path": deep, "content": "{" }))
         .await
         .expect_err("目录深处的接口文件同属射程");
     assert!(error.contains("接口定义文件"), "命中判据不看层级：{error}");
 
     let outside_dir = tempdir("gate-hit-outside");
-    let outside = outside_dir.path().join(format!("{SCHEMA_FQN}.schema.json"));
+    let outside = outside_dir.path().join("Auth.schema.json");
     let miss = [
         outside,
-        models.join("App").join(format!("{SCHEMA_FQN}.schema.JSON")),
+        models.join("App").join("Auth.schema.JSON"),
         root.join(".dev-team/architecture/models.schema.json"),
     ];
     for path in miss {
@@ -2365,12 +2363,12 @@ async fn 写闸命中判定五形态() {
         );
     }
 
-    // 主干非 FQN 但仍以 `.schema.json` 结尾：文件名命中即进闸（射程判据不看主干），
+    // 叶段只要无点即可反查（`is_fqn` 只封路径分隔与空段）：带空格的叶段仍是接口文件，
     // 坏正文被拒。
     let non_fqn = models.join("App").join("weird name.schema.json");
     let error = execute(&root, "write", &json!({ "path": non_fqn, "content": "{" }))
         .await
-        .expect_err("主干非 FQN 仍是接口文件，坏正文即 Err");
+        .expect_err("叶段可反查即仍是接口文件，坏正文即 Err");
     assert!(error.contains("不是合法 JSON"), "判据文案：{error}");
 }
 
