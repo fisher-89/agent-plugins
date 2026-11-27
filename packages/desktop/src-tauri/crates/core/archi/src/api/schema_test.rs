@@ -927,6 +927,18 @@ fn build_index说明段三行与语言词禁令() {
 
     assert!(lines[0].contains("勿手改"), "首行生成警示：{}", lines[0]);
     assert!(
+        lines[0].contains("由 archi-api 生成"),
+        "首行生成器为产品名（不是 CLI 裸名）：{}",
+        lines[0]
+    );
+    for command in ["archi-api-gen", "api:check", "api:export", "pnpm"] {
+        assert!(
+            !lines[0].contains(command),
+            "首行零本仓入口名 `{command}`：{}",
+            lines[0]
+        );
+    }
+    assert!(
         lines[1].contains("review") && lines[1].contains("<叶段>.md"),
         "次行 review 口径（只读同目录的叶段 md）：{}",
         lines[1]
@@ -1864,8 +1876,8 @@ fn build_index说明段与条目规模无关() {
 // ---------------------------------------------------------------------------
 
 /// 异常（AC-2 / AC-5 源码自证）：`build_schema` 零命中（生成器不再产接口文件）；
-/// `GENERATED_NOTICE` 逐字保留（`.i.*` 字节不变的前提）；`SCHEMA_WRITER_NOTICE` 在场且含
-/// 「手写接口真相」与 `archi_api` 的 `check` 自查。
+/// `GENERATED_NOTICE` 仍含「勿手改」与生成物检查语义且零本仓脚本名；`SCHEMA_WRITER_NOTICE`
+/// 在场且含「手写接口真相」与 `archi_api` 的 `check` 自查。
 #[test]
 fn 生成器让位而注记分家() {
     let source = include_str!("schema.rs");
@@ -1875,10 +1887,16 @@ fn 生成器让位而注记分家() {
         "`build_schema` 已退役（接口文件是手写资产）"
     );
     let module = include_str!("mod.rs");
-    for needle in ["本文件由元素的契约 markdown 生成", "勿手改", "api:check"] {
+    for needle in ["本文件由元素的契约 markdown 生成", "勿手改", "生成物检查"] {
         assert!(
             module.contains(needle),
-            "`GENERATED_NOTICE` 逐字保留（缺 `{needle}`）"
+            "`GENERATED_NOTICE` 含 `{needle}`"
+        );
+    }
+    for command in ["api:check", "api:export", "pnpm"] {
+        assert!(
+            !module.contains(command),
+            "`GENERATED_NOTICE` 零本仓脚本名 `{command}`"
         );
     }
     for needle in ["手写接口真相", "`archi_api` 的 `check`"] {

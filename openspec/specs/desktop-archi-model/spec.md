@@ -551,7 +551,7 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 
 #### Scenario: 常量不进线面与生成物
 
-- **WHEN** 运行 `api:export` 与 `bindings:export` 并与盘上产物比对
+- **WHEN** 执行生成（`archi_api_generate`）与 `bindings:export` 并与盘上产物比对
 - **THEN** `INDEX.toml` / `.schema.json` / `.i.rs` / `.i.ts` / `bindings.ts` 零 diff（`Backend.Core.Archi` 与 `Backend.Infra.AgentRuntime` 的契约状态均为 `absent`，常量不计入 `types` / `ops`）；`ELEMENT_FIELD_NAMES` 在生成物内零命中
 
 

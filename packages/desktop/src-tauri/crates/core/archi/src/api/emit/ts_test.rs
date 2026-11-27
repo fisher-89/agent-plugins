@@ -1026,8 +1026,14 @@ fn render的头注释() {
         .collect();
     assert!(header.len() >= 4, "头注释至少四行：{header:?}");
     let joined = header.join("\n");
-    for phrase in ["勿手改", "下次 generate", "api:check", "impl 块"] {
+    for phrase in ["勿手改", "下次生成时被覆盖", "生成物检查", "impl 块"] {
         assert!(joined.contains(phrase), "头注释含 `{phrase}`：\n{joined}");
+    }
+    for command in ["api:check", "api:export", "pnpm"] {
+        assert!(
+            !joined.contains(command),
+            "头注释零本仓脚本名 `{command}`：\n{joined}"
+        );
     }
     assert!(
         joined.contains(&format!("archi-api {}", env!("CARGO_PKG_VERSION"))),

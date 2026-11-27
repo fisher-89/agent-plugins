@@ -178,9 +178,9 @@ SDK 引擎 SHALL 提供专用**只读**工具 `archi_api`（不在七通用工�
 ```
 
 - **三动作封闭**：`action` SHALL 只接受 `check` / `bootstrap` / `link` 三值（封闭值集；词汇外值以 `is_error` 回灌并点名三个合法值，MUST NOT 静默退化）。
-- **`check` = 两轴结构化结果**：返回「生成物新鲜度」与「契约 vs 代码」两轴的并列内容——① 三类差异（`mismatched` / `orphaned` / `missing`，repo 相对串，取自与 IPC / CLI 同一份比对实现）；② 契约判据摘要（按 `category` 计数的映射 + 逐条 `{ kind, category, element, target, message }`）。响应 SHALL 复用既有出线形状（`ArchiApiCheck` 的字段与 `ArchiApiFinding` 的条目），MUST NOT 在工具执行体内另拼一份投影；MUST NOT 各自实现在第二处（判定单源）。**历史 `api-*` fence MUST NOT 产生任何计数或提示**（它已退化为普通文档内容）。
+- **`check` = 两轴结构化结果**：返回「生成物新鲜度」与「契约 vs 代码」两轴的并列内容——① 三类差异（`mismatched` / `orphaned` / `missing`，repo 相对串，取自与 IPC 同一份比对实现）；② 契约判据摘要（按 `category` 计数的映射 + 逐条 `{ kind, category, element, target, message }`）。响应 SHALL 复用既有出线形状（`ArchiApiCheck` 的字段与 `ArchiApiFinding` 的条目），MUST NOT 在工具执行体内另拼一份投影；MUST NOT 各自实现在第二处（判定单源）。**历史 `api-*` fence MUST NOT 产生任何计数或提示**（它已退化为普通文档内容）。
 - **`check` 的处置结论 `remedy`（本变更新增，工具响应层）**：`check` 响应 SHALL 另含一个顶层 `remedy` 键，按三态取值——① 三类差异全空 ⇒ `null`（无处置可给）；② 有差异且**本轮下发面含** `archi_generate` ⇒ 指向该工具本身（调用即生成，MUST NOT 手改生成物）；③ 有差异且本轮**无**该工具（如 `implement/executor`）⇒ 指向「请用户在架构页会话生成」并明写「MUST NOT 手改生成物」。该键 SHALL 只存在于工具响应层：MUST NOT 进 `ArchiApiCheck` DTO、MUST NOT 进 bindings、MUST NOT 成为枚举或新词汇（与既有「agent 面是文本、人类面是结构化 DTO」的差异同源）。
-- **`bootstrap` = 双草稿（起草第一步）**：`element` 必填，返回 `{ schema, doc }` 两段草稿文本——与 CLI `bootstrap` 同一份内容（形态归 `desktop-archi-api`「bootstrap 双草稿（schema 骨架 + doc 骨架）」），本能力 MUST NOT 另立第二份形态判据。该动作是新建 / 补接口的**第一步**，描述面 SHALL 说出这句指路（否则 agent 只知它能出草稿、不知该先用它）。`element` 缺失 / 元素不存在 / 无实现入口 ⇒ `is_error` 并透传 `ApiError` 文案。
+- **`bootstrap` = 双草稿（起草第一步）**：`element` 必填，返回 `{ schema, doc }` 两段草稿文本——与 `api::bootstrap` 同一份内容（形态归 `desktop-archi-api`「bootstrap 双草稿（schema 骨架 + doc 骨架）」），本能力 MUST NOT 另立第二份形态判据。该动作是新建 / 补接口的**第一步**，描述面 SHALL 说出这句指路（否则 agent 只知它能出草稿、不知该先用它）。`element` 缺失 / 元素不存在 / 无实现入口 ⇒ `is_error` 并透传 `ApiError` 文案。
 - **`link` = `$ref` 串计算（纯计算，零读盘写盘）**：
   - 跨元素形态：`{ from, to, name }` → `"<ref_relative(from, to)>#/$defs/<name>"`（例：`"../../Desktop/Components/Agent/AgentInput.schema.json#/$defs/AgentInputProps"`）；
   - 本模块形态：`{ element, name }` → `"#/$defs/<name>"`；

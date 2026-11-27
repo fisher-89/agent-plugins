@@ -37,11 +37,11 @@
   存在」一条判据；本期连它一并留白，成因是下一条。
 - **前端 `.i.ts` 生成链与格式化不动点尚未对齐**（实测，本元素与 `AgentError` /
   `AgentMessages` 同批触发）：`emit::ts` 的段落分隔在文件末尾多出一个空行，`vp check` 的
-  格式化器会把它剥掉，剥掉之后 `api:check` 的零 diff 门即判
+  格式化器会把它剥掉，剥掉之后生成物检查（`archi_api` 的 `check`）即判
   `mismatched: packages/desktop/src/components/agent/message-cards/blocks.i.ts`。两条出路都在
   源码/配置面（生成器去掉末尾空行，或把 `src/**/*.i.ts` 纳入 `vite.config.ts` 的
   `NO_STATIC_CHECK`），属独立的生成链接线变更；在那之前，前端的任何声明都会让
-  `client:check` 与 `api:check` 二选一。故本元素 `$defs` 为空、操作面留白如上。
+  `client:check` 与生成物检查二选一。故本元素 `$defs` 为空、操作面留白如上。
 
 ## 类型
 

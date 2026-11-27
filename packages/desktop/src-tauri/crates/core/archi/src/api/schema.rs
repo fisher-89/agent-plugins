@@ -827,7 +827,7 @@ pub fn build_index(entries: &[IndexEntry], meta: &ApiMeta) -> String {
     let contract_dir = foundation::layout::archi_models_rel_dir();
     let digest = short_digest(&meta.common_digest);
     let header = format!(
-        "由 archi-api-gen 生成 · 勿手改\n\
+        "由 archi-api 生成 · 勿手改\n\
          review 口径：读 `<叶段>.schema.json`（接口，手写真相）与 `<叶段>.md`（理由；同目录、叶段即 FQN 末段）；status 的 declared = 接口文件在案；本文件与 `*.i.*` 的 diff 视为机械噪声。\n\
          契约面：目录 {} · 生成器 archi-api {} · 映射规则摘要 {}\n",
         contract_dir, meta.tool_version, digest

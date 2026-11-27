@@ -1,8 +1,8 @@
 //! 应生成物的渲染单点：元素表 → 装载接口定义 → 装配**三类**生成物（`INDEX.toml` / `.i.rs` /
 //! `.i.ts`；手写的 `.schema.json` / `.md` 不是生成物）。
 //!
-//! **纯读盘、零写盘、零 spawn**：CLI（`archi-api-gen`）、两条 IPC（检查 / 生成）与
-//! agent 工具（`archi_api`）共用本函数，MUST NOT 出现第二份 `collect`。
+//! **纯读盘、零写盘、零 spawn**：两条 IPC（检查 / 生成）与 agent 工具
+//! （`archi_generate`）共用本函数，MUST NOT 出现第二份 `collect`。
 //!
 //! fail-closed 来自 [`super::elements_of`]：模型含任一结构诊断即 `ApiError::Element`
 //! ⇒ 坏模型不会被固化成入库生成物（与 [`super::bootstrap`] 同口径）。

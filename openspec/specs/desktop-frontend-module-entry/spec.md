@@ -183,7 +183,7 @@ after  : kind = "module" · path = ["./packages/desktop/src/components/agent/"]
 
 ### CLI: 无
 
-判据面由既有 `vp check`（`knip` + typeCheck）、`api:check` 与架构检查命令承担，本能力 MUST NOT 新增脚本。
+判据面由既有 `vp check`（`knip` + typeCheck）、生成物检查与架构检查命令承担，本能力 MUST NOT 新增脚本。
 
 ### Component: 无
 

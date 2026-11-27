@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义模块资产的三份分工与生成链：`<archi_models_dir>/<分层目录…>/<叶段>.md` 写理由（无结构文档）、同目录 `<叶段>.schema.json` 写接口（**唯一凭据、手写真相**，装载与写闸共用 `validate_schema` 九道闸），`INDEX.toml` / `.i.rs` / `.i.ts` 为三类生成物；加上引用与命名规则、关键字集与类型映射、生成物落点与入口查找、零 diff 门挂载、仓库根契约纪律节、语言无关纪律、`verify` 闭环与 `bootstrap` 双草稿、模块嵌套与选择性透传、TS 导出闭包取数面。
+定义模块资产的三份分工与生成链：`<archi_models_dir>/<分层目录…>/<叶段>.md` 写理由（无结构文档）、同目录 `<叶段>.schema.json` 写接口（**唯一凭据、手写真相**，装载与写闸共用 `validate_schema` 九道闸），`INDEX.toml` / `.i.rs` / `.i.ts` 为三类生成物；加上引用与命名规则、关键字集与类型映射、生成物落点与入口查找、零 diff 门挂载、语言无关纪律、`verify` 闭环与 `bootstrap` 双草稿、模块嵌套与选择性透传、TS 导出闭包取数面。
 
 ## Requirements
 
@@ -273,7 +273,7 @@
 #### Scenario: 路径形态非法即拒收（安全边界）
 
 - **WHEN** 元素 `<root>`、入口候选或契约 FQN 取绝对路径 / 含盘符 / 含 `..` 段 / 含空段 / 为空串（如 `path = ["/abs/elsewhere"]`、`path = ["crates/../../outside"]`、`entry = "../x.rs"`、`fqn = "App..X"`）
-- **THEN** `contract_path` / `schema_path` / `generated_path` / `entry_state` 一律返回空或 `Absent`（`Malformed` 形态归 `Absent` / `Invalid`），不 panic、不落到仓外；`root.join(绝对路径)` 的「替换 base」与 `..` 的「上溯」因此结构上不可达——「证据在盘」的探测不会变成任意文件读，工具 crate 的写盘不会变成任意文件写。**第二层**：`archi-api-gen` 的写盘函数 SHALL 另以目标须落在观察根之下（`starts_with(root)`）复核，越界即拒绝并零副作用（两层判据交叉验证，任一层失效另一层仍拦得住）
+- **THEN** `contract_path` / `schema_path` / `generated_path` / `entry_state` 一律返回空或 `Absent`（`Malformed` 形态归 `Absent` / `Invalid`），不 panic、不落到仓外；`root.join(绝对路径)` 的「替换 base」与 `..` 的「上溯」因此结构上不可达——「证据在盘」的探测不会变成任意文件读，工具 crate 的写盘不会变成任意文件写。**第二层**：写盘单点（`infra/archi` 的 `write_artifacts`）SHALL 另以目标须落在观察根之下（`starts_with(root)`）复核，越界即拒绝并零副作用（两层判据交叉验证，任一层失效另一层仍拦得住）
 
 ### Requirement: 生成物入仓与零 diff 门挂载
 
@@ -281,15 +281,15 @@
 
 | 生成物 | 落点 | 入库 | 门禁 |
 |---|---|---|---|
-| `INDEX.toml` | `<archi_graph_dir>/`（全局唯一一份） | 是 | `api:check` 零 diff |
-| `<入口主干>.i.rs` | **元素实现入口同级**（`crates/infra/archi/src/lib.i.rs`） | 是 | `api:check` 零 diff + `cargo check` |
-| `<入口主干>.i.ts` | **元素实现入口同级**（`views/welcome-view.i.ts`） | 是 | `api:check` 零 diff + `tsc --noEmit` |
+| `INDEX.toml` | `<archi_graph_dir>/`（全局唯一一份） | 是 | 生成物检查零差异 |
+| `<入口主干>.i.rs` | **元素实现入口同级**（`crates/infra/archi/src/lib.i.rs`） | 是 | 生成物检查零差异 + `cargo check` |
+| `<入口主干>.i.ts` | **元素实现入口同级**（`views/welcome-view.i.ts`） | 是 | 生成物检查零差异 + `tsc --noEmit` |
 
-- **`<叶段>.schema.json` 不再是生成物**：它是手写真相（第二份资产），MUST NOT 进 `api:check` 的应生成集、MUST NOT 进 `orphaned` 列、MUST NOT 由任何生成器写出。它同样入库（git 基线是人工 review 与审计的入口）。
+- **`<叶段>.schema.json` 不再是生成物**：它是手写真相（第二份资产），MUST NOT 进生成物检查的应生成集、MUST NOT 进 `orphaned` 列、MUST NOT 由任何生成器写出。它同样入库（git 基线是人工 review 与审计的入口）。
 - **`INDEX.toml` 的 `generated` 列取入口同级路径**：无入口（`Absent` / `Invalid`）的元素该列留空——生成物路径是入口的函数，无入口即无路径可写。
 - **孤儿扫描 SHALL 只剩一个根**：`<archi_graph_dir>/INDEX.toml`（全局唯一）。`*.schema.json` MUST NOT 进孤儿枚举——不去掉就是「11 份手写文件全进 `orphaned`」，症状是「全红」而不是「少一条」。深度上限防环、符号链接不跟随、`read_dir` 只出现在有界枚举里、repo 相对路径串由同一 `display` 单点产出，四条纪律逐字沿用。
-- **脚本面封闭两条**：`api:export`（写盘）与 `api:check`（生成到内存后比对、**零写入**，差异即非零退出；比对由工具内完成，不依赖任何 `git diff` 段）。`check` 链 SHALL 为四段：`server:check && bindings:export && api:check && client:check`——段序与段数零变化，`bindings:export` 与 `client:check` 两段命令形态逐字不变。
-- **单一实现、多驱动面（本变更由四改五）**：渲染与三类差异比对各有唯一实现（`core/archi` 纯函数），写盘有唯一实现（`infra/archi` 的 `write_artifacts`）；消费路径 SHALL 恰为**五条**——两 IPC（检查 / 生成）、两 CLI 子命令（`export` / `check`）与 **agent 工具 `archi_generate`**（见 `desktop-archi-agent`「archi_generate 生成物工具」）。五者 MUST NOT 各写一份渲染、比对或写盘；agent 工具 SHALL 经 `core/archi` 的 `ArtifactWriter` 端口把写盘委托给同一 `write_artifacts`（端口与实现落位见 `desktop-crate-layout`「core/archi crate 落地登记」）。MUST NOT 为 agent 面新增任何写盘实现、MUST NOT 让 `core/archi` 出现写盘。
+- **驱动入口（脚本入口已下线）**：本仓 MUST NOT 提供该能力的 CLI / pnpm 脚本入口——`api:export` / `api:check` 与 `archi-api-gen` CLI 均已下线，生成与检查经下述三条驱动面按需调用。`check` 链 SHALL 为三段：`server:check && bindings:export && client:check`——`bindings:export` 与 `client:check` 两段命令形态逐字不变。
+- **单一实现、多驱动面**：渲染与三类差异比对各有唯一实现（`core/archi` 纯函数），写盘有唯一实现（`infra/archi` 的 `write_artifacts`）；消费路径 SHALL 恰为**三条**——两 IPC（检查 / 生成）与 **agent 工具 `archi_generate`**（见 `desktop-archi-agent`「archi_generate 生成物工具」）。三者 MUST NOT 各写一份渲染、比对或写盘；agent 工具 SHALL 经 `core/archi` 的 `ArtifactWriter` 端口把写盘委托给同一 `write_artifacts`（端口与实现落位见 `desktop-crate-layout`「core/archi crate 落地登记」）。MUST NOT 为 agent 面新增任何写盘实现、MUST NOT 让 `core/archi` 出现写盘。
 - **`knip` 边界**：`knip.json` 的 `ignore` SHALL 含 `src/**/*.i.ts`；MUST NOT 新增 `ignoreExportsUsedInFile` 或 `ignoreDependencies`。
 - **类型绑定再生成**：`ArchiApiFindingKind`（十值）/ `ArchiApiFinding` / 报告字段 `apiFindings` / `ArchiModuleDetail` 的新字段 SHALL 经 `bindings:export` 进 `bindings.ts` 与 `bindings.zod.ts`（再生成后入库，过期由提交前人工核对）；本能力 MUST NOT 手写前端类型镜像。**工具响应层的字段不走该面**：`archi_generate` 的 `{ written, unchanged, conflicts }` 与 `archi_api(check)` 的 `remedy` 是字符串响应，MUST NOT 进 DTO 或 bindings。
 - **TS 侧形状校验的机制前提**：实现侧 SHALL `import type` 引用生成的 `.i.ts` 并标注返回类型；`isolatedModules` 下重导出须写 `export type { … }`。
@@ -297,64 +297,33 @@
 
 #### Scenario: 三类生成物齐入仓且零 diff
 
-- **WHEN** 执行 `api:export` 后再执行 `api:check`
-- **THEN** 三类生成物均在盘且已在 git 内，第二次检查零差异、退出码 0；`git status` 干净
+- **WHEN** 调 `archi_api_generate` 后再调生成物检查（`archi_api` 的 `check` 或 IPC `archi_api_check`）
+- **THEN** 三类生成物均在盘且已在 git 内，第二次检查零差异；`git status` 干净
 
-#### Scenario: 手改 `.schema.json` 不被 `api:check` 判红
+#### Scenario: 手改 `.schema.json` 不被生成物检查判红
 
-- **WHEN** 手改一份已提交的 `<叶段>.schema.json`（合法改动）后执行 `api:check`
+- **WHEN** 手改一份已提交的 `<叶段>.schema.json`（合法改动）后调生成物检查
 - **THEN** 差异面只报 `.i.rs` / `.i.ts` / `INDEX.toml` 的应随动项（若有），**不报该 schema 为 `orphaned` / `mismatched`**——它不是生成物；回退 .i.* 后检查恢复通过
 
 #### Scenario: 手改真生成物即被拦
 
-- **WHEN** 手改已提交的 `INDEX.toml`、`.i.rs` 或 `.i.ts` 任一后执行 `api:check`
-- **THEN** 检查以非零退出并列出被改文件（`--check` 阶段无写盘）；回退后恢复通过
+- **WHEN** 手改已提交的 `INDEX.toml`、`.i.rs` 或 `.i.ts` 任一后调生成物检查
+- **THEN** 检查列出被改文件（`archi_api` 的 `check` 与 IPC `archi_api_check` 均零写盘）；回退后恢复通过
 
 #### Scenario: 孤儿生成物在任意深度均被检出
 
-- **WHEN** 删除元素或改其根路径后，在任意深度留下 `*.i.rs` / `*.i.ts` 残留，随后执行 `api:check`
-- **THEN** 「应删未删」逐条列出这些文件并以非零退出；`target` / `node_modules` / `dist` / `build` / `.git` 里的同名文件不参与；普通源文件（`*.ts` / `*.rs` / `*.md` / `*.schema.json`）零误伤
+- **WHEN** 删除元素或改其根路径后，在任意深度留下 `*.i.rs` / `*.i.ts` 残留，随后调生成物检查
+- **THEN** 「应删未删」逐条列出这些文件；`target` / `node_modules` / `dist` / `build` / `.git` 里的同名文件不参与；普通源文件（`*.ts` / `*.rs` / `*.md` / `*.schema.json`）零误伤
 
-#### Scenario: check 链四段且 fmt 段为校验模式
+#### Scenario: check 链三段且 fmt 段为校验模式
 
-- **WHEN** 审查 `package.json` 的 `check` 脚本与四段
-- **THEN** `check` 逐字为 `pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check`；`api:check` 的调用形态逐字不变；`server:check` 的 fmt 段为 `cargo fmt --all --check`
+- **WHEN** 审查 `package.json` 的 `check` 脚本与三段
+- **THEN** `check` 逐字为 `pnpm run server:check && pnpm run bindings:export && pnpm run client:check`；`server:check` 的 fmt 段为 `cargo fmt --all --check`
 
-#### Scenario: 五条驱动面同源可对拍（本变更新增）
+#### Scenario: 三条驱动面同源可对拍
 
-- **WHEN** 在同一临时根上分别经 IPC `archi_api_generate`、CLI `archi-api-gen generate` 与 agent 工具 `archi_generate` 各生成一次
-- **THEN** 三者写出的文件集与字节内容逐字相同、`written` / `unchanged` 的划分相同；`grep` 对「第二份 `write_artifacts` 等价实现」零命中；`core/archi` 仍零 `fs::write`（写盘只在 `infra/archi` 一处）
-
-### Requirement: 仓库根文档的契约纪律节
-
-仓库根 `AGENT.md` SHALL 承载一节 `## 模块 API 契约` 作为 agent 侧的操作纪律入口，内容 SHALL 限于**指针与最简规则**，MUST NOT 复制契约正文、判据长表或 fenced json 示例：
-
-- 该节 SHALL 恰含**五条要点**：① **三资产分工与落位**——`<archi_models_dir>/<分层目录…>/<叶段>.md` 写理由（文档，无结构）、同目录 `<叶段>.schema.json` 写接口（唯一凭据），附一句「文件名只取 FQN 叶段（祖先链由分层目录承载）」与一句「文档 MUST NOT 枚举导出名（名字清单的唯一持有者是 schema）」；② **三类生成物勿手改**（`INDEX.toml` 在 `<archi_graph_dir>`、**实现入口同级**的 `<入口主干>.i.rs` / `<入口主干>.i.ts`）与「已提交手改即零 diff 门红、未提交即被静默覆盖」；③ `api:export` / `api:check` 两脚本与 `check` 链的段序；④ `api = none` 是显式留白而非「还没写」，留白的正规形态是空 schema（`$defs {}` + `properties {}`）；⑤ **纳管口径**——`api = declared` ∧ schema 在盘的元素，其判据影响 `status`（`error` 档还进 `passed`），文档债（`docMissing`）恒 `warn`、永不纳管；索引与计数经 `<archi_graph_dir>/INDEX.toml` 查看。
-- **历史 fence 的措辞 SHALL 只在第 ① 条出现一句**：「历史 `api-*` fence 是遗留内容（读面不读，清理中），MUST NOT 新增」——它是 agent 侧唯一可见的该事实出处；MUST NOT 展开成判据条件、错误文案样例或清理计划。
-- 该节 MUST NOT 含契约示例正文、`ArchiApiFindingKind` 的十值长表或判据定义（定义归本能力与 `desktop-archi-api-check`）——文档与 spec 双写必然漂移（`AGENT.md` / `CLAUDE.md` 同源复制即既有反例）。
-- 该节 MUST NOT 出现 `openspec/specs/**` 路径，且 MUST NOT 把契约路径写进模型元素 `doc`。
-- **条目数恒 5**：本变更 MUST NOT 增删要点（`entry` 字段、写闸细节、schema 校验九条都不成为第六条）——写闸与校验的细节归工具面与知识文本。
-- `CLAUDE.md` SHALL 同步同一节且与 `AGENT.md` 保持既有同源纪律：两文件该节正文逐字相同，全文件差异 SHALL 限于节外既有差异（标题行、首行说明行、文件末尾换行）。
-
-#### Scenario: 五条要点与分工表述在场
-
-- **WHEN** 审查 `AGENT.md` 的 `## 模块 API 契约` 一节
-- **THEN** `grep -c '^## 模块 API 契约' = 1`；节内恰 5 条要点；第 ① 条含「`.md` 写理由 / `.schema.json` 写接口」与「文档 MUST NOT 枚举导出名」两句；第 ② 条写「实现入口同级」+ `<入口主干>.i.rs` / `.i.ts`；第 ④ 条含空 schema 形态；第 ⑤ 条含「`docMissing` 永不纳管」
-
-#### Scenario: 纪律节零正文与零 spec 路径
-
-- **WHEN** 审查该节全文
-- **THEN** `grep 'apiEntryMissing'` / `grep 'apiSignatureMismatch'` 在该节零命中；零 fenced json 代码块；零 `openspec/specs/` 路径；零 `entry` 字段说明
-
-#### Scenario: 两份副本不分化
-
-- **WHEN** 对 `AGENT.md` 与 `CLAUDE.md` 做 `diff`
-- **THEN** 差异恰 2 处且全在 `## 模块 API 契约` 节外；该节在两文件各恰一处且节内正文零 diff 行
-
-#### Scenario: 旧口径零残留
-
-- **WHEN** 对该节做反向断言
-- **THEN** `grep '四类生成物'` / `grep '唯一手写真相：.*\.md'` / `grep '三类 fenced json'` 在该节零命中；第 ② 条不再出现 `.schema.json`（它不是生成物）
+- **WHEN** 在同一临时根上分别经 IPC `archi_api_generate` 与 agent 工具 `archi_generate` 各生成一次，再分别经 IPC `archi_api_check` 与 agent 工具 `archi_api(check)` 各检查一次
+- **THEN** 两个生成面写出的文件集与字节内容逐字相同、`written` / `unchanged` 的划分相同；两个检查面报出的三类差异逐条相等；`grep` 对「第二份 `write_artifacts` 等价实现」零命中；`core/archi` 仍零 `fs::write`（写盘只在 `infra/archi` 一处）
 
 ### Requirement: 语言无关纪律与语言特定落点
 
@@ -383,11 +352,11 @@
 
 ### Requirement: 生成器、verify 闭环与 bootstrap 剪枝
 
-`verify` SHALL 定义为机械判定而非独立模式：**`generate`（`--check` 零写入，比对在工具内完成）+ 语言编译器**，另加**写闸**（接口文件上盘即合法）。MUST NOT 引入归一函数、双层锁或语义 diff 比对器。
+`verify` SHALL 定义为机械判定而非独立模式：**生成 + 生成物检查（零写入，比对在单一实现内完成）+ 语言编译器**，另加**写闸**（接口文件上盘即合法）。MUST NOT 引入归一函数、双层锁或语义 diff 比对器。
 
-- **判定在 core，写盘在工具 crate**：接口文件的装载校验、生成物渲染、判据求值 SHALL 全部落 `crates/core/archi/src/api/**`（纯读、零写盘、零 spawn）；唯一写盘面 SHALL 为 `crates/tools/archi-api-gen`（CLI）与 `crates/infra/archi` 的 `write_artifacts` 单点。
-- **CLI 三子命令封闭**：`generate`（写**三类**生成物：`INDEX.toml` / `<入口主干>.i.rs` / `<入口主干>.i.ts`）、`--check`（生成到内存后与磁盘比对，零写入，差异即非零退出并列文件名）、`bootstrap`（输出**双草稿**到 stdout，不写盘）。`generate` SHALL 幂等。MUST NOT 让 `generate` 写 `.schema.json`（它是手写真相）。
-- **`bootstrap` 的出口形状**：`api::bootstrap(root, element)` SHALL 返回两段文本（schema 骨架 + doc 骨架）；CLI 与 agent 工具两条出口 SHALL 出**同一份**内容（CLI 打印单行 JSON `{ "schema": "…", "doc": "…" }`，工具回同名对象）。
+- **判定在 core，写盘在 infra/archi**：接口文件的装载校验、生成物渲染、判据求值 SHALL 全部落 `crates/core/archi/src/api/**`（纯读、零写盘、零 spawn）；唯一写盘面 SHALL 为 `crates/infra/archi` 的 `write_artifacts` 单点。
+- **生成 / 检查 / 草稿三出口封闭**：生成（写**三类**生成物：`INDEX.toml` / `<入口主干>.i.rs` / `<入口主干>.i.ts`）、检查（生成到内存后与磁盘比对，零写入）、草稿（`bootstrap` 输出**双草稿**，不写盘）。生成 SHALL 幂等。MUST NOT 让生成写 `.schema.json`（它是手写真相）。
+- **`bootstrap` 的出口形状**：`api::bootstrap(root, element)` SHALL 返回两段文本（schema 骨架 + doc 骨架）；agent 工具 `archi_api(bootstrap)` 回 `{ "schema": "…", "doc": "…" }` 两键，内容与该函数逐字相同。
 - **`verify` 覆盖不到的三件事 SHALL 显式列出**：bootstrap 方向（代码 → 接口草稿，一次性迁移工具，非常态门禁）、跨模块语义不变量（散文 + 专项测试）、生成器自身正确性（生成器自己的单测）。
 - **bootstrap SHALL 走 AST，MUST NOT 正则抽签名**（Rust 多行签名占 30–62%，`grep` 单行抽取会截半）；TS 侧只判 `export function`（实测 `export const` 里零箭头函数）。
 - **`visibility` 封闭四值**（`external` / `crateOnly` / `unused` / `testOnly`）与其本期值域留白（TS 生产面只产 `external`，`unused` 降级接口零调用者）逐字沿用；MUST NOT 为 TS 造第二套死代码扫描。
@@ -399,22 +368,22 @@
 #### Scenario: verify 三件套闭环
 
 - **WHEN** 改动代码签名但不重生成生成物
-- **THEN** `api:check` 报差异并以非零退出（点名文件）；重生成后零 diff；若改动与接口定义不符则编译器报错
+- **THEN** 生成物检查报差异（点名文件）；重生成后零差异；若改动与接口定义不符则编译器报错
 
-#### Scenario: `--check` 零写盘
+#### Scenario: 检查零写盘
 
-- **WHEN** 以 `--check` 在有过期生成物的仓库上运行
-- **THEN** 磁盘字节零变化（含生成物、`INDEX.toml`），退出码非零、输出列出差异文件
+- **WHEN** 对有过期生成物的仓库调用生成物检查（`archi_api` 的 `check` 或 IPC `archi_api_check`）
+- **THEN** 磁盘字节零变化（含生成物、`INDEX.toml`），差异逐文件列出
 
 #### Scenario: generate 不产接口文件
 
-- **WHEN** 删除一份 `<叶段>.schema.json` 后执行 `api:export`
+- **WHEN** 删除一份 `<叶段>.schema.json` 后执行生成（`archi_api_generate`）
 - **THEN** 该文件**不被重建**（生成器无该产物）；`INDEX.toml` 的 `declared` 列对该元素转为 `absent`（schema 不在盘）
 
-#### Scenario: bootstrap 双草稿两出口同源
+#### Scenario: bootstrap 双草稿单出口
 
-- **WHEN** 分别执行 CLI `bootstrap <FQN>` 与调 `archi_api(action = "bootstrap", element = <FQN>)`
-- **THEN** 两者的 schema 骨架与 doc 骨架逐字相同；CLI 输出为单行 JSON 两键，工具响应为同名两键；两处均零写盘
+- **WHEN** 调 `archi_api(action = "bootstrap", element = <FQN>)`
+- **THEN** 响应为 `{ schema, doc }` 两键，与 `api::bootstrap` 返回逐字相同；零写盘
 
 #### Scenario: visibility 四值判定
 
@@ -603,7 +572,7 @@
 - **schema 骨架** SHALL 含正确的 `$schema` / `$id`（= `<FQN>.schema.json`）/ `title`（= FQN），`properties` 由代码符号生成的占位项（每个 op 一项 `{ "x-function": { "description": "", "params": [...], "returns": … } }`；每个类型一项 `{ "$ref": "#/$defs/<名>" }`），`$defs` 由代码符号生成；`description` 占位为空串 `""` 而 MUST NOT 写「（待补）」一类提示语（空串与缺省语义等价，提示语会被 `description` 的读者当正文渲染）。写闸 MUST NOT 校验 `description` 是否非空（留空是合法中间态）。
 - **schema 骨架 SHALL 可直接落盘并通过写闸**：它 MUST 满足 identity / 键空间 / 形态白名单 / 镜像 / `$ref` 前缀 / 零未知顶层键 / 复用三闸（含 `required ⊆ properties`）。MUST NOT 产 `api-reexport` 形态的占位（透传键值是设计判断，MUST NOT 以空条目冒充已声明）。
 - **doc 骨架 SHALL 只有 H1 与一句指引**：正文恰为 `# <FQN>` + 一句「段落按内容自定，先例见同目录同类元素」；MUST NOT 给任何 `##` 段名、MUST NOT 给 fence、MUST NOT 给作者注块。
-- **零写盘、零新出口**：两段只经既有两条出口流出（CLI stdout 单行 JSON / agent 工具 `{ schema, doc }`），MUST NOT 创建 / 覆盖 / 删除任何文件。
+- **零写盘、零新出口**：两段只经既有出口流出（agent 工具 `{ schema, doc }`），MUST NOT 创建 / 覆盖 / 删除任何文件。
 - **零参数与错误面不变**：`bootstrap` 的入参（`element`）、元素不存在 / 无实现入口 / 符号抽取失败的 `Err` 面逐字不变。
 
 #### Scenario: schema 骨架可直接落盘并过写闸
@@ -871,7 +840,7 @@ if x-class == true:
 
 #### Scenario: 生成物是格式化器固定点
 
-- **WHEN** 对 golden 用例（含 `derive` 行超宽折行形态）执行 `api:export` 后跑 `cargo fmt --all --check`
+- **WHEN** 对 golden 用例（含 `derive` 行超宽折行形态）执行生成（`archi_api_generate`）后跑 `cargo fmt --all --check`
 - **THEN** 零 diff（生成器产出即已格式化的稳定态）；MUST NOT 出现「生成物文本与手写逐字相同但 fmt 判红」的二选一
 
 ## Module Contract

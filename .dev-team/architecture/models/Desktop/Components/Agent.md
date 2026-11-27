@@ -49,7 +49,7 @@ agent 会话组件的统一出口：目录入口 `packages/desktop/src/component
   `paths::ts_import_specifier` 按入口形态产出（目录形态 → `../<目标根末段>.i`），而前端真值
   ——同目录 `./<目标入口主干>.i`、目标末段含 `.tsx`——尚未接线（该函数的显式留白），此刻写进来
   必然生成指向不存在文件的 `export type … from`。② 生成链：`emit::ts` 在文件末尾多出一个
-  空行，`vp check` 的格式化器剥掉它之后 `api:check` 的零 diff 门即判 `mismatched`——前端
+  空行，`vp check` 的格式化器剥掉它之后生成物检查（`archi_api` 的 `check`）即判 `mismatched`——前端
   `.i.ts` 的「格式化不动点 ⇄ 生成物零 diff」两条判据此刻互相矛盾（实测见
   `Desktop.Components.Agent.AgentBlocks` 的留白段）。两条出路都在源码/配置面，属独立的
   生成链接线变更；接线后逐条迁入 `$defs` 与透传清单（一次一条），迁移先后不预设。

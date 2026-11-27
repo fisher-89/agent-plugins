@@ -38,8 +38,8 @@
   放宽判据、也不是把三处类型降级成 `object`。
 - **展示载荷类型不进契约**：它本身是**能自洽表达**的类型（三个必填 `string` 字段，零外部引用），
   实测也通过 `apiMissing` 与 `apiSignatureMismatch`。留白的原因是生成链：
-  `emit::ts` 在文件末尾多出一个空行，`vp check` 的格式化器剥掉它之后 `api:check` 的零 diff 门
-  即判 `mismatched: …/agent-error.i.ts`——`client:check` 与 `api:check` 只能二选一。出路在
+  `emit::ts` 在文件末尾多出一个空行，`vp check` 的格式化器剥掉它之后生成物检查（`archi_api` 的
+  `check`）即判 `mismatched: …/agent-error.i.ts`——`client:check` 与生成物检查只能二选一。出路在
   源码/配置面（生成器去掉末尾空行，或把 `src/**/*.i.ts` 纳入 `NO_STATIC_CHECK`），属独立的
   生成链接线变更；接线后本元素的第一条 `$defs` 就该是它。
 

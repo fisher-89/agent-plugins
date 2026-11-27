@@ -627,15 +627,15 @@ fn 判据一四理由文案各点名对象() {
 #[test]
 fn 判据一留白工具crate零判据() {
     let mut tool = blank_element(
-        "App.Backend.Tools.ArchiApiGen",
-        &["crates/tools/archi-api-gen/"],
+        "App.Backend.Tools.ExportBindings",
+        &["crates/tools/export-bindings/"],
     );
-    tool.entry = Some("crates/tools/archi-api-gen/src/main.rs".to_owned());
+    tool.entry = Some("crates/tools/export-bindings/src/main.rs".to_owned());
 
     let fixture = Fixture::new("entry-resolved-blank").with_element(tool);
     fixture
         .temp
-        .write("crates/tools/archi-api-gen/src/main.rs", "fn main() {}\n");
+        .write("crates/tools/export-bindings/src/main.rs", "fn main() {}\n");
 
     let findings = fixture.run();
     assert!(

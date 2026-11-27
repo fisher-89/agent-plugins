@@ -74,7 +74,6 @@ members = [
     "crates/infra/store",
     "crates/infra/vcs",
     "crates/infra/watch",
-    "crates/tools/archi-api-gen",
     "crates/tools/export-bindings",
     "crates/tools/specta-zod-patched",
 ]
@@ -84,10 +83,6 @@ members = [
 agent = { path = "crates/core/agent" }
 agent-runtime = { path = "crates/infra/agent" }
 archi = { path = "crates/core/archi" }
-# 模块 API 契约生成器（CLI 工具，不被 app 依赖）：生成物写盘的唯一面
-archi-api-gen = { path = "crates/tools/archi-api-gen" }
-# 架构漂移门禁执行面（infra/archi）：只做「取输入 → 调 archi 判定 → 落
-# reports/archi 报告 → 派生 outcome」；零 Tauri / 零 spawn / 零 vcs / 零 store
 archi-runtime = { path = "crates/infra/archi" }
 checks = { path = "crates/core/checks" }
 checks-runtime = { path = "crates/infra/checks" }
@@ -104,13 +99,7 @@ futures = "0.3"
 notify = "8"
 notification = { path = "crates/core/notification" }
 orchestration = { path = "crates/core/orchestration" }
-# TS / JS 解析面（oxc 家族**同版**收敛项：`archi` 只开 parser 所需面，不引
-# semantic / codegen；`oxc_ast` / `oxc_span` / `oxc_syntax` 是 `oxc_parser` 的
-# 伴随件——同为 0.146.0，声明为直接依赖零新增锁包）。版本钉定判据见
-# `openspec/changes/archi-check-and-gate/design.md` 待决问题 1 与
-# `crates/core/archi/tests/README.md`（rustc 1.95 可用面：0.147+ 要求 1.96+
-# 工具链，0.146.0 恰为本工具链可用的最新同版家族）。`oxc_resolver` 独立版本线
-# （11.x），取本工具链可用最新值。
+# TS / JS 解析面
 oxc_allocator = "=0.146.0"
 oxc_ast = "=0.146.0"
 oxc_parser = { version = "=0.146.0", default-features = false }

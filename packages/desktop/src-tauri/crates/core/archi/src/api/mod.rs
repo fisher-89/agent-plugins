@@ -7,8 +7,8 @@
 //!
 //! **纯读盘、零写盘、零 spawn**（沿本 crate 既有纪律）：接口校验、`$defs` 规则、索引
 //! 装配、声明抽取、判据求值、渲染与比对全在这里。生成物写盘单点在
-//! `crates/infra/archi::api_artifacts`（与报告落盘并列的第二处 dumb IO 面），CLI
-//! （`archi-api-gen`）与两条 IPC（检查 / 生成）两个驱动面同源；本 crate 零写盘
+//! `crates/infra/archi::api_artifacts`（与报告落盘并列的第二处 dumb IO 面），
+//! 两条 IPC（检查 / 生成）与 agent 工具同源；本 crate 零写盘
 //! 纪律 MUST NOT 反向稀释。写生成物的 agent 工具经 [`ArtifactWriter`] 端口委托
 //! 同一写盘单点——**端口是类型，不是实现**，不破「本 crate 只读盘」。
 //!
@@ -462,7 +462,7 @@ fn element_symbols(
 /// `<入口主干>.i.ts`（后两者落**实现入口同级**）。
 ///
 /// `<叶段>.schema.json` **不在应生成集**：它是手写真相（第二份资产），进应生成集就会让
-/// `generate` 覆写手写内容、让 `api:check` 一改即报 `mismatched`。
+/// `generate` 覆写手写内容、让生成物检查一改即报 `mismatched`。
 ///
 /// 元素表经 [`elements_of`]（`dto::graph_view` 单点取数）——模型结构性坏 ⇒ `Err`
 /// （fail-closed：坏模型不得被固化成入库生成物）。
@@ -735,8 +735,8 @@ pub(crate) fn entry_problem_reason(problem: &paths::EntryProblem) -> String {
 
 /// 接口骨架的写者纪律注（`$comment`；人员可读、零判据读者）。
 ///
-/// **`GENERATED_NOTICE` 逐字保留**：它经 `emit::notice_lines` 进 `.i.rs` / `.i.ts` 头注释，
-/// 改它即改生成物字节（与「生成物逐字节不变」的验收锚冲突）。故写者纪律另立一条常量，
+/// **`GENERATED_NOTICE` 与写者纪律分家**：前者经 `emit::notice_lines` 进 `.i.rs` / `.i.ts`
+/// 头注释，改它即改生成物字节（须与在案生成物同批重生成）。故写者纪律另立一条常量，
 /// 只出现在新骨架的 `$comment` 里。
 const SCHEMA_WRITER_NOTICE: &str = "本文件是手写接口真相（不是生成物）：导出名 / 签名 / 类型的唯一持有者；`x-function.description` 只写调用方要知道的语义、MUST NOT 复述签名；改完用 `archi_api` 的 `check` 自查";
 
@@ -1051,8 +1051,8 @@ pub(crate) fn short_digest(digest: &str) -> String {
 
 /// 绝对路径 → repo 相对 POSIX 串（剥 root 前缀、`\` → `/`）。
 ///
-/// **跨 crate 唯一单点**（D55）：`crates/tools/archi-api-gen` 经 `archi::display`
-/// 复用本函数；工具侧 MUST NOT 再持一份逐字实现。
+/// **跨 crate 唯一单点**（D55）：`archi-runtime` 经 `archi::display` 生成 repo
+/// 相对串；其它 crate MUST NOT 再持一份逐字实现。
 pub fn display(root: &Path, path: &Path) -> String {
     let relative = path.strip_prefix(root).unwrap_or(path);
     relative
@@ -1070,7 +1070,7 @@ pub(crate) const COMMON_JSON: &str = include_str!("common.json");
 const SCHEMA_URI: &str = "https://json-schema.org/draft/2020-12/schema";
 
 /// 生成物警示文案（`$comment` 与 `.i.*` 头注释共用同一句）。
-const GENERATED_NOTICE: &str = "本文件由元素的契约 markdown 生成，勿手改：手改将在下次 generate 时被覆盖，且 api:check 零 diff 门会失败";
+const GENERATED_NOTICE: &str = "本文件由元素的契约 markdown 生成，勿手改：手改将在下次生成时被覆盖，且与契约的差异会被生成物检查判出";
 
 /// 索引侧有界枚举（`diff::api_dir_artifacts`）的深度上限（分层目录深度随 FQN 深度增长，8 层
 /// 对「`Frontend/Components/Agent/` 级」留足余量；本值只防环，不是布局判据）。

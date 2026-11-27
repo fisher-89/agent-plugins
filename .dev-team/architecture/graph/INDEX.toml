@@ -1,4 +1,4 @@
-# 由 archi-api-gen 生成 · 勿手改
+# 由 archi-api 生成 · 勿手改
 # review 口径：读 `<叶段>.schema.json`（接口，手写真相）与 `<叶段>.md`（理由；同目录、叶段即 FQN 末段）；status 的 declared = 接口文件在案；本文件与 `*.i.*` 的 diff 视为机械噪声。
 # 契约面：目录 .dev-team/architecture/models · 生成器 archi-api 0.1.0 · 映射规则摘要 sha256:1f8f0ec14abb
 
@@ -151,15 +151,6 @@ generated = ""
 
 [[entry]]
 fqn = "Backend.Shell"
-status = "absent"
-types = 0
-ops = 0
-degraded = 0
-schema = ""
-generated = ""
-
-[[entry]]
-fqn = "Backend.Tools.ArchiApiGen"
 status = "absent"
 types = 0
 ops = 0

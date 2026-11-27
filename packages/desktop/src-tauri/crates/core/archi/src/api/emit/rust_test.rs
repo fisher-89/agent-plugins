@@ -608,8 +608,8 @@ fn render的透传pub_use() {
 // 头注释
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-2 / D13）：文本前若干行为注释块，含勿手改 / 覆盖 / `api:check` / impl 分离
-/// 四句 + 工具版本 + `common.json@sha256:<12 位>`。
+/// 正向（AC-2 / D13）：文本前若干行为注释块，含勿手改 / 覆盖 / 生成物检查 / impl 分离
+/// 四句 + 工具版本 + `common.json@sha256:<12 位>`；文案零本仓脚本名。
 #[test]
 fn render的头注释四句() {
     let text = render_source(&empty_schema(FQN));
@@ -620,8 +620,14 @@ fn render的头注释四句() {
     assert!(header.len() >= 4, "头注释至少四行：{header:?}");
 
     let joined = header.join("\n");
-    for phrase in ["勿手改", "下次 generate 时被覆盖", "api:check", "impl 块"] {
+    for phrase in ["勿手改", "下次生成时被覆盖", "生成物检查", "impl 块"] {
         assert!(joined.contains(phrase), "头注释含 `{phrase}`：\n{joined}");
+    }
+    for command in ["api:check", "api:export", "pnpm"] {
+        assert!(
+            !joined.contains(command),
+            "头注释零本仓脚本名 `{command}`：\n{joined}"
+        );
     }
     assert!(
         joined.contains(&format!("archi-api {}", env!("CARGO_PKG_VERSION"))),

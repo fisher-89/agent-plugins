@@ -19,14 +19,6 @@ This repository is the **WPS AI desktop application** — a Tauri 2 + React app.
 - `src-tauri/src/` is the Tauri app shell: IPC commands, error mapping, bindings export. It wires core/infra ports and owns no domain rules.
 - Generated artifacts are never hand-edited: architecture `.i.*` / `.schema.json` / `INDEX.toml` and frontend `src/types/generated/` (refresh via `bindings:export`, then review the git diff before commit). Frontend tooling is vite-plus (`vp`) — no bare vite/vitest.
 
-## 模块 API 契约
-
-- **三资产分工与落位**：`<archi_models_dir>/<分层目录…>/<叶段>.md` 写理由（文档，无结构；产品面：架构页直接渲染给用户读）；同目录 `<叶段>.schema.json` 写接口（**唯一凭据**，手写真相，写前过校验）。文件名只取 FQN 叶段（祖先链由分层目录承载，避免同一段前缀在路径里累计两次）。文档 MUST NOT 枚举导出名（名字清单的唯一持有者是 schema）。历史 `api-*` fence 是遗留内容（读面不读，清理中），MUST NOT 新增。
-- **三类生成物勿手改**：`INDEX.toml`（`<archi_graph_dir>/`）、实现入口同级的 `<入口主干>.i.rs` / `<入口主干>.i.ts`。手改已提交即零 diff 门失败，未提交会被下次生成静默覆盖。
-- **两个脚本**：`api:export` 生成、`api:check` 读盘比对（零写入，差异即非零退出）。`check` 链为四段：`server:check` → `bindings:export` → `api:check` → `client:check`。
-- **`api = none` 是显式留白**（模型元素字段，非「还没写」）：断言本模块无公共 API，写了接口文件反而触发 `apiUnexpected`；留白的正规形态是空 schema（`$defs {}` + `properties {}`），与「接口还没写（文件缺）」严格可分。
-- **纳管口径**：漂移报告并列槽位 `apiFindings` 只把「`api = declared` ∧ schema 在盘」元素的判据折算进 `status`（`error` 档还进 `passed`），文档债 `docMissing` 恒 `warn`、永不纳管；判据定义见 `desktop-archi-api-check`。索引与计数经 `<archi_graph_dir>/INDEX.toml`，两轴（生成物新鲜度 / 契约 vs 代码）经架构页「契约」视图一眼看全。
-
 ## Coding Guidelines
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.

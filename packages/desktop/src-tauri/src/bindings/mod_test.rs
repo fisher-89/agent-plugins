@@ -3508,7 +3508,7 @@ fn 反向锚定清单换位自证() {
 }
 
 /// 产物面稳定（边界）：同一世代连续两次 `authoritative_snapshot()` 字节逐字
-/// 相等（产物是确定性的纯投影，可逐字 diff——`api:check` / `bindings:export`
+/// 相等（产物是确定性的纯投影，可逐字 diff——生成物检查 / `bindings:export`
 /// 零 diff 门的前提）。
 #[test]
 fn 产物面同世代两次快照逐字相等() {

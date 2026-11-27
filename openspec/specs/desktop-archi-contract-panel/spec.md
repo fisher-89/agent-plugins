@@ -75,7 +75,7 @@
 - **从不删文件**：命令 MUST NOT 删除任何文件——孤儿生成物只由检查命令报告、由人决定如何处置。写盘语义因此是「只增只改」，MUST NOT 在任何路径上退化出删除分支。
 - **越根复核**：每份目标路径 SHALL 在写入前以 `starts_with(root)` 复核确实落在观察根之下（在 `archi::api::paths` 的形态校验之外的第二层），越根即 `Err` 且**该份不写**。
 - **非原子，如实呈现**：写盘为逐份 `fs::write`，中途失败 SHALL 返回 `Err` 且**不回滚已写部分**；错误文案 MUST NOT 声称「全或无」，面板侧文案亦同。
-- **结构错即零写盘**：模型含任一结构诊断 ⇒ 应生成集不可得 ⇒ 命令返回 `Err` 且零写盘（坏模型不得被固化成入库生成物，与 CLI `generate` 同口径）。
+- **结构错即零写盘**：模型含任一结构诊断 ⇒ 应生成集不可得 ⇒ 命令返回 `Err` 且零写盘（坏模型不得被固化成入库生成物，与 agent 生成工具同口径）。
 - **薄包装形态**：命令 SHALL 为薄包装（`check_root` → `archi::api::workspace_render` → 写盘单点 → 映射错误），装配在 `archi_api_generate_inner(root: &Path)` 内；命令层 MUST NOT 自行拼生成物内容或路径。
 - **写命令身份**：本命令是 archi 段**第二条**写命令（第一条仍是只改 `gate` 单字段的 `archi_set_gate`）；两条之外的六条命令 MUST NOT 写盘。
 
@@ -106,28 +106,22 @@
 
 ### Requirement: 判定单源与写盘单点
 
-本能力的判定与写盘 SHALL 各有唯一落点，两驱动面（CLI / IPC）SHALL 消费同一实现：
+本能力的判定与写盘 SHALL 各有唯一落点，各驱动面（IPC / agent 工具）SHALL 消费同一实现：
 
-- **判定与比对在 `core/archi`**：四类生成物的渲染（`workspace_render`）与三类差异的比对（`compare`）SHALL 在 `crates/core/archi/src/api/**` 单点实现，纯读盘、零写盘、零 `std::process`；命令面（`archi_api_check` / `archi_api_generate`）、CLI（`archi-api-gen --check` / `generate`）与 agent 工具（`archi_api`）MUST NOT 各写一份渲染或比对。
-- **写盘单点在 `infra/archi`**：生成物的目录创建与文件写入 SHALL 仅在 `crates/infra/archi` 的单一函数（`write_artifacts`）内出现，与既有报告落盘（`report.rs`）并列为该 crate 的第二处写盘单点；`crates/tools/archi-api-gen` 与壳层命令 MUST NOT 出现 `fs::write` / `create_dir_all` / `File::create`。
-- **CLI 收窄为编排**：`archi-api-gen` SHALL 只剩 argv 解析、退出码与三子命令编排（`generate` → 渲染 + 写盘单点；`--check` → 比对 + 打印；`bootstrap` → 草稿文本）；其子命令面、退出码语义（无差异 0 / 有差异或失败 1 / 用法错 2）与「零子进程派生」纪律逐字不变。
+- **判定与比对在 `core/archi`**：四类生成物的渲染（`workspace_render`）与三类差异的比对（`compare`）SHALL 在 `crates/core/archi/src/api/**` 单点实现，纯读盘、零写盘、零 `std::process`；命令面（`archi_api_check` / `archi_api_generate`）与 agent 工具（`archi_api` / `archi_generate`）MUST NOT 各写一份渲染或比对。
+- **写盘单点在 `infra/archi`**：生成物的目录创建与文件写入 SHALL 仅在 `crates/infra/archi` 的单一函数（`write_artifacts`）内出现，与既有报告落盘（`report.rs`）并列为该 crate 的第二处写盘单点；壳层命令 MUST NOT 出现 `fs::write` / `create_dir_all` / `File::create`。
 - **`core/archi` 零写盘纪律不动**：写盘上移到 `infra/archi` MUST NOT 反向稀释 core 的零写盘纪律（core 仍零 `fs::write` / 零 `create_dir*`）。
 - **`passed` 面零改动**：本能力的两条命令 MUST NOT 改变门禁布尔——门禁 `passed` 仍只看 `errors` 与 `model.structuralErrors`（见 `desktop-archi-gate` / `desktop-archi-drift`）。
 
 #### Scenario: 两驱动面逐字段同源
 
-- **WHEN** 在同一观察根分别调用 `archi_api_check` 与 `cargo run -p archi-api-gen -- --check`（差异场景）
-- **THEN** 两者三类差异的文件集合逐条相等、顺序按同一稳定序；退出码与「是否有差异」一致
+- **WHEN** 在同一观察根分别调用 IPC `archi_api_check` 与 agent 工具 `archi_api(check)`（差异场景）
+- **THEN** 两者三类差异的文件集合逐条相等、顺序按同一稳定序
 
 #### Scenario: 写盘实现单点
 
-- **WHEN** 审查契约生成面（`crates/core/archi/src/api/**` / `crates/tools/archi-api-gen/src/**` / `crates/infra/archi/src/**` / `src-tauri/src/commands/archi/**`）的文件系统调用
-- **THEN** `fs::write` 与 `create_dir_all` 仅在 `crates/infra/archi/src/api_artifacts.rs` 出现（各恰一处）；`core/archi` 侧零写盘调用；`archi-api-gen` 侧零写盘调用；命令层零写盘调用
-
-#### Scenario: CLI 子命令与退出码零变化
-
-- **WHEN** 分别以 `generate` / `--check`（有差异、无差异）/ `bootstrap <FQN>` / 非法参数驱动 CLI
-- **THEN** 退出码依次为 0 / 1 / 0 / 0 / 2；`--check` 有差异时 stdout 仍是单行 JSON 且含 `mismatched` / `orphaned` / `missing` 三键；`bootstrap` 只出 stdout 零写盘
+- **WHEN** 审查契约生成面（`crates/core/archi/src/api/**` / `crates/infra/archi/src/**` / `src-tauri/src/commands/archi/**`）的文件系统调用
+- **THEN** `fs::write` 与 `create_dir_all` 仅在 `crates/infra/archi/src/api_artifacts.rs` 出现（各恰一处）；`core/archi` 侧零写盘调用；命令层零写盘调用
 
 ### Requirement: 两轴并列呈现与状态矩阵
 
@@ -306,15 +300,6 @@
 |---|---|---|
 | `write_artifacts` | 新增 | `(root: &Path, &[GeneratedFile]) -> Result<ArchiApiWriteOutcome, String>`：越根复核 → 读盘比对 → `create_dir_all` + `fs::write`；不删文件、不回滚、路径串 repo 相对 |
 | `report::write_report` | 零改动 | 报告落盘单点逐字不变（本 crate 现有两处写盘单点并列） |
-
-### CLI: `packages/desktop/src-tauri/crates/tools/archi-api-gen/src/main.rs`
-
-| 项 | 变化 | 描述 |
-|---|---|---|
-| `generate` | 收窄 | 改调 `api::workspace_render` + `archi_runtime::write_artifacts`；输出报 `written` 份数；退出码 0 / 1 语义不变 |
-| `--check` | 收窄 | 改调 `api::compare`；单行 JSON 三键输出与退出码语义不变；零写入 |
-| `bootstrap <FQN>` | 零改动 | 仍调 `api::bootstrap`，只出 stdout |
-| 本地 `write` / `collect` / `differences` / `Report` / `walk*` | 移除 | 全部上移（渲染与比对 → `core/archi`；写盘 → `infra/archi`）；`Cargo.toml` 加 `archi-runtime` 依赖（带用途注释） |
 
 ### Component: `packages/desktop/src/views/architecture/**`
 

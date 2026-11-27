@@ -34,8 +34,8 @@
   `Desktop.Components.Agent.AgentError` 的留白段。
 - **应答动作面类型不进契约**：它本身是**能自洽表达**的类型（一个必填函数位 + 一个可空字符串位，
   零外部引用），实测也通过 `apiMissing`。留白的原因是生成链：`emit::ts` 在文件末尾多出一个空行，
-  `vp check` 的格式化器剥掉它之后 `api:check` 的零 diff 门即判 `mismatched`——`client:check` 与
-  `api:check` 只能二选一。出路在源码/配置面（生成器去掉末尾空行，或把 `src/**/*.i.ts` 纳入
+  `vp check` 的格式化器剥掉它之后生成物检查（`archi_api` 的 `check`）即判 `mismatched`——`client:check` 与
+  生成物检查只能二选一。出路在源码/配置面（生成器去掉末尾空行，或把 `src/**/*.i.ts` 纳入
   `NO_STATIC_CHECK`），属独立的生成链接线变更；接线后本元素的第一条 `$defs` 就该是它。
 - **入参形状不进契约**：三个字段位的类型都在本元素之外——消息信封（`lib/agent-adapter`）与本元素
   自有的应答动作面。前者是外部具名类型（契约词汇无跨模块类型位），把一个引用外部的 props 形状写

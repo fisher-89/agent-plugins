@@ -191,16 +191,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "archi-api-gen"
-version = "0.1.0"
-dependencies = [
- "archi",
- "archi-runtime",
- "foundation",
- "serde_json",
-]
-
-[[package]]
 name = "archi-runtime"
 version = "0.1.0"
 dependencies = [

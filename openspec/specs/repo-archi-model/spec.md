@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义本仓库架构模型基线的内容与判据：模型落位 `<archi_dir>/graph/model/` 并划分为六个 `NN-<域>.toml` 文件（字典序即聚合序、每元素每关系恰声明一处），后端下钻到 workspace crate 粒度且关系只取 `Cargo.toml` `[dependencies]` 的 workspace 内声明，前端下钻到视图与共享组件粒度且关系只由 `import` 证据证成，全基线 55 元素 / 129 关系、`gate` 全 `off`，并保证四类结构诊断零命中、既有只读检索面零改动可用，以及元素覆盖与关系证据可机械核对、漂移在同一变更内补齐。
+定义本仓库架构模型基线的内容与判据：模型落位 `<archi_dir>/graph/model/` 并划分为六个 `NN-<域>.toml` 文件（字典序即聚合序、每元素每关系恰声明一处），后端下钻到 workspace crate 粒度且关系只取 `Cargo.toml` `[dependencies]` 的 workspace 内声明，前端下钻到视图与共享组件粒度且关系只由 `import` 证据证成，全基线 54 元素 / 127 关系、`gate` 全 `off`，并保证四类结构诊断零命中、既有只读检索面零改动可用，以及元素覆盖与关系证据可机械核对、漂移在同一变更内补齐。
 
 ## Requirements
 
@@ -18,10 +18,10 @@
 | `02-backend-core.toml` | `Core` 容器（`kind = "composite"`）+ **8** 个 core crate 元素（`package`） | **9** | **10** |
 | `03-backend-infra.toml` | `Infra` 容器（`kind = "composite"`）+ **7** 个 infra crate 元素（`package`） | **8** | **25** |
 | `04-backend-shell.toml` | Tauri 壳（命令面 / 装配 / bindings 导出） | 1 | **14** |
-| `05-backend-tools.toml` | `Tools` 容器（`kind = "composite"`）+ `export-bindings` crate + `archi-api-gen` crate（`package`） | **3** | **3** |
+| `05-backend-tools.toml` | `Tools` 容器（`kind = "composite"`）+ `export-bindings` crate（`package`） | **2** | **1** |
 | `06-frontend.toml` | 前端 `Shell` / 9 视图 / 3 视图内子域 / **13** 共享组件 / **目录模块 `Components.Agent`** / `Ui` / **生成物中继元素 `GeneratedBindings`** + **三个**容器（`Desktop` 包根在 `01`） | **32** | **77** |
 
-合计 SHALL 为 **55 元素 / 129 关系**，逐文件可加：元素侧 `2 + 9 + 8 + 1 + 3 + 32 = 55`（纯容器 6 + 其余 49），关系侧 `0 + 10 + 25 + 14 + 3 + 77 = 129`。关系侧另按取数口径分：**129 = 后端 52（`Cargo.toml` `[dependencies]` 的 workspace 内声明，拆在 `02`–`05`：10 + 25 + 14 + 3）+ 前端 77（`import` 证据，全在 `06`）**；两种拆分 MUST 得同值。前端 77 的构成 SHALL 为 **69 条元素 → 元素边 + 8 条 `Desktop.Components.Agent` 的 barrel 端点边**（含 `Desktop` 包根兜底共享文件产生的 `Desktop → Desktop.Components.Ui` / `Desktop → Desktop.GeneratedBindings` 两条）（3 条出边：入口 `index.tsx` 重导出 `AgentInput` / `AgentSessionView` / `SessionPanel`；5 条入边：`Views.AgentDebug` / `Views.Changes.Agent` / `Views.Changes.Flow` / **`Views.Config`** / `Views.Explores` import `@/components/agent`）——这 8 条由「`components/agent/` 是 `Components.Agent` 的目录模块入口」与「`@/components/agent` → `Components.Agent` 映射」两条规则必然导出，MUST NOT 从记数中剔除；12 个目录模块入口的**其余 re-export 全在本元素内**（`from == to` 自边被丢弃）⇒ 零新边。其中 `06-frontend.toml` 的 32 元素 = **3 个容器**（`Desktop.Views` / `Desktop.Components` / `Desktop.Components.Standard`）+ **29 个其余元素**（`Shell` 1 + 9 视图 + 3 子域 + 13 共享组件（7 `agent` + 6 `standard`）+ `Components.Agent` 1 + `Ui` 1 + **`GeneratedBindings` 1**）；`Desktop` 包根 SHALL 只在 `01-app.toml` 声明一次，`06` MUST NOT 重复声明（重复即 `duplicateElement`）。
+合计 SHALL 为 **54 元素 / 127 关系**，逐文件可加：元素侧 `2 + 9 + 8 + 1 + 2 + 32 = 54`（纯容器 6 + 其余 48），关系侧 `0 + 10 + 25 + 14 + 1 + 77 = 127`。关系侧另按取数口径分：**127 = 后端 50（`Cargo.toml` `[dependencies]` 的 workspace 内声明，拆在 `02`–`05`：10 + 25 + 14 + 1）+ 前端 77（`import` 证据，全在 `06`）**；两种拆分 MUST 得同值。前端 77 的构成 SHALL 为 **69 条元素 → 元素边 + 8 条 `Desktop.Components.Agent` 的 barrel 端点边**（含 `Desktop` 包根兜底共享文件产生的 `Desktop → Desktop.Components.Ui` / `Desktop → Desktop.GeneratedBindings` 两条）（3 条出边：入口 `index.tsx` 重导出 `AgentInput` / `AgentSessionView` / `SessionPanel`；5 条入边：`Views.AgentDebug` / `Views.Changes.Agent` / `Views.Changes.Flow` / **`Views.Config`** / `Views.Explores` import `@/components/agent`）——这 8 条由「`components/agent/` 是 `Components.Agent` 的目录模块入口」与「`@/components/agent` → `Components.Agent` 映射」两条规则必然导出，MUST NOT 从记数中剔除；12 个目录模块入口的**其余 re-export 全在本元素内**（`from == to` 自边被丢弃）⇒ 零新边。其中 `06-frontend.toml` 的 32 元素 = **3 个容器**（`Desktop.Views` / `Desktop.Components` / `Desktop.Components.Standard`）+ **29 个其余元素**（`Shell` 1 + 9 视图 + 3 子域 + 13 共享组件（7 `agent` + 6 `standard`）+ `Components.Agent` 1 + `Ui` 1 + **`GeneratedBindings` 1**）；`Desktop` 包根 SHALL 只在 `01-app.toml` 声明一次，`06` MUST NOT 重复声明（重复即 `duplicateElement`）。
 
 - **模型声明面与契约资产面 SHALL 按目录分家**：模型声明面是 `<archi_dir>/graph/model/` 的**一级**——恰六个 `NN-<域>.toml`，MUST NOT 出现其他一级 `*.toml`（尤其 MUST NOT 出现 `INDEX.toml`）；契约资产面是 `<archi_dir>/models/<分层目录…>/`——`<叶段>.md`（理由，无结构）+ `<叶段>.schema.json`（接口，**手写真相**），布局与命名归 `desktop-archi-api`「契约资产形态与唯一手写真相」。两面的分离判据是「目录」与「`.toml` vs `.md` / `.schema.json`」，MUST NOT 引入目录级豁免清单或改名方案；契约索引落 `<archi_dir>/graph/INDEX.toml`（`archi_graph_dir`），与模型声明目录（`graph/model/`）同树不同层——索引落 `graph/model/` 内会被当模型文件解析并使模型停摆，理由见 `desktop-archi-model`「多文件聚合与声明定位」。
 - **契约子树不计入模型计数**：`models/<分层目录…>/` 下的任何文件 MUST NOT 改变元素数 / 关系数 / `modelHash`——收面判据是「`graph/model/` 一级 + `.toml` 后缀」，契约目录整体不在收面内。
@@ -29,36 +29,35 @@
 - **`gate` 全 `off`**：本基线内每个元素 SHALL 省略 `gate` 或显式写 `off`，MUST NOT 出现 `warn` / `strict`——冷启动 ratchet（收紧按模块独立变更，一个 change 收紧一块）。
 - **`summary`**：每个元素 SHALL 有一行中文职责说明，MUST NOT 用 FQN 字面复述自身名字。
 - **`path`**：**模块必填（可多条 = 若干根的清单）；包至多一条包根（0 条 = 纯容器，缺省空，本基线六个容器全部留空）**；`domain` / `composite` 选填。**本基线六个容器按语义分两组**：三个**纯分组**容器 `Backend.Core` / `Backend.Infra` / `Backend.Tools` SHALL 为 `kind = "composite"`（无层级、不持文件，典型形态就是空 `path`）；三个**业务聚合**容器 `Desktop.Views` / `Desktop.Components` / `Desktop.Components.Standard` SHALL 为 `kind = "domain"`（可持文件，本基线同样留空）。「仅作分组的包」这个复合概念由 `composite` 承接，MUST NOT 再用 `kind = "package"` + 空 `path` 表达纯分组；`./` 前缀、repo 相对、目录以 `/` 结尾、文件精确到扩展名。容器填了即持文件、可作关系端点，但子元素依赖它会写出「子 → 父」并触发 `dependsOnAncestor`。目录模块入口由 `desktop-frontend-module-entry` 承载：`Desktop.Components.Agent` 是 `kind = "module"` 的**叶**元素，`path` 为目录 `./packages/desktop/src/components/agent/`，入口是该目录内既有的 `index.tsx`（不再以文件型 `path` 自任端点）。**生成物中继元素（本变更新增）**：`Desktop.GeneratedBindings` 是 `kind = "module"` 的**叶**元素，`path` 为生成目录 `./packages/desktop/src/types/generated/`——它持有三个生成文件（`bindings.ts` / `bindings.zod.ts` / `bindings.zod.check.ts`）的归属，从而让「前端 import 生成物」这条依赖的目标可归属（归属判据零改动，走既有 `OwnerIndex` 最长前缀）。
-- **`entry`**：叶元素 SHALL **仅在约定默认指不到时**声明（单值、`./` 前缀、repo 相对）；单文件根元素（`views/welcome-view.tsx`、`components/agent/` 的 7 个组件文件、`standard/*.tsx`）、**13 个目录型根元素**（入口由 ③ 的 `<root>/index.ts` / `<root>/index.tsx` 命中，含 `components/agent/` 与 `components/ui/`）与 15 个 `src/lib.rs` 命中的 crate MUST NOT 声明（根文件自身 / 语言约定默认已给出入口）。**生成物目录 MUST NOT 声明 `entry`**：它是三个叶子文件的集合、没有模块入口（`entry_state = Absent`），造一个 `index.ts` 只为消 `Absent` 属造假入口（`api = none` 已退出入口判据，零 `apiEntryMissing`，见 `desktop-archi-api-check`）。**本基线内显式 `entry` SHALL 恰为 3 处**（下列三值逐字在案；宿主能解析 `entry` 字段是这三行落地的前提，见 `desktop-archi-api`「生成物落点与入口查找」）：
+- **`entry`**：叶元素 SHALL **仅在约定默认指不到时**声明（单值、`./` 前缀、repo 相对）；单文件根元素（`views/welcome-view.tsx`、`components/agent/` 的 7 个组件文件、`standard/*.tsx`）、**13 个目录型根元素**（入口由 ③ 的 `<root>/index.ts` / `<root>/index.tsx` 命中，含 `components/agent/` 与 `components/ui/`）与 15 个 `src/lib.rs` 命中的 crate MUST NOT 声明（根文件自身 / 语言约定默认已给出入口）。**生成物目录 MUST NOT 声明 `entry`**：它是三个叶子文件的集合、没有模块入口（`entry_state = Absent`），造一个 `index.ts` 只为消 `Absent` 属造假入口（`api = none` 已退出入口判据，零 `apiEntryMissing`，见 `desktop-archi-api-check`）。**本基线内显式 `entry` SHALL 恰为 2 处**（下列两值逐字在案；宿主能解析 `entry` 字段是这两行落地的前提，见 `desktop-archi-api`「生成物落点与入口查找」）：
   - `Backend.Shell` → `./packages/desktop/src-tauri/src/lib.rs`（目录型壳的根路径 `src-tauri/src/` 拼出的约定默认是 `src-tauri/src/src/lib.rs`，指不到）；
-  - `Backend.Tools.ExportBindings` → `./packages/desktop/src-tauri/crates/tools/export-bindings/src/main.rs`；
-  - `Backend.Tools.ArchiApiGen` → `./packages/desktop/src-tauri/crates/tools/archi-api-gen/src/main.rs`。
+  - `Backend.Tools.ExportBindings` → `./packages/desktop/src-tauri/crates/tools/export-bindings/src/main.rs`。
 
-  三处声明的后果 SHALL 被接受且可读：壳由 `apiEntryMissing`（`Absent`）转为 `docMissing`（`declared` 而派生契约 md 不在盘）；两个工具 crate 的入口判据面**整体不适用**（`api = none` 的元素退出入口判据，见 `desktop-archi-api-check`「契约判据词汇封闭十三值与开放分类」）——「有入口」与「无库 API」两个事实同时成立，MUST NOT 被读成「入口补齐 ⇒ 判据面清零」。MUST NOT 出现第四处显式 `entry`：其余叶元素由约定默认覆盖（单文件根 = 根文件自身、目录型根 = `<root>/index.ts(x)`、15 个 crate 的 `src/lib.rs`），多写即违「仅在约定默认指不到时声明」，并使本条的三处计数失守；`Desktop.Components.Agent` 的 `path` 由文件改目录后正是 ③ 的场景，**加行即违本条**。
+  两处声明的后果 SHALL 被接受且可读：壳由 `apiEntryMissing`（`Absent`）转为 `docMissing`（`declared` 而派生契约 md 不在盘）；工具 crate 的入口判据面**整体不适用**（`api = none` 的元素退出入口判据，见 `desktop-archi-api-check`「契约判据词汇封闭十三值与开放分类」）——「有入口」与「无库 API」两个事实同时成立，MUST NOT 被读成「入口补齐 ⇒ 判据面清零」。MUST NOT 出现第三处显式 `entry`：其余叶元素由约定默认覆盖（单文件根 = 根文件自身、目录型根 = `<root>/index.ts(x)`、15 个 crate 的 `src/lib.rs`），多写即违「仅在约定默认指不到时声明」，并使本条的两处计数失守；`Desktop.Components.Agent` 的 `path` 由文件改目录后正是 ③ 的场景，**加行即违本条**。
 
   第四节「四条判据」（基准 / 落位 / 存在 / 跨元素唯一）与三态解析链归 `desktop-archi-api`，本节只钉基线数据；违规走 `apiFindings` 的 `apiEntryMissing`（`warn`，不进 `passed`），MUST NOT 引入结构化诊断。
-- **`api = none` 三处显式留白**：两个工具 crate（`Backend.Tools.ExportBindings` / `Backend.Tools.ArchiApiGen`）与**生成物中继元素**（`Desktop.GeneratedBindings`）SHALL 声明 `api = none`——前两者的公共面是 CLI 契约而非库 API、后者是生成物（唯一真相在生成器，手写契约必然漂），三者都是**真话**而非「还没写」；其余元素 SHALL 省略 `api`（取缺省 `declared`）。`api` 状态在本基线的角色是**接口承诺的开关**：`declared` ⇒ 接口真相 = 同目录 `<叶段>.schema.json`（文档 = 派生 `<叶段>.md`）；`none` ⇒ 无接口面（`doc` 可声明，但该字段零判据）。「无入口」与「无 API」仍是两个不同事实，但**两者都不由 `api = none` 的元素承担判据**——本基线内 12 个前端目录根由 `desktop-frontend-module-entry` 的 `index.ts(x)` 经 ③ 命中、15 个 `src/lib.rs` 命中的 crate 由约定默认解析出入口，故 `apiEntryMissing` 面为 0；MUST NOT 由「三处 `api = none` 无判据」反推「它们没有入口」（三处显式 `entry` 在案；生成物目录是「无模块入口」的真形态），亦 MUST NOT 由「12 个前端目录元素仍有 `docMissing`」反推「无 API」。
+- **`api = none` 两处显式留白**：工具 crate（`Backend.Tools.ExportBindings`）与**生成物中继元素**（`Desktop.GeneratedBindings`）SHALL 声明 `api = none`——前者的公共面是 CLI 契约而非库 API、后者是生成物（唯一真相在生成器，手写契约必然漂），两者都是**真话**而非「还没写」；其余元素 SHALL 省略 `api`（取缺省 `declared`）。`api` 状态在本基线的角色是**接口承诺的开关**：`declared` ⇒ 接口真相 = 同目录 `<叶段>.schema.json`（文档 = 派生 `<叶段>.md`）；`none` ⇒ 无接口面（`doc` 可声明，但该字段零判据）。「无入口」与「无 API」仍是两个不同事实，但**两者都不由 `api = none` 的元素承担判据**——本基线内 12 个前端目录根由 `desktop-frontend-module-entry` 的 `index.ts(x)` 经 ③ 命中、15 个 `src/lib.rs` 命中的 crate 由约定默认解析出入口，故 `apiEntryMissing` 面为 0；MUST NOT 由「两处 `api = none` 无判据」反推「它们没有入口」（两处显式 `entry` 在案；生成物目录是「无模块入口」的真形态），亦 MUST NOT 由「12 个前端目录元素仍有 `docMissing`」反推「无 API」。
 - **`doc`**：SHALL 为**单值** `Option<String>`（repo 相对 POSIX 路径，`./` 前缀由归一剥除、不参与身份；无绝对前缀 / 无盘符 / 无 `..` / 无空段）。纪律三条：
   1. **约定只有 `api = none` 元素会写**（`api = declared` 元素的文档在派生落点 `contract_path`）——本变更起这条只是**约定而非机械判据**：`declared` 元素写了 `doc` **不报任何判据或写面 warning**（`doc` 零判据读者，`apiUnexpected` 的形态②已删除）；
   2. 值 MUST NOT 指向 `<archi_dir>/models/<分层目录…>/**`（契约资产的消费者是生成器与门禁，不是文档字段）与 `openspec/specs/**`（spec 语料非模型面）；
-  3. 不写 = 无入口文档声明（合法状态）；`docMissing` 只判**派生 `<叶段>.md` 不在盘**，与 `doc` 字段写不写无关——两份工具 crate README 属数据面变更，MUST NOT 在本能力内新建。
+  3. 不写 = 无入口文档声明（合法状态）；`docMissing` 只判**派生 `<叶段>.md` 不在盘**，与 `doc` 字段写不写无关——工具 crate README 属数据面变更，MUST NOT 在本能力内新建。
 
   两个包根 `Backend` / `Desktop` SHALL 零 `doc`：包根的 `README.md` / `AGENT.md` 由仓库结构本身表达，**不进模型面**（原 `docs = ["./README.md", "./AGENT.md"]` 一行随 `docs` 字段退役删除）。
 - **`metadata`**：本基线 SHALL 全空（`owner` / `tier` 一类自由键会与 `Cargo.toml`、目录结构并列为第二事实源）。
 - **`desc`**：SHALL 为一句中文用途说明（「为什么依赖」），MUST NOT 写入证据清单（import 文件列表 / 依赖段位置）——证据由核对命令逐条取，模型内不存第二事实源。**命令面边的 `desc` SHALL 写明「经生成的 IPC 绑定」**（本变更起改指生成物中继元素，语义仍是「前端经生成物调后端命令面」）。
-- **计数复述单源**：模型文件的表头注释（如 `# 02 · core 分层（9 元素 / 10 关系）`）、本要求的逐文件计数表、与裁定记录 `§1` / `§9` 的复算表 SHALL 在同一次模型改动内同步为同值；三处任一处陈旧即漂移，按「同一 change 内补齐」处理，MUST NOT 让计数表与模型本体各说各话。**本变更零计数变化（同批写实）**：元素 **55** / 关系 **129** 与六个文件段的计数（`01` 2 / 0、`02` 9 / 10、`03` 8 / 25、`04` 1 / 14、`05` 3 / 3、`06` 32 / 77）逐字不变——本变更只把 `02` / `03` / `05` 三个容器的 `kind` 由 `package` 改 `composite`（`path` 仍空），表头注释与计数表不因本变更改动；上一变更（`Backend.Core.Notification`，元素 +1 / 关系 +4）的增量已在基线账内，MUST NOT 被重算成本次增量。**字段面扩容（`entry` / `api` / `doc` / `apis`）与目录模块入口（barrel）不改变元素与关系计数**：12 个 barrel 是元素 `path` 内的新增文件，既不新增元素也不新增边（入口只 re-export 本元素直属文件 ⇒ `from == to` 自边被丢弃）；**元素粒度补漏改变计数**（历史：`components/agent/session-panel.tsx` 与 `components/standard/tooltip.tsx`、`standard/combobox.tsx` 补建元素即各 +1）；**元素形态翻转改变容器 / 叶切分而不改总数**（历史：`Components.Agent` 容器 → 目录模块：容器 10 → 9、叶 43 → 44）；**契约资产迁入 `models/<分层目录…>/`、索引迁入 `graph/`、`docs` → `doc` 换面均不改变任何计数**。`modelHash` 则随模型字节变化——三个容器各改一行 `kind` 即改字节（元素与关系条目数、表头注释不变），故 `modelHash` 必然变，该事实 SHALL 被如实记录，MUST NOT 写成「`modelHash` 逐字不变」。**读数写实边界**：本条只要求写实**模型表头 / 本表 / ADR 三处**与直接判据面（`desktop-archi-api-check` 的基线表、`desktop-archi-api` 的入口面实测）；其余 capability spec 内的历史读数（如 `desktop-frontend-module-entry` 的「71 条 / 44 个 `path` 非空」、`desktop-archi-contract-panel` 的「43 条存量」）不在本变更的追改面内——它们是各自变更交付时的读数，与陈旧计数同一处置，MUST NOT 与本节的 55 / 129 混为一谈。
+- **计数复述单源**：模型文件的表头注释（如 `# 02 · core 分层（9 元素 / 10 关系）`）、本要求的逐文件计数表、与裁定记录 `§1` / `§9` 的复算表 SHALL 在同一次模型改动内同步为同值；三处任一处陈旧即漂移，按「同一 change 内补齐」处理，MUST NOT 让计数表与模型本体各说各话。**本变更零计数变化（同批写实）**：元素 **55** / 关系 **129** 与六个文件段的计数（`01` 2 / 0、`02` 9 / 10、`03` 8 / 25、`04` 1 / 14、`05` 3 / 3、`06` 32 / 77）逐字不变——本变更只把 `02` / `03` / `05` 三个容器的 `kind` 由 `package` 改 `composite`（`path` 仍空），表头注释与计数表不因本变更改动；上一变更（`Backend.Core.Notification`，元素 +1 / 关系 +4）的增量已在基线账内，MUST NOT 被重算成本次增量。**字段面扩容（`entry` / `api` / `doc` / `apis`）与目录模块入口（barrel）不改变元素与关系计数**：12 个 barrel 是元素 `path` 内的新增文件，既不新增元素也不新增边（入口只 re-export 本元素直属文件 ⇒ `from == to` 自边被丢弃）；**元素粒度补漏改变计数**（历史：`components/agent/session-panel.tsx` 与 `components/standard/tooltip.tsx`、`standard/combobox.tsx` 补建元素即各 +1）；**元素形态翻转改变容器 / 叶切分而不改总数**（历史：`Components.Agent` 容器 → 目录模块：容器 10 → 9、叶 43 → 44）；**契约资产迁入 `models/<分层目录…>/`、索引迁入 `graph/`、`docs` → `doc` 换面均不改变任何计数**。`modelHash` 则随模型字节变化——三个容器各改一行 `kind` 即改字节（元素与关系条目数、表头注释不变），故 `modelHash` 必然变，该事实 SHALL 被如实记录，MUST NOT 写成「`modelHash` 逐字不变」。**读数写实边界**：本条只要求写实**模型表头 / 本表 / ADR 三处**与直接判据面（`desktop-archi-api-check` 的基线表、`desktop-archi-api` 的入口面实测）；其余 capability spec 内的历史读数（如 `desktop-frontend-module-entry` 的「71 条 / 44 个 `path` 非空」、`desktop-archi-contract-panel` 的「43 条存量」）不在本变更的追改面内——它们是各自变更交付时的读数，与陈旧计数同一处置，MUST NOT 与本节的 54 / 127 混为一谈。
 
 裁定记录 SHALL 落位 `<archi_dir>/decisions/0001-model-granularity.md`，MUST NOT 只写在 change 目录内（proposal 归档后不再被日常读取，判据须随架构域可读、可检索）。
 
 #### Scenario: 六文件字典序聚合零诊断
 
 - **WHEN** 以仓库根调用 `archi_graph(root)` 并聚合 `<archi_dir>/graph/model/` 一级的六个文件（契约子树在另一目录 `<archi_dir>/models/<分层目录…>/`）
-- **THEN** 解析成功、`diagnostics` 为空、`elements` 共 **55** 条、`relations` 共 **129** 条；每条元素与关系的 `modelFile` 指向其声明所在文件、`modelLine` 为该表头 / 该 `from` 键所在行；契约子树内的任何文件 MUST NOT 出现在 `modelFile` 里
+- **THEN** 解析成功、`diagnostics` 为空、`elements` 共 **54** 条、`relations` 共 **127** 条；每条元素与关系的 `modelFile` 指向其声明所在文件、`modelLine` 为该表头 / 该 `from` 键所在行；契约子树内的任何文件 MUST NOT 出现在 `modelFile` 里
 
 #### Scenario: 字段纪律可机械审查
 
 - **WHEN** 对六个文件 `grep` 计数 `gate` / `entry` / `api` / `doc` / `apis` 出现行
-- **THEN** `gate` 三档中只出现 `off`（或整行省略），`warn` / `strict` 零命中；`metadata` 零命中；**`docs` 零命中**（字段已退役，命中即 `unknownField` 停摆）；`doc` 行数 = 「`api = none` 且已声明入口文档的元素数」（本变更交付时 **0 行**——两份工具 crate README 与生成物面都不写 `doc`；反向若出现 `api = declared` 元素的 `doc` 行即违纪律）；全部持有文件的元素 `path` 以 `"./` 开头，本基线六个容器 `path` 为空（选填字段，当前留空；`Desktop.Components.Agent` 与 `Desktop.GeneratedBindings` 都是目录型 `module` 叶，`Backend` / `Desktop` 是持根路径的包根）；`entry` **恰三行**（`04` 一行、`05` 两行）；`api` **恰三行**且均为 `"none"`（两个工具 crate + 生成物中继元素）；**`apis` 零命中**（本基线 `apis` 全留空——生成物面是唯一真相，其余元素待有真实依赖清单时再填）
+- **THEN** `gate` 三档中只出现 `off`（或整行省略），`warn` / `strict` 零命中；`metadata` 零命中；**`docs` 零命中**（字段已退役，命中即 `unknownField` 停摆）；`doc` 行数 = 「`api = none` 且已声明入口文档的元素数」（本变更交付时 **0 行**——工具 crate README 与生成物面都不写 `doc`；反向若出现 `api = declared` 元素的 `doc` 行即违纪律）；全部持有文件的元素 `path` 以 `"./` 开头，本基线六个容器 `path` 为空（选填字段，当前留空；`Desktop.Components.Agent` 与 `Desktop.GeneratedBindings` 都是目录型 `module` 叶，`Backend` / `Desktop` 是持根路径的包根）；`entry` **恰两行**（`04` 一行、`05` 一行）；`api` **恰两行**且均为 `"none"`（工具 crate + 生成物中继元素）；**`apis` 零命中**（本基线 `apis` 全留空——生成物面是唯一真相，其余元素待有真实依赖清单时再填）
 
 #### Scenario: 落点与裁定记录
 
@@ -68,17 +67,17 @@
 #### Scenario: 计数复述三处同值
 
 - **WHEN** 逐处读取 `06` 文件表头注释、本要求的计数表与 ADR `§1` / `§9` 的复算表
-- **THEN** 三处同值：全基线 **55 元素 / 129 关系**（纯容器 6 + 其余 49；后端 52 + 前端 77）、`06` 段 **32 元素 / 77 关系**（3 容器 + 29 其余元素）、`05` 段 3 元素 / 3 关系、`02` 段 9 元素 / 10 关系、`03` 段 8 元素 / 25 关系、`04` 段 1 元素 / 14 关系；任一处仍写 56 / 127、55 / 123（含 `06` 段 32 / 75 或 32 / 74、`02` 段 9 / 9、`03` 段 8 / 24、`04` 段 1 / 13）、54 / 123、53 / 120、51 / 113、50 / 111、47 关系、「9 个容器」，或前端恒等式仍写 **67 + 8**（实为 **69 + 8**）即不合格
+- **THEN** 三处同值：全基线 **54 元素 / 127 关系**（纯容器 6 + 其余 48；后端 50 + 前端 77）、`06` 段 **32 元素 / 77 关系**（3 容器 + 29 其余元素）、`05` 段 2 元素 / 1 关系、`02` 段 9 元素 / 10 关系、`03` 段 8 元素 / 25 关系、`04` 段 1 元素 / 14 关系；任一处仍写 55 / 129、56 / 127、55 / 123（含 `06` 段 32 / 75 或 32 / 74、`02` 段 9 / 9、`03` 段 8 / 24、`04` 段 1 / 13）、54 / 123、53 / 120、51 / 113、50 / 111、47 关系、「9 个容器」，或前端恒等式仍写 **67 + 8**（实为 **69 + 8**）即不合格
 
-#### Scenario: 三处入口与 12 个目录入口在案后的判据面归位
+#### Scenario: 两处入口与 12 个目录入口在案后的判据面归位
 
-- **WHEN** 分别对壳、两个工具 crate、生成物中继元素、12 个前端目录根元素跑一次全量检查并读 `apiFindings`
-- **THEN** 壳**零** `apiEntryMissing`，同趟恰一条 `docMissing`（显式 `entry` 命中 ⇒ 入口判据不成立；`api = declared` 且派生契约 md 缺失 ⇒ `docMissing` 成立）——两条 MUST NOT 同时出现（入口债与入口文档债是两回事）；两个工具 crate 与生成物中继元素因 `api = none` **退出入口判据**，各恰一条 `docMissing`（`doc` 未声明），该结论 MUST NOT 被重算成「无入口」或「无 API」（生成物目录的 `Absent` 入口事实另见 `desktop-archi-api`「本仓入口面实测」）；12 个前端目录根**零** `apiEntryMissing`（各自的 `index.ts` / `index.tsx` 由 ③ 命中），同趟**各一条** `docMissing`；`Backend.Core.Notification` 同为 `api = declared` 且派生契约 md 不在盘 ⇒ 同趟恰一条 `docMissing`——12 条 + 该条由此居当前 39 条之内，MUST NOT 被读成「入口债已清 ⇒ 判据面干净」
+- **WHEN** 分别对壳、工具 crate、生成物中继元素、12 个前端目录根元素跑一次全量检查并读 `apiFindings`
+- **THEN** 壳**零** `apiEntryMissing`，同趟恰一条 `docMissing`（显式 `entry` 命中 ⇒ 入口判据不成立；`api = declared` 且派生契约 md 缺失 ⇒ `docMissing` 成立）——两条 MUST NOT 同时出现（入口债与入口文档债是两回事）；工具 crate 与生成物中继元素因 `api = none` **退出入口判据**，各恰一条 `docMissing`（`doc` 未声明），该结论 MUST NOT 被重算成「无入口」或「无 API」（生成物目录的 `Absent` 入口事实另见 `desktop-archi-api`「本仓入口面实测」）；12 个前端目录根**零** `apiEntryMissing`（各自的 `index.ts` / `index.tsx` 由 ③ 命中），同趟**各一条** `docMissing`；`Backend.Core.Notification` 同为 `api = declared` 且派生契约 md 不在盘 ⇒ 同趟恰一条 `docMissing`——12 条 + 该条由此居当前 36 条之内，MUST NOT 被读成「入口债已清 ⇒ 判据面干净」
 
 #### Scenario: 契约子树与索引不改变模型读数
 
 - **WHEN** 在 `models/<分层目录…>/` 放入契约 md 与 `.schema.json`、在 `graph/` 放入 `INDEX.toml` 之后，分别取一次 `archi_graph`（元素 / 关系 / 诊断）与一次 `archi_drift` 的 `modelHash`
-- **THEN** 元素 55 / 关系 129 / `diagnostics` 空与放入前逐字相同；`modelHash` 逐字相同（取面为 `graph/model/*.toml` 一级、按扩展名）；反向判据：把 `INDEX.toml` 复制到 `graph/model/` 根后 `modelHash` 立刻变化且模型转停摆态——两侧读数即本条的存在理由
+- **THEN** 元素 54 / 关系 127 / `diagnostics` 空与放入前逐字相同；`modelHash` 逐字相同（取面为 `graph/model/*.toml` 一级、按扩展名）；反向判据：把 `INDEX.toml` 复制到 `graph/model/` 根后 `modelHash` 立刻变化且模型转停摆态——两侧读数即本条的存在理由
 
 #### Scenario: docs 写回即停摆
 
@@ -118,24 +117,23 @@
 | `Backend.Infra.Watch` | `package` | `./packages/desktop/src-tauri/crates/infra/watch/` |
 | `Backend.Tools` | `composite` | 空（分层容器） |
 | `Backend.Tools.ExportBindings` | `package` | `./packages/desktop/src-tauri/crates/tools/export-bindings/` |
-| `Backend.Tools.ArchiApiGen` | `package` | `./packages/desktop/src-tauri/crates/tools/archi-api-gen/` |
 | `Backend.Shell` | `module` | `./packages/desktop/src-tauri/src/` |
 
 - **包根**：`Backend` 覆盖 `src-tauri/`（未归入更具体元素的文件兜底归属），`Desktop` 覆盖 `src/`；二者 `kind = "package"`，是唯一持根路径的祖先元素。
 - **命名**：元素段 SHALL 取 crate **裸名**的 CamelCase（`agent-runtime` → `AgentRuntime`），因此 core `agent` 与 infra `agent-runtime` 在 FQN 上天然可辨；壳取 `Shell`（包名 `dev-team` 是构建标识，不作架构元素名）。
 - **覆盖判据（双向）**：「`crates/{core,infra,tools}/<dir>/` 目录集合 + `src-tauri/src/` + 包根路径 `src-tauri/`」与「本要求的 `path` 集合」SHALL 相等——漏一个 crate 与多一个不存在目录同样不合格；比对时 SHALL 把下文所列的**既有已知缺口**单列为差集，其余两侧 MUST 严格相等（不允许以「缺口存在」为由整体放行）。
-- **既有已知缺口（不在本变更补齐）**：`crates/tools/specta-zod-patched`（vendored 上游 exporter，`[package] name = "specta-zod"`，patch 面与跟版核对登记在 `desktop-ipc-type-bindings`；上游合入对应能力即整目录删除）先于本变更进入 workspace 而尚未建元素——该缺口**不是**本变更引入的，故本变更 MUST NOT 以「顺手补齐」为由扩范围（其补缺或豁免判据由独立变更承载），也 MUST NOT 以该缺口反推本变更新增的 `Backend.Tools.ArchiApiGen` 不成立。本变更后**自研 crate** 集合 SHALL 为 17（`core` 8 + `infra` 7 + `tools` 2：`export-bindings` 与 `archi-api-gen`），逐一对上元素 `path`。
-- **漂移纪律**：新增 workspace crate SHALL 在引入它的同一 change 内追加元素与容器归属（MUST NOT 等到「下次整理模型」）。既有两个适用实例：`crates/infra/archi` → `Backend.Infra.ArchiRuntime`（三条边、`03` 段计数）；**本变更的 `crates/tools/archi-api-gen` → `Backend.Tools.ArchiApiGen`**（两条边、`05` 段计数 MUST 与本变更同 change 落地）。
+- **既有已知缺口（不在本变更补齐）**：`crates/tools/specta-zod-patched`（vendored 上游 exporter，`[package] name = "specta-zod"`，patch 面与跟版核对登记在 `desktop-ipc-type-bindings`；上游合入对应能力即整目录删除）先于本变更进入 workspace 而尚未建元素——该缺口**不是**本变更引入的，故本变更 MUST NOT 以「顺手补齐」为由扩范围（其补缺或豁免判据由独立变更承载）。本基线**自研 crate** 集合 SHALL 为 16（`core` 8 + `infra` 7 + `tools` 1：`export-bindings`），逐一对上元素 `path`。
+- **漂移纪律**：新增 workspace crate SHALL 在引入它的同一 change 内追加元素与容器归属（MUST NOT 等到「下次整理模型」）；删除 crate SHALL 在同一 change 内删除元素与其全部边（不留空元素、不留悬空引用）。既有实例：`crates/infra/archi` → `Backend.Infra.ArchiRuntime`（三条边、`03` 段计数）；已退役实例：`crates/tools/archi-api-gen` → `Backend.Tools.ArchiApiGen` 元素与两条边同批删除（`05` 段 3 元素 / 3 关系 → 2 元素 / 1 关系）。
 
 #### Scenario: crate 目录与元素双向覆盖
 
 - **WHEN** 枚举 `crates/core/*`、`crates/infra/*`、`crates/tools/*` 目录名与模型 `path` 集合比对
-- **THEN** 枚举到的 18 个目录中，17 个**自研** crate 目录与 17 个 crate 元素两侧相等（`core` 8 / `infra` 7 / `tools/export-bindings` + `tools/archi-api-gen`，无漏无多）；唯一差集恰为 `crates/tools/specta-zod-patched` 一条既有已知缺口且被单列在案，其余任何差集即不合格；`Backend.Shell` 覆盖 `src-tauri/src/`，包根 `Backend` 覆盖 `src-tauri/` 并兜底其余未建模文件
+- **THEN** 枚举到的 17 个目录中，16 个**自研** crate 目录与 16 个 crate 元素两侧相等（`core` 8 / `infra` 7 / `tools/export-bindings`，无漏无多）；唯一差集恰为 `crates/tools/specta-zod-patched` 一条既有已知缺口且被单列在案，其余任何差集即不合格；`Backend.Shell` 覆盖 `src-tauri/src/`，包根 `Backend` 覆盖 `src-tauri/` 并兜底其余未建模文件
 
 #### Scenario: crate 内部不建元素
 
 - **WHEN** 检查模型内元素 FQN 与 `crates/*/*/src/**.rs` 文件名的对应关系
-- **THEN** 不存在对 crate 内部模块（如 `agent::runner`、`archi::parse`、`archi-runtime::runner`、`archi-api-gen` 的 `api` 子模块族）的元素声明；`archi` 的 `parse` / `graph` / `dto` / `api` 与 `archi-runtime` 的 `runner` / `report` 等子模块只出现在对应 crate 的 `summary` 与文档描述里，不在元素表内
+- **THEN** 不存在对 crate 内部模块（如 `agent::runner`、`archi::parse`、`archi-runtime::runner`）的元素声明；`archi` 的 `parse` / `graph` / `dto` / `api` 与 `archi-runtime` 的 `runner` / `report` 等子模块只出现在对应 crate 的 `summary` 与文档描述里，不在元素表内
 
 #### Scenario: 新增 crate 未声明即不合格
 
@@ -147,10 +145,10 @@
 - **WHEN** 检查 `crates/infra/archi` 与 `03-backend-infra.toml`
 - **THEN** `Backend.Infra.ArchiRuntime` 在案（`kind = "package"`、`gate = off`、`path = ["./packages/desktop/src-tauri/crates/infra/archi/"]`、`summary` 非空且不复述 FQN）；其三条出边与 `Cargo.toml` `[dependencies]` 的 workspace 内声明逐条相等（`Core.Archi` / `Core.Foundation` / `Core.Orchestration`）；`03` 段表头与计数表均为 **8 元素 / 25 关系**
 
-#### Scenario: 新增工具 crate 同 change 补齐
+#### Scenario: 删除 crate 同 change 删除元素与边
 
-- **WHEN** 检查 `crates/tools/archi-api-gen` 与 `05-backend-tools.toml`
-- **THEN** `Backend.Tools.ArchiApiGen` 在案（`kind = "package"`、`gate = off`、`path = ["./packages/desktop/src-tauri/crates/tools/archi-api-gen/"]`、`summary` 非空且不复述 FQN）；其两条出边与 `Cargo.toml` `[dependencies]` 的 workspace 内声明逐条相等（`Core.Archi` / `Core.Foundation`）；`05` 段表头与计数表均为 **3 元素 / 3 关系**
+- **WHEN** 删除 `crates/tools/archi-api-gen` 并检查 `05-backend-tools.toml`
+- **THEN** `Backend.Tools.ArchiApiGen` 元素与其两条 `[[relation]]` 同批删除；`05` 段表头与计数表均为 **2 元素 / 1 关系**；模型聚合零结构诊断、零悬空引用，`INDEX.toml` 无该元素条目
 
 ### Requirement: 后端关系只取 Cargo 依赖声明
 
@@ -160,13 +158,12 @@
 - **反向边是合法事实**：`Backend.Tools.ExportBindings → Backend.Shell`（`path = ../../../`）SHALL 在案——工具 crate 为导出命令面 bindings 而依赖壳包，这一「工具依赖壳」的倒置是本基线的显式产出之一。
 - **包含关系 MUST NOT 连边**：属于同一 crate 分组由 FQN 前缀表达；`Backend.Core.Workflow → Backend.Core` 一类「子 → 父」边 MUST NOT 出现（写入即 `dependsOnAncestor` 停摆）。
 - **本变更新增的四条边**：`Backend.Infra.ArchiRuntime → Backend.Core.Archi` / `→ Backend.Core.Foundation` / `→ Backend.Core.Orchestration`（`archi-runtime` 的 `[dependencies]`）与 `Backend.Shell → Backend.Infra.ArchiRuntime`（壳的 `[dependencies]`，装配注入 runner）SHALL 在案，`desc` 各写一句用途；外部依赖（`serde_json` 与 `archi` 侧 `oxc_*` / `syn` / `sha2` 等）MUST NOT 连边。
-- **本变更新增的两条边**：`Backend.Tools.ArchiApiGen → Backend.Core.Archi`（契约解析 / 装配 / 判据 / 渲染复用判定域）与 `→ Backend.Core.Foundation`（契约目录路径派生）SHALL 在案，`desc` 各写一句用途；外部依赖（`serde_json`）MUST NOT 连边；`archi-api-gen` MUST NOT 依赖壳（与 `export-bindings` 的反向边形态不同——它不触 bindings 导出）。
 - **`desc`**：一句中文用途（如 `Store → Workflow` 写「change 域记录的类型依赖」），MUST NOT 复制 `Cargo.toml` 段落位置。
 
 #### Scenario: 边集合与 Cargo 声明逐条相等
 
-- **WHEN** 枚举 17 个自研 crate 与壳的 `[dependencies]` 段内 workspace 内声明，与模型 `[[relation]]`（`from` 为后端元素者）比对
-- **THEN** 两侧逐条相等（本期 52 条，`02` 段 10 条 + `03` 段 25 条 + `04` 段 14 条 + `05` 段 3 条）；`Backend.Infra.Watch` 与 `Backend.Core.Agent` 出边为零；`Backend.Shell` 出边 14 条
+- **WHEN** 枚举 16 个自研 crate 与壳的 `[dependencies]` 段内 workspace 内声明，与模型 `[[relation]]`（`from` 为后端元素者）比对
+- **THEN** 两侧逐条相等（本期 50 条，`02` 段 10 条 + `03` 段 25 条 + `04` 段 14 条 + `05` 段 1 条）；`Backend.Infra.Watch` 与 `Backend.Core.Agent` 出边为零；`Backend.Shell` 出边 14 条
 
 #### Scenario: dev 边零出现
 
@@ -176,12 +173,7 @@
 #### Scenario: 反向边在案且含父子禁边检查
 
 - **WHEN** 查询 `Backend.Tools.ExportBindings` 的出边，并审查全部后端边是否含「子 → 父」
-- **THEN** 出边恰为 `Backend.Shell` 一条（`desc` 说明为导出 bindings 而依赖壳）；全部后端边中零 `dependsOnAncestor` 形态（`ArchiRuntime` 的三条边全为「infra → core / 同层」，`ArchiApiGen` 的两条边为「tools → core」，均不含「子 → 父」）
-
-#### Scenario: 新增工具 crate 的两条边在案
-
-- **WHEN** 查询 `Backend.Tools.ArchiApiGen` 的出边并与 `crates/tools/archi-api-gen/Cargo.toml` 的 `[dependencies]` 比对
-- **THEN** 出边恰为 `Backend.Core.Archi` 与 `Backend.Core.Foundation` 两条（各带一句中文 `desc`）；`serde_json` 等外部依赖零连边；`05` 段关系数为 3
+- **THEN** 出边恰为 `Backend.Shell` 一条（`desc` 说明为导出 bindings 而依赖壳）；全部后端边中零 `dependsOnAncestor` 形态（`ArchiRuntime` 的三条边全为「infra → core / 同层」，其余后端边均不含「子 → 父」）
 
 ### Requirement: 前端下钻到视图与组件层的元素覆盖
 前端模型 SHALL 下钻到**视图**与**组件**两层，并按三条机械判据推导元素，MUST NOT 按个人口味挑选：
@@ -255,13 +247,13 @@
 
 - **祖先显式声明**：所有容器元素 SHALL 在模型内声明（层级由 FQN 前缀推导，孤儿层级即 `orphanHierarchy`）；MUST NOT 依赖「隐式祖先自动补建」（本能力体系的既有前提）。
 - **停摆零容忍**：交付面 MUST NOT 以「结构错 + 停摆面板」形态收尾——停摆是坏模型的处置，不是基线的可接受状态。
-- **入口文档面零告警（本变更改写）**：`ArchiModuleDetail` 不再有 `warnings` 字段（`WarningKind` 随 `docs` 三源退役），入口文档的读数全部经漂移报告的 `apiFindings`：本基线 SHALL 恰为 **38 条 `docMissing`（`warn`、不纳管）**、其余九值各 0 ⇒ `status` 仍 `clean`、`passed` 仍 `true`（38 = 49 个 `path` 非空元素 − 11 个资产齐全的元素：35 条 `declared` 侧 + 3 条 `api = none` 侧）；`apiUnexpected` / `apiMissing` / `apiSignatureMismatch` SHALL 各零命中（没有元素把 schema 放在 `api = none` 下，11 个资产齐全的元素接口与代码同步）。`path` 指向现存目录 / 文件 ⇒ `pathNotFound` / `ambiguousOwner` 零命中、顶层 `warnings` 为空；`model.warnings` SHALL **为空**（六个容器 = 3 个 `composite` + 3 个 `domain`，空 `path` 是选填容器的标准形态 ⇒ 零 `noPath`；`Backend` / `Desktop` 包根持 `path`，不在其列）——两层 MUST NOT 记混。
-- **声明未兑现读数**：`observations` SHALL 恰为 **53** 条（52 条后端 + 1 条既有边面缺口 `Desktop.Views.Changes.Agent → Desktop.Components.Ui`）——前端命令面边因生成目录有了归属而全部兑现；后端 52 条仍全部未兑现（观察根无 workspace 清单 ⇒ Rust 事实面为零，属既有缺口，见 `desktop-archi-drift`「依赖 API 两桶对账与求差单点」）。
+- **入口文档面零告警（本变更改写）**：`ArchiModuleDetail` 不再有 `warnings` 字段（`WarningKind` 随 `docs` 三源退役），入口文档的读数全部经漂移报告的 `apiFindings`：本基线 SHALL 恰为 **36 条 `docMissing`（`warn`、不纳管）**、其余九值各 0 ⇒ `status` 仍 `clean`、`passed` 仍 `true`；`apiUnexpected` / `apiMissing` / `apiSignatureMismatch` SHALL 各零命中（没有元素把 schema 放在 `api = none` 下，资产齐全的元素接口与代码同步）。`path` 指向现存目录 / 文件 ⇒ `pathNotFound` / `ambiguousOwner` 零命中、顶层 `warnings` 为空；`model.warnings` SHALL **为空**（六个容器 = 3 个 `composite` + 3 个 `domain`，空 `path` 是选填容器的标准形态 ⇒ 零 `noPath`；`Backend` / `Desktop` 包根持 `path`，不在其列）——两层 MUST NOT 记混。
+- **声明未兑现读数**：`observations` SHALL 恰为 **51** 条（50 条后端 + 1 条既有边面缺口 `Desktop.Views.Changes.Agent → Desktop.Components.Ui`）——前端命令面边因生成目录有了归属而全部兑现；后端 50 条仍全部未兑现（观察根无 workspace 清单 ⇒ Rust 事实面为零，属既有缺口，见 `desktop-archi-drift`「依赖 API 两桶对账与求差单点」）。
 
 #### Scenario: 正常态而非停摆态
 
 - **WHEN** 调用 `archi_graph(root)`
-- **THEN** 返回正常态：`elements` 55、`relations` 129（后端 52 + 前端 77）、`diagnostics` 空；`/architecture` 页面呈现左栏树 + 右栏元素信息与画布两栏，无结构错面板、零「修好后再看」文案
+- **THEN** 返回正常态：`elements` 54、`relations` 127（后端 50 + 前端 77）、`diagnostics` 空；`/architecture` 页面呈现左栏树 + 右栏元素信息与画布两栏，无结构错面板、零「修好后再看」文案
 
 #### Scenario: 成环与祖先禁边被机械拦住
 
@@ -271,7 +263,7 @@
 #### Scenario: 孤儿层级零命中
 
 - **WHEN** 检查每个叶元素的 FQN 前缀链
-- **THEN** 每一级祖先（`Backend` → `Backend.Core` → crate；`Desktop` → `Desktop.Views` → 叶；`Desktop` → `Desktop.GeneratedBindings`）均在模型内显式声明，`orphanHierarchy` 零命中（含 `Backend.Tools.ArchiApiGen` 链：`Backend` → `Backend.Tools`）
+- **THEN** 每一级祖先（`Backend` → `Backend.Core` → crate；`Desktop` → `Desktop.Views` → 叶；`Desktop` → `Desktop.GeneratedBindings`）均在模型内显式声明，`orphanHierarchy` 零命中（含 `Backend.Tools.ExportBindings` 链：`Backend` → `Backend.Tools`）
 
 #### Scenario: 入口文档债不拉状态词
 

@@ -26,7 +26,7 @@
 //! （「FQN → 接口原文」），MUST NOT 新建 `$defs` 投影拷贝、MUST NOT 在渲染期读盘。
 //! `$ref` 字符串 → 目标 `$defs` 条目的定位单点是 [`def_entry`]。
 //!
-//! 边界：纯函数出 `String`，**零写盘**（写盘在 `crates/tools/archi-api-gen`）。
+//! 边界：纯函数出 `String`，**零写盘**（写盘单点在 `crates/infra/archi`）。
 
 pub mod rust;
 pub mod ts;
@@ -217,7 +217,7 @@ pub(crate) fn notice_lines(meta: &ApiMeta) -> Vec<String> {
             meta.tool_version,
             short_digest(&meta.common_digest)
         ),
-        "手改将在下次 generate 时被覆盖，且 api:check 零 diff 门会失败。".to_owned(),
+        "手改将在下次生成时被覆盖，且与契约的差异会被生成物检查判出。".to_owned(),
         "类型定义与自动构造器由契约派发；impl 块写在本模块任意手写文件。".to_owned(),
         meta.generated_notice.to_owned(),
     ]

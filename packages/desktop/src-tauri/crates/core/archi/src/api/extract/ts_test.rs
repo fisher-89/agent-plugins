@@ -835,10 +835,9 @@ fn scan_product_rs(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
 }
 
 /// 边界（**D39** 显式留白）：源码自证——产品 `.rs`（滤 `*_test.rs`）内对
-/// `apply_knip_report(` 的调用**零命中**（只有定义）；`api/mod.rs` 与
-/// `crates/tools/archi-api-gen/src/main.rs` 内 `knip` 一词**各零命中**；
-/// `Visibility::Unused` 的产出点唯一（本函数体内），故生产面不可达；两处 doc 各写明
-/// 「本期生产面不产出 `Unused`（knip 未接线）+ 零调用者的预留接口」。
+/// `apply_knip_report(` 的调用**零命中**（只有定义）；`api/mod.rs` 内 `knip` 一词
+/// **零命中**；`Visibility::Unused` 的产出点唯一（本函数体内），故生产面不可达；
+/// 两处 doc 各写明「本期生产面不产出 `Unused`（knip 未接线）+ 零调用者的预留接口」。
 #[test]
 fn apply_knip_report零产品调用者() {
     // ① 产品面零调用者（定义行不算）
@@ -863,18 +862,11 @@ fn apply_knip_report零产品调用者() {
         "`apply_knip_report` 零产品调用者（D39 显式留白，不是缺陷）：{callers:?}"
     );
 
-    // ② `api/mod.rs` 与 CLI 内 `knip` 各零命中（bootstrap 不读 knip）
+    // ② `api/mod.rs` 内 `knip` 零命中（bootstrap 不读 knip）
     assert_eq!(
         include_str!("../mod.rs").matches("knip").count(),
         0,
         "`api/mod.rs` 内零 `knip`（bootstrap 不读）"
-    );
-    let main_rs = src_tauri.join("crates/tools/archi-api-gen/src/main.rs");
-    let main_source = std::fs::read_to_string(&main_rs).expect("CLI 源文在案");
-    assert_eq!(
-        main_source.matches("knip").count(),
-        0,
-        "CLI 内零 `knip`（D39：人工驱动，不由工具调）"
     );
 
     // ③ `Visibility::Unused` 的产出点唯一（本文件体内，注释不计）

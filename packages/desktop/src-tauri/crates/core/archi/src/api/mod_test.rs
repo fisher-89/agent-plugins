@@ -2964,8 +2964,15 @@ fn meta三常量形态() {
         "https://json-schema.org/draft/2020-12/schema"
     );
     assert!(
-        meta.generated_notice.contains("勿手改") && meta.generated_notice.contains("api:check"),
-        "警示文案含「勿手改」与零 diff 门语义：{}",
+        meta.generated_notice.contains("勿手改") && meta.generated_notice.contains("生成物检查"),
+        "警示文案含「勿手改」与生成物检查语义：{}",
+        meta.generated_notice
+    );
+    assert!(
+        !meta.generated_notice.contains("api:check")
+            && !meta.generated_notice.contains("api:export")
+            && !meta.generated_notice.contains("pnpm"),
+        "警示文案零本仓脚本名（通用工作区没有这些命令）：{}",
         meta.generated_notice
     );
 }
@@ -3313,11 +3320,10 @@ fn display边界值() {
 
 /// 源码自证（**D2 / D11** 路径归一单点）：`api/mod.rs` 内 `pub fn display` 恰 1
 /// （不再是 `pub(crate)`）；`lib.rs` 的 `pub use api::display` 成行恰 1（分组块会令判据
-/// 恒 0）；工具侧行首 `fn display` 与本地归一（`replace("\\\\", "/")` / `strip_prefix`）
-/// 均零命中——CLI 的路径串经 `api::compare` 的应生成集比对取得，归一不在 CLI 侧；
-/// `short_digest` 仍 `pub(crate)`（不扩大出口面）。
+/// 恒 0）；跨 crate 消费方（`archi-runtime`）经本单点取 repo 相对串，本 crate 零第二份
+/// 归一实现；`short_digest` 仍 `pub(crate)`（不扩大出口面）。
 #[test]
-fn display跨crate单点面() {
+fn display单点面() {
     let source = include_str!("mod.rs");
     assert_eq!(
         source.matches("pub fn display").count(),
@@ -3334,35 +3340,6 @@ fn display跨crate单点面() {
         lib.matches("pub use api::display").count(),
         1,
         "crate 根出口 `pub use api::display` 成行恰 1（分组块会让判据恒 0）"
-    );
-
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let tools_main = manifest.join("../../tools/archi-api-gen/src/main.rs");
-    let tool_source = fs::read_to_string(&tools_main).expect("读 CLI 源文");
-    assert_eq!(
-        tool_source
-            .lines()
-            .filter(|line| line.starts_with("fn display"))
-            .count(),
-        0,
-        "工具侧零本地 `fn display`（D2/D11：归一单点在 `api::display`）"
-    );
-    for local in ["replace(\"\\\\\", \"/\")", "strip_prefix("] {
-        assert_eq!(
-            tool_source.matches(local).count(),
-            0,
-            "工具侧零本地路径归一（{local}）：归一单点在 `api::display`"
-        );
-    }
-    assert_eq!(
-        tool_source.matches("compare(").count(),
-        1,
-        "`--check` 的路径串经 `archi::api` 的比对取得（判定单源）"
-    );
-    assert_eq!(
-        tool_source.matches("workspace_render(").count(),
-        1,
-        "`generate` 的应生成集经 `archi::api` 的渲染取得（渲染单源）"
     );
     assert_eq!(
         source.matches("pub(crate) fn short_digest").count(),
