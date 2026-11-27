@@ -60,6 +60,7 @@ impl StartStore {
                 archived_at: None,
                 active_phase: None,
                 worktree: None,
+                exec_root: None,
                 base_commit: None,
             })),
             entries: Mutex::new(Vec::new()),

@@ -200,6 +200,7 @@ fn sample_records() -> Vec<(&'static str, serde_json::Value)> {
                 1000,
                 None,
                 None,
+                None,
             )),
         ),
         (
@@ -339,6 +340,7 @@ fn 表清单两维度行集与登记序且摘要非空计数与播种量一致()
             "a",
             "requirement",
             1000,
+            None,
             None,
             None,
         ))

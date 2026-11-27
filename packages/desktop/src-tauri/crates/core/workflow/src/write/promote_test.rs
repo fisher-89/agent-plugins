@@ -7,7 +7,7 @@ use foundation::layout::resolve;
 use super::promote::PromoteOutcome;
 use super::promote_explore;
 use super::BootstrapProject;
-use super::{InstallRun, RepoProbe, WorktreePort};
+use super::{InstallRun, RepoProbe, WorktreePlacement, WorktreePort};
 use crate::state::{
     BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand,
     PhaseStartState, PhaseStateRecord, RunEdgeStateRecord, RunFinishCommand, RunNodeStateRecord,
@@ -189,9 +189,17 @@ impl FakeVcs {
 }
 
 impl WorktreePort for FakeVcs {
-    fn worktree_root(&self, _main_root: &Path) -> Result<PathBuf, String> {
-        self.record("worktree_root");
-        Ok(self.worktree_root.clone())
+    fn placement(&self, _main_root: &Path) -> Result<WorktreePlacement, String> {
+        self.record("placement");
+        Ok(WorktreePlacement {
+            root: self.worktree_root.clone(),
+            rel: String::new(),
+        })
+    }
+
+    fn tracked_at_head(&self, _main_root: &Path, rel: &str) -> Result<bool, String> {
+        self.record(&format!("tracked_at_head:{rel}"));
+        Ok(true)
     }
 
     fn probe(&self, _main_root: &Path) -> Result<RepoProbe, String> {

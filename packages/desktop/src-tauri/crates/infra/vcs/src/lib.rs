@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use orchestration::port::{RebaseOutcome, WorktreeSnapshot};
 use orchestration::ArchiveVcsPort;
-use workflow::write::WorktreePort;
+use workflow::write::{WorktreePlacement, WorktreePort};
 
 mod bootstrap;
 mod git;
@@ -31,10 +31,16 @@ pub(crate) fn test_path_lock() -> std::sync::MutexGuard<'static, ()> {
 /// worktrees 子树目录名（git 根同级：`<git 根父目录>/.worktrees/<仓库目录名>/`）。
 pub const WORKTREES_DIR_NAME: &str = ".worktrees";
 
-/// worktree 落位父锚派生单点
-pub fn worktree_root(workspace_root: &Path) -> Result<PathBuf, String> {
-    let toplevel = git::toplevel(workspace_root)?;
-    worktree_root_from_toplevel(&toplevel)
+/// worktree 落位 + 偏移派生单点：`git::placement`（一次 `rev-parse
+/// --show-toplevel --show-prefix`）+ 纯派生 [`worktree_root_from_toplevel`]。
+/// `root` = `<git 根父目录>/.worktrees/<仓库目录名>`（与 workspace 在仓库内的
+/// 位置无关），`rel` = workspace root 相对 git 根的偏移（`""` = git 根）。
+pub fn placement(workspace_root: &Path) -> Result<WorktreePlacement, String> {
+    let (toplevel, rel) = git::placement(workspace_root)?;
+    Ok(WorktreePlacement {
+        root: worktree_root_from_toplevel(&toplevel)?,
+        rel,
+    })
 }
 
 /// 纯派生：git 根 → 落位父锚（单测直驱，零 git 探测）。
@@ -79,8 +85,12 @@ impl Default for ProcessWorktree {
 }
 
 impl WorktreePort for ProcessWorktree {
-    fn worktree_root(&self, main_root: &Path) -> Result<PathBuf, String> {
-        worktree_root(main_root)
+    fn placement(&self, main_root: &Path) -> Result<workflow::write::WorktreePlacement, String> {
+        placement(main_root)
+    }
+
+    fn tracked_at_head(&self, main_root: &Path, rel: &str) -> Result<bool, String> {
+        git::tracked_at_head(main_root, rel)
     }
 
     fn probe(&self, main_root: &Path) -> Result<workflow::write::RepoProbe, String> {

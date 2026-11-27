@@ -617,7 +617,7 @@ impl PartialEq for SessionEventRecord {
 /// change 建档记录
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 9, version = 4, from = ChangeRecordV3)]
+#[native_model(id = 9, version = 5, from = ChangeRecordV4)]
 #[native_db]
 pub struct ChangeRecord {
     /// 建档铸出的稳定唯一身份锚（主键，UUID 形态；一切寻址键——库查询 /
@@ -642,14 +642,20 @@ pub struct ChangeRecord {
     /// `SessionConfigSnapshot`）
     #[serde(default)]
     pub active_phase: Option<ChangeActivePhase>,
-    /// 该 change 分配的 worktree 绝对路径（执行锚）；`None` = legacy 主 root
-    /// change。执行锚引用，MUST NOT 反向参与库身份派生（`for_root` 恒以
-    /// workspace root 为锚）。
+    /// 该 change 分配的 worktree 绝对路径（**落位目录 / host**）；`None` =
+    /// legacy 主 root change。执行锚引用，MUST NOT 反向参与库身份派生
+    /// （`for_root` 恒以 workspace root 为锚）。
     #[serde(default)]
     pub worktree: Option<String>,
     /// 创建基线 fork 点（主仓 HEAD，git worktree 建域时铸出）；调试 / UI 价值。
     #[serde(default)]
     pub base_commit: Option<String>,
+    /// 执行根绝对路径（change 工作面：会话 cwd / Layout / 检查器 / bootstrap
+    /// 锚）；`None` = 与 `worktree` 同值（根 workspace 与 legacy 记录同形）。
+    /// 与 `worktree` 同形态（写面路径的字符串形态，MUST NOT 额外归一大小写 /
+    /// 分隔符 / 尾分隔符）；归档后原样保留（历史锚）。
+    #[serde(default)]
+    pub exec_root: Option<String>,
 }
 
 impl ChangeRecord {
@@ -660,6 +666,7 @@ impl ChangeRecord {
         created_at: i64,
         worktree: Option<String>,
         base_commit: Option<String>,
+        exec_root: Option<String>,
     ) -> Self {
         Self {
             id: id.to_owned(),
@@ -672,6 +679,80 @@ impl ChangeRecord {
             active_phase: None,
             worktree,
             base_commit,
+            exec_root,
+        }
+    }
+}
+
+/// `ChangeRecord` 的 version 4 历史形态（仅作 native_model 升级链的解码目标，
+/// 不注册进库模型组、不出公共查询面）：无 `exec_root` 列。存量 v4 行经版本
+/// 机制自动升级为 v5（`exec_root` 读出 `None`——「执行根 = worktree」的既有
+/// 语义原样成立，零迁移代码路径、行为零变化）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 9, version = 4, from = ChangeRecordV3)]
+pub(crate) struct ChangeRecordV4 {
+    /// 建档铸出的稳定唯一身份锚（主键）
+    pub id: String,
+    /// change 名（恒裸名）
+    pub name: String,
+    /// 人类可读标题，恒非空
+    pub title: String,
+    /// 工作流类型
+    pub workflow_type: String,
+    /// 建档时间（UTC unix 毫秒）
+    pub created_at: i64,
+    /// change 状态
+    pub status: ChangeStatus,
+    /// 归档时间（UTC unix 毫秒）
+    #[serde(default)]
+    pub archived_at: Option<i64>,
+    /// 运行中 phase
+    #[serde(default)]
+    pub active_phase: Option<ChangeActivePhase>,
+    /// worktree 绝对路径（落位目录 / host）
+    #[serde(default)]
+    pub worktree: Option<String>,
+    /// 创建基线 fork 点
+    #[serde(default)]
+    pub base_commit: Option<String>,
+}
+
+/// v4 → v5 升级半边（缺列读兼容：旧记录无 `exec_root` 列——读出 `None`，
+/// 零迁移脚本）。
+impl From<ChangeRecordV4> for ChangeRecord {
+    fn from(previous: ChangeRecordV4) -> Self {
+        Self {
+            id: previous.id,
+            name: previous.name,
+            title: previous.title,
+            workflow_type: previous.workflow_type,
+            created_at: previous.created_at,
+            status: previous.status,
+            archived_at: previous.archived_at,
+            active_phase: previous.active_phase,
+            worktree: previous.worktree,
+            base_commit: previous.base_commit,
+            exec_root: None,
+        }
+    }
+}
+
+/// v5 → v4 降级半边（`exec_root` 丢弃——只保升级语义真实性，降级形态不作
+/// 数据承诺）。
+impl From<ChangeRecord> for ChangeRecordV4 {
+    fn from(record: ChangeRecord) -> Self {
+        Self {
+            id: record.id,
+            name: record.name,
+            title: record.title,
+            workflow_type: record.workflow_type,
+            created_at: record.created_at,
+            status: record.status,
+            archived_at: record.archived_at,
+            active_phase: record.active_phase,
+            worktree: record.worktree,
+            base_commit: record.base_commit,
         }
     }
 }
@@ -707,7 +788,7 @@ pub(crate) struct ChangeRecordV3 {
     pub base_commit: Option<String>,
 }
 
-impl From<ChangeRecordV3> for ChangeRecord {
+impl From<ChangeRecordV3> for ChangeRecordV4 {
     fn from(previous: ChangeRecordV3) -> Self {
         let name = previous.name;
         Self {
@@ -728,8 +809,8 @@ impl From<ChangeRecordV3> for ChangeRecord {
 
 /// 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取路径，
 /// `title` 列丢弃——只保升级语义真实性，降级形态不作数据承诺）。
-impl From<ChangeRecord> for ChangeRecordV3 {
-    fn from(record: ChangeRecord) -> Self {
+impl From<ChangeRecordV4> for ChangeRecordV3 {
+    fn from(record: ChangeRecordV4) -> Self {
         Self {
             id: record.id,
             name: record.name,

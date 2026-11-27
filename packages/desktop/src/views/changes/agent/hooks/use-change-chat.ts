@@ -30,7 +30,10 @@ export interface ChangeChatParams {
   root: string | null;
   /** change id（会话归属 `source_ref` 键；null = 无身份源，零 invoke） */
   changeId: string | null;
-  /** 执行根来源（`detail.worktree`；null = legacy 记录，回落 workspace root） */
+  /**
+   * 执行根来源（`detail.execRoot ?? detail.worktree`，由详情视图解析后经面板 `cwd`
+   * prop 送入）；null = 无执行根（legacy 记录 / 归档），回落 workspace root
+   */
   worktree: string | null;
   /** 在飞 change flow run（禁发判据之一） */
   runActive: boolean;

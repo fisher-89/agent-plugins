@@ -1300,6 +1300,7 @@ fn sample_preflight() -> ArchivePreflight {
         missing_artifacts: Vec::new(),
         delta_specs: vec!["specs/desktop-flow/spec.md".to_owned()],
         worktree: Some("/tmp/wt/demo-change".to_owned()),
+        exec_root: None,
         branch: Some("change/demo-change".to_owned()),
         merge_target: Some("main".to_owned()),
     }

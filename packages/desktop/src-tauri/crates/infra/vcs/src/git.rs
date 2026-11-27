@@ -109,11 +109,38 @@ fn partition_windows_reserved(entries: Vec<String>, operation: &str) -> (Vec<Str
     (indexable, reserved)
 }
 
-/// git 工作树根（`rev-parse --show-toplevel`）：workspace root 可为仓库子目录，
-/// worktree 落位以 git 根为锚（同级 `.worktrees/<仓库目录名>/`）。非 git 仓 /
-/// 裸仓映射显式引导（与 [`probe`] 同口径）。
-pub(crate) fn toplevel(main_root: &Path) -> Result<PathBuf, String> {
-    let raw = git(main_root, &["rev-parse", "--show-toplevel"]).map_err(|error| {
+/// 退出码通道（`git()` 的「非零即 Err」之外，需要**区分**退出 0 / 1 / 其余
+/// 的判据面专用）：返回 `(退出码, stdout, stderr)`，spawn 失败仍 `Err`。
+fn git_raw(main_root: &Path, args: &[&str]) -> Result<(i32, String, String), String> {
+    let output = exec::SystemCommand::bare("git")
+        .into_std()
+        .arg("-C")
+        .arg(main_root)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| format!("git 不可用（PATH 未发现 git）: {error}"))?;
+    Ok((
+        output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    ))
+}
+
+/// 落位 + 偏移一次派生：`rev-parse --show-toplevel --show-prefix` 一次 spawn
+/// 两值——首行 = git 根、次行 = workspace root 相对 git 根的偏移（根 workspace
+/// 为空行）。偏移取 git 自身的路径表示（`trim_end_matches('/')` 归一尾分隔符），
+/// MUST NOT 由 canonicalize 路径 `strip_prefix` 重建（`\\?\` 前缀 / 真实大小写 /
+/// `\` vs `/` 三坑）。非 git 仓 / 裸仓 / 空输出映射显式引导（与 [`probe`] 同
+/// 口径）。
+pub(crate) fn placement(main_root: &Path) -> Result<(PathBuf, String), String> {
+    let raw = git(
+        main_root,
+        &["rev-parse", "--show-toplevel", "--show-prefix"],
+    )
+    .map_err(|error| {
         if error.contains("not a git repository") || error.contains("must be run in a work tree") {
             format!(
                 "主仓 {} 为非 git 仓：change worktree 落位需要 git 仓库，\
@@ -124,14 +151,37 @@ pub(crate) fn toplevel(main_root: &Path) -> Result<PathBuf, String> {
             error
         }
     })?;
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
+    let mut lines = raw.lines();
+    let toplevel = lines.next().unwrap_or("").trim();
+    if toplevel.is_empty() {
         return Err(format!(
             "主仓 {} 的 git 工作树根解析为空（rev-parse --show-toplevel 无输出）",
             main_root.display()
         ));
     }
-    Ok(PathBuf::from(trimmed))
+    let rel = lines.next().unwrap_or("").trim_end_matches('/').to_owned();
+    Ok((PathBuf::from(toplevel), rel))
+}
+
+/// `HEAD:<rel>` 在案判据：`rev-parse --verify --quiet HEAD:<rel>`——退出 0 =
+/// 在案 true、1 = 缺席 false、其余 / spawn 失败 Err（fail-closed：「问不出来」
+/// 与「不在案」显式可分）。`rel` 空（workspace root 即 git 根）零 spawn 直返
+/// true。
+pub(crate) fn tracked_at_head(main_root: &Path, rel: &str) -> Result<bool, String> {
+    if rel.is_empty() {
+        return Ok(true);
+    }
+    let reference = format!("HEAD:{rel}");
+    let (code, _stdout, stderr) =
+        git_raw(main_root, &["rev-parse", "--verify", "--quiet", &reference])?;
+    match code {
+        0 => Ok(true),
+        1 => Ok(false),
+        _ => Err(format!(
+            "git rev-parse --verify {reference} 失败（退出码 {code}）: {}",
+            stderr.trim()
+        )),
+    }
 }
 
 /// 探测三连（git 可用 + git 仓 + HEAD + 脏仓单点）：`rev-parse

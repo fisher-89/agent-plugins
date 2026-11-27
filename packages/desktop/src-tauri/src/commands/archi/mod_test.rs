@@ -175,6 +175,7 @@ fn seed_record(store: &Store, id: &str, status: ChangeStatus, worktree: Option<S
             archived_at: None,
             active_phase: None,
             worktree,
+            exec_root: None,
             base_commit: None,
         })
         .expect("建档 fixture 应成功");
@@ -879,6 +880,217 @@ fn change_summary异常两形态() {
         vec!["App".to_owned()],
         "worktree 缺席 → 改动侧模型为空 → 元素全为删除"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 执行根维度（`archi_change_summary` 改动侧 = `record.exec_root()`）：子目录
+// workspace / 根 workspace 缺列 / 归档恒回落 / 越界与陈旧两形态
+// ---------------------------------------------------------------------------
+
+/// 双根列建档种子（`worktree` = host、`exec_root` = 执行根或 None）。
+fn seed_record_with_roots(
+    store: &Store,
+    id: &str,
+    status: ChangeStatus,
+    worktree: Option<String>,
+    exec_root: Option<String>,
+) {
+    store
+        .create_change_record(ChangeStateRecord {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            title: id.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: CREATED_AT,
+            status,
+            archived_at: None,
+            active_phase: None,
+            worktree,
+            exec_root,
+            base_commit: None,
+        })
+        .expect("双根建档 fixture 应成功");
+}
+
+/// 正向：子目录 workspace（`worktree` = host、`exec_root` = host 下逐段 `join`
+/// 的 `rel` 子目录（**真后代**），模型改动写在 exec_root 内、host 根模型为基线）
+/// → 摘要以 exec_root 为改动侧，新增元素与实盘一致。MUST NOT 用与 host 无关的
+/// tempdir 充当 `exec_root`（真后代守卫会回落 host，测得的是回落面）。
+#[test]
+fn change_summary子目录workspace_改动侧为执行根() {
+    let data = TempDir::new("summary-exec-data");
+    let main = TempDir::new("summary-exec-main");
+    let host = TempDir::new("summary-exec-host");
+    let exec_root = host.path().join("packages").join("desktop");
+    main.write_model("01.toml", "[element.\"App\"]\nkind = \"package\"\n");
+    let exec_model_dir = archi_graph_model_dir(&exec_root);
+    fs::create_dir_all(&exec_model_dir).expect("创建执行根模型目录失败");
+    fs::write(
+        exec_model_dir.join("01.toml"),
+        "[element.\"App\"]\nkind = \"package\"\n\n[element.\"App.New\"]\nkind = \"module\"\n",
+    )
+    .expect("写执行根模型文件失败");
+    let app = app_with(data.path());
+    let store = store_of(&app, &main.root());
+    seed_record_with_roots(
+        &store,
+        "exec-change",
+        ChangeStatus::Active,
+        Some(host.root()),
+        Some(exec_root.to_string_lossy().into_owned()),
+    );
+
+    let summary = archi_change_summary(
+        app.state::<WorkspaceStores>(),
+        main.root(),
+        "exec-change".to_owned(),
+    )
+    .expect("Ok")
+    .expect("有改动即 Some");
+
+    assert!(
+        summary.elements_added.contains(&"App.New".to_owned()),
+        "新增元素自执行根读出，实际: {:?}",
+        summary.elements_added
+    );
+    assert!(
+        summary.elements_removed.is_empty(),
+        "host 根（基线同主仓）不被当作改动侧，实际: {:?}",
+        summary.elements_removed
+    );
+}
+
+/// 边界：根 workspace（`worktree` = host、`exec_root` 缺列）→ 改动侧回落 host
+/// （= 执行根），与今日同解。
+#[test]
+fn change_summary根workspace_exec_root缺列_改动侧为host() {
+    let data = TempDir::new("summary-root-data");
+    let main = TempDir::new("summary-root-main");
+    let host = TempDir::new("summary-root-host");
+    main.write_model("01.toml", "[element.\"App\"]\nkind = \"package\"\n");
+    host.write_model(
+        "01.toml",
+        "[element.\"App\"]\nkind = \"package\"\n\n[element.\"App.Root\"]\nkind = \"module\"\n",
+    );
+    let app = app_with(data.path());
+    let store = store_of(&app, &main.root());
+    seed_record_with_roots(
+        &store,
+        "root-change",
+        ChangeStatus::Active,
+        Some(host.root()),
+        None,
+    );
+
+    let summary = archi_change_summary(
+        app.state::<WorkspaceStores>(),
+        main.root(),
+        "root-change".to_owned(),
+    )
+    .expect("Ok")
+    .expect("有改动即 Some");
+
+    assert_eq!(
+        summary.elements_added,
+        vec!["App.Root".to_owned()],
+        "缺列回落 host（= 执行根），与今日同解"
+    );
+}
+
+/// 边界：`status = Archived` 且双根列俱在场 → 改动侧恒主仓根（执行根列不参与，
+/// 两侧同一 → `None` 摘要）。
+#[test]
+fn change_summary归档_exec_root在场仍回落主仓根() {
+    let data = TempDir::new("summary-arch-exec-data");
+    let main = TempDir::new("summary-arch-exec-main");
+    let host = TempDir::new("summary-arch-exec-host");
+    let exec_root = host.path().join("packages").join("desktop");
+    main.write_model("01.toml", "[element.\"App\"]\nkind = \"package\"\n");
+    host.write_model(
+        "01.toml",
+        "[element.\"App\"]\nkind = \"package\"\n\n[element.\"App.Host\"]\nkind = \"module\"\n",
+    );
+    let exec_model_dir = archi_graph_model_dir(&exec_root);
+    fs::create_dir_all(&exec_model_dir).expect("创建执行根模型目录失败");
+    fs::write(
+        exec_model_dir.join("01.toml"),
+        "[element.\"App\"]\nkind = \"package\"\n\n[element.\"App.Sub\"]\nkind = \"module\"\n",
+    )
+    .expect("写执行根模型文件失败");
+    let app = app_with(data.path());
+    let store = store_of(&app, &main.root());
+    seed_record_with_roots(
+        &store,
+        "arch-exec-change",
+        ChangeStatus::Archived,
+        Some(host.root()),
+        Some(exec_root.to_string_lossy().into_owned()),
+    );
+
+    assert!(
+        archi_change_summary(
+            app.state::<WorkspaceStores>(),
+            main.root(),
+            "arch-exec-change".to_owned()
+        )
+        .expect("Ok")
+        .is_none(),
+        "归档 → 改动侧恒主仓根（执行根列不参与，两侧同一 → None）"
+    );
+}
+
+/// 异常（表驱动两形态）：`exec_root` 越界（指向 host 外的存在目录）与陈旧
+/// （host/rel 被删）→ 访问器回落 host；host 模型为空 → 元素全为删除（既有
+/// 「worktree 缺席」同形语义，不读域外模型）。
+#[test]
+fn change_summary执行根越界与陈旧_回落host不读域外() {
+    for (tag, stale) in [("out-of-bounds", false), ("stale", true)] {
+        let data = TempDir::new(&format!("summary-exec-{tag}-data"));
+        let main = TempDir::new(&format!("summary-exec-{tag}-main"));
+        let host = TempDir::new(&format!("summary-exec-{tag}-host"));
+        let outside = TempDir::new(&format!("summary-exec-{tag}-outside"));
+        main.write_model("01.toml", "[element.\"App\"]\nkind = \"package\"\n");
+        // 域外模型：若越界列生效即会读出该新增元素
+        outside.write_model(
+            "01.toml",
+            "[element.\"App\"]\nkind = \"package\"\n\n[element.\"App.Outside\"]\nkind = \"module\"\n",
+        );
+        let exec_root = host.path().join("packages").join("desktop");
+        let exec_root_value = if stale {
+            // 陈旧形态：执行根目录不存在
+            exec_root.to_string_lossy().into_owned()
+        } else {
+            outside.root()
+        };
+        let app = app_with(data.path());
+        let store = store_of(&app, &main.root());
+        seed_record_with_roots(
+            &store,
+            "ghost-change",
+            ChangeStatus::Active,
+            Some(host.root()),
+            Some(exec_root_value),
+        );
+
+        let summary = archi_change_summary(
+            app.state::<WorkspaceStores>(),
+            main.root(),
+            "ghost-change".to_owned(),
+        )
+        .expect("Ok")
+        .expect("主仓有模型即 Some");
+
+        assert_eq!(
+            summary.elements_removed,
+            vec!["App".to_owned()],
+            "形态 {tag}：回落 host（空模型）→ 元素全为删除"
+        );
+        assert!(
+            !summary.elements_added.contains(&"App.Outside".to_owned()),
+            "形态 {tag}：不读域外模型，实际: {:?}",
+            summary.elements_added
+        );
+    }
 }
 
 /// 边界：`_inner` 在 `worktree = None` 时以主仓根为改动侧（两侧等价 → `None`）。

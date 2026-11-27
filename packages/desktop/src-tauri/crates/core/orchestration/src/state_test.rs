@@ -1267,6 +1267,7 @@ fn sample_preflight() -> ArchivePreflight {
         missing_artifacts: Vec::new(),
         delta_specs: vec!["specs/desktop-flow/spec.md".to_owned()],
         worktree: Some("/tmp/wt/demo-change".to_owned()),
+        exec_root: None,
         branch: Some("change/demo-change".to_owned()),
         merge_target: Some("main".to_owned()),
     }
@@ -1332,6 +1333,7 @@ fn archive_preflight边界两态与列表形态() {
         missing_artifacts: vec!["design.md".to_owned()],
         delta_specs: Vec::new(),
         worktree: None,
+        exec_root: None,
         branch: None,
         merge_target: None,
     };
@@ -1406,6 +1408,84 @@ fn archive_preflight缺失必填字段拒绝() {
     extra["futureField"] = json!("ignored");
     let back: ArchivePreflight = serde_json::from_value(extra).expect("多余字段应忽略而不拒绝");
     assert_eq!(back, sample_preflight());
+}
+
+/// ArchivePreflight `exec_root`（正向）：九字段 camelCase 线面逐字段可辨，
+/// serde 往返逐字段相等（`worktree` = host、`execRoot` = host/rel 两值均可
+/// 辨）。
+#[test]
+fn archive_preflight_exec_root九字段线面与往返可辨() {
+    let preflight = ArchivePreflight {
+        exec_root: Some("/tmp/wt/demo-change/packages/desktop".to_owned()),
+        ..sample_preflight()
+    };
+
+    let value = serde_json::to_value(&preflight).expect("出线应成功");
+    assert_eq!(value["worktree"], json!("/tmp/wt/demo-change"), "host 列");
+    assert_eq!(
+        value["execRoot"],
+        json!("/tmp/wt/demo-change/packages/desktop"),
+        "执行根列（原样出线，DTO 面零回落）"
+    );
+    assert_ne!(value["worktree"], value["execRoot"], "两列互不替代");
+    assert_eq!(
+        value.as_object().map(|object| object.len()),
+        Some(9),
+        "九字段线面（原八 + execRoot）"
+    );
+
+    let text = serde_json::to_string(&preflight).expect("出线应成功");
+    let back: ArchivePreflight = serde_json::from_str(&text).expect("往返应成功");
+    assert_eq!(back, preflight, "九字段往返逐字段相等");
+}
+
+/// ArchivePreflight `exec_root`（边界）：`None` → `execRoot` 键恒在场、值为
+/// `null`（键不省）。
+#[test]
+fn archive_preflight_exec_root_none键恒在场() {
+    let preflight = sample_preflight();
+    assert_eq!(preflight.exec_root, None, "夹具为根 workspace 形态");
+
+    let value = serde_json::to_value(&preflight).expect("出线应成功");
+    let object = value.as_object().expect("线形状为对象");
+    assert!(
+        object.contains_key("execRoot"),
+        "execRoot 键恒在场（不省键），实际键集: {:?}",
+        object.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(value["execRoot"], json!(null), "None → null");
+}
+
+/// ArchivePreflight `exec_root`（边界）：声明序——`execRoot` 紧邻
+/// `worktree`（TS 出线序 `… / worktree / execRoot / branch / mergeTarget`）。
+#[test]
+fn archive_preflight_exec_root声明序紧邻worktree() {
+    let debug = format!("{:?}", sample_preflight());
+
+    let worktree_at = debug.find("worktree:").expect("Debug 含 worktree");
+    let exec_at = debug.find("exec_root:").expect("Debug 含 exec_root");
+    let branch_at = debug.find("branch:").expect("Debug 含 branch");
+    let merge_at = debug.find("merge_target:").expect("Debug 含 merge_target");
+    assert!(
+        worktree_at < exec_at && exec_at < branch_at && branch_at < merge_at,
+        "声明序 worktree → exec_root → branch → merge_target，实际: {debug}"
+    );
+}
+
+/// ArchivePreflight `exec_root`（异常，表驱动两形态）：类型违例（`execRoot`
+/// 给数字 / 对象）→ 反序列化 `Err`（封闭面不静默吞）。
+#[test]
+fn archive_preflight_exec_root类型违例拒绝() {
+    let value = serde_json::to_value(sample_preflight()).expect("出线应成功");
+
+    for bad in [json!(42), json!({"root": "x"})] {
+        let mut mutated = value.clone();
+        mutated["execRoot"] = bad.clone();
+        assert!(
+            serde_json::from_value::<ArchivePreflight>(mutated).is_err(),
+            "execRoot 非字符串形态应 Err（实际载荷 {bad}）"
+        );
+    }
 }
 
 /// RunUpdate::ConfirmWait 换形（正向）：archive=None（普通相位停等）与

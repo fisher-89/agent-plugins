@@ -180,9 +180,10 @@ pub(crate) fn get_change_detail_inner(
 
 /// 按信封读取单个产物（按 change **id** 寻址）；kind 未注册、source 非法、
 /// 未建档或解析失败返回 `None`。IPC 签名不变：blank root 与开库失败均
-/// `None`。worktree / name 感知：`find_change_record(id)` 供给记录，`worktree`
-/// 直传 `locate_change` 回退参（merge 前产物在 worktree 内）、`name` 作目录
-/// 定位键（id → 记录 → name 分辨率单点）。
+/// `None`。执行根 / name 感知：`find_change_record(id)` 供给记录，
+/// `record.exec_root()`（访问器：`exec_root` 缺省回落 `worktree`）直传
+/// `locate_change` 回退参（产物写在执行根内）、`name` 作目录定位键（id → 记录
+/// → name 分辨率单点）。
 #[tauri::command]
 #[specta::specta]
 pub async fn read_artifact(
@@ -229,7 +230,7 @@ fn read_artifact_inner(
     };
     let layout = resolve(Path::new(root));
     let record = store.find_change_record(id).ok().flatten()?;
-    let location = locate_change(&layout, record.worktree.as_deref(), record.name.as_str())?;
+    let location = locate_change(&layout, record.exec_root(), record.name.as_str())?;
     core_read_artifact(&location.dir, kind, source)
 }
 
@@ -248,11 +249,11 @@ pub struct ExecOutputChunk {
     pub next_offset: u64,
 }
 
-/// name → 记录 → worktree 候选供给序（四条 exec 读命令共享的定位单点）。
+/// name → 记录 → 执行根候选供给序（四条 exec 读命令共享的定位单点）。
 ///
-/// 序：非 archived 同名记录优先（归档同名共存合法 D11——active 的 worktree 先
-/// 探），archived 记录的 stale worktree 次之，终回 `None`（主仓 active / archive
-/// 两态）；按 `locate_change` 过滤为实际在场目录。
+/// 序：非 archived 同名记录优先（归档同名共存合法 D11——active 的执行根先
+/// 探），archived 记录的陈旧执行根次之，终回 `None`（主仓 active / archive 两
+/// 态）；按 `locate_change` 过滤为实际在场目录。
 fn change_dirs(stores: &WorkspaceStores, root: &str, change_name: &str) -> Vec<std::path::PathBuf> {
     let Ok(store) = stores.for_root(root) else {
         return Vec::new();
@@ -265,10 +266,10 @@ fn change_dirs(stores: &WorkspaceStores, root: &str, change_name: &str) -> Vec<s
         .iter()
         .filter(|record| record.name == change_name && record.status != ChangeStatus::Archived)
     {
-        push_worktree_candidate(&mut candidates, record.worktree.clone());
+        push_worktree_candidate(&mut candidates, record.exec_root().map(str::to_owned));
     }
     for record in records.iter().filter(|record| record.name == change_name) {
-        push_worktree_candidate(&mut candidates, record.worktree.clone());
+        push_worktree_candidate(&mut candidates, record.exec_root().map(str::to_owned));
     }
     push_worktree_candidate(&mut candidates, None);
     let layout = resolve(Path::new(root));

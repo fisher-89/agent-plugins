@@ -68,6 +68,14 @@ function DetailHeader({ detail, onBack }: { detail: ChangeDetail; onBack: () => 
           worktree：{detail.worktree}
         </div>
       )}
+      {detail.execRoot !== null && (
+        <div
+          className="mt-1 break-all text-xs text-muted-foreground"
+          data-testid="detail-exec-root"
+        >
+          执行根：{detail.execRoot}
+        </div>
+      )}
     </div>
   );
 }
@@ -227,6 +235,7 @@ function DetailContent({
 
 function DetailTabs({
   detail,
+  execRoot,
   refreshDetail,
   refreshLoading,
   root,
@@ -237,6 +246,8 @@ function DetailTabs({
   askAnswer,
 }: {
   detail: ChangeDetail;
+  /** 执行根（`detail.execRoot ?? detail.worktree`；由详情体单点解析后下传） */
+  execRoot: string | null;
   refreshDetail: () => void;
   refreshLoading: boolean;
   root: string | null;
@@ -246,8 +257,7 @@ function DetailTabs({
   sessionRefreshKey: number;
   askAnswer: AskAnswerActions;
 }): React.JSX.Element {
-  const archiRoot =
-    detail.source === 'archive' || detail.worktree === null ? root : detail.worktree;
+  const archiRoot = detail.source === 'archive' || execRoot === null ? root : execRoot;
   return (
     <Tabs className="h-full min-h-0" defaultValue="flow">
       <TabsList data-testid="detail-tabs">
@@ -371,6 +381,9 @@ function DetailLoaded({
   sessionRefreshKey,
 }: DetailLoadedProps): React.JSX.Element {
   const { graph, materials, lastRun } = useFlowGraphData(detail, activeRun, artifacts);
+  // 执行根派生单点：`execRoot` 是记录原始列（根 workspace / legacy 为 null），
+  // 路径消费面一律回落 `worktree`——画布根与会话 cwd 共用本值
+  const execRoot = detail.execRoot ?? detail.worktree;
   // 流程侧 ask 动作面：走 `run.answer` 使 `Err` 落 `run.error` 既有错误行（与裸调
   // `changeFlowAnswer` 参数面逐字等价）；活卡判据 = 当前等待条目的 `toolCallId`
   const askAnswer = useMemo<AskAnswerActions>(
@@ -389,7 +402,7 @@ function DetailLoaded({
         <ChangeChatPanel
           root={root}
           changeId={id ?? detail.id}
-          cwd={detail.worktree}
+          cwd={execRoot}
           readOnly={detail.source === 'archive'}
           runActive={activeRun !== null}
         />
@@ -408,6 +421,7 @@ function DetailLoaded({
             <div className="flex-1 min-h-0">
               <DetailTabs
                 detail={detail}
+                execRoot={execRoot}
                 refreshDetail={refreshDetail}
                 refreshLoading={refreshLoading}
                 root={root}

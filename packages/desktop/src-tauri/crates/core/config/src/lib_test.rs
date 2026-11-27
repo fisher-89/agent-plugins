@@ -3856,3 +3856,170 @@ fn plan_apply_config_root有效性不归本函数_两形态仍按layout派生() 
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// projects 文案口径（「相对 worktree 根」→「相对执行根」）：zero-code 词汇变
+// 更的镜像面自证（谓词 / 键集 / 值域 / default / minLength 零改）
+// ---------------------------------------------------------------------------
+
+/// 镜像 `properties.projects` 对象（缺失 / `null` 与类型违例分文案——文案变更
+/// 断言与损坏形态断言的定位面）。
+fn mirror_projects(schema: &Value) -> &Map<String, Value> {
+    match mirror_properties(schema).get("projects") {
+        Some(Value::Object(map)) => map,
+        Some(Value::Null) => panic!("镜像缺 `projects`：期望对象，实际 null"),
+        Some(other) => panic!("镜像 `projects` 类型违例：期望对象，实际 {other}"),
+        None => panic!("镜像缺 `projects`：`properties` 未取到该键"),
+    }
+}
+
+/// 镜像 `properties.projects.items.properties.root` 对象（同分文案口径）。
+fn mirror_project_root(schema: &Value) -> &Map<String, Value> {
+    let items = match mirror_projects(schema).get("items") {
+        Some(Value::Object(map)) => map,
+        Some(Value::Null) | None => panic!("镜像缺 `projects.items`：期望对象"),
+        Some(other) => panic!("镜像 `projects.items` 类型违例：期望对象，实际 {other}"),
+    };
+    let root = match items.get("properties").and_then(|value| value.get("root")) {
+        Some(Value::Object(map)) => map,
+        Some(Value::Null) | None => panic!("镜像缺 `projects.items.properties.root`：期望对象"),
+        Some(other) => {
+            panic!("镜像 `projects.items.properties.root` 类型违例：期望对象，实际 {other}")
+        }
+    };
+    root
+}
+
+/// schema 文案（正向）：`projects.description` 与
+/// `projects.items.properties.root.description` 两处含「执行根」且镜像内零
+/// 「相对 worktree 根」残留。
+#[test]
+fn schema_projects文案改执行根口径() {
+    let schema = mirror();
+    let text = serde_json::to_string(&schema).expect("序列化应成功");
+    assert!(
+        !text.contains("相对 worktree 根"),
+        "镜像内零「相对 worktree 根」残留"
+    );
+    assert!(
+        !text.contains("worktree"),
+        "镜像内零 worktree 词汇（配置面文案口径改执行根）"
+    );
+
+    let projects = mirror_projects(&schema);
+    let description = projects
+        .get("description")
+        .and_then(Value::as_str)
+        .expect("projects.description 应在场");
+    assert!(
+        description.contains("相对执行根"),
+        "projects.description 改为执行根口径，实际: {description}"
+    );
+
+    let root = mirror_project_root(&schema);
+    let root_description = root
+        .get("description")
+        .and_then(Value::as_str)
+        .expect("root.description 应在场");
+    assert!(
+        root_description.contains("相对执行根"),
+        "root.description 改为执行根口径，实际: {root_description}"
+    );
+}
+
+/// schema 契约镜像（异常）：镜像内除两处 `description` 外零 diff——
+/// `projects.type` / `default: []` / `items.properties.root.minLength: 1` /
+/// `items.properties.root.type` 逐字不变。
+#[test]
+fn schema_projects文案变更外字段逐字不变() {
+    let schema = mirror();
+    let projects = mirror_projects(&schema);
+
+    assert_eq!(
+        projects.get("type"),
+        Some(&Value::String("array".to_owned())),
+        "projects.type 零改"
+    );
+    assert_eq!(
+        projects.get("default"),
+        Some(&Value::Array(Vec::new())),
+        "projects.default 仍为空数组"
+    );
+
+    let root = mirror_project_root(&schema);
+    assert_eq!(
+        root.get("type"),
+        Some(&Value::String("string".to_owned())),
+        "root.type 零改"
+    );
+    assert_eq!(
+        root.get("minLength"),
+        Some(&json!(1)),
+        "root.minLength 仍为 1"
+    );
+    assert!(
+        !root.contains_key("pattern"),
+        "root 值域未因文案变更新增 pattern（谓词仍在实现侧）"
+    );
+}
+
+/// schema 契约镜像（异常，表驱动两形态）：副本删 `projects` / 把 `projects` 改
+/// 成数组 → 既有取值器给出可指认 panic 文案（不静默通过）。
+#[test]
+fn schema_镜像损坏两形态_取值器可指认panic() {
+    let panic_message = |payload: Box<dyn std::any::Any + Send>| -> String {
+        payload
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| {
+                payload
+                    .downcast_ref::<&str>()
+                    .map(|text| (*text).to_owned())
+            })
+            .unwrap_or_else(|| "（非字符串 payload）".to_owned())
+    };
+
+    // 形态一：删 `projects` 键
+    let mut missing = mirror_copy();
+    properties_mut(&mut missing).remove("projects");
+    let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = mirror_projects(&missing);
+    }))
+    .expect_err("缺 projects 应 panic");
+    assert!(
+        panic_message(payload).contains("镜像缺 `projects`"),
+        "缺键形态 panic 文案可指认"
+    );
+
+    // 形态二：`projects` 改成数组（类型违例）
+    let mut wrong = mirror_copy();
+    properties_mut(&mut wrong).insert("projects".to_owned(), json!([]));
+    let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = mirror_projects(&wrong);
+    }))
+    .expect_err("projects 为数组应 panic");
+    assert!(
+        panic_message(payload).contains("类型违例"),
+        "类型违例形态 panic 文案可指认"
+    );
+}
+
+/// `is_valid_project_root()` 注释口径（边界）：源码文本不含「逃出 worktree」，
+/// 含「逃出执行根」（`env!` 读源文件，`steps_test` 先例）。
+#[test]
+fn is_valid_project_root注释口径改执行根() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("lib.rs");
+    let source = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("读取 {} 失败: {error}", path.display()));
+
+    assert!(
+        !source.contains("逃出 worktree"),
+        "注释零「逃出 worktree」残留"
+    );
+    assert!(
+        source.contains("会逃出") && source.contains("执行根，故在解析期词法拒绝"),
+        "注释口径改为逃出执行根"
+    );
+}

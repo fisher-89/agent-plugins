@@ -8,7 +8,7 @@ use time::OffsetDateTime;
 use super::create;
 use super::BootstrapProject;
 use super::CreateOutcome;
-use super::{InstallRun, RepoProbe, WorktreePort};
+use super::{InstallRun, RepoProbe, WorktreePlacement, WorktreePort};
 use crate::queries::list_changes;
 use crate::state::{
     BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand,
@@ -219,6 +219,15 @@ struct VcsProgram {
     remove_fault: Option<String>,
     delete_branch_fault: Option<String>,
     install_result: Option<Result<InstallRun, String>>,
+    /// placement 的偏移段（缺省 `""` = workspace root 即 git 根）
+    rel: Option<String>,
+    /// placement 派生失败注入（非 git 仓 / 裸仓 / 空输出三档引导文案）
+    placement_fault: Option<String>,
+    /// `HEAD:<rel>` 在案判据（缺省 `None` = 在案 true；判据自身文案供注入）
+    tracked_at_head: Option<Result<bool, String>>,
+    /// 检出「不镜像偏移子树」形态：镜像后删除 `rel` 子树（后置 `is_dir` 断言
+    /// 与补偿链入参的注入面）
+    drop_exec_root: bool,
 }
 
 struct FakeVcs {
@@ -228,6 +237,11 @@ struct FakeVcs {
     calls: Mutex<Vec<String>>,
     adds: Mutex<Vec<(PathBuf, PathBuf, String)>>,
     installs: Mutex<Vec<(PathBuf, String)>>,
+    /// `tracked_at_head` 调用面（每次调用的 `rel` 实参；根 workspace 零调用
+    /// 的判据）
+    tracked_calls: Mutex<Vec<String>>,
+    /// `remove_worktree` 实参捕获（补偿链锚点 = host 的判据面）
+    removes: Mutex<Vec<PathBuf>>,
 }
 
 impl FakeVcs {
@@ -238,7 +252,51 @@ impl FakeVcs {
             calls: Mutex::new(Vec::new()),
             adds: Mutex::new(Vec::new()),
             installs: Mutex::new(Vec::new()),
+            tracked_calls: Mutex::new(Vec::new()),
+            removes: Mutex::new(Vec::new()),
         }
+    }
+
+    /// 子目录 workspace 形态：placement 给出非空偏移（`/` 分隔、无尾分隔符）。
+    /// 三档 setter（偏移 / 不在案 / 询问失败）供前置第十道与后置断言的六形态
+    /// 用例注入。
+    fn set_rel(&self, rel: &str) {
+        self.program.lock().expect("程序锁不可中毒").rel = Some(rel.to_owned());
+    }
+
+    /// placement 派生失败（非 git 仓 / 裸仓 / 空输出三档引导文案注入）。
+    fn set_placement_error(&self, error: &str) {
+        self.program.lock().expect("程序锁不可中毒").placement_fault = Some(error.to_owned());
+    }
+
+    /// 检出「不镜像偏移子树」形态：镜像后删掉执行根（后置断言 / 补偿链锚点
+    /// 的注入面）。
+    fn set_drop_exec_root(&self) {
+        self.program.lock().expect("程序锁不可中毒").drop_exec_root = true;
+    }
+
+    /// `HEAD:<rel>` 不在案（前置第十道的拒绝面）。
+    fn set_untracked(&self) {
+        self.program.lock().expect("程序锁不可中毒").tracked_at_head = Some(Ok(false));
+    }
+
+    /// `HEAD:<rel>` 询问失败（fail-closed 面：与「不在案」可辨）。
+    fn set_tracked_error(&self, error: &str) {
+        self.program.lock().expect("程序锁不可中毒").tracked_at_head = Some(Err(error.to_owned()));
+    }
+
+    /// `tracked_at_head` 调用面（每次调用的 `rel` 实参）——准入判据的「根
+    /// workspace 零调用」与六形态断言读取本面。
+    fn tracked_calls(&self) -> Vec<String> {
+        self.tracked_calls
+            .lock()
+            .expect("判据调用锁不可中毒")
+            .clone()
+    }
+
+    /// `remove_worktree` 实参捕获（补偿链锚点 = host 的判据面）。
+    fn removes(&self) -> Vec<PathBuf> {
+        self.removes.lock().expect("回收锁不可中毒").clone()
     }
 
     fn record(&self, call: &str) {
@@ -309,9 +367,30 @@ impl FakeVcs {
 }
 
 impl WorktreePort for FakeVcs {
-    fn worktree_root(&self, _main_root: &Path) -> Result<PathBuf, String> {
-        self.record("worktree_root");
-        Ok(self.worktree_root.clone())
+    fn placement(&self, _main_root: &Path) -> Result<WorktreePlacement, String> {
+        self.record("placement");
+        let program = self.program.lock().expect("程序锁不可中毒");
+        if let Some(fault) = program.placement_fault.clone() {
+            return Err(fault);
+        }
+        Ok(WorktreePlacement {
+            root: self.worktree_root.clone(),
+            rel: program.rel.clone().unwrap_or_default(),
+        })
+    }
+
+    fn tracked_at_head(&self, _main_root: &Path, rel: &str) -> Result<bool, String> {
+        self.record(&format!("tracked_at_head:{rel}"));
+        self.tracked_calls
+            .lock()
+            .expect("判据调用锁不可中毒")
+            .push(rel.to_owned());
+        self.program
+            .lock()
+            .expect("程序锁不可中毒")
+            .tracked_at_head
+            .clone()
+            .unwrap_or(Ok(true))
     }
 
     fn probe(&self, _main_root: &Path) -> Result<RepoProbe, String> {
@@ -350,11 +429,29 @@ impl WorktreePort for FakeVcs {
         {
             return Err(fault);
         }
-        mirror_tree(main_root, worktree)
+        mirror_tree(main_root, worktree)?;
+        // 「偏移子树未随检出」注入：镜像后删掉执行根（后置 is_dir 断言与补偿
+        // 链入参的观察面）
+        let (drop_exec_root, rel) = {
+            let program = self.program.lock().expect("程序锁不可中毒");
+            (
+                program.drop_exec_root,
+                program.rel.clone().unwrap_or_default(),
+            )
+        };
+        if drop_exec_root && !rel.is_empty() {
+            let exec_root = worktree.join(&rel);
+            fs::remove_dir_all(&exec_root).map_err(|error| format!("假件删执行根失败: {error}"))?;
+        }
+        Ok(())
     }
 
     fn remove_worktree(&self, _main_root: &Path, worktree: &Path) -> Result<(), String> {
         self.record("remove_worktree");
+        self.removes
+            .lock()
+            .expect("回收锁不可中毒")
+            .push(worktree.to_owned());
         if let Some(fault) = self
             .program
             .lock()
@@ -444,6 +541,7 @@ impl CreateStore {
                 archived_at: matches!(status, ChangeStatus::Archived).then_some(1_727_000_000_000),
                 active_phase: None,
                 worktree: None,
+                exec_root: None,
                 base_commit: None,
             });
     }
@@ -1508,7 +1606,7 @@ fn projects内首匹配单安装且后续项目继续() {
     assert!(outcome.warnings.is_empty());
 }
 
-/// 配置根在 worktree 内不存在：零安装 + 逐项目警告，create 照常成功。
+/// 配置根在执行根内不存在：零安装 + 逐项目警告，create 照常成功。
 #[test]
 fn projects根不存在警告且零安装() {
     let env = Env::new("projects-missing");
@@ -1521,7 +1619,7 @@ fn projects根不存在警告且零安装() {
     assert!(env.vcs.install_commands().is_empty(), "零安装");
     assert_eq!(
         outcome.warnings,
-        vec!["项目根 \"missing\"：在 worktree 内不存在，跳过依赖引导".to_owned()]
+        vec!["项目根 \"missing\"：在执行根内不存在，跳过依赖引导".to_owned()]
     );
 }
 
@@ -1636,7 +1734,7 @@ fn 脏仓警告先于项目警告() {
     assert!(outcome.warnings[0].contains("主仓有未提交改动"));
     assert_eq!(
         outcome.warnings[1],
-        "项目根 \"missing\"：在 worktree 内不存在，跳过依赖引导"
+        "项目根 \"missing\"：在执行根内不存在，跳过依赖引导"
     );
 }
 
@@ -2028,7 +2126,7 @@ fn 拓扑序安装失败_警告按安装序累积且不回滚() {
 }
 
 /// 拓扑序 + 项目根不存在（异常）：`web(dep→api)` 两根本均缺失 → 警告按安装序
-/// 出现两条「在 worktree 内不存在」，零安装。
+/// 出现两条「在执行根内不存在」，零安装。
 #[test]
 fn 拓扑序项目根不存在_警告按安装序排列且零安装() {
     let env = Env::new("topo-missing");
@@ -2042,8 +2140,8 @@ fn 拓扑序项目根不存在_警告按安装序排列且零安装() {
     assert_eq!(
         outcome.warnings,
         vec![
-            "项目根 \"api\"：在 worktree 内不存在，跳过依赖引导".to_owned(),
-            "项目根 \"web\"：在 worktree 内不存在，跳过依赖引导".to_owned(),
+            "项目根 \"api\"：在执行根内不存在，跳过依赖引导".to_owned(),
+            "项目根 \"web\"：在执行根内不存在，跳过依赖引导".to_owned(),
         ],
         "缺失警告按安装序排列（依赖方在前）"
     );
@@ -2489,17 +2587,19 @@ fn created出线且成功立即可见() {
 }
 
 /// CreateOutcome serde 线形状：序列化恰 `id` / `name` / `created` /
-/// `worktree` / `warnings` 五键（camelCase；`id` 为本次铸出的身份锚、声明序
-/// 首字段）；`warnings` 空清单出线 `[]` 非 null。
+/// `worktree` / `execRoot` / `warnings` 六键（camelCase；`id` 为本次铸出的身份
+/// 锚、声明序首字段）；`warnings` 空清单出线 `[]` 非 null、`execRoot` 为空时
+/// 出线 `null`（键恒在场，不省键）。
 /// 注：serde_json 对象为键自然序（BTreeMap）——声明序锚以 Debug 字段序断言
 /// （DTO 声明序即 specta / TS 绑定字段序，签面逐字段断言归 bindings 守卫节）。
 #[test]
-fn create_outcome_serde线形状恰五键且id首字段() {
+fn create_outcome_serde线形状恰六键且id首字段() {
     let outcome = CreateOutcome {
         id: "0198f7a0-0000-7000-8000-000000000000".to_owned(),
         name: "fix-bug".to_owned(),
         created: "2026-10-02".to_owned(),
         worktree: "C:\\home\\.dev-team\\worktrees\\seg\\fix-bug".to_owned(),
+        exec_root: None,
         warnings: Vec::new(),
     };
 
@@ -2509,8 +2609,8 @@ fn create_outcome_serde线形状恰五键且id首字段() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        vec!["created", "id", "name", "warnings", "worktree"],
-        "恰五键面（id 为身份锚、worktree 为刻意出线的执行锚）"
+        vec!["created", "execRoot", "id", "name", "warnings", "worktree"],
+        "恰六键面（id 为身份锚、worktree 与 execRoot 为刻意出线的两根）"
     );
     assert_eq!(object["id"], "0198f7a0-0000-7000-8000-000000000000");
     assert_eq!(object["name"], "fix-bug");
@@ -2520,9 +2620,14 @@ fn create_outcome_serde线形状恰五键且id首字段() {
         serde_json::json!([]),
         "warnings 空清单出线 [] 非 null"
     );
+    assert_eq!(
+        object["execRoot"],
+        serde_json::json!(null),
+        "execRoot 键恒在场（None → null，不省键）"
+    );
 
     // id 首字段（声明序）：字段序即 TS 绑定字段序（id / name / created /
-    // worktree / warnings 五字段面）
+    // worktree / execRoot / warnings 六字段面）
     let debug = format!("{outcome:?}");
     assert!(
         debug.starts_with("CreateOutcome { id: "),
@@ -2707,7 +2812,7 @@ fn worktree门槛拒绝_8个直属子目录err文案含双源对账引导() {
     assert_eq!(env.store.create_call_count(), 0, "db 零建档调用");
     assert_eq!(
         env.vcs.calls(),
-        vec!["worktree_root"],
+        vec!["placement"],
         "仅落位派生一次（门槛道先于 probe / add）"
     );
 }
@@ -2823,7 +2928,7 @@ fn worktree门槛_非notfound读错误显式err() {
     );
     assert_eq!(
         env.vcs.calls(),
-        vec!["worktree_root"],
+        vec!["placement"],
         "仅落位派生一次（读错误道先于 probe / add）"
     );
 }
@@ -2936,5 +3041,941 @@ fn 前置序_active上限道先于磁盘门槛道() {
         env.vcs.calls().is_empty(),
         "⑧⑨ 均先于 git 探测⑤（vcs 零调用），实际: {:?}",
         env.vcs.calls()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 落位 + 执行根派生：`WorktreePort::placement` / `tracked_at_head` 的契约面与
+// create 消费面（根 workspace `rel = ""` 与子目录 workspace 两形态）
+// ---------------------------------------------------------------------------
+
+/// 子目录 workspace 夹具：主仓内预置 `rel` 子树（假件 `add_worktree` 镜像检
+/// 出时一并落进 worktree，执行根由此在场）。
+fn seed_subdir(env: &Env, rel: &str) {
+    seed_main_path(env, &format!("{rel}/keep.txt"), "子目录 workspace 夹具\n");
+}
+
+/// 超长偏移（> 1000 字符、多层）：逐段 40 字符、30 段。
+fn long_rel() -> String {
+    let segments: Vec<String> = (0..30)
+        .map(|index| format!("layer{index:02}").repeat(5))
+        .collect();
+    segments.join("/")
+}
+
+/// placement（正向）：假件返 `root = <tmp>/.worktrees/repo`、`rel =
+/// "packages/desktop"` → host = `root.join(name)`、exec root =
+/// `host.join(rel)`，两处取值与假件值逐字一致。
+#[test]
+fn placement_非空rel_host与执行根两值逐字来自假件() {
+    let env = Env::new("placement-subdir");
+    env.vcs.set_rel("packages/desktop");
+    seed_subdir(&env, "packages/desktop");
+
+    let outcome = env
+        .create("fix-bug", "子目录 workspace goal")
+        .expect("建域应 Ok");
+
+    let host = env.worktree_root.join("fix-bug");
+    let exec_root = host.join("packages/desktop");
+    assert_eq!(
+        outcome.worktree,
+        host.to_string_lossy(),
+        "worktree 出线 = 落位父锚 join change 名（host）"
+    );
+    assert_eq!(
+        outcome.exec_root.as_deref(),
+        Some(exec_root.to_string_lossy().as_ref()),
+        "执行根 = host join rel（逐字）"
+    );
+    assert!(exec_root.is_dir(), "执行根随检出落在盘上");
+}
+
+/// placement（边界）：`rel = ""` → 执行根派生抽化为 host——记录
+/// `exec_root = None`、`CreateOutcome.execRoot = None`。
+#[test]
+fn placement_rel空串_执行根抽化为host且exec_root列不写() {
+    let env = Env::new("placement-root");
+
+    let outcome = env
+        .create("fix-bug", "根 workspace goal")
+        .expect("建域应 Ok");
+
+    assert_eq!(outcome.exec_root, None, "根 workspace 出线 execRoot = null");
+    assert_eq!(
+        env.store.created_record().exec_root,
+        None,
+        "db 记录 exec_root 列不写（= 与 worktree 同值）"
+    );
+    assert_eq!(
+        outcome.worktree,
+        env.worktree_root.join("fix-bug").to_string_lossy(),
+        "worktree 串与根 workspace 今日形态逐字同"
+    );
+}
+
+/// placement（边界）：`rel` 单段（`"client"`）与多段（`"client/app/pkg"`）两
+/// 形态 → 执行根派生同解（host + `/` + rel），无尾分隔符残留。
+#[test]
+fn placement_rel单段与多段_执行根派生同解且无尾分隔符() {
+    for rel in ["client", "client/app/pkg"] {
+        let env = Env::new(&format!("placement-seg-{}", rel.replace('/', "-")));
+        env.vcs.set_rel(rel);
+        seed_subdir(&env, rel);
+
+        let outcome = env
+            .create("fix-bug", "分段 goal")
+            .unwrap_or_else(|error| panic!("rel = {rel} 建域应 Ok，实际 Err: {error}"));
+
+        let expected = env
+            .worktree_root
+            .join("fix-bug")
+            .join(rel)
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            outcome.exec_root.as_deref(),
+            Some(expected.as_str()),
+            "rel = {rel}"
+        );
+        assert!(
+            !expected.ends_with('/') && !expected.ends_with('\\'),
+            "执行根串无尾分隔符，实际: {expected}"
+        );
+    }
+}
+
+/// placement（边界）：`rel` 超长（> 1000 字符多层偏移）→ 原样透传零截断，
+/// 执行根串 = host + `/` + rel 逐字。
+#[test]
+fn placement_rel超长_原样透传零截断() {
+    let env = Env::new("placement-long-rel");
+    let rel = long_rel();
+    assert!(
+        rel.len() > 1000,
+        "夹具偏移应超 1000 字符，实际 {}",
+        rel.len()
+    );
+    env.vcs.set_rel(&rel);
+    seed_subdir(&env, &rel);
+
+    let outcome = env.create("fix-bug", "超长偏移 goal").expect("建域应 Ok");
+
+    let expected = env
+        .worktree_root
+        .join("fix-bug")
+        .join(&rel)
+        .to_string_lossy()
+        .into_owned();
+    let actual = outcome.exec_root.expect("超长偏移仍派生执行根");
+    assert_eq!(actual, expected, "超长偏移原样透传零截断");
+    assert_eq!(actual.len(), expected.len(), "长度零截断");
+}
+
+/// placement（异常）：假件返 `Err`（非 git 仓 / 裸仓 / 空输出三档引导文案）
+/// → 取落位即 `Err`，零建档零 `add_worktree` 零 branch。
+#[test]
+fn placement_三档失败引导_取落位即err且零副作用() {
+    for fault in [
+        "主仓为非 git 仓：change worktree 落位需要 git 仓库，请先 git init",
+        "主仓为裸仓（bare repository）：rev-parse 报 must be run in a work tree",
+        "主仓的 git 工作树根解析为空（rev-parse --show-toplevel 无输出）",
+    ] {
+        let env = Env::new(&format!("placement-fault-{}", fault.len()));
+        env.vcs.set_placement_error(fault);
+
+        let error = env
+            .create("fix-bug", "落位失败 goal")
+            .expect_err("取落位应 Err");
+
+        assert!(error.contains(fault), "Err 透传落位引导文案，实际: {error}");
+        assert_eq!(env.store.create_call_count(), 0, "零建档");
+        assert_eq!(
+            env.vcs.calls(),
+            vec!["placement"],
+            "仅落位派生一次（零 add 零 branch）"
+        );
+        assert!(
+            !env.worktree_root.join("fix-bug").exists(),
+            "零 worktree 目录"
+        );
+    }
+}
+
+/// tracked_at_head（正向）：假件返 `Ok(true)` 且 `rel` 非空 → create 照常建
+/// 档；调用恰一次且实参 `(main_root, rel)` 逐字（捕获面断言）。
+#[test]
+fn tracked_at_head_在案_照常建档且实参逐字恰一次() {
+    let env = Env::new("tracked-in-head");
+    env.vcs.set_rel("packages/desktop");
+    seed_subdir(&env, "packages/desktop");
+
+    env.create("fix-bug", "在案 goal").expect("在案应建域 Ok");
+
+    assert_eq!(
+        env.vcs.tracked_calls(),
+        vec!["packages/desktop".to_owned()],
+        "判据恰一次且 rel 实参逐字"
+    );
+    assert!(
+        env.vcs.calls().contains(&"add:change/fix-bug".to_owned()),
+        "在案后照常建域，实际: {:?}",
+        env.vcs.calls()
+    );
+}
+
+/// tracked_at_head（异常）：假件返 `Ok(false)` → 前置第十道 `Err`，文案含
+/// `rel`、三形态成因与两条引导；零建档零目录零 `add_worktree` 零 branch。
+#[test]
+fn tracked_at_head_不在案_前置第十道拒绝且零副作用() {
+    let env = Env::new("tracked-miss");
+    env.vcs.set_rel("packages/desktop");
+    env.vcs.set_untracked();
+
+    let error = env
+        .create("fix-bug", "不在案 goal")
+        .expect_err("不在案应 Err");
+
+    assert!(
+        error.contains("packages/desktop"),
+        "Err 文案含 rel，实际: {error}"
+    );
+    for cause in ["从未纳入 git 跟踪", "已在 HEAD 中删除", "gitignore"] {
+        assert!(
+            error.contains(cause),
+            "Err 并列成因「{cause}」，实际: {error}"
+        );
+    }
+    for guide in ["纳入 git 跟踪并提交", "改用仓库根"] {
+        assert!(
+            error.contains(guide),
+            "Err 含引导「{guide}」，实际: {error}"
+        );
+    }
+    assert_eq!(env.store.create_call_count(), 0, "零建档");
+    assert!(
+        env.vcs.adds.lock().expect("add 锁不可中毒").is_empty(),
+        "零 add_worktree"
+    );
+    assert!(
+        !env.vcs
+            .calls()
+            .iter()
+            .any(|call| call.starts_with("delete_branch")),
+        "零 branch 铸出 / 删除，实际: {:?}",
+        env.vcs.calls()
+    );
+    assert!(
+        !env.worktree_root.join("fix-bug").exists(),
+        "零 worktree 目录"
+    );
+}
+
+/// tracked_at_head（异常）：假件返 `Err`（fail-closed：问不出来 ≠ 不在案）→
+/// `Err` 透传，零建档零 `add_worktree`。
+#[test]
+fn tracked_at_head_询问失败_fail_closed透传() {
+    let env = Env::new("tracked-error");
+    env.vcs.set_rel("packages/desktop");
+    env.vcs
+        .set_tracked_error("git rev-parse --verify HEAD:packages/desktop 失败（退出码 128）");
+
+    let error = env
+        .create("fix-bug", "询问失败 goal")
+        .expect_err("询问失败应 Err");
+
+    assert!(
+        error.contains("退出码 128"),
+        "Err 为判据原文（与「不在案」的拒绝文案可辨），实际: {error}"
+    );
+    assert!(
+        !error.contains("从未纳入 git 跟踪"),
+        "询问失败不伪装成「不在案」，实际: {error}"
+    );
+    assert_eq!(env.store.create_call_count(), 0, "零建档");
+    assert!(
+        env.vcs.adds.lock().expect("add 锁不可中毒").is_empty(),
+        "零 add_worktree"
+    );
+}
+
+/// tracked_at_head（边界）：`rel = ""` → 假件调用计数恒 0（create 侧整段跳
+/// 过；后置 `is_dir` 断言同段跳过），vcs 调用序无新增项。
+#[test]
+fn tracked_at_head_rel空串_零调用且后置断言跳过() {
+    let env = Env::new("tracked-root-skip");
+
+    env.create("fix-bug", "根 workspace goal")
+        .expect("建域应 Ok");
+
+    assert!(env.vcs.tracked_calls().is_empty(), "rel 空串零判据调用");
+    assert_eq!(
+        env.vcs.calls(),
+        vec![
+            "placement".to_owned(),
+            "probe".to_owned(),
+            "branch_exists:change/fix-bug".to_owned(),
+            "add:change/fix-bug".to_owned(),
+        ],
+        "根 workspace 调用序无新增项（判据与后置断言整段跳过）"
+    );
+}
+
+/// `worktree_root`（异常）：同签面迁移后调用记录中零 `worktree_root` 项（旧
+/// 落位方法不再被任何写路径触达）。
+#[test]
+fn 旧落位方法名零调用_迁移后只走placement() {
+    let env = Env::new("legacy-root-name");
+    env.vcs.set_rel("client");
+    seed_subdir(&env, "client");
+
+    env.create("fix-bug", "迁移 goal").expect("建域应 Ok");
+
+    let calls = env.vcs.calls();
+    assert!(
+        !calls.iter().any(|call| call == "worktree_root"),
+        "旧方法零触达，实际: {calls:?}"
+    );
+    assert!(calls.contains(&"placement".to_owned()), "落位派生走新方法");
+}
+
+/// `WorktreePlacement`（正向）：两字段全公开可构造（结构体字面量不经构造函
+/// 数），`rel` 恒 `/` 分隔（`\` 不得拼入 `rel`）。
+#[test]
+fn worktree_placement_两字段公开可构造且rel以斜杠分隔() {
+    let placement = WorktreePlacement {
+        root: PathBuf::from("C:\\data\\.worktrees\\repo"),
+        rel: "client/app/pkg".to_owned(),
+    };
+
+    assert_eq!(placement.root, PathBuf::from("C:\\data\\.worktrees\\repo"));
+    assert_eq!(placement.rel, "client/app/pkg", "rel 字段公开可读且逐字");
+    assert!(
+        !placement.rel.contains('\\'),
+        "rel 为 `/` 分隔（不含反斜杠）"
+    );
+    assert_eq!(placement.rel.split('/').count(), 3, "多段偏移逐段可切分");
+    let empty = WorktreePlacement {
+        root: placement.root.clone(),
+        rel: String::new(),
+    };
+    assert!(
+        empty.rel.is_empty(),
+        "空串语义可辨（= workspace root 即 git 根）"
+    );
+}
+
+/// `WorktreePlacement`（边界）：`rel = ""` + `root` 组合 → `root.join("")` 语
+/// 义不产出尾分隔符（出线串与 host 串逐字相等）。
+#[test]
+fn worktree_placement_rel空串与root拼接_出线串等于host串() {
+    let env = Env::new("placement-empty-rel");
+    let placement = WorktreePlacement {
+        root: env.worktree_root.clone(),
+        rel: String::new(),
+    };
+    assert_eq!(
+        placement.root.join(&placement.rel),
+        placement.root,
+        "Path 组件级比较不因空串追加分隔符"
+    );
+
+    let outcome = env.create("fix-bug", "空偏移 goal").expect("建域应 Ok");
+
+    let host = placement
+        .root
+        .join("fix-bug")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(outcome.worktree, host, "出线串与 host 串逐字相等");
+    assert!(
+        !outcome.worktree.ends_with('/') && !outcome.worktree.ends_with('\\'),
+        "host 串无尾分隔符，实际: {}",
+        outcome.worktree
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 门面再导出：`write::WorktreePlacement` 经出口取型构造 / 消费，零包装
+// ---------------------------------------------------------------------------
+
+/// 门面再导出（正向）：经 `workflow::write` 出口取型构造 `WorktreePlacement`
+/// 并驱动 create → 编译面与行为面同时成立。
+#[test]
+fn write出口再导出_取型构造placement并驱动create() {
+    let env = Env::new("reexport-placement");
+    let placement: super::WorktreePlacement = super::WorktreePlacement {
+        root: env.worktree_root.clone(),
+        rel: "packages/desktop".to_owned(),
+    };
+    env.vcs.set_rel(&placement.rel);
+    seed_subdir(&env, &placement.rel);
+
+    let outcome = env.create("fix-bug", "再导出 goal").expect("建域应 Ok");
+
+    let expected = placement
+        .root
+        .join("fix-bug")
+        .join(&placement.rel)
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(
+        outcome.exec_root.as_deref(),
+        Some(expected.as_str()),
+        "出口取型的 placement 值直接驱动落位与执行根派生"
+    );
+    assert_eq!(
+        outcome.worktree,
+        placement.root.join("fix-bug").to_string_lossy()
+    );
+}
+
+/// 门面再导出（边界）：再导出零新增字段 / 方法——`root` 与 `rel` 两字段公开
+/// 可读，`rel` 空串语义可辨。
+#[test]
+fn write出口再导出_零新增字段且rel空串语义可辨() {
+    let placement: super::WorktreePlacement = super::WorktreePlacement {
+        root: PathBuf::from("/tmp/.worktrees/repo"),
+        rel: String::new(),
+    };
+
+    assert_eq!(placement.root, PathBuf::from("/tmp/.worktrees/repo"));
+    assert!(placement.rel.is_empty(), "空串 = workspace root 即 git 根");
+    let cloned = placement.clone();
+    assert_eq!(cloned, placement, "门面再导出保留 Clone / PartialEq 面");
+}
+
+/// 门面再导出（异常）：门面层零包装——假件 `placement` 返 `Err` 时经 `write`
+/// 出口取型的消费点原样透传 `Err`（带上下文但不改写文案）。
+#[test]
+fn write出口再导出_placement错误原样透传不改写文案() {
+    let env = Env::new("reexport-placement-err");
+    let original = "主仓 /tmp/x 为非 git 仓：change worktree 落位需要 git 仓库";
+    env.vcs.set_placement_error(original);
+
+    let error = env
+        .create("fix-bug", "门面透传 goal")
+        .expect_err("落位失败应 Err");
+
+    assert_eq!(error, original, "门面零包装：Err 文案逐字透传");
+    let _: super::WorktreePlacement = WorktreePlacement {
+        root: PathBuf::from("/tmp/.worktrees/repo"),
+        rel: String::new(),
+    };
+}
+
+// ---------------------------------------------------------------------------
+// 子目录 workspace 建域：双列建档 / 建域落位 / add 目标 / 出线两串（AC-2）
+// ---------------------------------------------------------------------------
+
+/// 双列建档（正向）：`rel = "packages/desktop"` → 记录 `worktree` =
+/// `<落位根>/<name>`、`exec_root` = `worktree/packages/desktop`（两串逐字、均
+/// 绝对）。
+#[test]
+fn create子目录workspace_双列建档两串逐字且均绝对() {
+    let env = Env::new("create-dual-column");
+    env.vcs.set_rel("packages/desktop");
+    seed_subdir(&env, "packages/desktop");
+
+    env.create("fix-bug", "双列 goal").expect("建域应 Ok");
+
+    let record = env.store.created_record();
+    let host = env.worktree_root.join("fix-bug");
+    assert_eq!(
+        record.worktree.as_deref(),
+        Some(host.to_string_lossy().as_ref()),
+        "worktree 列 = host"
+    );
+    assert_eq!(
+        record.exec_root.as_deref(),
+        Some(host.join("packages/desktop").to_string_lossy().as_ref()),
+        "exec_root 列 = host/rel"
+    );
+    let host_str = record.worktree.expect("worktree 列在场");
+    let exec_str = record.exec_root.expect("exec_root 列在场");
+    assert!(
+        Path::new(&host_str).is_absolute() && Path::new(&exec_str).is_absolute(),
+        "两串均绝对路径"
+    );
+}
+
+/// 建域落位（正向）：`rel` 非空 → `openspec/changes/<name>/explore.md` 落
+/// `exec_root` 下；主仓 `<repo>/<rel>/openspec/changes/` 与
+/// `worktree/openspec/` 两侧均无该目录。
+#[test]
+fn create子目录workspace_explore落执行根且host根零目录() {
+    let env = Env::new("create-exec-root-tree");
+    env.vcs.set_rel("packages/desktop");
+    seed_subdir(&env, "packages/desktop");
+
+    env.create("fix-bug", "执行根 goal").expect("建域应 Ok");
+
+    let host = env.worktree_root.join("fix-bug");
+    let exec_change_dir = resolve(&host.join("packages/desktop"))
+        .changes_root
+        .join("fix-bug");
+    assert!(
+        exec_change_dir.join("explore.md").is_file(),
+        "explore.md 落执行根 change 目录: {}",
+        exec_change_dir.display()
+    );
+    assert!(
+        !resolve(&host).changes_root.join("fix-bug").exists(),
+        "host 根下无 change 目录（执行根唯一落点）"
+    );
+    assert!(
+        !env.root
+            .join("packages/desktop/openspec/changes/fix-bug")
+            .exists(),
+        "主仓对应子目录下零 change 目录"
+    );
+    assert!(
+        !env.root.join("openspec/changes/fix-bug").exists(),
+        "主仓根下零 change 目录"
+    );
+}
+
+/// 落位目标（正向）：`rel` 非空 → `add_worktree` 收到 `(main_root, host,
+/// branch)`（目标为 host 而非执行根）。
+#[test]
+fn create子目录workspace_add目标恒host() {
+    let env = Env::new("create-add-host");
+    env.vcs.set_rel("packages/desktop");
+    seed_subdir(&env, "packages/desktop");
+
+    env.create("fix-bug", "add 目标 goal").expect("建域应 Ok");
+
+    let adds = env.vcs.adds.lock().expect("add 锁不可中毒").clone();
+    assert_eq!(adds.len(), 1, "add_worktree 恰一次");
+    assert_eq!(adds[0].0, env.root, "add 收到主仓根");
+    assert_eq!(
+        adds[0].1,
+        env.worktree_root.join("fix-bug"),
+        "add 目标 = host（MUST NOT 为执行根）"
+    );
+    assert_ne!(
+        adds[0].1,
+        env.worktree_root.join("fix-bug").join("packages/desktop"),
+        "add 目标非执行根"
+    );
+    assert_eq!(adds[0].2, "change/fix-bug", "add 收到铸分支名");
+}
+
+/// 出线两串（正向）：`CreateOutcome.worktree` = host 串、`execRoot` =
+/// host/rel 串（两串可辨、互不替代）。
+#[test]
+fn create子目录workspace_出线两串可辨互不替代() {
+    let env = Env::new("create-outcome-two-roots");
+    env.vcs.set_rel("packages/desktop");
+    seed_subdir(&env, "packages/desktop");
+
+    let outcome = env.create("fix-bug", "出线两串 goal").expect("建域应 Ok");
+
+    let exec_root = outcome.exec_root.clone().expect("execRoot 出线");
+    assert_ne!(outcome.worktree, exec_root, "两串可辨");
+    assert!(
+        Path::new(&exec_root).starts_with(&outcome.worktree),
+        "execRoot 在 worktree 之内: {exec_root} ⊄ {}",
+        outcome.worktree
+    );
+    assert_eq!(
+        env.store.created_record().exec_root.as_deref(),
+        Some(exec_root.as_str()),
+        "出线与记录同源（互不替代）"
+    );
+}
+
+/// 执行根派生（边界）：`rel` 单段（`"client"`）与多段（`"client/app"`）→ 执行
+/// 根派生同解且两列同源。
+#[test]
+fn create执行根派生_单段与多段两形态同解() {
+    for rel in ["client", "client/app"] {
+        let env = Env::new(&format!("create-derive-{}", rel.replace('/', "-")));
+        env.vcs.set_rel(rel);
+        seed_subdir(&env, rel);
+
+        let outcome = env.create("fix-bug", "派生 goal").expect("建域应 Ok");
+
+        let expected = env
+            .worktree_root
+            .join("fix-bug")
+            .join(rel)
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            outcome.exec_root.as_deref(),
+            Some(expected.as_str()),
+            "rel = {rel}"
+        );
+        assert_eq!(
+            env.store.created_record().exec_root.as_deref(),
+            Some(expected.as_str()),
+            "记录列与 DTO 同源（rel = {rel}）"
+        );
+    }
+}
+
+/// 执行根派生（边界）：`rel` 超长（> 1000 字符）→ 记录与 DTO 的执行根串原样
+/// 透传零截断、不 panic。
+#[test]
+fn create执行根派生_超长rel记录与dto原样透传零截断() {
+    let env = Env::new("create-long-rel");
+    let rel = long_rel();
+    env.vcs.set_rel(&rel);
+    seed_subdir(&env, &rel);
+
+    let outcome = env.create("fix-bug", "超长 goal").expect("建域应 Ok");
+
+    let expected = env
+        .worktree_root
+        .join("fix-bug")
+        .join(&rel)
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(
+        outcome.exec_root.as_deref(),
+        Some(expected.as_str()),
+        "DTO 零截断"
+    );
+    assert_eq!(
+        env.store.created_record().exec_root.as_deref(),
+        Some(expected.as_str()),
+        "记录零截断"
+    );
+}
+
+/// 前置第十道形态二三（异常）：HEAD 已删除（`Ok(false)`）与 gitignore 命中
+/// （`Ok(false)`）→ 同一判据同形拒绝（文案并列三形态、不逐形态分叉）。
+#[test]
+fn create_前置第十道三形态同形拒绝不分叉() {
+    let mut errors = Vec::new();
+    for tag in ["head-deleted", "gitignored"] {
+        let env = Env::new(&format!("tracked-form-{tag}"));
+        env.vcs.set_rel("packages/desktop");
+        env.vcs.set_untracked();
+
+        errors.push(env.create("fix-bug", "同形拒绝 goal").expect_err("应 Err"));
+    }
+
+    assert_eq!(errors[0], errors[1], "三形态同形拒绝（文案不逐形态分叉）");
+    for cause in ["从未纳入 git 跟踪", "已在 HEAD 中删除", "被 gitignore 排除"] {
+        assert!(
+            errors[0].contains(cause),
+            "成因三形态并列呈现（「{cause}」），实际: {}",
+            errors[0]
+        );
+    }
+}
+
+/// 前置第十道形态四（正向）：子目录被跟踪但仅含被 ignore 的文件
+/// （`Ok(true)`）→ 建档成功（`exec_root` 列写入）。
+#[test]
+fn create_前置第十道形态四_仅含ignored文件仍建档() {
+    let env = Env::new("tracked-ignored-only");
+    env.vcs.set_rel("packages/desktop");
+    seed_main_path(&env, "packages/desktop/ignored.log", "被 ignore 的内容\n");
+
+    // 判据只答「HEAD 有没有这个路径」，不答「目录里有什么」——假件恒 true
+    // 即该语义面
+    let outcome = env
+        .create("fix-bug", "ignored-only goal")
+        .expect("建档应 Ok");
+
+    assert_eq!(env.vcs.tracked_calls().len(), 1, "判据仍恰一次");
+    assert!(
+        outcome.exec_root.is_some(),
+        "形态四不拒绝（exec_root 列写入）"
+    );
+    assert_eq!(
+        env.store.created_record().exec_root,
+        outcome.exec_root,
+        "记录与 DTO 同源"
+    );
+}
+
+/// 前置第十道形态六 + 后置断言（异常）：前置在案但检出后执行根缺席（假件
+/// 「不镜像 rel 子树」形态）→ 补偿链入参恒 host（`remove_worktree` 收到
+/// host 串）、`Err` 含「已补偿回收」与双源残留指引；零 worktree 零 branch 零
+/// 建档。
+#[test]
+fn create_后置断言_执行根缺席_补偿链入参恒host() {
+    let env = Env::new("post-assert-miss");
+    env.vcs.set_rel("packages/desktop");
+    seed_subdir(&env, "packages/desktop");
+    env.vcs.set_drop_exec_root();
+
+    let error = env
+        .create("fix-bug", "执行根缺席 goal")
+        .expect_err("后置断言应 Err");
+
+    let host = env.worktree_root.join("fix-bug");
+    assert!(
+        error.contains("不在盘"),
+        "Err 记因执行根缺席，实际: {error}"
+    );
+    assert!(
+        error.contains("已补偿回收"),
+        "Err 呈补偿完成，实际: {error}"
+    );
+    assert!(
+        error.contains("worktree 残留对账须双源"),
+        "Err 携双源残留指引，实际: {error}"
+    );
+    assert_eq!(
+        env.vcs.removes(),
+        vec![host.clone()],
+        "remove_worktree 收到 host（MUST NOT 为执行根）"
+    );
+    assert!(!host.exists(), "worktree 已回收");
+    assert!(
+        !host.join("packages/desktop").exists(),
+        "执行根残留随整树回收"
+    );
+    assert_eq!(
+        env.store.find_by_id(&env.store.created_id()),
+        None,
+        "建档已补偿删除"
+    );
+    assert_eq!(
+        env.store.create_call_count(),
+        1,
+        "建档先行后补偿删除（零残留）"
+    );
+}
+
+/// 后置断言时序（边界）：同一「不镜像 rel 子树」形态下，执行根不得被
+/// `create_dir_all` 建出（断言早于 `write_fs_half`）——以「store 零残留 + host
+/// 已回收」而非「建域成功」收口。
+#[test]
+fn create_后置断言早于写树_执行根不被create_dir_all建出() {
+    let env = Env::new("post-assert-order");
+    env.vcs.set_rel("packages/desktop");
+    seed_subdir(&env, "packages/desktop");
+    env.vcs.set_drop_exec_root();
+
+    let error = env
+        .create("fix-bug", "时序 goal")
+        .expect_err("断言应先于写树 Err");
+
+    let host = env.worktree_root.join("fix-bug");
+    assert!(
+        !error.contains("创建 change 目录失败"),
+        "失败点为后置断言而非写树（时序可辨），实际: {error}"
+    );
+    assert!(!host.exists(), "host 已回收");
+    assert!(
+        env.store.find_by_id(&env.store.created_id()).is_none(),
+        "store 零残留"
+    );
+    assert!(
+        env.vcs.calls().contains(&"remove_worktree".to_owned()),
+        "补偿链已下发，实际: {:?}",
+        env.vcs.calls()
+    );
+}
+
+/// D7 同仓同名拒绝（异常）：同仓第二个子目录 workspace 建同名 change → 撞前
+/// 置⑥（branch 已存在）或前置⑦（worktree 目录已存在），拒绝面零建档零新目
+/// 录。
+#[test]
+fn create_同仓同名子目录_撞前置六七拒绝且零建档() {
+    // 形态一：branch 已存在（前置⑥）
+    let env = Env::new("d7-branch");
+    env.vcs.set_rel("packages/desktop");
+    env.vcs.set_branch_exists();
+    let error = env
+        .create("fix-bug", "同名 goal")
+        .expect_err("branch 冲突应 Err");
+    assert!(
+        error.contains("branch \"change/fix-bug\" 已存在"),
+        "撞前置⑥，实际: {error}"
+    );
+    assert_eq!(env.store.create_call_count(), 0, "零建档");
+
+    // 形态二：worktree 目录已存在（前置⑦）
+    let env = Env::new("d7-dir");
+    env.vcs.set_rel("packages/desktop");
+    fs::create_dir_all(env.worktree_root.join("fix-bug")).expect("预置落位目录失败");
+    let error = env
+        .create("fix-bug", "同名 goal")
+        .expect_err("目录冲突应 Err");
+    assert!(
+        error.contains("worktree 目录已存在"),
+        "撞前置⑦，实际: {error}"
+    );
+    assert_eq!(env.store.create_call_count(), 0, "零建档");
+}
+
+// ---------------------------------------------------------------------------
+// bootstrap 锚执行根（D5 词汇口径）
+// ---------------------------------------------------------------------------
+
+/// bootstrap 锚执行根（正向）：`projects = [{ root: "." }]` 且 `rel` 非空 →
+/// 安装 cwd = 执行根。
+#[test]
+fn bootstrap锚执行根_点号项目按执行根安装() {
+    let env = Env::new("bootstrap-exec-dot");
+    env.vcs.set_rel("packages/desktop");
+    seed_subdir(&env, "packages/desktop");
+    seed_main_path(&env, "packages/desktop/pnpm-lock.yaml", "# pnpm");
+
+    let outcome = env
+        .create_with_projects("fix-bug", "点号 goal", &[proj(".")])
+        .expect("建域应 Ok");
+
+    assert_eq!(
+        env.vcs.installs(),
+        vec![(
+            env.worktree_root.join("fix-bug").join("packages/desktop"),
+            "pnpm install --frozen-lockfile".to_owned()
+        )],
+        "点号项目根的安装 cwd = 执行根"
+    );
+    assert!(
+        outcome.warnings.is_empty(),
+        "顺利安装零警告，实际 {:?}",
+        outcome.warnings
+    );
+}
+
+/// bootstrap 锚执行根（正向）：`projects = [{ root: "packages/desktop" }]` 且
+/// `rel = "packages/desktop"` → 安装 cwd = `exec_root/packages/desktop`（相对
+/// 执行根同解）。
+#[test]
+fn bootstrap锚执行根_项目根相对执行根同解() {
+    let env = Env::new("bootstrap-exec-nested");
+    env.vcs.set_rel("packages/desktop");
+    seed_subdir(&env, "packages/desktop");
+    seed_main_path(
+        &env,
+        "packages/desktop/packages/desktop/Cargo.lock",
+        "# cargo",
+    );
+
+    let outcome = env
+        .create_with_projects("fix-bug", "嵌套 goal", &[proj("packages/desktop")])
+        .expect("建域应 Ok");
+
+    assert_eq!(
+        env.vcs.installs(),
+        vec![(
+            env.worktree_root
+                .join("fix-bug")
+                .join("packages/desktop")
+                .join("packages/desktop"),
+            "cargo fetch --locked".to_owned()
+        )],
+        "项目根相对执行根同解"
+    );
+    assert!(outcome.warnings.is_empty());
+}
+
+/// bootstrap 锚执行根（异常）：项目根在执行根内不存在 → 警告「项目根 x：在
+/// 执行根内不存在，跳过依赖引导」（执行根口径文案）。
+#[test]
+fn bootstrap锚执行根_项目根缺席警告执行根口径() {
+    let env = Env::new("bootstrap-exec-missing");
+    env.vcs.set_rel("packages/desktop");
+    seed_subdir(&env, "packages/desktop");
+
+    let outcome = env
+        .create_with_projects("fix-bug", "缺席 goal", &[proj("missing")])
+        .expect("建域应 Ok");
+
+    assert_eq!(
+        outcome.warnings,
+        vec!["项目根 \"missing\"：在执行根内不存在，跳过依赖引导".to_owned()]
+    );
+    assert!(env.vcs.installs().is_empty(), "零安装");
+}
+
+/// bootstrap 锚执行根（边界）：`projects` 空 + `rel` 非空 → legacy 扫描锚 =
+/// 执行根（lockfile 在执行根内命中、host 根不命中）。
+#[test]
+fn bootstrap锚执行根_空projects按执行根扫描lockfile() {
+    let env = Env::new("bootstrap-exec-legacy");
+    env.vcs.set_rel("packages/desktop");
+    seed_subdir(&env, "packages/desktop");
+    seed_main_path(&env, "packages/desktop/pnpm-lock.yaml", "# pnpm");
+
+    env.create("fix-bug", "legacy goal").expect("建域应 Ok");
+
+    assert_eq!(
+        env.vcs.installs(),
+        vec![(
+            env.worktree_root.join("fix-bug").join("packages/desktop"),
+            "pnpm install --frozen-lockfile".to_owned()
+        )],
+        "legacy 扫描锚 = 执行根（host 根零 lockfile）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// CreateOutcome.exec_root 出线形态（camelCase / 键恒在场 / Debug 字段序）
+// ---------------------------------------------------------------------------
+
+/// `CreateOutcome.exec_root`（边界）：`None` → `execRoot` 键恒在场且值为
+/// `null`；`Some` → 字符串出线。
+#[test]
+fn create_outcome_exec_root出线两态_键恒在场() {
+    for exec_root in [
+        None,
+        Some("C:\\home\\.dev-team\\worktrees\\seg\\fix-bug\\packages\\desktop"),
+    ] {
+        let outcome = CreateOutcome {
+            id: "0198f7a0-0000-7000-8000-000000000000".to_owned(),
+            name: "fix-bug".to_owned(),
+            created: "2026-10-02".to_owned(),
+            worktree: "C:\\home\\.dev-team\\worktrees\\seg\\fix-bug".to_owned(),
+            exec_root: exec_root.map(str::to_owned),
+            warnings: Vec::new(),
+        };
+
+        let value = serde_json::to_value(&outcome).expect("序列化应成功");
+        let object = value.as_object().expect("线形状为对象");
+        assert!(
+            object.contains_key("execRoot"),
+            "execRoot 键恒在场（不省键），实际键集: {:?}",
+            object.keys().collect::<Vec<_>>()
+        );
+        match exec_root {
+            None => assert_eq!(object["execRoot"], serde_json::json!(null), "None → null"),
+            Some(root) => assert_eq!(
+                object["execRoot"],
+                serde_json::json!(root),
+                "Some → 字符串出线"
+            ),
+        }
+    }
+}
+
+/// `CreateOutcome.exec_root`（边界）：Debug 形态字段清单含 `execRoot`（五 →
+/// 六字段，`starts_with("CreateOutcome { id: ")` 断言零改）。
+#[test]
+fn create_outcome_debug字段清单含exec_root() {
+    let outcome = CreateOutcome {
+        id: "0198f7a0-0000-7000-8000-000000000001".to_owned(),
+        name: "fix-bug".to_owned(),
+        created: "2026-10-02".to_owned(),
+        worktree: "C:\\host".to_owned(),
+        exec_root: Some("C:\\host\\rel".to_owned()),
+        warnings: Vec::new(),
+    };
+
+    let debug = format!("{outcome:?}");
+    assert!(
+        debug.starts_with("CreateOutcome { id: "),
+        "id 首字段（声明序）"
+    );
+    assert!(
+        debug.contains("exec_root: Some("),
+        "Debug 含 exec_root 字段"
+    );
+    let worktree_at = debug.find("worktree:").expect("Debug 含 worktree");
+    let exec_at = debug.find("exec_root:").expect("Debug 含 exec_root");
+    let warnings_at = debug.find("warnings:").expect("Debug 含 warnings");
+    assert!(
+        worktree_at < exec_at && exec_at < warnings_at,
+        "声明序 worktree → exec_root → warnings，实际: {debug}"
     );
 }

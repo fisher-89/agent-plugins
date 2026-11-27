@@ -60,6 +60,7 @@ impl LogStore {
                 archived_at: None,
                 active_phase: active,
                 worktree: None,
+                exec_root: None,
                 base_commit: None,
             })),
             entries: Mutex::new(Vec::new()),

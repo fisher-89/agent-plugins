@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::{worktree_root, worktree_root_from_toplevel, ProcessWorktree, WORKTREES_DIR_NAME};
+use super::{placement, worktree_root_from_toplevel, ProcessWorktree, WORKTREES_DIR_NAME};
 
 /// 落位形态：`<git 根父目录>/.worktrees/<git 根目录名>`——与数据根 / 身份段
 /// 解耦（不再叠加 hash 段）；`WORKTREES_DIR_NAME == ".worktrees"`。
@@ -82,35 +82,41 @@ fn worktree_root_from_toplevel_无父目录err() {
 }
 
 /// 真实 git（正向）：workspace root = git 根 → 落位在 git 根同级的
-/// `.worktrees/<仓库目录名>`；workspace root 为仓库子目录时仍锚定 git 根。
+/// `.worktrees/<仓库目录名>` 且偏移为空串；workspace root 为仓库子目录时仍锚
+/// 定 git 根，偏移为（`/` 分隔、无尾分隔符的）相对路径。
 #[test]
-fn worktree_root_真实git_子目录workspace仍锚定git根() {
+fn placement_真实git_子目录workspace仍锚定git根() {
     let (base, repo) = init_repo("placement");
     let expected = base.path().join(WORKTREES_DIR_NAME).join("repo");
 
+    let root_workspace = placement(&repo).expect("git 根 workspace 派生应成功");
     assert_eq!(
-        worktree_root(&repo).expect("git 根 workspace 派生应成功"),
-        expected,
+        root_workspace.root, expected,
         "落位 = <git 根父目录>/.worktrees/<仓库目录名>"
     );
+    assert_eq!(root_workspace.rel, "", "git 根 workspace 偏移为空串");
 
     let nested = repo.join("client").join("app");
     std::fs::create_dir_all(&nested).expect("建仓库子目录失败");
+    let nested_workspace = placement(&nested).expect("子目录 workspace 派生应成功");
     assert_eq!(
-        worktree_root(&nested).expect("子目录 workspace 派生应成功"),
-        expected,
+        nested_workspace.root, expected,
         "workspace 为仓库子目录时仍以 git 根为锚"
+    );
+    assert_eq!(
+        nested_workspace.rel, "client/app",
+        "偏移 = workspace root 相对 git 根（`/` 分隔、无尾分隔符）"
     );
 }
 
 /// 真实 git（异常）：非 git 目录 → 显式 Err（引导文案与 create probe 同口径）。
 #[test]
-fn worktree_root_非git目录err() {
+fn placement_非git目录err() {
     let plain = tempfile::Builder::new()
         .prefix("vcs-lib-placement-plain-")
         .tempdir()
         .expect("创建普通目录失败");
-    let error = worktree_root(plain.path()).expect_err("非 git 目录应 Err");
+    let error = placement(plain.path()).expect_err("非 git 目录应 Err");
     assert!(
         error.contains("非 git 仓"),
         "Err 携非 git 仓引导，实际: {error}"
@@ -916,4 +922,187 @@ fn process_archive_vcs_restore_baseline_主仓双保险真件锚() {
 fn process_archive_vcs_restore_baseline构造持衡() {
     let _new = ProcessArchiveVcs::new();
     let _default = ProcessArchiveVcs;
+}
+
+// ---------------------------------------------------------------------------
+// vcs_runtime::placement / ProcessWorktree::tracked_at_head（落位与准入判据的
+// 单点委托面）：`&dyn WorktreePort` 动态分发与自由函数双入口逐字对拍
+// ---------------------------------------------------------------------------
+
+use workflow::write::WorktreePort;
+
+/// trait 委托（正向）：`ProcessWorktree::placement` 经 `&dyn WorktreePort` 动态
+/// 分发与自由函数 `placement` 同仓双跑逐字等值（`root` 与 `rel` 两值对拍）。
+#[test]
+fn process_worktree_placement委托_与自由函数逐字等值() {
+    let (_dir, repo) = init_repo("worktree-port-placement");
+    let port = ProcessWorktree::new();
+    let dynamic: &dyn WorktreePort = &port;
+
+    let via_fn = placement(&repo).expect("自由函数派生应成功");
+    let via_port = dynamic.placement(&repo).expect("trait 面派生应成功");
+    assert_eq!(via_fn, via_port, "root / rel 两值逐字等值");
+    assert_eq!(via_fn.rel, "", "git 根 workspace 偏移为空串");
+
+    let nested = repo.join("client").join("app");
+    std::fs::create_dir_all(&nested).expect("建子目录 workspace 失败");
+    let nested_fn = placement(&nested).expect("自由函数子目录派生应成功");
+    let nested_port = dynamic
+        .placement(&nested)
+        .expect("trait 面子目录派生应成功");
+    assert_eq!(nested_fn, nested_port, "子目录形态两入口逐字等值");
+    assert_eq!(nested_port.rel, "client/app", "trait 面携相对偏移");
+}
+
+/// trait 委托（正向，表驱动两形态）：`ProcessWorktree::tracked_at_head` 与
+/// `git::tracked_at_head` 自由函数结果逐字等值（在 HEAD / 未跟踪两态）。
+#[test]
+fn process_worktree_tracked_at_head委托对拍_两态等值() {
+    let (_dir, repo) = init_repo("worktree-port-tracked");
+    let port = ProcessWorktree::new();
+    let dynamic: &dyn WorktreePort = &port;
+    std::fs::create_dir_all(repo.join("tracked")).expect("建已提交子目录失败");
+    std::fs::write(repo.join("tracked/keep.txt"), "在案\n").expect("写子目录文件失败");
+    git(&repo, &["add", "tracked"]);
+    git(
+        &repo,
+        &[
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "tracked",
+        ],
+    );
+    std::fs::create_dir_all(repo.join("fresh")).expect("建未跟踪子目录失败");
+
+    for (rel, expected) in [("tracked", true), ("fresh", false)] {
+        let via_fn = super::git::tracked_at_head(&repo, rel).expect("自由函数判据应 Ok");
+        let via_port = dynamic
+            .tracked_at_head(&repo, rel)
+            .expect("trait 面判据应 Ok");
+        assert_eq!(via_fn, expected, "自由函数两态: {rel} → {expected}");
+        assert_eq!(via_port, via_fn, "trait 面与自由函数等值（{rel}）");
+    }
+}
+
+/// trait 委托（边界）：`rel = ""` → `Ok(true)`（零 spawn 语义随实现侧兜底，
+/// `PATH` 注入下仍成立）。
+#[test]
+fn process_worktree_tracked_at_head_rel空串_ok_true() {
+    let _guard = lock_path();
+    let (_dir, repo) = init_repo("worktree-port-empty-rel");
+    let port = ProcessWorktree::new();
+    let dynamic: &dyn WorktreePort = &port;
+
+    let original = std::env::var_os("PATH");
+    std::env::set_var("PATH", "");
+    let result = dynamic.tracked_at_head(&repo, "");
+    match original {
+        Some(value) => std::env::set_var("PATH", value),
+        None => std::env::remove_var("PATH"),
+    }
+
+    assert!(
+        result.expect("rel 空串应 Ok(true)"),
+        "git 不可发现仍 Ok(true)（实现侧零 spawn 兜底）"
+    );
+}
+
+/// trait 委托（异常）：非 git 目录 → trait 面 `Err` 原文透传（不包装不吞，与
+/// 自由函数同串）。
+#[test]
+fn process_worktree_tracked_at_head_非git目录_err原文透传() {
+    let plain = tempfile::Builder::new()
+        .prefix("vcs-lib-port-plain-")
+        .tempdir()
+        .expect("建普通目录失败");
+    let port = ProcessWorktree::new();
+    let dynamic: &dyn WorktreePort = &port;
+
+    let via_fn = super::git::tracked_at_head(plain.path(), "sub").expect_err("自由函数应 Err");
+    let via_port = dynamic
+        .tracked_at_head(plain.path(), "sub")
+        .expect_err("trait 面应 Err");
+
+    assert_eq!(via_port, via_fn, "Err 原文透传（同串，不包装）");
+}
+
+/// `worktree_root` 公共入口退役（异常）：本 crate 出口只余 `placement`，旧名
+/// 不可达（编译面以 `use super::placement` 成立；源面零残留以字面量自证）。
+#[test]
+fn worktree_root公共入口退役_出口只余placement() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("lib.rs");
+    let source = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("读取 {} 失败: {error}", path.display()));
+
+    assert!(
+        source.contains("pub fn placement(workspace_root: &Path)"),
+        "落位派生单点以 `placement` 出口"
+    );
+    assert!(
+        !source.contains("pub fn worktree_root("),
+        "旧 `worktree_root` 公共入口已退役（零残留定义）"
+    );
+    // 编译面：本文件顶部 `use super::placement` 成立即新出口可达
+    let _ = placement(Path::new(".")).is_ok();
+}
+
+/// 误传锚的整树锚（异常，AC-4 行为钉）：子目录 workspace 夹具下把 exec root
+/// （host 下逐段 `join` 的 `rel` 子目录）传给 `ProcessArchiveVcs::remove_worktree`
+/// → host 整树仍在场且 `git worktree list` 仍列出（误传「回收零生效 + 登记残留」
+/// 形态可见）；对照面传 host → 整树回收且登记注销。执行根子目录自身是否被 OS
+/// 兜底删除不作硬断言（兜底删除受路径形态影响，生产回收恒传 host）。
+#[test]
+fn process_archive_vcs_remove_worktree误传执行根_host整树与登记留存() {
+    let _guard = lock_path();
+    let port = ProcessArchiveVcs::new();
+    let (_dir, main_root) = init_repo("remove-wrong-anchor");
+    let (_wt_dir, host) = archive_worktree_slot_named("remove-wrong-anchor", "wrong-anchor-wt");
+    git(
+        &main_root,
+        &[
+            "worktree",
+            "add",
+            &host.to_string_lossy(),
+            "-b",
+            "change/subdir",
+        ],
+    );
+    let mut exec_root = host.clone();
+    for segment in ["packages", "desktop"] {
+        exec_root = exec_root.join(segment);
+    }
+    std::fs::create_dir_all(&exec_root).expect("预置执行根目录失败");
+    std::fs::write(exec_root.join("keep.txt"), "执行根内容\n").expect("写执行根文件失败");
+
+    let _ = port.remove_worktree(&main_root, &exec_root);
+
+    // 误传锚的主判据：host 整树与登记留存（执行根子目录自身是否被 OS 兜底删除
+    // 受路径形态影响，不作硬断言——生产回收恒传 host）
+    assert!(host.is_dir(), "host 整树仍在场（回收零生效）");
+    assert!(
+        host.join("a.txt").is_file(),
+        "host 检出内容原样（整树零回收）"
+    );
+    let listing = git(&main_root, &["worktree", "list"]);
+    assert!(
+        listing.contains("wrong-anchor-wt"),
+        "git worktree list 仍列出 host（登记残留可见）: {listing}"
+    );
+
+    // 对照面：传 host 才回收整树且登记注销
+    port.remove_worktree(&main_root, &host)
+        .expect("传 host 应回收成功");
+    assert!(!host.exists(), "传 host → 整树回收");
+    let listing_after = git(&main_root, &["worktree", "list"]);
+    assert!(
+        !listing_after.contains("wrong-anchor-wt"),
+        "传 host → 登记注销: {listing_after}"
+    );
 }

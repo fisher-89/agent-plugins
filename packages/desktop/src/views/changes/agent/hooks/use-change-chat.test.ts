@@ -302,6 +302,27 @@ describe('useChangeChat：归属与执行根注入', () => {
 
     expect(callsOf('agent_start'), '归档只读零发起').toHaveLength(0);
   });
+
+  it('入参 worktree 已是解析后的执行根（host/rel）→ 空态首发 cwd 逐字为该值（值语义改口径、形态不变）', async () => {
+    const execRoot = 'C:\\demo\\alpha\\.worktrees\\repo\\add-feature\\packages\\desktop';
+    const { result } = await mounted({ worktree: execRoot });
+    expect(result.current.cwd).toBe(execRoot);
+
+    sendInput(result.current.send);
+    await act(async () => {});
+
+    expect(argsOf('agent_start')['cwd']).toBe(execRoot);
+  });
+
+  it('worktree 为空串 → cwd 逐字透传空串（hook 零归一，归一职责在上游）', async () => {
+    const { result } = await mounted({ worktree: '' });
+    expect(result.current.cwd).toBe('');
+
+    sendInput(result.current.send);
+    await act(async () => {});
+
+    expect(argsOf('agent_start')['cwd']).toBe('');
+  });
 });
 
 // ---------------------------------------------------------------------------

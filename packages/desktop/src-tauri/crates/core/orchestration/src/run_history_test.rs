@@ -38,6 +38,7 @@ fn request() -> RunRequest {
     RunRequest {
         root: "/ws/root".to_owned(),
         main_root: "/ws/root".to_owned(),
+        worktree: None,
         change_id: CHANGE_ID.to_owned(),
         run_id: RUN_ID.to_owned(),
         auto_next_phase: true,
@@ -680,6 +681,7 @@ impl TestDb {
                 archived_at: None,
                 active_phase: None,
                 worktree: None,
+                exec_root: None,
                 base_commit: None,
             })
             .expect("建档种子应成功");

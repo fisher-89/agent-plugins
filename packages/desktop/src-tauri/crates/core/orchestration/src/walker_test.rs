@@ -11,11 +11,12 @@ use crate::control::{emit_node, ChangeFlowControl, RunGuard, StepSettle};
 use crate::notify::{NotifyContext, RunNotifier};
 use crate::port::{
     ArchiCheckMode, ArchiCheckOutcome, ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture,
-    BoxTurnFuture, MutationCounts, MutationSkipReason, MutationTestConclusion, MutationTestOutcome,
-    OutputRefSink, RebaseOutcome, RunFault, RunHistoryPort, StaticCheckOutcome, StaticCheckRunner,
-    TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolCommand,
-    ToolStepOutput, ToolStepPort, ToolStepRequest, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
-    WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
+    BoxTurnFuture, IndexEntry, MutationCounts, MutationSkipReason, MutationTestConclusion,
+    MutationTestOutcome, OutputRefSink, RebaseOutcome, RunFault, RunHistoryPort,
+    StaticCheckOutcome, StaticCheckRunner, TestExecutionConclusion, TestExecutionOutcome,
+    TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest,
+    WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
+    WorktreeSnapshot,
 };
 use crate::snapshot::StoreSnapshot;
 use crate::state::{
@@ -136,6 +137,7 @@ fn seed_change(store: &Store, id: &str, name: &str) {
             archived_at: None,
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         })
         .expect("建档种子应成功");
@@ -156,6 +158,7 @@ fn seed_change_with_worktree(store: &Store, worktree: &std::path::Path) {
             archived_at: None,
             active_phase: None,
             worktree: Some(worktree.to_string_lossy().into_owned()),
+            exec_root: None,
             base_commit: None,
         })
         .expect("建档种子应成功");
@@ -988,6 +991,7 @@ impl ToolStepPort for FakeTools {
                         missing_artifacts: Vec::new(),
                         delta_specs: Vec::new(),
                         worktree: None,
+                        exec_root: None,
                         branch: None,
                         merge_target: None,
                     });
@@ -1192,6 +1196,18 @@ struct FakeVcs {
     /// restore_baseline 载荷捕获（worktree 与 exclusions——D6 排除面组装断言
     /// 观察面，check-before-flow-start）
     restore_calls: Mutex<Vec<(PathBuf, Vec<String>)>>,
+    /// rebase_branch 路径实参捕获（git 步锚点断言：重放锚恒 host）
+    rebase_calls: Mutex<Vec<PathBuf>>,
+    /// ff_merge 主仓锚实参捕获（git 步锚点断言：快进锚恒 main_root）
+    ff_merge_calls: Mutex<Vec<PathBuf>>,
+    /// worktree_snapshot 锚实参捕获（半程探测 / 后验快照锚点断言：恒 host）
+    snapshot_calls: Mutex<Vec<PathBuf>>,
+    /// 各次快照的 index 路径（真件委派形态下 = 该锚 `ls-files -s` 的实测条目）
+    snapshot_index: Mutex<Vec<Vec<String>>>,
+    /// git 真件委派开关：`restore_baseline` / `worktree_snapshot` 转发真实 git
+    /// 子进程——行为锚用例的注入位（锚点选择因此在文件系统上可观察：假件的
+    /// 纯记录形态下，误传执行根与传 host 的磁盘差异不显形）。默认关。
+    real_git: Mutex<bool>,
 }
 
 impl FakeVcs {
@@ -1220,6 +1236,11 @@ impl FakeVcs {
             remove_removes_dir: Mutex::new(false),
             restore_result: Mutex::new(Ok("已重置 0 个路径、清除 0 个未跟踪文件".to_owned())),
             restore_calls: Mutex::new(Vec::new()),
+            rebase_calls: Mutex::new(Vec::new()),
+            ff_merge_calls: Mutex::new(Vec::new()),
+            snapshot_calls: Mutex::new(Vec::new()),
+            snapshot_index: Mutex::new(Vec::new()),
+            real_git: Mutex::new(false),
         }
     }
 
@@ -1298,6 +1319,50 @@ impl FakeVcs {
             .clone()
     }
 
+    /// 真件委派形态（行为锚用例专用）：`restore_baseline` / `worktree_snapshot`
+    /// 转发真实 git 子进程，其余面沿默认假件形态。
+    fn with_real_git(self) -> Self {
+        *self.real_git.lock().expect("vcs 真件开关锁不可中毒") = true;
+        self
+    }
+
+    /// rebase_branch 路径实参快照（git 步锚点断言入口）。
+    fn rebase_calls(&self) -> Vec<PathBuf> {
+        self.rebase_calls
+            .lock()
+            .expect("vcs 重放调用锁不可中毒")
+            .clone()
+    }
+
+    /// ff_merge 主仓锚实参快照（git 步锚点断言入口）。
+    fn ff_merge_calls(&self) -> Vec<PathBuf> {
+        self.ff_merge_calls
+            .lock()
+            .expect("vcs 快进调用锁不可中毒")
+            .clone()
+    }
+
+    /// worktree_snapshot 锚实参快照（半程探测 / 后验快照锚点断言入口）。
+    fn snapshot_calls(&self) -> Vec<PathBuf> {
+        self.snapshot_calls
+            .lock()
+            .expect("vcs 快照调用锁不可中毒")
+            .clone()
+    }
+
+    /// 各次快照的 index 路径快照（真件委派形态下 = 该锚实测 `ls-files -s`）。
+    fn snapshot_index(&self) -> Vec<Vec<String>> {
+        self.snapshot_index
+            .lock()
+            .expect("vcs 快照 index 锁不可中毒")
+            .clone()
+    }
+
+    /// 真件开关读数（委派判定单点）。
+    fn real_git(&self) -> bool {
+        *self.real_git.lock().expect("vcs 真件开关锁不可中毒")
+    }
+
     /// 解冲突后验用：B 快照 HEAD 与 rebase 半程标记可编程（后验四判据的注入面）。
     fn with_snapshot_head(self, head: &str, rebase_head: Option<&str>) -> Self {
         *self.snapshot_head.lock().expect("vcs 快照头锁不可中毒") = Some(head.to_owned());
@@ -1361,6 +1426,53 @@ fn snapshot_of(head: &str, rebase_head: Option<&str>) -> WorktreeSnapshot {
     }
 }
 
+/// 真件 git 子命令（行为锚夹具：建仓 / 起 worktree / 假件委派；非零退出即
+/// `Err`——文案携命令串与 stderr，便于夹具失败时定位）。
+fn real_git(cwd: &std::path::Path, args: &[&str]) -> Result<String, String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(args)
+        .output()
+        .map_err(|error| format!("git 不可用（PATH 未发现 git）: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git {} 失败（退出码 {}）: {}",
+            args.join(" "),
+            output.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// 真件快照（`git::worktree_snapshot` 的等价读面：HEAD + `ls-files -s -z` 条目；
+/// 夹具内无 rebase 半程、工作区状态不参与断言面，故 status 留空）。
+fn real_snapshot(root: &std::path::Path) -> Result<WorktreeSnapshot, String> {
+    let head = real_git(root, &["rev-parse", "HEAD"])?.trim().to_owned();
+    let raw = real_git(root, &["ls-files", "-s", "-z"])?;
+    let index: Vec<IndexEntry> = raw
+        .split('\0')
+        .filter(|segment| !segment.is_empty())
+        .filter_map(|segment| {
+            let (meta, path) = segment.split_once('\t')?;
+            let mut fields = meta.split(' ');
+            Some(IndexEntry {
+                mode: fields.next()?.to_owned(),
+                hash: fields.next()?.to_owned(),
+                stage: fields.next()?.parse().ok()?,
+                path: path.to_owned(),
+            })
+        })
+        .collect();
+    Ok(WorktreeSnapshot {
+        head,
+        rebase_head: None,
+        status: Vec::new(),
+        index,
+    })
+}
+
 impl ArchiveVcsPort for FakeVcs {
     fn dirty(&self, _root: &std::path::Path, paths: &[&str]) -> bool {
         self.record(format!("dirty:{}", paths.len()));
@@ -1386,23 +1498,49 @@ impl ArchiveVcsPort for FakeVcs {
 
     fn rebase_branch(
         &self,
-        _worktree: &std::path::Path,
+        worktree: &std::path::Path,
         onto: &str,
     ) -> Result<RebaseOutcome, String> {
-        self.record(format!("rebase_branch:{onto}"));
+        self.record(format!("rebase_branch:{}:{onto}", worktree.display()));
+        self.rebase_calls
+            .lock()
+            .expect("vcs 重放调用锁不可中毒")
+            .push(worktree.to_owned());
         self.rebase.lock().expect("vcs 重放锁不可中毒").clone()
     }
 
-    fn ff_merge(&self, _main_root: &std::path::Path, branch: &str) -> Result<(), String> {
-        self.record(format!("ff_merge:{branch}"));
+    fn ff_merge(&self, main_root: &std::path::Path, branch: &str) -> Result<(), String> {
+        self.record(format!("ff_merge:{}:{branch}", main_root.display()));
+        self.ff_merge_calls
+            .lock()
+            .expect("vcs 快进调用锁不可中毒")
+            .push(main_root.to_owned());
         self.ff_merge_result
             .lock()
             .expect("vcs 快进锁不可中毒")
             .clone()
     }
 
-    fn worktree_snapshot(&self, _root: &std::path::Path) -> Result<WorktreeSnapshot, String> {
-        self.record("worktree_snapshot".to_owned());
+    fn worktree_snapshot(&self, root: &std::path::Path) -> Result<WorktreeSnapshot, String> {
+        self.record(format!("worktree_snapshot:{}", root.display()));
+        self.snapshot_calls
+            .lock()
+            .expect("vcs 快照调用锁不可中毒")
+            .push(root.to_owned());
+        if self.real_git() {
+            let snapshot = real_snapshot(root)?;
+            self.snapshot_index
+                .lock()
+                .expect("vcs 快照 index 锁不可中毒")
+                .push(
+                    snapshot
+                        .index
+                        .iter()
+                        .map(|entry| entry.path.clone())
+                        .collect(),
+                );
+            return Ok(snapshot);
+        }
         // 探测分相（archi 章节）：前置次数内返回干净态（Preflight 半程探测的
         // 放行形态），其后走配置形态（解冲突后验的 rebase 半程形态）
         let mut clean_probes = self
@@ -1516,6 +1654,21 @@ impl ArchiveVcsPort for FakeVcs {
                 worktree.to_owned(),
                 exclusions.iter().map(|s| (*s).to_owned()).collect(),
             ));
+        if self.real_git() {
+            // 真件委派：命令体沿 `git::restore_baseline`（reset 全域 + clean 逐项
+            // 排除）——锚点选择因此在磁盘上可观察（锚执行根则 clean 缩域）
+            real_git(worktree, &["reset", "--hard"])?;
+            let mut clean_args: Vec<&str> = vec!["clean", "-fd"];
+            for pattern in exclusions {
+                clean_args.push("-e");
+                clean_args.push(pattern);
+            }
+            real_git(worktree, &clean_args)?;
+            return Ok(format!(
+                "已恢复基线（reset --hard + clean -fd，排除面 {} 项）",
+                exclusions.len()
+            ));
+        }
         self.restore_result
             .lock()
             .expect("vcs 恢复锁不可中毒")
@@ -1641,6 +1794,8 @@ fn spawn_run(
     let request = RunRequest {
         root: root.to_owned(),
         main_root: root.to_owned(),
+        // 夹具里 root 即 worktree（旧 `root == main_root` 判据的等价形态）
+        worktree: None,
         change_id: CHANGE_ID.to_owned(),
         run_id: "run-1".to_owned(),
         auto_next_phase,
@@ -1684,6 +1839,8 @@ fn spawn_run_notified(
     let request = RunRequest {
         root: root.to_owned(),
         main_root: root.to_owned(),
+        // 夹具里 root 即 worktree（旧 `root == main_root` 判据的等价形态）
+        worktree: None,
         change_id: CHANGE_ID.to_owned(),
         run_id: "run-1".to_owned(),
         auto_next_phase,
@@ -1730,6 +1887,9 @@ fn spawn_run_with_vcs(
     let request = RunRequest {
         root: root.to_owned(),
         main_root: main_root.to_owned(),
+        // legacy 判据显式化：root 与 main_root 不等即旧「非 legacy」形态，
+        // host 取 root（旧实参逐字保持，断言意图零改）
+        worktree: (root != main_root).then(|| root.to_owned()),
         change_id: CHANGE_ID.to_owned(),
         run_id: "run-1".to_owned(),
         auto_next_phase,
@@ -1777,6 +1937,8 @@ fn spawn_real_run(
     let request = RunRequest {
         root: root.to_owned(),
         main_root: root.to_owned(),
+        // 夹具里 root 即 worktree（旧 `root == main_root` 判据的等价形态）
+        worktree: None,
         change_id: CHANGE_ID.to_owned(),
         run_id: run_id.to_owned(),
         auto_next_phase: false,
@@ -1825,6 +1987,8 @@ fn spawn_real_run_archive(
     let request = RunRequest {
         root: root.to_owned(),
         main_root: root.to_owned(),
+        // 夹具里 root 即 worktree（旧 `root == main_root` 判据的等价形态）
+        worktree: None,
         change_id: CHANGE_ID.to_owned(),
         run_id: run_id.to_owned(),
         auto_next_phase: true,
@@ -1953,6 +2117,7 @@ fn archive_preflight_with_worktree(worktree: &str, delta_specs: Vec<String>) -> 
         missing_artifacts: Vec::new(),
         delta_specs,
         worktree: Some(worktree.to_owned()),
+        exec_root: None,
         branch: Some(format!("change/{NAME}")),
         merge_target: Some("main".to_owned()),
     }
@@ -5333,6 +5498,7 @@ impl WorkflowSnapshotPort for MinimalSnapshot {
             runs: Vec::new(),
             artifacts: Vec::new(),
             worktree: None,
+            exec_root: None,
         })
     }
 }
@@ -5815,6 +5981,7 @@ impl WorkflowSnapshotPort for RootCaptureSnapshot {
             runs: Vec::new(),
             artifacts: Vec::new(),
             worktree: None,
+            exec_root: None,
         })
     }
 }
@@ -6502,6 +6669,7 @@ async fn run_started_err_fail_fast_零相位执行() {
     let request = RunRequest {
         root: "/tmp/root".to_owned(),
         main_root: "/tmp/root".to_owned(),
+        worktree: None,
         change_id: CHANGE_ID.to_owned(),
         run_id: "run-1".to_owned(),
         auto_next_phase: false,
@@ -6556,6 +6724,7 @@ async fn run_finished_err_best_effort_静默收口() {
     let request = RunRequest {
         root: "/tmp/root".to_owned(),
         main_root: "/tmp/root".to_owned(),
+        worktree: None,
         change_id: CHANGE_ID.to_owned(),
         run_id: "run-1".to_owned(),
         auto_next_phase: false,
@@ -13612,6 +13781,7 @@ async fn 归档preflight无worktree不探测即放行() {
         missing_artifacts: Vec::new(),
         delta_specs: Vec::new(),
         worktree: None,
+        exec_root: None,
         branch: None,
         merge_target: None,
     };
@@ -15266,8 +15436,9 @@ async fn 脚本步上抛_补发拍与终态拍合并为一节点() {
 /// 查看 stdout）。
 ///
 /// - 反馈边两形态：非 initialize 相位（`implement` / `test-execution`）整 run 驱动；
-/// - Terminal 边两形态：`initialize` 表头在 `root != main_root` 时**不**走 legacy
-///   短路（`walker.rs` 的短路判据是 `root == main_root`），故以异 root 驱动。
+/// - Terminal 边两形态：`initialize` 表头在 `worktree` 在场时**不**走 legacy
+///   短路（`walker.rs` 的短路判据是 `request.worktree.is_none()`），故以异 root
+///   且 `worktree = Some(…)` 驱动。
 #[tokio::test]
 async fn 四脚本步均组装上抛回调() {
     // 反馈边：static-check（实现站）
@@ -16028,6 +16199,7 @@ impl ToolStepPort for ScriptedTools {
                     missing_artifacts: Vec::new(),
                     delta_specs: Vec::new(),
                     worktree: None,
+                    exec_root: None,
                     branch: None,
                     merge_target: None,
                 };
@@ -17763,6 +17935,7 @@ async fn 开相attempt口径含stale且与pipeline条数可辨() {
     let request = RunRequest {
         root: root.root_str(),
         main_root: root.root_str(),
+        worktree: None,
         change_id: CHANGE_ID.to_owned(),
         run_id: "run-attempt".to_owned(),
         auto_next_phase: false,
@@ -17816,6 +17989,7 @@ async fn 开相重入幂等_两次同attempt且行数不变() {
     let request = RunRequest {
         root: "/tmp/root".to_owned(),
         main_root: "/tmp/root".to_owned(),
+        worktree: None,
         change_id: CHANGE_ID.to_owned(),
         run_id: "run-enter".to_owned(),
         auto_next_phase: false,
@@ -17907,6 +18081,7 @@ async fn 开相相位串边界五形态经写面err() {
     let request = RunRequest {
         root: "/tmp/root".to_owned(),
         main_root: "/tmp/root".to_owned(),
+        worktree: None,
         change_id: CHANGE_ID.to_owned(),
         run_id: "run-boundary".to_owned(),
         auto_next_phase: false,
@@ -18012,6 +18187,7 @@ fn settle_probe_fixture(tag: &str) -> (TestDb, Arc<dyn ToolStepPort>, RunRequest
     let request = RunRequest {
         root: "/tmp/root".to_owned(),
         main_root: "/tmp/root".to_owned(),
+        worktree: None,
         change_id: CHANGE_ID.to_owned(),
         run_id: format!("run-{tag}"),
         auto_next_phase: false,
@@ -19151,6 +19327,7 @@ fn probe_request(tag: &str) -> RunRequest {
     RunRequest {
         root: "/probe".to_owned(),
         main_root: "/probe".to_owned(),
+        worktree: None,
         change_id: CHANGE_ID.to_owned(),
         run_id: format!("run-{tag}"),
         auto_next_phase: false,
@@ -22728,6 +22905,7 @@ async fn walk_run起点失败仍投递终态且零相位执行() {
     let request = RunRequest {
         root: "/tmp/root".to_owned(),
         main_root: "/tmp/root".to_owned(),
+        worktree: None,
         change_id: CHANGE_ID.to_owned(),
         run_id: "run-1".to_owned(),
         auto_next_phase: false,
@@ -22902,5 +23080,596 @@ async fn walk_run旁路降级时终态与落包面零变化() {
     assert!(
         notifier.deliveries().is_empty() && notifier.retires().is_empty(),
         "降级形态零可观测投递（失败只在替身内部）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// worktree 三 root 分离（`RunRequest.worktree` = host：git 步与回收的唯一锚）：
+// Clean 实参单点、legacy 判据显式化（AC-8）、归档 git 步锚点（AC-4 / AC-7）
+// ---------------------------------------------------------------------------
+
+/// run 驱动（三 root 显式注入：主仓 / 执行根 / host 各由入参给定）——git 步
+/// 锚点与 legacy 判据分离的观察面（`worktree` 直给，不从 `root` 反推）。
+#[allow(clippy::too_many_arguments)]
+fn spawn_run_with_roots(
+    worker: Arc<dyn WorkerAgentPort>,
+    tools: Arc<dyn ToolStepPort>,
+    vcs: Arc<FakeVcs>,
+    snapshot: Arc<dyn WorkflowSnapshotPort>,
+    control: &Arc<ChangeFlowControl>,
+    auto_next_phase: bool,
+    root: &str,
+    main_root: &str,
+    worktree: Option<&str>,
+    stop_before: Option<&str>,
+) -> (
+    tokio::task::JoinHandle<ChangeRunStatus>,
+    tokio::sync::broadcast::Receiver<RunNotice>,
+    Arc<RecordingHistory>,
+) {
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("登记 run 应成功");
+    let rx = control.subscribe(ROOT, CHANGE_ID).expect("run 订阅应成功");
+    let request = RunRequest {
+        root: root.to_owned(),
+        main_root: main_root.to_owned(),
+        worktree: worktree.map(str::to_owned),
+        change_id: CHANGE_ID.to_owned(),
+        run_id: "run-1".to_owned(),
+        auto_next_phase,
+        stop_before: stop_before.map(str::to_owned),
+        started_at: STARTED_AT,
+    };
+    let history = RecordingHistory::new();
+    let task = tokio::spawn(walk_run(
+        worker,
+        tools,
+        vcs as Arc<dyn ArchiveVcsPort>,
+        snapshot,
+        history.clone() as Arc<dyn RunHistoryPort>,
+        Arc::clone(control),
+        guard,
+        request,
+        None,
+    ));
+    (task, rx, history)
+}
+
+/// initialize 全绿链最小驱动（三 root 入参直给 + FakeVcs 注入）。
+async fn run_initialize_chain(
+    root: &str,
+    main_root: &str,
+    worktree: Option<&str>,
+    vcs: Arc<FakeVcs>,
+) -> (ChangeRunStatus, Arc<RecordingHistory>, Arc<FakeVcs>) {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("initialize", &[]), done_outcome()])
+        .with_static_check(vec![baseline_check(true)])
+        .with_archi_check(vec![baseline_archi(
+            true,
+            "mode=full status=clean scannedFiles=0 errors=0 warnings=0",
+        )])
+        .with_test_execution(vec![baseline_execution(TestExecutionConclusion::Pass)])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+
+    let (task, _rx, history) = spawn_run_with_roots(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        snapshot,
+        &control,
+        false,
+        root,
+        main_root,
+        worktree,
+        None,
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    (status, history, vcs)
+}
+
+/// `step_clean()`（正向）：`request.worktree = Some(host)`、`request.root` =
+/// host/rel → `restore_baseline` 实参 = host（假件捕获面断言，MUST NOT 为执行
+/// 根）。
+#[tokio::test]
+async fn step_clean_restore实参恒host非执行根() {
+    let root = TempRoot::new("clean-host-anchor");
+    root.change(NAME);
+    let host = root.root_str() + "/.worktrees/repo/" + NAME;
+    let exec_root = format!("{host}/packages/desktop");
+
+    let (status, history, vcs) = run_initialize_chain(
+        &exec_root,
+        &root.root_str(),
+        Some(&host),
+        Arc::new(FakeVcs::clean()),
+    )
+    .await;
+
+    assert_eq!(status, ChangeRunStatus::Completed, "initialize 全绿收敛");
+    let restores = vcs.restore_calls();
+    assert_eq!(restores.len(), 1, "restore_baseline 恰一次");
+    assert_eq!(
+        restores[0].0,
+        PathBuf::from(&host),
+        "实参 = host（MUST NOT 为执行根）"
+    );
+    assert_ne!(restores[0].0, PathBuf::from(&exec_root), "实参非执行根");
+    let finish = history.finish().expect("收口落包捕获");
+    assert!(
+        finish
+            .nodes
+            .iter()
+            .any(|node| node.step.as_str() == "clean" && node.status == RunStepStatus::Passed),
+        "clean 节点 passed"
+    );
+}
+
+/// `step_clean()`（异常）：`restore_baseline` 返 `Err` → 节点 `failed` 且 Err
+/// 串原样透出到节点 detail，run 收敛 failed。
+#[tokio::test]
+async fn step_clean_restore失败_节点failed且err原样() {
+    let root = TempRoot::new("clean-host-err");
+    root.change(NAME);
+    let host = root.root_str() + "/.worktrees/repo/" + NAME;
+    let exec_root = format!("{host}/packages/desktop");
+    let vcs = Arc::new(
+        FakeVcs::clean()
+            .with_restore_result(Err("git -C host reset 失败（退出码 128）".to_owned())),
+    );
+
+    let (status, history, vcs) =
+        run_initialize_chain(&exec_root, &root.root_str(), Some(&host), vcs).await;
+
+    assert_eq!(status, ChangeRunStatus::Failed, "restore Err → failed");
+    assert_eq!(
+        vcs.restore_calls()[0].0,
+        PathBuf::from(&host),
+        "失败面实参仍为 host"
+    );
+    let finish = history.finish().expect("收口落包捕获");
+    let clean = finish
+        .nodes
+        .iter()
+        .find(|node| node.step.as_str() == "clean")
+        .expect("clean 节点应在案");
+    assert_eq!(clean.status, RunStepStatus::Failed, "clean 节点 failed");
+    assert!(
+        clean
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("git -C host reset 失败")),
+        "失败文案含「基线恢复失败」语境（Err 串原样透出）: {clean:?}"
+    );
+}
+
+/// legacy 判据显式化（边界）：`worktree = None` → initialize 整相位短路（零节
+/// 点、零 vcs 调用、零检查 spawn），即使 `root != main_root`（`root` 与
+/// `main_root` 的相等性不再是 legacy 代理）。
+#[tokio::test]
+async fn legacy判据_worktree缺省即短路_即使root与main_root不等() {
+    let root = TempRoot::new("legacy-explicit-none");
+    root.change(NAME);
+    let exec_root = worktree_dir(&root);
+
+    let (status, history, vcs) = run_initialize_chain(
+        &exec_root,
+        &root.root_str(),
+        None,
+        Arc::new(FakeVcs::clean()),
+    )
+    .await;
+
+    assert_eq!(status, ChangeRunStatus::Completed, "短路后 done 收敛");
+    let finish = history.finish().expect("收口落包捕获");
+    assert!(
+        finish.nodes.is_empty(),
+        "legacy 短路零节点: {:?}",
+        node_rows(&finish)
+    );
+    assert!(
+        vcs.calls().is_empty(),
+        "零 vcs 调用（主仓零重置）: {:?}",
+        vcs.calls()
+    );
+}
+
+/// legacy 判据显式化（异常）：`root == main_root` 但 `worktree = Some(..)` →
+/// 不短路（判据只看 `worktree.is_none()`；路径相等性不再是代理）。
+#[tokio::test]
+async fn legacy判据_worktree在场即不短路_即使root与main_root相等() {
+    let root = TempRoot::new("legacy-explicit-some");
+    root.change(NAME);
+    let host = root.root_str();
+    let vcs = Arc::new(FakeVcs::clean());
+
+    let (status, history, vcs) = run_initialize_chain(
+        &root.root_str(),
+        &root.root_str(),
+        Some(&host),
+        Arc::clone(&vcs),
+    )
+    .await;
+
+    assert_eq!(status, ChangeRunStatus::Completed, "不短路 → 全绿收敛");
+    let finish = history.finish().expect("收口落包捕获");
+    assert!(
+        !finish.nodes.is_empty(),
+        "worktree 在场 → 相位照常执行（零短路）"
+    );
+    assert_eq!(vcs.restore_calls().len(), 1, "Clean 步照常恢复基线");
+    assert_eq!(
+        vcs.restore_calls()[0].0,
+        PathBuf::from(&host),
+        "实参 = worktree（此夹具与 root 同值）"
+    );
+}
+
+/// `RunRequest.worktree`（边界）：`Some("")`（空串形态）→ 仍视作「worktree 在
+/// 场」（`is_none()` 只看 Option），下游失败显式可辨、不静默按 legacy 跳过。
+#[tokio::test]
+async fn run_request_worktree空串仍视作在场() {
+    let root = TempRoot::new("worktree-empty-string");
+    root.change(NAME);
+    let exec_root = worktree_dir(&root);
+    let vcs = Arc::new(FakeVcs::clean());
+
+    let (status, history, vcs) =
+        run_initialize_chain(&exec_root, &root.root_str(), Some(""), Arc::clone(&vcs)).await;
+
+    assert_eq!(status, ChangeRunStatus::Completed, "空串不触发 legacy 短路");
+    let finish = history.finish().expect("收口落包捕获");
+    assert!(
+        !finish.nodes.is_empty(),
+        "空串仍按「worktree 在场」执行相位: {:?}",
+        node_rows(&finish)
+    );
+    assert_eq!(
+        vcs.restore_calls()[0].0,
+        PathBuf::from(""),
+        "空串逐字透传为 restore 实参（零归一）"
+    );
+}
+
+/// 归档 git 步锚点（正向）：三 root 分离夹具下全链归档——`commit_all` /
+/// `rebase_branch` / `ff_merge` / `remove_worktree` / 半程 `worktree_snapshot`
+/// 五步收到的路径实参逐项断言（host / 主仓锚，执行根零触达）。
+#[tokio::test]
+async fn 归档git步五锚点_实参均锚host与主仓非执行根() {
+    let root = TempRoot::new("archive-host-anchor");
+    root.change(NAME);
+    let host = root.root_str() + "/.worktrees/repo/" + NAME;
+    std::fs::create_dir_all(&host).expect("建 host 目录失败");
+    let exec_root = worktree_dir(&root);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&host, Vec::new()))
+        .assemble();
+    let vcs = Arc::new(FakeVcs::clean().with_dirty(true));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+
+    let (task, _rx, _history) = spawn_run_with_roots(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        snapshot,
+        &control,
+        true,
+        &exec_root,
+        &root.root_str(),
+        Some(&host),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    assert_eq!(
+        task.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Completed
+    );
+
+    assert_eq!(
+        vcs.call_count(&format!("commit_all:{host}:")),
+        1,
+        "commit_all 实参 = host: {:?}",
+        vcs.calls()
+    );
+    let removes = vcs.remove_calls();
+    assert_eq!(removes.len(), 1, "Cleanup 回收恰一次: {removes:?}");
+    assert_eq!(
+        removes[0].1,
+        PathBuf::from(&host),
+        "remove_worktree 实参 = host（MUST NOT 为执行根）"
+    );
+    assert_eq!(
+        removes[0].0,
+        PathBuf::from(root.root_str()),
+        "回收的主仓锚 = main_root"
+    );
+
+    // 重放锚：`rebase_branch` 收到 host（分支在 worktree 内重放）
+    let rebase_anchors = vcs.rebase_calls();
+    assert_eq!(rebase_anchors.len(), 1, "Rebase 步路径实参恰一次");
+    assert_eq!(
+        rebase_anchors[0],
+        PathBuf::from(&host),
+        "rebase_branch 锚 = host（MUST NOT 为执行根）"
+    );
+
+    // 快进锚：`ff_merge` 收到主仓根（主仓 merge --ff-only），非执行根
+    let merge_anchors = vcs.ff_merge_calls();
+    assert_eq!(merge_anchors.len(), 1, "Merge 步主仓锚恰一次");
+    assert_eq!(
+        merge_anchors[0],
+        PathBuf::from(root.root_str()),
+        "ff_merge 主仓锚 = main_root"
+    );
+    assert_ne!(
+        merge_anchors[0],
+        PathBuf::from(&exec_root),
+        "快进锚非执行根"
+    );
+
+    // 半程探测 / 后验快照锚：`worktree_snapshot` 收到 host（ls-files 不缩域）
+    let snapshot_anchors = vcs.snapshot_calls();
+    assert!(!snapshot_anchors.is_empty(), "半程探测至少一次");
+    let host_path = PathBuf::from(&host);
+    assert!(
+        snapshot_anchors.iter().all(|anchor| anchor == &host_path),
+        "worktree_snapshot 锚恒 host: {snapshot_anchors:?}"
+    );
+
+    // 五步实参一律不出自执行根（三 root 分离的红线）
+    let exec_root_path = PathBuf::from(&exec_root);
+    assert!(
+        !vcs.rebase_calls()
+            .iter()
+            .chain(vcs.ff_merge_calls().iter())
+            .chain(vcs.snapshot_calls().iter())
+            .chain(vcs.remove_calls().iter().map(|pair| &pair.1))
+            .any(|anchor| anchor == &exec_root_path),
+        "git 步实参零出自执行根: {:?}",
+        vcs.calls()
+    );
+}
+
+/// 源码级自证（异常）：`walker.rs` 代码行内零 `root == request.main_root` 形态的
+/// legacy 代理（两处判据均为 `worktree.is_none()`）；`restore_baseline(` 实参只
+/// 来自 `request.worktree`、`remove_worktree(` 实参只来自归档上下文 host。
+#[test]
+fn walker源码自证_legacy代理零残留且锚点单点() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("walker.rs");
+    let source = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("读取 {} 失败: {error}", path.display()));
+    let code: Vec<&str> = source
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with("//"))
+        .collect();
+
+    assert!(
+        !code
+            .iter()
+            .any(|line| line.contains("root == request.main_root")
+                || line.contains("root == ctx.request.main_root")),
+        "legacy 代理零残留（判据只看 worktree.is_none()）"
+    );
+    assert_eq!(
+        code.iter()
+            .filter(|line| line.contains("if phase == INITIALIZE_PHASE_ID"))
+            .count(),
+        1,
+        "initialize 短路处单点"
+    );
+    assert!(
+        code.iter()
+            .any(|line| line
+                .contains("if phase == INITIALIZE_PHASE_ID && request.worktree.is_none()")),
+        "initialize 短路判据显式读 worktree.is_none()"
+    );
+    assert!(
+        code.iter()
+            .any(|line| line.contains("let Some(worktree) = ctx.request.worktree.as_deref()")),
+        "Clean 双保险判据同读 worktree（as_deref）"
+    );
+    assert!(
+        code.iter()
+            .any(|line| line.contains(".restore_baseline(Path::new(worktree), &exclusion_refs)")),
+        "restore_baseline 实参只来自 request.worktree"
+    );
+    assert!(
+        !code
+            .iter()
+            .any(|line| line.contains("restore_baseline(Path::new(&ctx.request.root)")),
+        "restore_baseline 无执行根出处"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 真件行为锚（文件系统不 mock：tempfile 真实 host / 执行根双目录夹具）：Clean
+// 步 `restore_baseline` 与归档半程 `worktree_snapshot` 的锚点选择必须在磁盘上
+// 显形——假件纯记录形态只能钉「传了什么」，此处钉「传对了会怎样」。
+// ---------------------------------------------------------------------------
+
+/// 真件 git 夹具（主仓 + 链接 worktree 的整树检出）：主仓提交 `a.txt`（域外
+/// tracked）与 `packages/desktop/inside.txt`（`rel` 子树 tracked）后
+/// `worktree add` 出 host（整树检出 = worktree 锚的真实形态）。
+fn git_main_with_host(main_root: &std::path::Path, host: &std::path::Path, branch: &str) {
+    std::fs::create_dir_all(main_root).expect("建主仓目录失败");
+    real_git(main_root, &["init", "-q"]).expect("git init 失败");
+    // 检出逐字还原（自动换行转换会让 tracked 文件的「恢复前后」比较失真）
+    real_git(main_root, &["config", "core.autocrlf", "false"]).expect("置 autocrlf 失败");
+    std::fs::write(main_root.join("a.txt"), "initial\n").expect("写域外 tracked 文件失败");
+    let rel_dir = main_root.join("packages").join("desktop");
+    std::fs::create_dir_all(&rel_dir).expect("建 rel 子树目录失败");
+    std::fs::write(rel_dir.join("inside.txt"), "inside\n").expect("写 rel 子树 tracked 文件失败");
+    real_git(main_root, &["add", "-A"]).expect("git add 失败");
+    real_git(
+        main_root,
+        &[
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "init",
+        ],
+    )
+    .expect("git commit 失败");
+    if let Some(parent) = host.parent() {
+        std::fs::create_dir_all(parent).expect("建 worktree 父目录失败");
+    }
+    real_git(
+        main_root,
+        &["worktree", "add", &host.to_string_lossy(), "-b", branch],
+    )
+    .unwrap_or_else(|error| panic!("git worktree add 失败: {error}"));
+}
+
+/// `step_clean()`（正向，行为锚）：子目录 workspace 夹具（host 整树 + `rel`
+/// 子树）→ 传 host 的 `reset --hard` 覆盖整棵 worktree：域外 tracked 改动与
+/// `rel` 子树内 tracked 改动**同时**被恢复。
+#[tokio::test]
+async fn stepclean真件_域外tracked改动被host全树恢复() {
+    let root = TempRoot::new("clean-real-tracked");
+    let main_root = root.0.join("main");
+    let host = root.0.join("wt").join(NAME);
+    git_main_with_host(&main_root, &host, &format!("change/{NAME}"));
+    let exec_root = host.join("packages").join("desktop");
+    assert!(exec_root.is_dir(), "执行根随整树检出在场");
+
+    std::fs::write(host.join("a.txt"), "域外 tracked 改动\n").expect("改域外 tracked 文件失败");
+    std::fs::write(exec_root.join("inside.txt"), "域内 tracked 改动\n")
+        .expect("改域内 tracked 文件失败");
+
+    let exec_root_str = exec_root.to_string_lossy().into_owned();
+    let main_root_str = main_root.to_string_lossy().into_owned();
+    let host_str = host.to_string_lossy().into_owned();
+    let vcs = Arc::new(FakeVcs::clean().with_real_git());
+    let (status, _history, vcs) =
+        run_initialize_chain(&exec_root_str, &main_root_str, Some(&host_str), vcs).await;
+
+    assert_eq!(status, ChangeRunStatus::Completed, "initialize 全绿收敛");
+    assert_eq!(vcs.restore_calls()[0].0, host, "restore 锚 = host（整树）");
+    assert_eq!(
+        std::fs::read_to_string(host.join("a.txt")).expect("读回域外文件"),
+        "initial\n",
+        "域外 tracked 改动被 reset --hard 全树恢复"
+    );
+    assert_eq!(
+        std::fs::read_to_string(exec_root.join("inside.txt")).expect("读回域内文件"),
+        "inside\n",
+        "rel 子树内 tracked 改动同样被恢复"
+    );
+}
+
+/// `step_clean()`（正向，行为锚）：同一夹具下域外 untracked 残留与 `rel` 子树
+/// 内 untracked 残留均被清除（`clean -fd` 不缩域——传执行根时域外残留会留存）。
+#[tokio::test]
+async fn stepclean真件_域外untracked残留被clean清除() {
+    let root = TempRoot::new("clean-real-untracked");
+    let main_root = root.0.join("main");
+    let host = root.0.join("wt").join(NAME);
+    git_main_with_host(&main_root, &host, &format!("change/{NAME}"));
+    let exec_root = host.join("packages").join("desktop");
+
+    std::fs::write(host.join("outside-junk.txt"), "域外 untracked 残留\n").expect("写域外残留失败");
+    std::fs::write(exec_root.join("inside-junk.txt"), "域内 untracked 残留\n")
+        .expect("写域内残留失败");
+
+    let exec_root_str = exec_root.to_string_lossy().into_owned();
+    let main_root_str = main_root.to_string_lossy().into_owned();
+    let host_str = host.to_string_lossy().into_owned();
+    let vcs = Arc::new(FakeVcs::clean().with_real_git());
+    let (status, _history, vcs) =
+        run_initialize_chain(&exec_root_str, &main_root_str, Some(&host_str), vcs).await;
+
+    assert_eq!(status, ChangeRunStatus::Completed, "initialize 全绿收敛");
+    assert_eq!(vcs.restore_calls().len(), 1, "restore_baseline 恰一次");
+    assert!(
+        !host.join("outside-junk.txt").exists(),
+        "域外 untracked 残留被 clean -fd 清除（不缩域）"
+    );
+    assert!(
+        !exec_root.join("inside-junk.txt").exists(),
+        "rel 子树内 untracked 残留同样被清（host 全树）"
+    );
+}
+
+/// 归档半程 `worktree_snapshot`（正向，行为锚）：传 host → 实测 index 条目含
+/// 域外条目 `a.txt`（`ls-files -s` 不缩域）；同一夹具从执行根取 `ls-files`
+/// 即缩域（反向对照——锚点不可替换）。
+#[tokio::test]
+async fn 归档半程快照真件_锚host含域外index条目() {
+    let root = TempRoot::new("snapshot-real-host");
+    let main_root = root.0.join("main");
+    let host = root.0.join("wt").join(NAME);
+    git_main_with_host(&main_root, &host, &format!("change/{NAME}"));
+    let exec_root = host.join("packages").join("desktop");
+    assert!(exec_root.is_dir(), "执行根随整树检出在场");
+    let host_str = host.to_string_lossy().into_owned();
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&host_str, Vec::new()))
+        .assemble();
+    let vcs = Arc::new(FakeVcs::clean().with_real_git().with_dirty(true));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+
+    let (task, _rx, _history) = spawn_run_with_roots(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        snapshot,
+        &control,
+        true,
+        &exec_root.to_string_lossy(),
+        &main_root.to_string_lossy(),
+        Some(&host_str),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    assert_eq!(
+        task.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Completed,
+        "半程探测见干净态 → 归档全链收口"
+    );
+
+    let anchors = vcs.snapshot_calls();
+    let host_path = PathBuf::from(&host_str);
+    assert!(!anchors.is_empty(), "半程探测至少一次");
+    assert!(
+        anchors.iter().all(|anchor| anchor == &host_path),
+        "快照锚恒 host（MUST NOT 为执行根）: {anchors:?}"
+    );
+
+    let indexes = vcs.snapshot_index();
+    assert!(
+        indexes[0].iter().any(|path| path == "a.txt"),
+        "host 锚的 ls-files 含域外条目 a.txt: {:?}",
+        indexes[0]
+    );
+    let scoped = real_git(&exec_root, &["ls-files", "-s", "-z"]).expect("执行根 ls-files");
+    assert!(
+        !scoped
+            .split('\0')
+            .filter(|segment| !segment.is_empty())
+            .any(|segment| segment.ends_with("\ta.txt")),
+        "执行根锚缩域：不含域外条目（锚点不可替换的反向对照）"
     );
 }

@@ -205,9 +205,14 @@ pub struct ChangeDetail {
     /// 未建档 / 未跑形态恒空数组）
     pub runs: Vec<ChangeRunEntry>,
     pub artifacts: Vec<ArtifactDescriptor>,
-    /// 本 change 的 worktree 绝对路径（自建档记录直读透出，None → null；
-    /// legacy 记录不渲染——路径为刻意出线的执行锚，review / merge 可达）
+    /// 本 change 的 worktree 绝对路径（**落位目录 / host**：自建档记录直读
+    /// 透出，None → null；legacy 记录不渲染——路径为刻意出线的执行锚，
+    /// review / `git worktree list` 可达）
     pub worktree: Option<String>,
+    /// 执行根绝对路径（自建档记录**原始列**直读透出；`None` = 与 `worktree`
+    /// 同值——根 workspace 与 legacy 记录同形，MUST NOT 在此回落成
+    /// `worktree` 的值，否则前端会渲出两条同值路径）
+    pub exec_root: Option<String>,
 }
 
 /// 聚合单个 change 的详情（按 id 寻址）；错误语义分流（None / Err 不混同）：
@@ -239,8 +244,9 @@ pub fn change_detail(
     let Some(table) = phase_table(&record.workflow_type) else {
         return Ok(None);
     };
-    // 磁盘面 name / worktree 恒自记录供给（id → 记录 → name 分辨率单点）
-    let location = locate_change(layout, record.worktree.as_deref(), record.name.as_str());
+    // 磁盘面 name / 执行根恒自记录供给（id → 记录 → name 分辨率单点）：产物
+    // 写在执行根内，喂落位目录会恒 miss
+    let location = locate_change(layout, record.exec_root(), record.name.as_str());
     let entries = degraded_or_default(
         || "list_phase_records".to_owned(),
         store.list_phase_records(id),
@@ -340,5 +346,6 @@ pub fn change_detail(
         runs,
         artifacts,
         worktree: record.worktree.clone(),
+        exec_root: record.exec_root.clone(),
     }))
 }

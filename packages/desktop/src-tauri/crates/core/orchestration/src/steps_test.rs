@@ -14,6 +14,7 @@
 //! 面持衡。
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use store::Store;
@@ -99,6 +100,7 @@ fn seed_change(store: &Store, id: &str, name: &str, workflow_type: &str) {
             archived_at: None,
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         })
         .expect("建档种子应成功");
@@ -191,6 +193,7 @@ impl FakeStore {
             archived_at: None,
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         })
         .expect("建档种子应成功");
@@ -1708,6 +1711,7 @@ async fn store故障_落账臂err记因上抛不静默() {
         archived_at: None,
         active_phase: None,
         worktree: None,
+        exec_root: None,
         base_commit: None,
     })
     .expect("建档种子应成功");
@@ -1775,6 +1779,7 @@ async fn store故障_审计落行失败不阻断臂业务结果() {
         archived_at: None,
         active_phase: None,
         worktree: None,
+        exec_root: None,
         base_commit: None,
     })
     .expect("建档种子应成功");
@@ -6040,5 +6045,447 @@ fn 审计单点仍被余下七臂消费且摘除面零调用() {
         code.matches("clip_summary(").count(),
         2,
         "定义 + `audit_outcome` 体内单点"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 执行根双列（worktree = host / execRoot = 记录原始列）：归档前置的产物与
+// delta specs 探测锚执行根，git 侧列仍锚 host（AC-6 / D-6）
+// ---------------------------------------------------------------------------
+
+/// 子目录 workspace 夹具：主 workspace root（layout 锚）+ host（落位目录）+
+/// 执行根（host/rel）三段真实目录树 + 记录双列种子；产物与 specs 落在执行根
+/// 内（`exec_root/openspec/changes/<name>`）。
+struct SubdirArchiveEnv {
+    root: tempfile::TempDir,
+    db: TestDb,
+    host: PathBuf,
+    exec_root: PathBuf,
+}
+
+impl SubdirArchiveEnv {
+    fn new(tag: &str, rel: &str) -> Self {
+        let root = tempfile::Builder::new()
+            .prefix(&format!("orchestration-steps-subdir-{tag}-"))
+            .tempdir()
+            .expect("创建 workspace 临时目录失败");
+        let host = root.path().join(".worktrees").join("repo").join(NAME);
+        let exec_root = host.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+        std::fs::create_dir_all(&exec_root).expect("创建执行根目录失败");
+        let db = TestDb::open(tag);
+        db.store
+            .create_change_record(ChangeStateRecord {
+                id: CHANGE_ID.to_owned(),
+                name: NAME.to_owned(),
+                title: NAME.to_owned(),
+                workflow_type: "requirement".to_owned(),
+                created_at: TS_BASE,
+                status: ChangeStatus::Active,
+                archived_at: None,
+                active_phase: None,
+                worktree: Some(host.to_string_lossy().into_owned()),
+                exec_root: Some(exec_root.to_string_lossy().into_owned()),
+                base_commit: None,
+            })
+            .expect("建档种子应成功");
+        Self {
+            root,
+            db,
+            host,
+            exec_root,
+        }
+    }
+
+    /// 执行根内 change 目录（产物 / specs 落点）。
+    fn change_dir(&self) -> PathBuf {
+        self.exec_root.join("openspec").join("changes").join(NAME)
+    }
+
+    /// 主仓（workspace root）内 change 目录（主仓优先探测面）。
+    fn main_change_dir(&self) -> PathBuf {
+        self.root.path().join("openspec").join("changes").join(NAME)
+    }
+
+    fn write_artifacts(&self, artifacts: &[&str]) {
+        let change_dir = self.change_dir();
+        std::fs::create_dir_all(&change_dir).expect("创建执行根 change 目录失败");
+        for artifact in artifacts {
+            std::fs::write(change_dir.join(artifact), "内容").expect("写产物失败");
+        }
+    }
+
+    fn write_specs(&self, capabilities: &[String]) {
+        for capability in capabilities {
+            let dir = self.change_dir().join("specs").join(capability);
+            std::fs::create_dir_all(&dir).expect("创建 specs 子目录失败");
+            std::fs::write(dir.join("spec.md"), "# spec").expect("写 spec 失败");
+        }
+    }
+
+    async fn run_preflight(&self, steps: &LocalToolSteps) -> crate::state::ArchivePreflight {
+        let output = steps
+            .run(ToolStepRequest {
+                root: self.root.path().to_string_lossy().into_owned(),
+                cancel: CancelFlag::never(),
+                command: ToolCommand::ArchivePreflight {
+                    change_id: CHANGE_ID.to_owned(),
+                },
+                on_output_ref: None,
+            })
+            .await
+            .expect("归档前置应可用");
+        match output {
+            ToolStepOutput::ArchivePreflight(payload) => payload,
+            other => panic!("产出应为 ArchivePreflight，实际: {other:?}"),
+        }
+    }
+}
+
+/// `run_archive_preflight`（正向）：子目录 workspace 夹具 → `preflight.worktree
+/// == host`、`preflight.execRoot == host/rel`（两列各自可辨、互不替代）。
+#[tokio::test]
+async fn archive_preflight子目录三件产物锚执行根且双列可辨() {
+    let env = SubdirArchiveEnv::new("preflight-subdir", "packages/desktop");
+    env.write_artifacts(&["proposal.md", "design.md", "tasks.md"]);
+    let assembled = assemble_with_vcs(
+        env.db.store_arc(),
+        "run-subdir-preflight",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::new(FakeVcs::clean()),
+    );
+
+    let preflight = env.run_preflight(&assembled.steps).await;
+
+    assert_eq!(
+        preflight.worktree.as_deref(),
+        Some(env.host.to_string_lossy().as_ref()),
+        "worktree 列 = host（git 步锚）"
+    );
+    assert_eq!(
+        preflight.exec_root.as_deref(),
+        Some(env.exec_root.to_string_lossy().as_ref()),
+        "execRoot 列 = 记录原始列"
+    );
+    assert_ne!(preflight.worktree, preflight.exec_root, "两列互不替代");
+    assert!(
+        preflight.missing_artifacts.is_empty(),
+        "三件产物写在执行根 → 缺席清单为空（不再「全缺」假阴性），实际: {:?}",
+        preflight.missing_artifacts
+    );
+    assert!(
+        !env.host
+            .join("openspec")
+            .join("changes")
+            .join(NAME)
+            .exists(),
+        "host 根下同形目录不存在（探测锚确为执行根）"
+    );
+}
+
+/// `missing_artifacts`（异常）：三件全缺 → 清单恰 `proposal.md` /
+/// `design.md` / `tasks.md` 三行（定位失败 = 全缺语义零改）。
+#[tokio::test]
+async fn archive_preflight三件全缺清单恰三行() {
+    let env = SubdirArchiveEnv::new("preflight-all-missing", "packages/desktop");
+    std::fs::create_dir_all(env.change_dir()).expect("创建空 change 目录失败");
+    let assembled = assemble_with_vcs(
+        env.db.store_arc(),
+        "run-subdir-missing",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::new(FakeVcs::clean()),
+    );
+
+    let preflight = env.run_preflight(&assembled.steps).await;
+
+    assert_eq!(
+        preflight.missing_artifacts,
+        vec![
+            "proposal.md".to_owned(),
+            "design.md".to_owned(),
+            "tasks.md".to_owned()
+        ],
+        "定位失败 = 全缺语义零改（三行固定序）"
+    );
+}
+
+/// `detect_delta_specs`（正向 / 边界）：执行根内 specs 命中且字典序；`specs/`
+/// 在场但 capability 无 `spec.md` 不入清单；>100 capability 全量入列。
+#[tokio::test]
+async fn archive_preflight_delta_specs锚执行根且字典序与空面() {
+    let env = SubdirArchiveEnv::new("preflight-delta", "packages/desktop");
+    env.write_artifacts(&["proposal.md", "design.md", "tasks.md"]);
+    env.write_specs(&["zeta-flow".to_owned(), "alpha-flow".to_owned()]);
+    let assembled = assemble_with_vcs(
+        env.db.store_arc(),
+        "run-subdir-delta",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::new(FakeVcs::clean()),
+    );
+
+    let preflight = env.run_preflight(&assembled.steps).await;
+    assert_eq!(
+        preflight.delta_specs,
+        vec!["alpha-flow".to_owned(), "zeta-flow".to_owned()],
+        "执行根 specs 命中且字典序"
+    );
+
+    // capability 目录无 spec.md → 不入清单（空而非错误）
+    std::fs::remove_file(env.change_dir().join("specs/alpha-flow/spec.md"))
+        .expect("移除 spec.md 失败");
+    let preflight = env.run_preflight(&assembled.steps).await;
+    assert_eq!(
+        preflight.delta_specs,
+        vec!["zeta-flow".to_owned()],
+        "无 spec.md 的 capability 不入清单"
+    );
+
+    // 超大目录（120 capability）→ 全量入列且严格字典序
+    let wide: Vec<String> = (0..120).map(|index| format!("cap-{index:03}")).collect();
+    env.write_specs(&wide);
+    let preflight = env.run_preflight(&assembled.steps).await;
+    assert_eq!(
+        preflight.delta_specs.len(),
+        121,
+        "全量入列（120 + zeta-flow）"
+    );
+    let mut sorted = preflight.delta_specs.clone();
+    sorted.sort();
+    assert_eq!(preflight.delta_specs, sorted, "严格字典序");
+}
+
+/// `detect_delta_specs`（边界，两级序）：主仓有同名 change 与 specs、执行根亦
+/// 有 → 取主仓（第一级）；主仓无 → 回退执行根。
+#[tokio::test]
+async fn archive_preflight_delta_specs主仓优先执行根回退() {
+    let env = SubdirArchiveEnv::new("preflight-delta-order", "packages/desktop");
+    env.write_artifacts(&["proposal.md", "design.md", "tasks.md"]);
+    env.write_specs(&["exec-cap".to_owned()]);
+    let assembled = assemble_with_vcs(
+        env.db.store_arc(),
+        "run-subdir-delta-order",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::new(FakeVcs::clean()),
+    );
+
+    // 第二级形态：主仓无 → 回退执行根
+    let preflight = env.run_preflight(&assembled.steps).await;
+    assert_eq!(
+        preflight.delta_specs,
+        vec!["exec-cap".to_owned()],
+        "主仓无 change → 回退执行根"
+    );
+
+    // 第一级形态：主仓有同名 change 与 specs → 取主仓
+    let main_specs = env.main_change_dir().join("specs").join("main-cap");
+    std::fs::create_dir_all(&main_specs).expect("创建主仓 specs 失败");
+    std::fs::write(main_specs.join("spec.md"), "# main").expect("写主仓 spec 失败");
+    let preflight = env.run_preflight(&assembled.steps).await;
+    assert_eq!(
+        preflight.delta_specs,
+        vec!["main-cap".to_owned()],
+        "主仓优先（第一级命中即收口）"
+    );
+}
+
+/// `run_archive_preflight`（边界）：根 workspace（记录 `exec_root = None`）→
+/// `execRoot = null`；探测锚回落 `worktree`（= host），产物命中同今日。
+#[tokio::test]
+async fn archive_preflight根workspace_exec_root空且探测回落host() {
+    let env = ArchiveEnv::new("preflight-root-ws", &["desktop-flow"], &["proposal.md"]);
+    let db = TestDb::open("preflight-root-ws-record");
+    let host = env.root.path().join(".worktrees").join("repo").join(NAME);
+    std::fs::create_dir_all(host.join("openspec").join("changes").join(NAME))
+        .expect("创建 host change 目录失败");
+    for artifact in ["proposal.md", "design.md", "tasks.md"] {
+        std::fs::write(
+            host.join("openspec")
+                .join("changes")
+                .join(NAME)
+                .join(artifact),
+            "内容",
+        )
+        .expect("写 host 产物失败");
+    }
+    db.store
+        .create_change_record(ChangeStateRecord {
+            id: CHANGE_ID.to_owned(),
+            name: NAME.to_owned(),
+            title: NAME.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: TS_BASE,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: Some(host.to_string_lossy().into_owned()),
+            exec_root: None,
+            base_commit: None,
+        })
+        .expect("建档种子应成功");
+    let assembled = assemble_with_vcs(
+        db.store_arc(),
+        "run-root-ws",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::new(FakeVcs::clean().with_branch(Ok("main".to_owned()))),
+    );
+
+    let output = assembled
+        .steps
+        .run(ToolStepRequest {
+            root: env.root_str(),
+            cancel: CancelFlag::never(),
+            command: ToolCommand::ArchivePreflight {
+                change_id: CHANGE_ID.to_owned(),
+            },
+            on_output_ref: None,
+        })
+        .await
+        .expect("归档前置应可用");
+    let ToolStepOutput::ArchivePreflight(payload) = output else {
+        panic!("产出应为 ArchivePreflight");
+    };
+
+    assert_eq!(payload.exec_root, None, "根 workspace → execRoot = null");
+    assert_eq!(
+        payload.worktree.as_deref(),
+        Some(host.to_string_lossy().as_ref()),
+        "worktree 列照常出线"
+    );
+    assert!(
+        payload.missing_artifacts.is_empty(),
+        "探测锚回落 host → 产物命中同今日，实际: {:?}",
+        payload.missing_artifacts
+    );
+    assert_eq!(
+        payload.branch.as_deref(),
+        Some("change/demo-change"),
+        "branch 口径零改"
+    );
+    assert_eq!(
+        payload.merge_target.as_deref(),
+        Some("main"),
+        "mergeTarget 口径零改"
+    );
+}
+
+/// `run_archive_preflight`（异常）：执行根目录被删（陈旧列）→ 访问器回落
+/// host，产物按 host 全缺、`execRoot` 仍出线原始列；不 panic 不 `Err`。
+#[tokio::test]
+async fn archive_preflight执行根被删_回落host且出线原始列() {
+    let env = SubdirArchiveEnv::new("preflight-stale", "packages/desktop");
+    env.write_artifacts(&["proposal.md", "design.md", "tasks.md"]);
+    let stale_exec_root = env.exec_root.clone();
+    std::fs::remove_dir_all(&stale_exec_root).expect("删除执行根失败");
+    assert!(env.host.is_dir(), "host 整树仍在场");
+    let assembled = assemble_with_vcs(
+        env.db.store_arc(),
+        "run-subdir-stale",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::new(FakeVcs::clean()),
+    );
+
+    let preflight = env.run_preflight(&assembled.steps).await;
+
+    assert_eq!(
+        preflight.missing_artifacts,
+        vec![
+            "proposal.md".to_owned(),
+            "design.md".to_owned(),
+            "tasks.md".to_owned()
+        ],
+        "访问器回落 host → 产物按 host 全缺（不 panic）"
+    );
+    assert_eq!(
+        preflight.exec_root.as_deref(),
+        Some(stale_exec_root.to_string_lossy().as_ref()),
+        "execRoot 仍出线记录原始列（陈旧值原样）"
+    );
+}
+
+/// `run_archive_preflight`（异常）：`exec_root` 指向 host 外（手改库）→ 访问器
+/// 回落 host，探测不读域外；`execRoot` 出线原始越界值（两口径可辨）。
+#[tokio::test]
+async fn archive_preflight执行根越界_探测不读域外且出线原值() {
+    let env = SubdirArchiveEnv::new("preflight-out-of-bounds", "packages/desktop");
+    env.write_artifacts(&["proposal.md", "design.md", "tasks.md"]);
+    // 域外目录：host 的同级另一 change 目录（含全部产物）——越界列若生效即会
+    // 被读到
+    let outside = env
+        .host
+        .parent()
+        .expect("host 应有父目录")
+        .join("other-change");
+    std::fs::create_dir_all(outside.join("openspec").join("changes").join(NAME))
+        .expect("创建域外 change 目录失败");
+    for artifact in ["proposal.md", "design.md", "tasks.md"] {
+        std::fs::write(
+            outside
+                .join("openspec")
+                .join("changes")
+                .join(NAME)
+                .join(artifact),
+            "域外内容",
+        )
+        .expect("写域外产物失败");
+    }
+    // 手改库：exec_root 指向域外
+    env.db
+        .store
+        .create_change_record(ChangeStateRecord {
+            id: "chg-out-of-bounds".to_owned(),
+            name: NAME.to_owned(),
+            title: NAME.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: TS_BASE,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: Some(env.host.to_string_lossy().into_owned()),
+            exec_root: Some(outside.to_string_lossy().into_owned()),
+            base_commit: None,
+        })
+        .expect("越界建档种子应成功");
+    let assembled = assemble_with_vcs(
+        env.db.store_arc(),
+        "run-out-of-bounds",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::new(FakeVcs::clean()),
+    );
+
+    let output = assembled
+        .steps
+        .run(ToolStepRequest {
+            root: env.root.path().to_string_lossy().into_owned(),
+            cancel: CancelFlag::never(),
+            command: ToolCommand::ArchivePreflight {
+                change_id: "chg-out-of-bounds".to_owned(),
+            },
+            on_output_ref: None,
+        })
+        .await
+        .expect("归档前置应可用（不 Err）");
+    let ToolStepOutput::ArchivePreflight(payload) = output else {
+        panic!("产出应为 ArchivePreflight");
+    };
+
+    assert_eq!(
+        payload.missing_artifacts,
+        vec![
+            "proposal.md".to_owned(),
+            "design.md".to_owned(),
+            "tasks.md".to_owned()
+        ],
+        "访问器回落 host → 不读域外产物"
+    );
+    assert_eq!(
+        payload.exec_root.as_deref(),
+        Some(outside.to_string_lossy().as_ref()),
+        "execRoot 出线原始越界值（原始列 vs 访问器两口径可辨）"
     );
 }

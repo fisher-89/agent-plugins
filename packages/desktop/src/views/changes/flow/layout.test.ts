@@ -38,6 +38,7 @@ function detail(): ChangeDetail {
     activePhase: null,
     runs: [],
     worktree: null,
+    execRoot: null,
     artifacts: [],
   };
 }

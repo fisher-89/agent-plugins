@@ -1548,24 +1548,25 @@ fn 在册类型不重录_既有五型各恰一条() {
 }
 
 // ---------------------------------------------------------------------------
-// 身份锚出线（desktop-change-db-identity D8 / AC-5）：CreateOutcome 恰五字段
-// （id 首字段）+ ChangeDetail / ChangeSummary 含 id；worktree 维度字段面随行
+// 身份锚出线（desktop-change-db-identity D8 / AC-5）：CreateOutcome 恰六字段
+// （id 首字段）+ ChangeDetail / ChangeSummary 含 id；worktree / execRoot 两维
+// 度字段面随行
 // ---------------------------------------------------------------------------
 
 /// `CreateOutcome` 类型段恰 `id` / `name` / `created` / `worktree` /
-/// `warnings` 五字段且 `id` 为首字段（`id: string`、`worktree: string`、
-/// `warnings: string[]`）——原恰四字段断言语义演进（增铸出 id 身份锚），无主仓
-/// openspec 目录树路径字段。
+/// `execRoot` / `warnings` 六字段且 `id` 为首字段（`id: string`、
+/// `worktree: string`、`execRoot: string | null`、`warnings: string[]`）——原恰
+/// 五字段断言语义演进（增执行根列 `execRoot`），无主仓 openspec 目录树路径字段。
 #[test]
-fn create_outcome出线恰五字段_id为首字段() {
+fn create_outcome出线恰六字段_id为首字段() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
     let outcome = type_section(&content, "CreateOutcome");
 
     assert_eq!(
         field_names(&outcome),
-        vec!["id", "name", "created", "worktree", "warnings"],
-        "恰五字段面且 id 为首字段（声明序即出线序），实际:\n{outcome}"
+        vec!["id", "name", "created", "worktree", "execRoot", "warnings"],
+        "恰六字段面且 id 为首字段（声明序即出线序），实际:\n{outcome}"
     );
     assert!(
         outcome.contains("id: string,"),
@@ -1573,7 +1574,11 @@ fn create_outcome出线恰五字段_id为首字段() {
     );
     assert!(
         outcome.contains("worktree: string,"),
-        "worktree 出线为非空 string（执行锚恒在场），实际:\n{outcome}"
+        "worktree 出线为非空 string（落位目录 / host 恒在场），实际:\n{outcome}"
+    );
+    assert!(
+        outcome.contains("execRoot: string | null,"),
+        "execRoot 出线为 string | null（根 workspace / legacy 形态为 null），实际:\n{outcome}"
     );
     assert!(
         outcome.contains("warnings: string[],"),
@@ -1613,6 +1618,85 @@ fn change_detail出线含worktree_string_or_null() {
     assert!(
         detail.contains("worktree: string | null"),
         "ChangeDetail 含 worktree: string | null（legacy null 出线），实际:\n{detail}"
+    );
+}
+
+/// `ChangeDetail` / `ArchivePreflight`（边界，表驱动两类型）：两段各含
+/// `execRoot: string | null`，且 `execRoot` 与 `worktree` 相邻（声明序）。
+#[test]
+fn change_detail与archive_preflight出线执行根列紧邻worktree() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    for type_name in ["ChangeDetail", "ArchivePreflight"] {
+        let section = type_section(&content, type_name);
+        assert!(
+            section.contains("execRoot: string | null"),
+            "{type_name} 段应含 execRoot: string | null，实际:\n{section}"
+        );
+        let names = field_names(&section);
+        let worktree_at = names
+            .iter()
+            .position(|name| name == "worktree")
+            .unwrap_or_else(|| panic!("{type_name} 段应有 worktree 字段，实际: {names:?}"));
+        let exec_at = names
+            .iter()
+            .position(|name| name == "execRoot")
+            .unwrap_or_else(|| panic!("{type_name} 段应有 execRoot 字段，实际: {names:?}"));
+        assert_eq!(
+            exec_at,
+            worktree_at + 1,
+            "{type_name} 的 execRoot 应紧邻 worktree（声明序），实际: {names:?}"
+        );
+    }
+}
+
+/// 断言通道（边界）：字段集断言的唯一通道是运行时再导出——断言读到的产物来自
+/// 本次 `export_bindings()`（新增列 `execRoot` 能读到即为证）。「无 golden 重写
+/// 开关」属设计约定，不做源码自证：承载该断言的测试文件自扫必然自匹配。
+#[test]
+fn 出线断言通道_运行时再导出() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    assert!(
+        content.contains(
+            "createChange: (root: string, name: string, goal: string, workflowType: string) =>"
+        ),
+        "产物含命令包装段（本次再导出的产物）"
+    );
+    let section = type_section(&content, "CreateOutcome");
+    let names = field_names(&section);
+    assert!(
+        names.iter().any(|name| name == "execRoot"),
+        "新增列 execRoot 自本次导出的产物读出，实际: {names:?}"
+    );
+}
+
+/// 出线快照取段（异常）：段缺失形态（类型被更名 / 段落取不到）→
+/// `type_section` 断言失败（fail-closed，不静默空过）。
+#[test]
+fn type_section段缺失_fail_closed且文案可指认() {
+    let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = type_section(
+            "export type OtherType = {\n  id: string,\n};\n",
+            "CreateOutcome",
+        );
+    }))
+    .expect_err("缺段应 panic（fail-closed）");
+
+    let message = payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| {
+            payload
+                .downcast_ref::<&str>()
+                .map(|text| (*text).to_owned())
+        })
+        .unwrap_or_else(|| "（非字符串 payload）".to_owned());
+    assert!(
+        message.contains("产物缺出线类型 CreateOutcome"),
+        "panic 文案可指认，实际: {message}"
     );
 }
 

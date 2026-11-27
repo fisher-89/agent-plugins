@@ -139,6 +139,7 @@ fn seed_changes(db: &Database<'static>) {
             1000 + index as i64,
             None,
             None,
+            None,
         ))
         .expect("落建档行");
     }

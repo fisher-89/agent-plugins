@@ -23,9 +23,10 @@ export const commands = {
 	/**
 	 *  按信封读取单个产物（按 change **id** 寻址）；kind 未注册、source 非法、
 	 *  未建档或解析失败返回 `None`。IPC 签名不变：blank root 与开库失败均
-	 *  `None`。worktree / name 感知：`find_change_record(id)` 供给记录，`worktree`
-	 *  直传 `locate_change` 回退参（merge 前产物在 worktree 内）、`name` 作目录
-	 *  定位键（id → 记录 → name 分辨率单点）。
+	 *  `None`。执行根 / name 感知：`find_change_record(id)` 供给记录，
+	 *  `record.exec_root()`（访问器：`exec_root` 缺省回落 `worktree`）直传
+	 *  `locate_change` 回退参（产物写在执行根内）、`name` 作目录定位键（id → 记录
+	 *  → name 分辨率单点）。
 	 */
 	readArtifact: (root: string, id: string, kind: string, source: string) => __TAURI_INVOKE<ArtifactEnvelope | null>("read_artifact", { root, id, kind, source }),
 	/**
@@ -1471,8 +1472,13 @@ export type ArchivePreflight = {
 	missingArtifacts: string[],
 	/**  delta specs capability 清单（定位目录 specs/ 子树非空者） */
 	deltaSpecs: string[],
-	/**  worktree 记录（None = legacy 主 root change） */
+	/**
+	 *  worktree 记录（**落位目录 / host**；None = legacy 主 root change）。
+	 *  git 步（commit / rebase / merge / cleanup）与 merge-first 判定吃本列
+	 */
 	worktree: string | null,
+	/**  执行根原始列（None = 与 `worktree` 同值；工件与 delta specs 探测吃本列） */
+	execRoot: string | null,
 	/**  change 分支名（worktree 记录在场才在案：`change/<name>`） */
 	branch: string | null,
 	/**  主仓当前分支名（合入目标；worktree 记录在场才探测） */
@@ -1597,10 +1603,17 @@ export type ChangeDetail = {
 	runs: ChangeRunEntry[],
 	artifacts: ArtifactDescriptor[],
 	/**
-	 *  本 change 的 worktree 绝对路径（自建档记录直读透出，None → null；
-	 *  legacy 记录不渲染——路径为刻意出线的执行锚，review / merge 可达）
+	 *  本 change 的 worktree 绝对路径（**落位目录 / host**：自建档记录直读
+	 *  透出，None → null；legacy 记录不渲染——路径为刻意出线的执行锚，
+	 *  review / `git worktree list` 可达）
 	 */
 	worktree: string | null,
+	/**
+	 *  执行根绝对路径（自建档记录**原始列**直读透出；`None` = 与 `worktree`
+	 *  同值——根 workspace 与 legacy 记录同形，MUST NOT 在此回落成
+	 *  `worktree` 的值，否则前端会渲出两条同值路径）
+	 */
+	execRoot: string | null,
 };
 
 /**
@@ -1919,8 +1932,17 @@ export type CreateOutcome = {
 	 *  直达命令返回，无需回读）
 	 */
 	created: string,
-	/**  本 change 分配的 worktree 绝对路径（执行锚；db 记录同源） */
+	/**
+	 *  本 change 分配的 worktree 绝对路径（**落位目录 / host**：git 步与回收
+	 *  的唯一锚；db 记录同源）
+	 */
 	worktree: string,
+	/**
+	 *  执行根绝对路径（change 工作面 = 落位目录 + workspace 相对偏移）；根
+	 *  workspace 与 legacy 形态为 `None`（= 与 `worktree` 同值）。db 记录
+	 *  `exec_root` 列同源
+	 */
+	execRoot: string | null,
 	/**  警告清单（脏仓引导 / 依赖引导注记与失败；干净仓且顺利 → 空清单） */
 	warnings: string[],
 };

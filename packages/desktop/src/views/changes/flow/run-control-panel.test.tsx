@@ -278,6 +278,7 @@ describe('RunControlPanel：归档确认卡片（stop-before-archive 停等面�
       missingArtifacts: ['design.md'],
       deltaSpecs: ['desktop-flow'],
       worktree: '/tmp/wt/add-feature',
+      execRoot: null,
       branch: 'change/add-feature',
       mergeTarget: 'main',
       ...overrides,
@@ -541,6 +542,7 @@ describe('RunControlPanel：归档卡片清理告知（AC-8 / D8）', () => {
       missingArtifacts: [],
       deltaSpecs: [],
       worktree: '/tmp/wt/add-feature',
+      execRoot: null,
       branch: 'change/add-feature',
       mergeTarget: 'main',
       ...overrides,
@@ -626,6 +628,7 @@ describe('RunControlPanel：架构变更区块（归档确认面）', () => {
       missingArtifacts: [],
       deltaSpecs: [],
       worktree: '/tmp/wt/add-feature',
+      execRoot: null,
       branch: 'change/add-feature',
       mergeTarget: 'main',
       ...overrides,
@@ -842,7 +845,7 @@ describe('RunControlPanel：架构变更区块（归档确认面）', () => {
 // 归档前置文案面与架构变更区块边界面（AC-7 / AC-9 / AC-15 文案与取数纪律）
 // ---------------------------------------------------------------------------
 
-/** 归档前置载荷（八字段形）。 */
+/** 归档前置载荷（九字段形）。 */
 function archivePreflight(overrides: Partial<ArchivePreflight> = {}): ArchivePreflight {
   return {
     name: 'add-feature',
@@ -851,6 +854,7 @@ function archivePreflight(overrides: Partial<ArchivePreflight> = {}): ArchivePre
     missingArtifacts: [],
     deltaSpecs: [],
     worktree: '/tmp/wt/add-feature',
+    execRoot: null,
     branch: 'change/add-feature',
     mergeTarget: 'main',
     ...overrides,
@@ -1077,5 +1081,119 @@ describe('RunControlPanel：架构变更区块边界面', () => {
       );
     });
     expect(screen.getByTestId('run-archi-block').textContent).toContain('元素 +1 / −0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 新图预览根派生（`preflight.execRoot ?? preflight.worktree`）：预览画布吃执行
+// 根、合入 / 清理告知行仍吃 host 列
+// ---------------------------------------------------------------------------
+
+describe('RunControlPanel：新图预览根派生（execRoot ?? worktree）', () => {
+  /** 归档卡片挂载（可编程 preflight 载荷 + 摘要应答）。 */
+  function renderPreviewPanel(archive: ArchivePreflight | null, root = 'C:demoalpha') {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_change_summary') return Promise.resolve(archiSummary());
+      if (command === 'archi_graph') {
+        return Promise.resolve({ elements: [], relations: [], diagnostics: [] });
+      }
+      return Promise.reject(new Error(`未预期命令: ${command}`));
+    });
+    return render(
+      <RunControlPanel
+        changeId={CHANGE_ID}
+        name="add-feature"
+        root={root}
+        activeRun={activeRun({ status: 'waitingConfirm', phase: 'archive', archive })}
+        lastRun={null}
+        actions={runStub()}
+      />,
+    );
+  }
+
+  /** 预览画布实际取数根清单（`archi_graph` 的 root 实参序）。 */
+  function previewRoots(): string[] {
+    return invokeMock.mock.calls
+      .filter(([name]) => name === 'archi_graph')
+      .map(([, args]) => String((args as { root?: unknown }).root));
+  }
+
+  it('execRoot 非空 → 新图预览根 = execRoot（非 worktree）', async () => {
+    renderPreviewPanel(
+      archivePreflight({
+        worktree: '/tmp/wt/add-feature',
+        execRoot: '/tmp/wt/add-feature/packages/desktop',
+      }),
+    );
+    await screen.findByTestId('run-archi-block');
+    fireEvent.click(screen.getByTestId('run-archi-preview'));
+    await screen.findByTestId('run-archi-preview-canvas');
+
+    await waitFor(() => expect(previewRoots()).toContain('/tmp/wt/add-feature/packages/desktop'));
+    expect(previewRoots()).not.toContain('/tmp/wt/add-feature');
+  });
+
+  it('execRoot = null + worktree 非空（根 workspace）→ 预览根 = worktree', async () => {
+    renderPreviewPanel(archivePreflight({ worktree: '/tmp/wt/add-feature', execRoot: null }));
+    await screen.findByTestId('run-archi-block');
+    fireEvent.click(screen.getByTestId('run-archi-preview'));
+    await screen.findByTestId('run-archi-preview-canvas');
+
+    await waitFor(() => expect(previewRoots()).toContain('/tmp/wt/add-feature'));
+  });
+
+  it('两者皆 null（legacy / preflight === null）→ 预览根 = 面板 root（ArchiPreview 回落）', async () => {
+    renderPreviewPanel(
+      archivePreflight({ worktree: null, execRoot: null, branch: null, mergeTarget: null }),
+      'C:demofallback',
+    );
+    await screen.findByTestId('run-archi-block');
+    fireEvent.click(screen.getByTestId('run-archi-preview'));
+    await screen.findByTestId('run-archi-preview-canvas');
+
+    await waitFor(() => expect(previewRoots()).toContain('C:demofallback'));
+  });
+
+  it('旧载荷形状（preflight.execRoot 为 undefined）→ ?? 链回落 worktree，不把 undefined 传给 ArchiPreview', async () => {
+    const legacyShape = archivePreflight({ worktree: '/tmp/wt/add-feature' }) as unknown as Record<
+      string,
+      unknown
+    >;
+    delete legacyShape.execRoot;
+    renderPreviewPanel(legacyShape as unknown as ArchivePreflight);
+    await screen.findByTestId('run-archi-block');
+    fireEvent.click(screen.getByTestId('run-archi-preview'));
+    await screen.findByTestId('run-archi-preview-canvas');
+
+    await waitFor(() => expect(previewRoots()).toContain('/tmp/wt/add-feature'));
+    expect(previewRoots()).not.toContain('undefined');
+  });
+
+  it('合入 / 清理告知行只看 host 列：execRoot 非空而 worktree = null → 不渲染告知行', () => {
+    renderPreviewPanel(
+      archivePreflight({
+        worktree: null,
+        execRoot: '/tmp/wt/add-feature/packages/desktop',
+        branch: null,
+        mergeTarget: null,
+      }),
+    );
+
+    expect(screen.getByTestId('run-archive-confirm-card')).toBeDefined();
+    expect(screen.queryByTestId('run-archive-merge-target')).toBeNull();
+  });
+
+  it('合入 / 清理告知行只看 host 列：worktree 在场即渲染（文案结构零改）', () => {
+    renderPreviewPanel(
+      archivePreflight({
+        worktree: '/tmp/wt/add-feature',
+        execRoot: '/tmp/wt/add-feature/packages/desktop',
+      }),
+    );
+
+    const notice = screen.getByTestId('run-archive-merge-target');
+    expect(notice.textContent).toContain('收口后自动移除 worktree');
+    expect(notice.textContent).toContain('main');
   });
 });

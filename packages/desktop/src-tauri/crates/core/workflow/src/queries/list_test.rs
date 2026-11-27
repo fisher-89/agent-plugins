@@ -90,6 +90,7 @@ impl Env {
             archived_at: None,
             active_phase,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         });
     }
@@ -106,6 +107,7 @@ impl Env {
             archived_at,
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         });
     }
@@ -122,6 +124,7 @@ impl Env {
             archived_at: None,
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         });
     }
@@ -145,6 +148,7 @@ impl Env {
             archived_at,
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         });
     }
@@ -665,6 +669,7 @@ fn worktree条目入进行中组_状态面完整且不误归未知时间组() {
             start_at: T0 + 5_000,
         }),
         worktree: Some(r"C:\app-data\worktrees\seg\wt-change".to_owned()),
+        exec_root: None,
         base_commit: Some("0000000000000000000000000000000000000001".to_owned()),
     });
     // 主仓两树零目录（merge 前形态）

@@ -1336,7 +1336,8 @@ fn checklist_item_record_native_model往返版本1逐字段保真() {
 // ---------------------------------------------------------------------------
 
 use crate::model::{
-    ChangeRecord, ChangeRecordV3, ExploreRecord, ExploreRecordV1, ExploreRecordV2, ExploreRecordV3,
+    ChangeRecord, ChangeRecordV3, ChangeRecordV4, ExploreRecord, ExploreRecordV1, ExploreRecordV2,
+    ExploreRecordV3,
 };
 use workflow::state::ChangeStatus;
 
@@ -1750,16 +1751,18 @@ fn explore_record_new默认title等于name且promoted_to为none() {
     assert_eq!(record.updated_at, now, "新建语义 created_at = updated_at");
 }
 
-/// v4 回环：id 主键（身份锚）+ name 普通属性 + title 显式值 + worktree /
-/// base_commit 双态构造 → encode / decode 往返逐字段相等（版本头 = 4）。
+/// v5 回环：id 主键（身份锚）+ name 普通属性 + title 显式值 + worktree /
+/// base_commit / exec_root 双态构造 → encode / decode 往返逐字段相等（版本头
+/// = 5）。
 #[test]
-fn change_record_v4回环含title与worktree双态逐字段相等() {
-    for (worktree, base_commit) in [
+fn change_record_v5回环含title与worktree与exec_root双态逐字段相等() {
+    for (worktree, base_commit, exec_root) in [
         (
             Some(r"C:\app-data\worktrees\seg\fix-bug".to_owned()),
             Some("0000000000000000000000000000000000000001".to_owned()),
+            Some(r"C:\app-data\worktrees\seg\fix-bug\packages\desktop".to_owned()),
         ),
-        (None, None),
+        (None, None, None),
     ] {
         let record = ChangeRecord {
             id: "chg-018f3a-0001".to_owned(),
@@ -1772,14 +1775,19 @@ fn change_record_v4回环含title与worktree双态逐字段相等() {
             active_phase: None,
             worktree: worktree.clone(),
             base_commit: base_commit.clone(),
+            exec_root: exec_root.clone(),
         };
-        let bytes = native_model::encode(&record).expect("encode v4 应成功");
+        let bytes = native_model::encode(&record).expect("encode v5 应成功");
         let (decoded, version) =
-            native_model::decode::<ChangeRecord>(bytes).expect("decode v4 应成功");
-        assert_eq!(version, 4, "ChangeRecord 9:v4 版本头（v4 新增 title 列）");
+            native_model::decode::<ChangeRecord>(bytes).expect("decode v5 应成功");
+        assert_eq!(
+            version, 5,
+            "ChangeRecord 9:v5 版本头（v5 新增 exec_root 列）"
+        );
         assert_eq!(
             decoded, record,
-            "v4 往返逐字段相等（worktree {worktree:?} / base_commit {base_commit:?}）"
+            "v5 往返逐字段相等（worktree {worktree:?} / base_commit {base_commit:?} / \
+             exec_root {exec_root:?}）"
         );
         assert_eq!(decoded.id, "chg-018f3a-0001", "id 主键往返保真（身份锚）");
         assert_eq!(
@@ -1829,6 +1837,287 @@ fn change_record_v3到v4_decode_only升级_title兜底name且零迁移() {
     assert_eq!(upgraded.base_commit, legacy.base_commit);
 }
 
+/// ChangeRecord V4 → V5 升级链（正向）：`exec_root = None` 的 v5 记录经
+/// `ChangeRecordV4::from` → `ChangeRecord::from` 两跳后与自身逐字段相等
+/// （`ChangeRecordV4` 无该列，`None` 是唯一能无损穿过 v4 的取值）。
+#[test]
+fn change_record_v4到v5升级链_exec_root为none时逐字段相等() {
+    let record = ChangeRecord {
+        id: "chg-up-v5".to_owned(),
+        name: "子目录 change".to_owned(),
+        title: "子目录标题".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: 1_727_000_000_000,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+        worktree: Some(r"C:\wt\subdir-change".to_owned()),
+        base_commit: Some("0000000000000000000000000000000000000003".to_owned()),
+        exec_root: None,
+    };
+
+    let upgraded = ChangeRecord::from(ChangeRecordV4::from(record.clone()));
+
+    assert_eq!(
+        upgraded.exec_root, None,
+        "v4 无 exec_root 列，升级半边恒给 None"
+    );
+    assert_eq!(upgraded, record, "exec_root = None 时升级链逐字段相等");
+}
+
+/// ChangeRecord V4 存量行升级（正向）：V4 载荷字节经 native_model 版本机制解
+/// 码 → 升为 v5 且 `exec_root` 读出 `None`、其余字段原值（零迁移代码路径）。
+#[test]
+fn change_record_v4存量行升级_exec_root为空且其余原值() {
+    let stored = ChangeRecordV4 {
+        id: "chg-stored-v4".to_owned(),
+        name: "stored-change".to_owned(),
+        title: "存量标题".to_owned(),
+        workflow_type: "test-only".to_owned(),
+        created_at: 1_700_000_000_123,
+        status: ChangeStatus::Archived,
+        archived_at: Some(1_700_000_900_000),
+        active_phase: None,
+        worktree: Some(r"C:\wt\stored-change".to_owned()),
+        base_commit: Some("0000000000000000000000000000000000000004".to_owned()),
+    };
+    let bytes = native_model::encode(&stored).expect("encode v4 应成功");
+
+    let (upgraded, version) =
+        native_model::decode::<ChangeRecord>(bytes).expect("v4 载荷应升级为 v5");
+
+    assert_eq!(version, 4, "decode 返回载荷头版本（升级链源版本）");
+    assert_eq!(upgraded.exec_root, None, "存量行缺列读出 None");
+    assert_eq!(upgraded.id, stored.id, "id 主键逐字一致（身份锚零换锚）");
+    assert_eq!(upgraded.name, stored.name);
+    assert_eq!(upgraded.title, stored.title, "title 列原值保真");
+    assert_eq!(upgraded.workflow_type, stored.workflow_type);
+    assert_eq!(upgraded.created_at, stored.created_at);
+    assert_eq!(upgraded.status, ChangeStatus::Archived);
+    assert_eq!(upgraded.archived_at, stored.archived_at);
+    assert_eq!(upgraded.worktree, stored.worktree);
+    assert_eq!(upgraded.base_commit, stored.base_commit);
+}
+
+/// ChangeRecord V5 → V4 降级（正向）：降级丢 `exec_root`、其余保真；再升级归
+/// `None`。
+#[test]
+fn change_record_v5到v4降级丢exec_root其余保真() {
+    let record = ChangeRecord {
+        id: "chg-down-v5".to_owned(),
+        name: "down-change".to_owned(),
+        title: "降级标题".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: 1_727_000_000_000,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+        worktree: Some(r"C:\wt\down-change".to_owned()),
+        base_commit: None,
+        exec_root: Some(r"C:\wt\down-change\rel".to_owned()),
+    };
+
+    let downgraded = ChangeRecordV4::from(record.clone());
+    assert_eq!(downgraded.id, record.id);
+    assert_eq!(downgraded.name, record.name);
+    assert_eq!(downgraded.title, record.title, "降级保留 title 列");
+    assert_eq!(downgraded.worktree, record.worktree);
+
+    let round_trip = ChangeRecord::from(downgraded);
+    assert_eq!(round_trip.exec_root, None, "降级丢弃后升级归 None");
+    assert_eq!(round_trip.id, record.id, "身份锚零换锚");
+    assert_eq!(round_trip.title, record.title);
+}
+
+/// 版本头锚点（边界）：现代形态 `native_model(id = 9, version = 5)`、
+/// `ChangeRecordV4` 为 `version = 4` 且 `from = ChangeRecordV3`（同 id 无跳级）。
+#[test]
+fn change_record合版本头锚点_v5现代形态与v4历史形态同id() {
+    assert_eq!(
+        (
+            <ChangeRecord as native_model::Model>::native_model_id(),
+            <ChangeRecord as native_model::Model>::native_model_version()
+        ),
+        (9, 5),
+        "现代形态 9:v5"
+    );
+    assert_eq!(
+        (
+            <ChangeRecordV4 as native_model::Model>::native_model_id(),
+            <ChangeRecordV4 as native_model::Model>::native_model_version()
+        ),
+        (9, 4),
+        "历史形态 9:v4（同 id 相邻版本，无跳级）"
+    );
+
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("model.rs");
+    let source = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("读取 {} 失败: {error}", path.display()));
+    assert!(
+        source.contains("#[native_model(id = 9, version = 5, from = ChangeRecordV4)]"),
+        "现代形态 upgrade 源为 v4"
+    );
+    assert!(
+        source.contains("#[native_model(id = 9, version = 4, from = ChangeRecordV3)]"),
+        "历史形态 v4 upgrade 源为 v3"
+    );
+}
+
+/// `ChangeRecord::new()`（正向，表驱动两态）：末位实参 `Some` 与 `None` 两态
+/// 可构造，`exec_root` 落位正确、其余字段与 `title = name` 语义零改。
+#[test]
+fn change_record_new_exec_root末位实参两态() {
+    for exec_root in [Some(r"C:\wt\a\packages\desktop".to_owned()), None] {
+        let record = ChangeRecord::new(
+            "chg-new-v5",
+            "new-change",
+            "requirement",
+            1_727_000_000_000,
+            Some(r"C:\wt\a".to_owned()),
+            Some("0000000000000000000000000000000000000005".to_owned()),
+            exec_root.clone(),
+        );
+
+        assert_eq!(record.exec_root, exec_root, "exec_root 落位正确");
+        assert_eq!(record.title, record.name, "title = name 语义零改");
+        assert_eq!(record.status, ChangeStatus::Active, "新建态 Active");
+        assert_eq!(record.active_phase, None, "空态起步");
+    }
+}
+
+/// `exec_root` 列 serde 面（边界，表驱动三形态）：`None` / `Some` 两态往返相
+/// 等；缺列（JSON 无该键）→ `None`（`#[serde(default)]` 读兼容）。
+#[test]
+fn change_record_exec_root列serde往返两态与缺列读兼容() {
+    let base = ChangeRecord {
+        id: "chg-serde-v5".to_owned(),
+        name: "serde-change".to_owned(),
+        title: "序列化标题".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: 1_727_000_000_000,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+        worktree: Some(r"C:\wt\serde-change".to_owned()),
+        base_commit: None,
+        exec_root: None,
+    };
+
+    for exec_root in [
+        None,
+        Some(r"C:\wt\serde-change\packages\desktop".to_owned()),
+    ] {
+        let record = ChangeRecord {
+            exec_root: exec_root.clone(),
+            ..base.clone()
+        };
+        let text = serde_json::to_string(&record).expect("序列化应成功");
+        let decoded: ChangeRecord = serde_json::from_str(&text).expect("反序列化应成功");
+        assert_eq!(decoded.exec_root, exec_root, "两态往返相等");
+        assert_eq!(decoded, record, "整记录往返相等");
+    }
+
+    let mut value = serde_json::to_value(&base).expect("序列化应成功");
+    value
+        .as_object_mut()
+        .expect("线形状为对象")
+        .remove("execRoot");
+    let decoded: ChangeRecord = serde_json::from_value(value).expect("缺列应读兼容");
+    assert_eq!(decoded.exec_root, None, "缺列 → None（serde default）");
+}
+
+/// `exec_root` 列 serde 面（边界）：超长串（> 1000 字符）与分隔符混用（`\` 与
+/// `/` 并存）原样保存往返、零归一。
+#[test]
+fn change_record_exec_root超长与分隔符混用原样往返() {
+    let long = format!(r"C:\wt\{}", "seg/".repeat(300));
+    assert!(long.len() > 1000, "夹具应超 1000 字符");
+    for exec_root in [long, r"C:\wt\mix\sub/dir\leaf".to_owned()] {
+        let record = ChangeRecord {
+            id: "chg-len-v5".to_owned(),
+            name: "len-change".to_owned(),
+            title: "长度标题".to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: 1,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: None,
+            base_commit: None,
+            exec_root: Some(exec_root.clone()),
+        };
+        let text = serde_json::to_string(&record).expect("序列化应成功");
+        let decoded: ChangeRecord = serde_json::from_str(&text).expect("反序列化应成功");
+        assert_eq!(
+            decoded.exec_root.as_deref(),
+            Some(exec_root.as_str()),
+            "原样往返零归一"
+        );
+    }
+}
+
+/// `exec_root` 列 serde 面（异常，表驱动三形态）：类型违例（数字 / 对象 / 数
+/// 组，手改 payload 形态）→ 反序列化 `Err`（不静默吞、不猜形态）。
+#[test]
+fn change_record_exec_root类型违例_反序列化err() {
+    let base = ChangeRecord {
+        id: "chg-bad-v5".to_owned(),
+        name: "bad-change".to_owned(),
+        title: "违例标题".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: 1,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+        worktree: None,
+        base_commit: None,
+        exec_root: None,
+    };
+    let value = serde_json::to_value(&base).expect("序列化应成功");
+
+    for bad in [
+        serde_json::json!(42),
+        serde_json::json!({"root": "x"}),
+        serde_json::json!(["a", "b"]),
+    ] {
+        let mut mutated = value.clone();
+        mutated["execRoot"] = bad.clone();
+        let decoded = serde_json::from_value::<ChangeRecord>(mutated);
+        assert!(
+            decoded.is_err(),
+            "exec_root 非字符串形态应 Err（实际载荷 {bad}）"
+        );
+    }
+}
+
+/// v3 → v4 → v5 三级链（边界）：v3 行（缺 `title` 与 `exec_root`）升级 →
+/// `title = name`、`exec_root = None`。
+#[test]
+fn change_record_v3到v5三级链_title兜底name且exec_root为空() {
+    let legacy = ChangeRecordV3 {
+        id: "chg-chain-v3".to_owned(),
+        name: "chain-change".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: 1_600_000_000_000,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+        worktree: None,
+        base_commit: None,
+    };
+    let bytes = native_model::encode(&legacy).expect("encode v3 应成功");
+
+    let (upgraded, version) =
+        native_model::decode::<ChangeRecord>(bytes).expect("v3 载荷应升级为 v5");
+
+    assert_eq!(version, 3, "载荷头版本为链源版本");
+    assert_eq!(upgraded.title, "chain-change", "缺 title 列兜底 name");
+    assert_eq!(upgraded.exec_root, None, "缺 exec_root 列读出 None");
+    assert_eq!(upgraded.id, legacy.id);
+}
+
 /// ChangeRecord V4 → V3 降级半边（边界）：双向 `From` 的降级方向丢弃
 /// `title`，剩余字段逐字一致（运行时无降级读取路径）。
 #[test]
@@ -1844,8 +2133,9 @@ fn change_record_v4到v3降级半边丢弃title() {
         active_phase: None,
         worktree: Some(r"C:\wt\down-change".to_owned()),
         base_commit: None,
+        exec_root: None,
     };
-    let downgraded = ChangeRecordV3::from(record.clone());
+    let downgraded = ChangeRecordV3::from(ChangeRecordV4::from(record.clone()));
     assert_eq!(downgraded.id, record.id);
     assert_eq!(downgraded.name, record.name);
     assert_eq!(downgraded.workflow_type, record.workflow_type);
@@ -1855,7 +2145,7 @@ fn change_record_v4到v3降级半边丢弃title() {
     assert_eq!(downgraded.worktree, record.worktree);
     assert_eq!(downgraded.base_commit, record.base_commit);
     // 再升级回来：title 按升级语义兜底（= name）
-    let round_trip = ChangeRecord::from(downgraded);
+    let round_trip = ChangeRecord::from(ChangeRecordV4::from(downgraded));
     assert_eq!(
         round_trip.title, record.name,
         "降级丢弃后升级兜底 title = name"
@@ -1873,7 +2163,7 @@ fn title恒非空不变量_构造与升级两路径默认name兜底() {
     assert_eq!(explore.title, explore.name);
     assert_eq!(explore.promoted_to, None);
 
-    let change = ChangeRecord::new("chg-1", "change-a", "requirement", 1, None, None);
+    let change = ChangeRecord::new("chg-1", "change-a", "requirement", 1, None, None, None);
     assert!(!change.title.is_empty(), "构造路径 title 恒非空");
     assert_eq!(change.title, change.name);
 
@@ -1895,7 +2185,7 @@ fn title恒非空不变量_构造与升级两路径默认name兜底() {
         "升级路径 workflow_type 默认 requirement"
     );
 
-    let upgraded_change = ChangeRecord::from(ChangeRecordV3 {
+    let upgraded_change = ChangeRecord::from(ChangeRecordV4::from(ChangeRecordV3 {
         id: "chg-up".to_owned(),
         name: "upgraded-change".to_owned(),
         workflow_type: "requirement".to_owned(),
@@ -1905,7 +2195,7 @@ fn title恒非空不变量_构造与升级两路径默认name兜底() {
         active_phase: None,
         worktree: None,
         base_commit: None,
-    });
+    }));
     assert_eq!(upgraded_change.title, "upgraded-change");
     assert!(!upgraded_change.title.is_empty());
 }
@@ -1914,8 +2204,8 @@ fn title恒非空不变量_构造与升级两路径默认name兜底() {
 /// 记录构造合法且不相等（name 非身份键）。
 #[test]
 fn change_record身份面同name不同id两记录合法且不相等() {
-    let first = ChangeRecord::new("chg-甲", "同名档", "requirement", 1000, None, None);
-    let second = ChangeRecord::new("chg-乙", "同名档", "requirement", 1000, None, None);
+    let first = ChangeRecord::new("chg-甲", "同名档", "requirement", 1000, None, None, None);
+    let second = ChangeRecord::new("chg-乙", "同名档", "requirement", 1000, None, None, None);
 
     assert_eq!(first.name, second.name, "同 name 合法（name 无唯一约束）");
     assert_ne!(first.id, second.id, "id 互异（身份锚独立可辨）");
@@ -1940,6 +2230,7 @@ fn change_record_new携id构造逐字段对位_active与空态起步() {
         1_727_000_000_000,
         Some(worktree.clone()),
         Some(base.clone()),
+        None,
     );
     assert_eq!(
         record.id, "chg-0001",
@@ -1964,6 +2255,7 @@ fn change_record_new携id构造逐字段对位_active与空态起步() {
         "legacy形态",
         "requirement",
         1_727_000_000_000,
+        None,
         None,
         None,
     );
@@ -1995,8 +2287,8 @@ fn 身份锚不变_explore与change主键零换锚且name为可变属性() {
         "title 与 name 同源默认（同名同题）"
     );
 
-    let change_a = ChangeRecord::new("chg-甲", "同名档", "requirement", 1000, None, None);
-    let change_b = ChangeRecord::new("chg-乙", "同名档", "requirement", 1000, None, None);
+    let change_a = ChangeRecord::new("chg-甲", "同名档", "requirement", 1000, None, None, None);
+    let change_b = ChangeRecord::new("chg-乙", "同名档", "requirement", 1000, None, None, None);
     assert_eq!(
         change_a.name, change_b.name,
         "同 name 合法（change name 无唯一约束）"
@@ -2045,13 +2337,13 @@ fn 表名版本段_native_model_id与version断言_公式锚() {
             <ChangeRecord as native_model::Model>::native_model_id(),
             <ChangeRecord as native_model::Model>::native_model_version()
         ),
-        (9, 4),
-        "ChangeRecord 9:v4（新增 title 列——物表 9_3_id → 9_4_id）"
+        (9, 5),
+        "ChangeRecord 9:v5（新增 exec_root 列——物表 9_4_id → 9_5_id）"
     );
     assert_eq!(
-        table(9, 4, "id"),
-        "9_4_id",
-        "change 建档物表名公式锚（旧表 9_3_id 对新读面不可见）"
+        table(9, 5, "id"),
+        "9_5_id",
+        "change 建档物表名公式锚（旧表 9_4_id / 9_3_id 对新读面不可见）"
     );
 
     // 旧形态类型（仅升级链解码目标，不注册）：版本段恒为历史值
@@ -3198,6 +3490,7 @@ fn run_node_record真件落库读回四列逐字段一致() {
             archived_at: None,
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         })
         .expect("建档种子应成功");

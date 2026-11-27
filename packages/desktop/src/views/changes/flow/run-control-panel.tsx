@@ -314,7 +314,7 @@ function ArchiDiffDetail({ summary }: { summary: ArchiChangeSummary }): React.JS
   );
 }
 
-/** 新图预览（以改动后的模型渲染画布；worktree 缺席回落主仓根）。 */
+/** 新图预览（以改动后的模型渲染画布；执行根缺席回落主仓根）。 */
 function ArchiPreview({ root }: { root: string | null }): React.JSX.Element {
   return (
     <div
@@ -336,12 +336,12 @@ function ArchiPreview({ root }: { root: string | null }): React.JSX.Element {
 function ArchitectureChangeBlock({
   root,
   changeId,
-  worktree,
+  previewRoot,
 }: {
   root: string | null;
   changeId: string | null;
-  /** 改后模型的观察根（新图预览用；worktree 缺席时回落主仓根） */
-  worktree: string | null;
+  /** 改后模型的观察根（新图预览用；执行根缺席时回落主仓根） */
+  previewRoot: string | null;
 }): React.JSX.Element | null {
   const { summary, error } = useArchiChangeSummary(root, changeId);
   const [showDiff, setShowDiff] = useState(false);
@@ -373,7 +373,7 @@ function ArchitectureChangeBlock({
         </Button>
       </div>
       {showDiff && <ArchiDiffDetail summary={summary} />}
-      {showPreview && <ArchiPreview root={worktree ?? root} />}
+      {showPreview && <ArchiPreview root={previewRoot ?? root} />}
     </div>
   );
 }
@@ -437,7 +437,7 @@ function ArchiveConfirmCard({
       <ArchitectureChangeBlock
         root={root}
         changeId={changeId}
-        worktree={preflight?.worktree ?? null}
+        previewRoot={preflight?.execRoot ?? preflight?.worktree ?? null}
       />
       <ArchiveSyncSkip skipSync={skipSync} onChange={setSkipSync} />
       {preflight !== null && preflight.worktree !== null && (

@@ -59,7 +59,7 @@ use workflow::state::{
 };
 use workflow::write::{
     archive, create, phase_next, ArchiveOutcome, CreateOutcome, InstallRun, RepoProbe,
-    SessionAnchors, WorktreePort,
+    SessionAnchors, WorktreePlacement, WorktreePort,
 };
 
 /// golden 重写开关环境变量（沿既有 harness 命名）。
@@ -186,6 +186,7 @@ impl Corpus {
                 archived_at: None,
                 active_phase: None,
                 worktree: None,
+                exec_root: None,
                 base_commit: None,
             })
             .expect("建档失败");
@@ -204,6 +205,7 @@ impl Corpus {
                 archived_at: None,
                 active_phase: None,
                 worktree: None,
+                exec_root: None,
                 base_commit: None,
             })
             .expect("建档失败");
@@ -279,6 +281,7 @@ impl Corpus {
             root: self.root.to_string_lossy().into_owned(),
             main_root: self.root.to_string_lossy().into_owned(),
             stop_before: Some("archive".to_owned()),
+            worktree: Some(self.root.to_string_lossy().into_owned()),
             change_id: change_id.to_owned(),
             run_id: run_id.to_owned(),
             auto_next_phase: true,
@@ -390,8 +393,15 @@ fn mirror_tree(from: &Path, to: &Path) -> Result<(), String> {
 }
 
 impl WorktreePort for FakeVcs {
-    fn worktree_root(&self, _main_root: &Path) -> Result<PathBuf, String> {
-        Ok(self.worktree_root.clone())
+    fn placement(&self, _main_root: &Path) -> Result<WorktreePlacement, String> {
+        Ok(WorktreePlacement {
+            root: self.worktree_root.clone(),
+            rel: String::new(),
+        })
+    }
+
+    fn tracked_at_head(&self, _main_root: &Path, _rel: &str) -> Result<bool, String> {
+        Ok(true)
     }
 
     fn probe(&self, _main_root: &Path) -> Result<RepoProbe, String> {
@@ -685,6 +695,7 @@ fn build_list_mixed() -> Corpus {
             archived_at: None,
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         })
         .expect("未知时间归档建档失败");
@@ -713,6 +724,7 @@ fn build_list_mixed() -> Corpus {
         archived_at: None,
         active_phase: None,
         worktree: Some("<WORKTREE_ROOT>/list-worktree".to_owned()),
+        exec_root: None,
         base_commit: Some("0000000000000000000000000000000000000001".to_owned()),
     };
     corpus
@@ -760,6 +772,7 @@ merge 前主仓两树未命中的产物形态。",
             archived_at: None,
             active_phase: None,
             worktree: Some(worktree.to_string_lossy().into_owned()),
+            exec_root: None,
             base_commit: Some("0000000000000000000000000000000000000001".to_owned()),
         })
         .expect("worktree 建档失败");
@@ -1211,6 +1224,7 @@ fn build_archive_prefix(tag: &str) -> Corpus {
             archived_at: Some(utc_millis(2026, time::Month::February, 2)),
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         })
         .expect("归档前缀样本建档失败");
@@ -2375,6 +2389,7 @@ fn corpus半包形态种子_整包拒绝且零golden产出() {
     let request = RunRequest {
         root: corpus.root.to_string_lossy().into_owned(),
         main_root: corpus.root.to_string_lossy().into_owned(),
+        worktree: Some(corpus.root.to_string_lossy().into_owned()),
         stop_before: Some("archive".to_owned()),
         change_id: "id-half-pack".to_owned(),
         run_id: "run-1727000030000".to_owned(),
@@ -3422,6 +3437,7 @@ fn 真件detail时间出线_epoch零口径() {
             archived_at: None,
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         })
         .expect("建档失败");
@@ -3544,6 +3560,7 @@ fn 真件run写面回环_running行与三终态整包() {
         let request = RunRequest {
             root: corpus.root.to_string_lossy().into_owned(),
             main_root: corpus.root.to_string_lossy().into_owned(),
+            worktree: Some(corpus.root.to_string_lossy().into_owned()),
             stop_before: Some("archive".to_owned()),
             change_id: "id-run-write".to_owned(),
             run_id: run_id.clone(),

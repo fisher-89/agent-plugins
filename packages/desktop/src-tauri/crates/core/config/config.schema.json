@@ -41,7 +41,7 @@
       "type": "string"
     },
     "projects": {
-      "description": "依赖引导项目锚点列表（相对 worktree 根；元素为 root 锚点与可选 language / depends_on；有配置时按 depends_on 拓扑序逐项目扫描 lockfile 并在其目录执行安装）",
+      "description": "依赖引导项目锚点列表（相对执行根；元素为 root 锚点与可选 language / depends_on；有配置时按 depends_on 拓扑序逐项目扫描 lockfile 并在其目录执行安装）",
       "default": [],
       "type": "array",
       "items": {
@@ -50,7 +50,7 @@
           "root": {
             "type": "string",
             "minLength": 1,
-            "description": "项目目录（相对 worktree 根，非绝对路径，禁止 \"..\" 段 / \":\" / 通配符）"
+            "description": "项目目录（相对执行根，非绝对路径，禁止 \"..\" 段 / \":\" / 通配符）"
           },
           "language": {
             "type": "string",

@@ -152,24 +152,24 @@ fn resolve_change_summary(
         .find_change_record(change_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("change \"{change_id}\" 未建档（无 ChangeRecord）"))?;
-    // 归档 change 的执行根恒回落主仓根（与会话 cwd 同口径）；active 且 worktree
-    // 记录在场才以 worktree 为改动侧
-    let worktree = match record.status {
+    // 归档 change 的执行侧恒回落主仓根（与会话 cwd 同口径）；active 才以执行
+    // 根为改动侧（`exec_root` 缺省回落 `worktree`——双根口径单点）
+    let exec_root = match record.status {
         ChangeStatus::Archived => None,
-        ChangeStatus::Active => record.worktree,
+        ChangeStatus::Active => record.exec_root().map(str::to_owned),
     };
-    archi_change_summary_inner(Path::new(root), worktree.as_deref())
+    archi_change_summary_inner(Path::new(root), exec_root.as_deref())
 }
 
-/// [`archi_change_summary`] 的领域组装纯函数：主仓基线 + 改动侧（worktree 或主仓
+/// [`archi_change_summary`] 的领域组装纯函数：主仓基线 + 改动侧（执行根或主仓
 /// 本身）两侧模型结构 diff。
 pub fn archi_change_summary_inner(
     main_root: &Path,
-    worktree: Option<&str>,
+    exec_root: Option<&str>,
 ) -> Result<Option<ArchiChangeSummary>, String> {
     check_root(main_root)?;
-    let next_root = match worktree {
-        Some(worktree) => Path::new(worktree),
+    let next_root = match exec_root {
+        Some(exec_root) => Path::new(exec_root),
         None => main_root,
     };
     dto::change_summary(main_root, next_root)

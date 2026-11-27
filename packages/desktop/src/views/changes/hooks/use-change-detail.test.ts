@@ -49,6 +49,7 @@ function fakeDetail(artifacts: ArtifactDescriptor[]): ChangeDetail {
     activePhase: null,
     runs: [],
     worktree: null,
+    execRoot: null,
     artifacts,
   };
 }

@@ -65,8 +65,13 @@ pub struct CreateOutcome {
     /// UTC 日历日期 `YYYY-MM-DD`（取 db 建档 `created_at`，写面铸出后随 DTO
     /// 直达命令返回，无需回读）
     pub created: String,
-    /// 本 change 分配的 worktree 绝对路径（执行锚；db 记录同源）
+    /// 本 change 分配的 worktree 绝对路径（**落位目录 / host**：git 步与回收
+    /// 的唯一锚；db 记录同源）
     pub worktree: String,
+    /// 执行根绝对路径（change 工作面 = 落位目录 + workspace 相对偏移）；根
+    /// workspace 与 legacy 形态为 `None`（= 与 `worktree` 同值）。db 记录
+    /// `exec_root` 列同源
+    pub exec_root: Option<String>,
     /// 警告清单（脏仓引导 / 依赖引导注记与失败；干净仓且顺利 → 空清单）
     pub warnings: Vec<String>,
 }
@@ -75,7 +80,7 @@ pub struct CreateOutcome {
 /// 与「空」）。
 #[derive(Debug, Clone)]
 pub struct BootstrapProject {
-    /// 项目目录（相对 worktree 根；`.` 等价 worktree 根）
+    /// 项目目录（相对**执行根**——主仓与 worktree 两侧同解；`.` 等价执行根）
     pub root: String,
     /// 依赖的项目根（零引用校验；仅用于推导安装序）
     pub depends_on: Vec<String>,
@@ -201,12 +206,16 @@ pub fn create(
              请先归档或手动清理后再创建"
         ));
     }
-    let worktree_root = vcs.worktree_root(main_root)?;
+    // 落位 + 偏移一次派生（`root` = 落位父锚、`rel` = workspace root 相对 git
+    // 根的偏移）。两值分工：`root` 供磁盘门槛扫描与 host 拼装，`rel` 只参与
+    // 执行根派生与准入判据——MUST NOT 进入落位形态（一仓一名的命名空间）
+    let placement = vcs.placement(main_root)?;
+    let worktree_root = placement.root.as_path();
     // 前置⑨：worktree 磁盘保底门槛（db 与磁盘漂移防线：孤儿 worktree / 手动
-    // 残留不占 active 额度但占磁盘。`worktree_root` 即 `.worktrees/<仓库目录
-    // 名>/` 父锚，直属子目录逐目录计数；目录不存在（尚无 worktree 面）计 0，
-    // 其余读错误显式 Err——误扫成 0 会绕过门槛）
-    let worktree_dirs = match fs::read_dir(&worktree_root) {
+    // 残留不占 active 额度但占磁盘。`placement.root` 即 `.worktrees/<仓库目
+    // 录名>/` 父锚，直属子目录逐目录计数；目录不存在（尚无 worktree 面）计
+    // 0，其余读错误显式 Err——误扫成 0 会绕过门槛）
+    let worktree_dirs = match fs::read_dir(worktree_root) {
         Ok(entries) => entries
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.file_type().map(|t| t.is_dir()).unwrap_or(false))
@@ -219,7 +228,7 @@ pub fn create(
         return Err(format!(
             "worktree 目录数已达保底门槛（当前 {worktree_dirs}，门槛 {worktree_threshold}）：{}；\
              清理后再创建",
-            worktree_reconcile_hint(&worktree_root)
+            worktree_reconcile_hint(worktree_root)
         ));
     }
     // 前置⑤：git 探测三态（git 不可发现 / 非 git 仓 / 空仓无 HEAD 显式 Err
@@ -240,14 +249,36 @@ pub fn create(
             worktree.display()
         ));
     }
+    // 前置⑩：workspace root 在 worktree 内的对应子目录须随检出——`HEAD:<rel>`
+    // 在案判据（`rel = ""` 时整段跳过，零新增 spawn）。MUST 位于 add_worktree
+    // 之前：判据先于任何写 IO 才能保住「拒绝面零副作用」（零建档 / 零目录 /
+    // 零 worktree / 零 branch）；后置 is_dir 断言只兜竞态与磁盘异常
+    if !placement.rel.is_empty() && !vcs.tracked_at_head(main_root, &placement.rel)? {
+        return Err(format!(
+            "workspace root 对应子目录 \"{rel}\" 不在 git HEAD 中：worktree 检出只含 git 跟踪\
+             内容，常见成因三类——该子目录从未纳入 git 跟踪、已在 HEAD 中删除（仅本地残留）、\
+             或被 gitignore 排除。请把它纳入 git 跟踪并提交，或改用仓库根作为 workspace root \
+             后重试（本次未建档、未建 worktree、未铸分支）",
+            rel = placement.rel
+        ));
+    }
 
     // 执行段一：db 建档先行（fs / vcs 失败可补偿；反向则出现被禁破口
     // 「worktree 在而记录缺」）——携 id / worktree / base_commit 执行锚。
-    // id 铸出点（D1）：前置九道全过后、建档之前直铸 uuid v7（与 created_at
+    // id 铸出点（D1）：前置十道全过后、建档之前直铸 uuid v7（与 created_at
     // 同段；纯 id 生成无 IO 无 vcs 调用，拒绝面零铸出）
     let id = uuid::Uuid::now_v7().to_string();
     let created_at = super::now_millis();
     let worktree_path = worktree.to_string_lossy().into_owned();
+    // 执行根 = 落位目录 + workspace 相对偏移（`rel = ""` → `None`，语义 = 与
+    // `worktree` 同值）。串一次铸出、记录与 DTO 各持一份克隆——两处各算一遍
+    // 会让取值面漂移
+    let exec_root_path = worktree.join(&placement.rel);
+    let exec_root = if placement.rel.is_empty() {
+        None
+    } else {
+        Some(exec_root_path.to_string_lossy().into_owned())
+    };
     store
         .create_change_record(ChangeStateRecord {
             id: id.clone(),
@@ -261,6 +292,7 @@ pub fn create(
             active_phase: None,
             worktree: Some(worktree_path.clone()),
             base_commit: Some(probe.head.clone()),
+            exec_root: exec_root.clone(),
         })
         .map_err(|error| error.to_string())?;
 
@@ -273,15 +305,35 @@ pub fn create(
             main_root,
             &id,
             &branch,
-            &worktree_root,
+            worktree_root,
             &error,
         ));
     }
 
-    // 执行段三：worktree 内目录树 + explore.md。失败 → remove_worktree →
+    // 后置断言：执行根须随检出落在盘上（子目录 workspace 才做）。MUST 早于
+    // `write_fs_half`——`create_dir_all` 会把缺失的执行根**建出来**，断言若在
+    // 其后就永远为真；miss ⇒ 既有补偿链（入参恒 host：传执行根会「删子目录 +
+    // 留登记」）
+    if !placement.rel.is_empty() && !exec_root_path.is_dir() {
+        return Err(compensate_tree_failure(
+            store,
+            vcs,
+            main_root,
+            &id,
+            &branch,
+            &worktree,
+            worktree_root,
+            &format!(
+                "执行根 {} 在 worktree 建域后不在盘（workspace root 对应子目录未随检出）",
+                exec_root_path.display()
+            ),
+        ));
+    }
+
+    // 执行段三：执行根内目录树 + explore.md。失败 → remove_worktree →
     // 删分支 → 删建档（尽力链）
-    let worktree_layout = resolve(&worktree);
-    let change_dir = worktree_layout.changes_root.join(name);
+    let exec_root_layout = resolve(&exec_root_path);
+    let change_dir = exec_root_layout.changes_root.join(name);
     if let Err(error) = write_fs_half(&change_dir, goal) {
         return Err(compensate_tree_failure(
             store,
@@ -290,7 +342,7 @@ pub fn create(
             &id,
             &branch,
             &worktree,
-            &worktree_root,
+            worktree_root,
             &error,
         ));
     }
@@ -300,13 +352,14 @@ pub fn create(
     if probe.dirty {
         warnings.push(WARN_DIRTY_MAIN.to_owned());
     }
-    bootstrap(&worktree, projects, vcs, &mut warnings);
+    bootstrap(&exec_root_path, projects, vcs, &mut warnings);
 
     Ok(CreateOutcome {
         id,
         name: name.to_owned(),
         created: utc_date(created_at),
         worktree: worktree_path,
+        exec_root,
         warnings,
     })
 }
@@ -318,23 +371,23 @@ fn write_fs_half(dir: &Path, goal: &str) -> Result<(), String> {
         .map_err(|error| format!("写入 explore.md 失败: {error}"))
 }
 
-/// 确定性 bootstrap 分派：未配置项目根 → worktree 根单扫描（legacy，行为与
-/// 文案逐字不变）；配置了项目根 → 按 `depends_on` 拓扑序逐个安装（依赖先于
-/// 依赖方，同层保持声明序；脏依赖零阻断），命中即在该项目目录执行安装（每
-/// 项目至多一次）。失败 / 未命中均只记警告，不回滚 create（后续确定性检查
-/// 步大声失败兜底；D5 词汇单点）。
+/// 确定性 bootstrap 分派：未配置项目根 → 执行根单扫描（legacy，行为与文案
+/// 逐字不变）；配置了项目根 → 按 `depends_on` 拓扑序逐个安装（依赖先于依赖
+/// 方，同层保持声明序；脏依赖零阻断），命中即在该项目目录执行安装（每项目
+/// 至多一次）。失败 / 未命中均只记警告，不回滚 create（后续确定性检查步大
+/// 声失败兜底；D5 词汇单点）。
 fn bootstrap(
-    worktree: &Path,
+    exec_root: &Path,
     projects: &[BootstrapProject],
     vcs: &dyn WorktreePort,
     warnings: &mut Vec<String>,
 ) {
     if projects.is_empty() {
-        bootstrap_worktree_root(worktree, vcs, warnings);
+        bootstrap_exec_root(exec_root, vcs, warnings);
         return;
     }
     for root in install_order(projects) {
-        bootstrap_project(worktree, root, vcs, warnings);
+        bootstrap_project(exec_root, root, vcs, warnings);
     }
 }
 
@@ -379,43 +432,41 @@ fn visit_order<'a>(
     order.push(project.root.as_str());
 }
 
-/// legacy（未配置项目根）：worktree 根探测 lockfile → 映射表首匹配命中即
-/// spawn 安装（cwd = worktree 根）；无已知 lockfile → 跳过 + 注记（先判
-/// Cargo 无 lock 专项注记，后落「未识别管理器」）。
-fn bootstrap_worktree_root(worktree: &Path, vcs: &dyn WorktreePort, warnings: &mut Vec<String>) {
+/// legacy（未配置项目根）：执行根探测 lockfile → 映射表首匹配命中即 spawn
+/// 安装（cwd = 执行根）；无已知 lockfile → 跳过 + 注记（先判 Cargo 无 lock
+/// 专项注记，后落「未识别管理器」）。
+fn bootstrap_exec_root(exec_root: &Path, vcs: &dyn WorktreePort, warnings: &mut Vec<String>) {
     for (lockfile, command) in BOOTSTRAP_LOCKFILE_COMMANDS {
-        if !worktree.join(lockfile).exists() {
+        if !exec_root.join(lockfile).exists() {
             continue;
         }
-        match vcs.run_install(worktree, command) {
+        match vcs.run_install(exec_root, command) {
             Ok(run) if run.success => {}
             Ok(run) => warnings.push(format!("依赖引导失败（{command}）: {}", run.summary)),
             Err(error) => warnings.push(format!("依赖引导未执行成功（{command}）: {error}")),
         }
         return; // 首匹配即收口（单安装，映射表序）
     }
-    if worktree.join("Cargo.toml").exists() {
+    if exec_root.join("Cargo.toml").exists() {
         warnings.push(WARN_CARGO_NO_LOCK.to_owned());
     } else {
         warnings.push(WARN_NO_KNOWN_MANAGER.to_owned());
     }
 }
 
-/// 项目模式（配置了 `projects[].root`）：worktree 内项目目录不存在 → 警告
-/// 跳过；lockfile 命中 → 在该项目目录执行安装（cwd = `<worktree>/<root>`）；
-/// 未命中 → 专项 / 通用注记。每项目至多一条 bootstrap 警告，失败不中断
-/// 后续项目。
+/// 项目模式（配置了 `projects[].root`）：执行根内项目目录不存在 → 警告跳
+/// 过；lockfile 命中 → 在该项目目录执行安装（cwd = `<exec_root>/<root>`）；
+/// 未命中 → 专项 / 通用注记。每项目至多一条 bootstrap 警告，失败不中断后
+/// 续项目。
 fn bootstrap_project(
-    worktree: &Path,
+    exec_root: &Path,
     root: &str,
     vcs: &dyn WorktreePort,
     warnings: &mut Vec<String>,
 ) {
-    let target = worktree.join(root);
+    let target = exec_root.join(root);
     if !target.is_dir() {
-        warnings.push(format!(
-            "项目根 \"{root}\"：在 worktree 内不存在，跳过依赖引导"
-        ));
+        warnings.push(format!("项目根 \"{root}\"：在执行根内不存在，跳过依赖引导"));
         return;
     }
     for (lockfile, command) in BOOTSTRAP_LOCKFILE_COMMANDS {

@@ -410,7 +410,10 @@ pub(crate) fn run_archive_preflight(
     // workflow_type 不受支持 → completed=false + 空 incomplete（读面只出布尔结论）
     let (completed, incomplete_phases) =
         completion_of(&record, store).unwrap_or((false, Vec::new()));
+    // 两列各钉一侧（单列改执行根 → git 步删错目录；单列改 host → 产物探测恒
+    // 「全缺」）：`worktree` = 落位目录（host）、`execRoot` = 记录原始列
     let worktree = record.worktree.as_deref();
+    let exec_root = record.exec_root();
     let name = record.name.as_str();
     let branch = worktree.map(|_| change_branch(name));
     let merge_target = match worktree {
@@ -421,9 +424,10 @@ pub(crate) fn run_archive_preflight(
         name: name.to_owned(),
         completed,
         incomplete_phases,
-        missing_artifacts: missing_artifacts(&layout, worktree, name),
-        delta_specs: detect_delta_specs(&layout, worktree, name),
+        missing_artifacts: missing_artifacts(&layout, exec_root, name),
+        delta_specs: detect_delta_specs(&layout, exec_root, name),
         worktree: worktree.map(str::to_owned),
+        exec_root: record.exec_root.clone(),
         branch,
         merge_target,
     })
@@ -461,9 +465,10 @@ fn completion_of(
 }
 
 /// 产物三件核对：定位目录内 `proposal.md` / `design.md` / `tasks.md` 在场情况
-/// （缺席清单；定位失败 = 全缺）。
-fn missing_artifacts(layout: &Layout, worktree: Option<&str>, name: &str) -> Vec<String> {
-    let location = locate_change(layout, worktree, name);
+/// （缺席清单；定位失败 = 全缺）。`exec_root` 为**执行根**（change 工作面）——
+/// 产物写在执行根内的 `openspec/changes/<name>`，喂落位目录会恒「全缺」。
+fn missing_artifacts(layout: &Layout, exec_root: Option<&str>, name: &str) -> Vec<String> {
+    let location = locate_change(layout, exec_root, name);
     ARTIFACT_FILES
         .iter()
         .filter(|file| {
@@ -475,15 +480,15 @@ fn missing_artifacts(layout: &Layout, worktree: Option<&str>, name: &str) -> Vec
         .collect()
 }
 
-/// delta specs 探测（**主仓优先、worktree 回退**）：capability 目录清单（含
+/// delta specs 探测（**主仓优先、执行根回退**）：capability 目录清单（含
 /// `spec.md` 者，字典序）。
 pub(crate) fn detect_delta_specs(
     layout: &Layout,
-    worktree: Option<&str>,
+    exec_root: Option<&str>,
     name: &str,
 ) -> Vec<String> {
     let location =
-        locate_change(layout, None, name).or_else(|| locate_change(layout, worktree, name));
+        locate_change(layout, None, name).or_else(|| locate_change(layout, exec_root, name));
     let Some(location) = location else {
         return Vec::new();
     };

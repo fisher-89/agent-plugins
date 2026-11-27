@@ -115,6 +115,7 @@ fn change_state(record: &ChangeRecord) -> ChangeStateRecord {
         }),
         worktree: record.worktree.clone(),
         base_commit: record.base_commit.clone(),
+        exec_root: record.exec_root.clone(),
     }
 }
 
@@ -1639,6 +1640,7 @@ impl Store {
             active_phase: record.active_phase.map(change_active_phase_stored),
             worktree: record.worktree,
             base_commit: record.base_commit,
+            exec_root: record.exec_root,
         };
         let db = self.db()?;
         let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;

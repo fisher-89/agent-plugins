@@ -136,16 +136,17 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
             record.name, record.workflow_type
         ));
     }
-    // 前置校验 3：exec root 解析（design D9 双 root 拆分）——record.worktree
-    // 非 None → 该绝对路径为 exec root（会话 cwd / 工件根 / 检查器执行目录），
-    // is_dir 存在性校验（worktree 被手动删除后发起点一行显式 Err 优于深埋在
-    // 引擎 cwd 的失败）；None → 主 workspace root（legacy 零变化）。store 半
-    // 边恒 workspace root（双 root 不变量——worktree 路径不进 `for_root`）
-    let exec_root = match record.worktree.as_deref() {
-        Some(worktree) if Path::new(worktree).is_dir() => worktree.to_owned(),
-        Some(worktree) => {
+    // 前置校验 3：exec root 解析（design D9 双 root 拆分）——`record.exec_root()`
+    // 单点（`exec_root` 列缺省回落 `worktree`）给出 change 工作面根（会话 cwd /
+    // 工件根 / 检查器执行目录），is_dir 存在性校验（目录被手动删除后发起点一行
+    // 显式 Err 优于深埋在引擎 cwd 的失败）；worktree 缺席（legacy）→ 主 workspace
+    // root。store 半边恒 workspace root（双 root 不变量——worktree 路径不进
+    // `for_root`）
+    let exec_root = match record.exec_root().map(str::to_owned) {
+        Some(exec_root) if Path::new(&exec_root).is_dir() => exec_root,
+        Some(exec_root) => {
             return Err(format!(
-                "worktree 目录不存在（可能已被手动删除）: {worktree}；\
+                "执行根目录不存在（可能已被手动删除）: {exec_root}；\
                  请恢复目录或手动清理后重建 change"
             ));
         }
@@ -243,6 +244,9 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         // 主仓锚（双 root 拆分）：归档相位 git 步 / layout 解析恒主 workspace
         // root（worktree 为 exec root 时亦然）
         main_root: root.clone(),
+        // git 步与回收的唯一锚（host）：MUST NOT 从 `root`（执行根）反推——
+        // 子目录 workspace 下两者恒不等
+        worktree: record.worktree.clone(),
         change_id: id.clone(),
         run_id: run_id.clone(),
         auto_next_phase,

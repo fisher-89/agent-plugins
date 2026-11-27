@@ -242,8 +242,11 @@ pub struct ArchivePreflight {
     pub missing_artifacts: Vec<String>,
     /// delta specs capability 清单（定位目录 specs/ 子树非空者）
     pub delta_specs: Vec<String>,
-    /// worktree 记录（None = legacy 主 root change）
+    /// worktree 记录（**落位目录 / host**；None = legacy 主 root change）。
+    /// git 步（commit / rebase / merge / cleanup）与 merge-first 判定吃本列
     pub worktree: Option<String>,
+    /// 执行根原始列（None = 与 `worktree` 同值；工件与 delta specs 探测吃本列）
+    pub exec_root: Option<String>,
     /// change 分支名（worktree 记录在场才在案：`change/<name>`）
     pub branch: Option<String>,
     /// 主仓当前分支名（合入目标；worktree 记录在场才探测）

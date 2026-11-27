@@ -1,4 +1,5 @@
 use std::fmt;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -92,12 +93,43 @@ pub struct ChangeStateRecord {
     pub archived_at: Option<i64>,
     /// 运行中 phase（开相在位、落账清位）
     pub active_phase: Option<ActivePhaseState>,
-    /// 该 change 分配的 worktree 绝对路径（执行锚）；`None` = legacy 主 root
-    /// change。**执行锚引用**，MUST NOT 反向参与库身份派生（`for_root` 恒以
-    /// workspace root 为锚——双 root 不变量）。
+    /// 该 change 分配的 worktree 绝对路径（**落位目录 / host**：git worktree
+    /// add/remove、基线恢复、快照、提交与合入的唯一锚）；`None` = legacy 主
+    /// root change。**执行锚引用**，MUST NOT 反向参与库身份派生（`for_root`
+    /// 恒以 workspace root 为锚——双 root 不变量）。
     pub worktree: Option<String>,
+    /// 执行根绝对路径（change 工作面：会话 cwd / Layout / 产物定位 / 检查器
+    /// / bootstrap 锚）；`None` = 与 `worktree` 同值（根 workspace 与 legacy
+    /// 记录同形）。取路径请经 [`ChangeStateRecord::exec_root`] 单点，MUST NOT
+    /// 在本类型之外自写 `exec_root.or(worktree)`。
+    pub exec_root: Option<String>,
     /// 创建基线 fork 点（主仓 HEAD，建域时铸出）；调试 / UI 价值。
     pub base_commit: Option<String>,
+}
+
+impl ChangeStateRecord {
+    /// 执行根单点（含真后代守卫）：`worktree = None`（legacy）→ `None`；
+    /// `exec_root = None` → `Some(worktree)`；`exec_root` 是 `worktree` 的
+    /// **真后代**（组件级比较——分隔符混用与尾分隔符都不误判）→
+    /// `Some(exec_root)`；越界 / 陈旧行（等于 host、host 祖先、无关绝对路径）
+    /// → stderr 留痕 + 回落 `worktree`（读面纯 fs，失败形态退回「执行根 =
+    /// 落位」而不产生越界路径）。
+    pub fn exec_root(&self) -> Option<&str> {
+        let worktree = self.worktree.as_deref()?;
+        let Some(exec_root) = self.exec_root.as_deref() else {
+            return Some(worktree);
+        };
+        if Path::new(exec_root) != Path::new(worktree) && Path::new(exec_root).starts_with(worktree)
+        {
+            return Some(exec_root);
+        }
+        eprintln!(
+            "[workflow] change {} 的执行根 {} 不是 worktree {} 的真后代（陈旧或手改记录）：\
+             按 worktree 回落",
+            self.id, exec_root, worktree
+        );
+        Some(worktree)
+    }
 }
 
 /// 相位评估条目中性快照（`PhaseRecord` 行 + checklist 子行内联重组的 port

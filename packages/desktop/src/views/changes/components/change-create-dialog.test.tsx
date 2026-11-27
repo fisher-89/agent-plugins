@@ -12,12 +12,14 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 const ROOT = '/repo';
 
 /** CreateOutcome fixture（与 Rust 写面 DTO 同形：id / name / created / worktree /
- * warnings 五字段；id 为 uuid v7 形态身份锚——成功回调携该值而非 name）。 */
+ * execRoot / warnings 六字段；id 为 uuid v7 形态身份锚——成功回调携该值而非
+ * name。`execRoot` 为执行根原始列，根 workspace / legacy 形态为 null）。 */
 const OUTCOME = {
   id: '0199a2f0-1c3d-7e45-8a9b-0d1e2f3a4b5c',
   name: 'fix-bug',
   created: '2026-10-02',
   worktree: 'C:\\home\\.dev-team\\worktrees\\repo-ab12\\fix-bug',
+  execRoot: null,
   warnings: [] as string[],
 };
 
@@ -511,5 +513,73 @@ describe('ChangeCreateDialog：经 ipc 的参数面 / 结果面', () => {
       { root: ROOT, name: 'long-goal', goal, workflowType: 'requirement' },
     ]);
     expect(driftCount()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 成功面零渲染（design Q3「零代码复核」的回归锚）：提交成功即 onCreated(id) 关
+// 窗导航——组件内零 worktree 路径行、零「执行根」文案（成功面无落点）
+// ---------------------------------------------------------------------------
+
+describe('ChangeCreateDialog：成功面零路径渲染（零代码复核锚）', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue(OUTCOME);
+  });
+
+  it('提交成功 → onCreated(id) 且对话框关闭；渲染面零 worktree 路径行、零「执行根」文案', async () => {
+    const onCreated = vi.fn();
+    renderDialog(onCreated);
+    openForm();
+
+    submit('fix-bug', '成功面无落点');
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(OUTCOME.id));
+    await waitFor(() => expect(screen.queryByTestId('change-create-name')).toBeNull());
+    expect(document.body.textContent).not.toContain('执行根');
+    expect(document.body.textContent).not.toContain(OUTCOME.worktree);
+    expect(document.querySelector('[data-testid="detail-exec-root"]')).toBeNull();
+  });
+
+  it('创建提交链回归（正向）：合法输入 → create_change 恰一次、成功即关窗导航', async () => {
+    const onCreated = vi.fn();
+    renderDialog(onCreated);
+    openForm();
+
+    submit('valid-name', '合法目标');
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(OUTCOME.id));
+    expect(createCalls()).toEqual([
+      { root: ROOT, name: 'valid-name', goal: '合法目标', workflowType: 'requirement' },
+    ]);
+    await waitFor(() => expect(screen.queryByTestId('change-create-name')).toBeNull());
+  });
+
+  it('表单校验失败面零变化（异常）：非法名 / 空白 goal 均零 invoke、onCreated 零调用', () => {
+    const onCreated = vi.fn();
+    renderDialog(onCreated);
+    openForm();
+
+    submit('Bad_Name', '合法目标');
+    expect(createCalls()).toHaveLength(0);
+    expect(onCreated).not.toHaveBeenCalled();
+
+    submit('valid-name', '   ');
+    expect(createCalls()).toHaveLength(0);
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it('CreateOutcome fixture 补 execRoot 后渲染面零变化（边界）：组件不消费该字段', async () => {
+    invokeMock.mockResolvedValue({ ...OUTCOME, execRoot: 'C:\\host\\repo\\packages\\desktop' });
+    const onCreated = vi.fn();
+    renderDialog(onCreated);
+    openForm();
+
+    submit('with-exec-root', '非空执行根应答');
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(OUTCOME.id));
+    await waitFor(() => expect(screen.queryByTestId('change-create-name')).toBeNull());
+    expect(document.body.textContent).not.toContain('C:\\host\\repo\\packages\\desktop');
+    expect(document.body.textContent).not.toContain('执行根');
   });
 });

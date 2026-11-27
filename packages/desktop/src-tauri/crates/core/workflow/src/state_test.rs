@@ -562,6 +562,7 @@ fn change_state_record身份面_id为锚name为属性() {
         archived_at: None,
         active_phase: None,
         worktree: None,
+        exec_root: None,
         base_commit: None,
     };
     assert_eq!(base.clone(), base, "PartialEq 自反");
@@ -606,6 +607,7 @@ fn change_state_record_title字段面独立可辨() {
         archived_at: None,
         active_phase: None,
         worktree: None,
+        exec_root: None,
         base_commit: None,
     };
     assert_eq!(base.clone(), base, "PartialEq 自反");
@@ -645,6 +647,7 @@ fn title与name可辨_中性类型不校验非空且既有字段面持衡() {
         archived_at: None,
         active_phase: None,
         worktree: None,
+        exec_root: None,
         base_commit: None,
     };
 
@@ -835,6 +838,7 @@ fn change_state_store全方法id形参编译面() {
             archived_at: None,
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         })
         .expect("写面应可用");
@@ -2323,4 +2327,220 @@ fn archi_check封闭集防线零改动() {
     }
     assert_eq!(StepNode::ArchiCheck.as_str(), "archi_check");
     assert_eq!(RunStepKind::ArchiCheck.as_str(), "archi_check");
+}
+
+// ---------------------------------------------------------------------------
+// 执行根访问器 `ChangeStateRecord::exec_root()`：单点派生（`worktree` 回落 /
+// 真后代守卫 / 陈旧与越界留痕），MUST NOT 由消费方自写 `exec_root.or(worktree)`
+// ---------------------------------------------------------------------------
+
+/// 访问器夹具：`worktree` / `exec_root` 两态直给的记录（其余字段与身份面
+/// 无关，取中性常量）。
+fn record_with_roots(worktree: Option<&str>, exec_root: Option<&str>) -> ChangeStateRecord {
+    ChangeStateRecord {
+        id: CHANGE_ID.to_owned(),
+        name: "demo-change".to_owned(),
+        title: "demo-change".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: 1_727_000_000_000,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+        worktree: worktree.map(str::to_owned),
+        exec_root: exec_root.map(str::to_owned),
+        base_commit: None,
+    }
+}
+
+/// 执行根（正向）：`worktree = Some(host)`、`exec_root = Some(host/rel)`（真
+/// 后代）→ 返回 `exec_root` 原值。
+#[test]
+fn exec_root真后代_返回exec_root原值() {
+    let record = record_with_roots(
+        Some("/data/.worktrees/repo/fix-bug"),
+        Some("/data/.worktrees/repo/fix-bug/packages/desktop"),
+    );
+
+    assert_eq!(
+        record.exec_root(),
+        Some("/data/.worktrees/repo/fix-bug/packages/desktop"),
+        "真后代 → exec_root 原值"
+    );
+}
+
+/// 执行根（边界）：`exec_root = None` → 回落 `Some(worktree)`（legacy 与根
+/// workspace 同形）。
+#[test]
+fn exec_root列缺省_回落worktree() {
+    let record = record_with_roots(Some("/data/.worktrees/repo/fix-bug"), None);
+
+    assert_eq!(
+        record.exec_root(),
+        Some("/data/.worktrees/repo/fix-bug"),
+        "exec_root = None → 回落 worktree"
+    );
+}
+
+/// 执行根（边界）：`worktree = None`（legacy 记录）→ `None`（即使
+/// `exec_root` 亦为 None）。
+#[test]
+fn exec_root_worktree缺省_返回none() {
+    let record = record_with_roots(None, None);
+
+    assert_eq!(record.exec_root(), None, "legacy 记录无执行根");
+    assert_eq!(
+        record_with_roots(None, Some("/data/rel")).exec_root(),
+        None,
+        "worktree 缺省时 exec_root 不单独生效（锚恒 worktree）"
+    );
+}
+
+/// 执行根（异常）：`exec_root == worktree`（非真后代，陈旧行形态）→ 回落
+/// `Some(worktree)`。
+#[test]
+fn exec_root等于worktree_回落worktree() {
+    let record = record_with_roots(
+        Some("/data/.worktrees/repo/fix-bug"),
+        Some("/data/.worktrees/repo/fix-bug"),
+    );
+
+    assert_eq!(
+        record.exec_root(),
+        Some("/data/.worktrees/repo/fix-bug"),
+        "等于 host 非真后代 → 回落"
+    );
+}
+
+/// 执行根（异常）：`exec_root` 为 `worktree` 的祖先（越界）→ 回落
+/// `Some(worktree)`。
+#[test]
+fn exec_root为worktree祖先_回落worktree() {
+    let record = record_with_roots(
+        Some("/data/.worktrees/repo/fix-bug"),
+        Some("/data/.worktrees/repo"),
+    );
+
+    assert_eq!(
+        record.exec_root(),
+        Some("/data/.worktrees/repo/fix-bug"),
+        "祖先越界 → 回落"
+    );
+}
+
+/// 执行根（异常，表驱动四形态）：`exec_root` 为无关绝对路径（异盘 / 同级另
+/// 一目录 / `/` / 相对路径）→ 全部回落 `Some(worktree)`。
+#[test]
+fn exec_root无关路径四形态_全部回落worktree() {
+    let worktree = "/data/.worktrees/repo/fix-bug";
+    for exec_root in [
+        "/other/repo/fix-bug",
+        "/data/.worktrees/repo/fix-bug-2",
+        "/",
+        "relative/dir",
+    ] {
+        let record = record_with_roots(Some(worktree), Some(exec_root));
+        assert_eq!(
+            record.exec_root(),
+            Some(worktree),
+            "无关路径 {exec_root} → 回落 worktree"
+        );
+    }
+}
+
+/// 执行根（边界）：`exec_root = Some("")`（空串）→ 非真后代 → 回落 + 留痕
+/// （留痕文案以源码字面量对账）。
+#[test]
+fn exec_root空串_回落worktree且留痕字面量在场() {
+    let record = record_with_roots(Some("/data/.worktrees/repo/fix-bug"), Some(""));
+
+    assert_eq!(
+        record.exec_root(),
+        Some("/data/.worktrees/repo/fix-bug"),
+        "空串非真后代 → 回落"
+    );
+
+    let source = state_source();
+    assert!(
+        source.contains("eprintln!(") && source.contains("\"[workflow] change"),
+        "越界 / 陈旧留痕以 `[workflow]` 前缀经 stderr 出具"
+    );
+    assert!(
+        source.contains("不是 worktree {} 的真后代"),
+        "留痕文案记因「非真后代」（陈旧或手改记录）"
+    );
+}
+
+/// 执行根（边界）：分隔符混用——`worktree = "C:\\a\\b"`、
+/// `exec_root = "C:\\a\\b/c"` → 组件级比较判为真后代（不误回落）。
+#[test]
+fn exec_root分隔符混用_仍判真后代() {
+    let record = record_with_roots(Some("C:\\a\\b"), Some("C:\\a\\b/c"));
+
+    assert_eq!(
+        record.exec_root(),
+        Some("C:\\a\\b/c"),
+        "组件级比较：`\\` 与 `/` 混用不误判"
+    );
+}
+
+/// 执行根（边界）：尾分隔符——`exec_root = "host/rel/"` → 仍判真后代（组件
+/// 级比较，不因尾 `/` 误判）。
+#[test]
+fn exec_root尾分隔符_仍判真后代() {
+    let record = record_with_roots(
+        Some("/data/.worktrees/repo/fix-bug"),
+        Some("/data/.worktrees/repo/fix-bug/rel/"),
+    );
+
+    assert_eq!(
+        record.exec_root(),
+        Some("/data/.worktrees/repo/fix-bug/rel/"),
+        "尾分隔符不误判（组件级比较）"
+    );
+}
+
+/// 执行根（边界，表驱动两形态）：深层真后代（`host/a/b/c`）与单段真后代
+/// （`host/a`）→ 均命中。
+#[test]
+fn exec_root单段与深层真后代_均命中() {
+    let host = "/data/.worktrees/repo/fix-bug";
+    for exec_root in [
+        "/data/.worktrees/repo/fix-bug/a",
+        "/data/.worktrees/repo/fix-bug/a/b/c",
+    ] {
+        let record = record_with_roots(Some(host), Some(exec_root));
+        assert_eq!(
+            record.exec_root(),
+            Some(exec_root),
+            "真后代命中 {exec_root}"
+        );
+    }
+}
+
+/// 执行根字段面（边界）：声明序 `worktree` 之后、`base_commit` 之前；结构体
+/// 字面量补 `exec_root: None` 后既有字段面断言零改。
+#[test]
+fn exec_root字段面_声明序在worktree之后base_commit之前() {
+    let source = state_source();
+    let worktree_at = source
+        .find("pub worktree: Option<String>,")
+        .expect("worktree 字段应在源内");
+    let exec_root_at = source
+        .find("pub exec_root: Option<String>,")
+        .expect("exec_root 字段应在源内");
+    let base_commit_at = source
+        .find("pub base_commit: Option<String>,")
+        .expect("base_commit 字段应在源内");
+    assert!(
+        worktree_at < exec_root_at && exec_root_at < base_commit_at,
+        "声明序 worktree → exec_root → base_commit"
+    );
+
+    let base = record_with_roots(Some("/data/host"), None);
+    let with_exec = ChangeStateRecord {
+        exec_root: Some("/data/host/rel".to_owned()),
+        ..base.clone()
+    };
+    assert_ne!(with_exec, base, "exec_root 参与等值面（逐字段可辨）");
+    assert_eq!(with_exec.worktree, base.worktree, "worktree 字段面零改");
 }

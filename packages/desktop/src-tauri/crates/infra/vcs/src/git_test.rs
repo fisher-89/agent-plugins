@@ -3177,3 +3177,562 @@ fn posix_nul是合法文件名_不按windows保留名过滤() {
         "POSIX 不过滤: {files:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// placement（落位 + 偏移一次派生：`rev-parse --show-toplevel --show-prefix`）
+// ---------------------------------------------------------------------------
+
+/// 「子目录 workspace」真实仓：`rel` 目录内提交一个文件（HEAD 在案），返回
+/// （仓 RAII，仓根，workspace root）。
+fn init_repo_with_subdir(tag: &str, rel: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let (dir, root) = init_repo(tag);
+    let workspace = root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+    std::fs::create_dir_all(&workspace).expect("建子目录 workspace 失败");
+    fs_write(&workspace, "keep.txt", "子目录 workspace\n");
+    git(&root, &["add", "--", rel]);
+    git(
+        &root,
+        &[
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "subdir",
+        ],
+    );
+    (dir, root, workspace)
+}
+
+/// placement（正向）：workspace root = git 根 → 返回 git 根且 `rel = ""`
+/// （`--show-prefix` 空行归一）。
+#[test]
+fn placement_git根workspace_返git根与空rel() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("placement-root");
+
+    let (toplevel, rel) = git::placement(&root).expect("git 根 workspace 派生应成功");
+
+    assert_eq!(
+        std::fs::canonicalize(&toplevel).expect("canonicalize toplevel"),
+        std::fs::canonicalize(&root).expect("canonicalize repo root"),
+        "git 根 workspace → toplevel = 仓根"
+    );
+    assert_eq!(rel, "", "`--show-prefix` 空行归一为 `\"\"`");
+}
+
+/// placement（正向）：workspace root = `<repo>/packages/desktop` → `rel =
+/// "packages/desktop"`（`/` 分隔、无前导 / 尾随 `/`）。
+#[test]
+fn placement_子目录workspace_rel为相对偏移() {
+    let _guard = lock_path();
+    let (_dir, root, workspace) = init_repo_with_subdir("placement-sub", "packages/desktop");
+
+    let (toplevel, rel) = git::placement(&workspace).expect("子目录 workspace 派生应成功");
+
+    assert_eq!(
+        std::fs::canonicalize(&toplevel).expect("canonicalize toplevel"),
+        std::fs::canonicalize(&root).expect("canonicalize repo root"),
+        "落位锚恒 git 根（与 workspace 位置无关）"
+    );
+    assert_eq!(rel, "packages/desktop", "rel = 相对偏移（`/` 分隔）");
+    assert!(!rel.starts_with('/'), "无前导 `/`");
+    assert!(!rel.ends_with('/'), "无尾随 `/`（trim_end_matches 归一）");
+}
+
+/// placement（边界）：深层子目录（`client/app/web`）→ `rel` 逐段保真、无尾
+/// `/`。
+#[test]
+fn placement_深层子目录_rel逐段保真无尾斜杠() {
+    let _guard = lock_path();
+    let (_dir, _root, workspace) = init_repo_with_subdir("placement-deep", "client/app/web");
+
+    let (_toplevel, rel) = git::placement(&workspace).expect("深层子目录派生应成功");
+
+    assert_eq!(rel, "client/app/web", "逐段保真");
+    assert!(!rel.ends_with('/'), "无尾 `/`");
+    assert_eq!(rel.split('/').count(), 3, "三段可切分");
+}
+
+/// placement（边界）：一次 spawn 取两值——`rev-parse --show-toplevel
+/// --show-prefix` 同调用（`--show-prefix` 不再独立 spawn）。判据：两行输出互
+/// 洽（toplevel + rel 组件级等于 workspace root）。
+#[test]
+fn placement_一次spawn两行互洽_toplevel加rel即workspace() {
+    let _guard = lock_path();
+    let (_dir, _root, workspace) = init_repo_with_subdir("placement-one-spawn", "packages/desktop");
+
+    let (toplevel, rel) = git::placement(&workspace).expect("派生应成功");
+
+    assert_eq!(
+        std::fs::canonicalize(toplevel.join(&rel)).expect("canonicalize 拼回路径"),
+        std::fs::canonicalize(&workspace).expect("canonicalize workspace"),
+        "两值同源互洽（同一次 rev-parse 的两行）"
+    );
+}
+
+/// placement（边界）：CRLF / 空白归一——rel 含内部空格时原样保真、尾部无残
+/// 留空白字符；toplevel 无 `\r` / `\n` 残留。
+#[test]
+fn placement_路径含空格_残留空白零() {
+    let _guard = lock_path();
+    let (_dir, _root, workspace) = init_repo_with_subdir("placement-space", "with space/app");
+
+    let (toplevel, rel) = git::placement(&workspace).expect("含空格路径派生应成功");
+
+    assert_eq!(rel, "with space/app", "内部空格原样保真");
+    assert!(
+        !rel.ends_with(' ') && !rel.ends_with('\r') && !rel.ends_with('\n'),
+        "rel 尾部无残留空白: {rel:?}"
+    );
+    let toplevel_raw = toplevel.to_string_lossy().into_owned();
+    assert!(
+        !toplevel_raw.contains('\r') && !toplevel_raw.contains('\n'),
+        "toplevel 无 CR / LF 残留: {toplevel_raw:?}"
+    );
+    assert_eq!(toplevel_raw.trim_end(), toplevel_raw, "toplevel 尾部无空白");
+}
+
+/// placement（异常）：非 git 目录 → `Err` 含「非 git 仓」+ `git init` 引导
+/// （文案自 `toplevel` 原样迁移）。
+#[test]
+fn placement_非git目录_err含非git仓与init引导() {
+    let _guard = lock_path();
+    let (_dir, plain) = plain_dir("placement-plain");
+
+    let error = git::placement(&plain).expect_err("非 git 目录应 Err");
+
+    assert!(error.contains("非 git 仓"), "Err 含「非 git 仓」: {error}");
+    assert!(error.contains("git init"), "Err 含 git init 引导: {error}");
+}
+
+/// placement（异常）：裸仓（`git init --bare`）→ `Err` 走「非 git 仓」中文引导
+/// （上游 stderr 的 `must be run in a work tree` 仅作内部匹配键，不进产品文案），
+/// 可辨于空输出档。
+#[test]
+fn placement_裸仓_err走非git仓中文引导() {
+    let _guard = lock_path();
+    let dir = tempfile::Builder::new()
+        .prefix("vcs-git-bare-placement-")
+        .tempdir()
+        .expect("创建裸仓临时目录失败");
+    let bare = dir.path().join("bare.git");
+    git(
+        dir.path(),
+        &["init", "-q", "--bare", bare.to_string_lossy().as_ref()],
+    );
+
+    let error = git::placement(&bare).expect_err("裸仓应 Err");
+
+    assert!(error.contains("非 git 仓"), "Err 含「非 git 仓」: {error}");
+    assert!(error.contains("git init"), "Err 含 git init 引导: {error}");
+    assert!(
+        !error.contains("must be run in a work tree"),
+        "上游 stderr 英文串不得进入产品文案: {error}"
+    );
+    assert!(
+        !error.contains("工作树根解析为空"),
+        "裸仓档不得与空输出档混同: {error}"
+    );
+}
+
+/// placement（异常，边界）：`--show-prefix` 输出为空行且 `--show-toplevel`
+/// 亦空 → `Err` 含「工作树根解析为空」——真 git 无法产出该形态（裸仓已由
+/// work-tree 引导先接住），以源字面量自证守卫在场。
+#[test]
+fn placement_空输出守卫在场_源字面量自证() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("git.rs");
+    let source = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("读取 {} 失败: {error}", path.display()));
+
+    assert!(
+        source.contains("的 git 工作树根解析为空（rev-parse --show-toplevel 无输出）"),
+        "空输出守卫文案在场（自 toplevel 原样迁移）"
+    );
+    assert!(
+        source.contains("rev-parse --show-toplevel --show-prefix"),
+        "一次 spawn 取两值（`--show-prefix` 不独立 spawn）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// tracked_at_head（`HEAD:<rel>` 在案判据：退出 0 / 1 / 其余三分）
+// ---------------------------------------------------------------------------
+
+/// tracked_at_head（正向）：子目录在 HEAD（内含至少一个 tracked 文件）→
+/// `Ok(true)`。
+#[test]
+fn tracked_at_head_在head_ok_true() {
+    let _guard = lock_path();
+    let (_dir, root, _workspace) = init_repo_with_subdir("tracked-ok", "packages/desktop");
+
+    assert!(
+        git::tracked_at_head(&root, "packages/desktop").expect("判据应 Ok"),
+        "HEAD:<rel> 在案 → true"
+    );
+    assert!(
+        git::tracked_at_head(&root, "packages/desktop/keep.txt").expect("判据应 Ok"),
+        "文件级路径同样在案 → true"
+    );
+}
+
+/// tracked_at_head（异常）：子目录整体未跟踪（本地新建目录）→ `Ok(false)`
+/// （退出码 1）。
+#[test]
+fn tracked_at_head_未跟踪目录_ok_false() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("tracked-untracked");
+    std::fs::create_dir_all(root.join("fresh/child")).expect("建本地新目录失败");
+    fs_write(&root, "fresh/child/x.txt", "未跟踪内容\n");
+
+    assert!(
+        !git::tracked_at_head(&root, "fresh").expect("判据应 Ok"),
+        "未跟踪目录 → false（非 Err）"
+    );
+}
+
+/// tracked_at_head（异常）：HEAD 已删除该子目录、工作区仍有未跟踪残留 →
+/// `Ok(false)`。
+#[test]
+fn tracked_at_head_head已删除工作区留残留_ok_false() {
+    let _guard = lock_path();
+    let (_dir, root, workspace) = init_repo_with_subdir("tracked-deleted", "packages/desktop");
+    git(
+        &root,
+        &["rm", "-r", "--cached", "-q", "--", "packages/desktop"],
+    );
+    git(
+        &root,
+        &[
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "drop subdir",
+        ],
+    );
+    assert!(workspace.join("keep.txt").is_file(), "工作区残留仍在场");
+
+    assert!(
+        !git::tracked_at_head(&root, "packages/desktop").expect("判据应 Ok"),
+        "HEAD 已删除 → false（工作区残留不影响判据）"
+    );
+}
+
+/// tracked_at_head（异常）：子目录被 `.gitignore` 命中 → `Ok(false)`。
+#[test]
+fn tracked_at_head_gitignore命中_ok_false() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("tracked-ignored");
+    fs_write(&root, ".gitignore", "ignored-sub/\n");
+    git(&root, &["add", ".gitignore"]);
+    git(
+        &root,
+        &[
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "ignore",
+        ],
+    );
+    std::fs::create_dir_all(root.join("ignored-sub")).expect("建被忽略目录失败");
+    fs_write(&root, "ignored-sub/a.txt", "被忽略\n");
+
+    assert!(
+        !git::tracked_at_head(&root, "ignored-sub").expect("判据应 Ok"),
+        "gitignore 命中 → false"
+    );
+}
+
+/// tracked_at_head（边界）：子目录被跟踪但仅含被 ignore 的文件 →
+/// `Ok(true)`（判据只答「HEAD 有没有这个路径」，不答「目录里有什么」）。
+#[test]
+fn tracked_at_head_仅含被ignore文件_ok_true() {
+    let _guard = lock_path();
+    let (_dir, root, workspace) = init_repo_with_subdir("tracked-ignored-only", "packages/desktop");
+    fs_write(&workspace, ".gitignore", "*.log\n");
+    git(&root, &["add", "--", "packages/desktop/.gitignore"]);
+    git(
+        &root,
+        &[
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "ignore only",
+        ],
+    );
+    fs_write(&workspace, "debug.log", "被 ignore 的内容\n");
+
+    assert!(
+        git::tracked_at_head(&root, "packages/desktop").expect("判据应 Ok"),
+        "路径在 HEAD 即在案（内容是否被 ignore 不参与判据）"
+    );
+}
+
+/// tracked_at_head（边界）：`rel = ""` → `Ok(true)` 且零 spawn（清空 PATH 下
+/// 仍 `Ok(true)`，可证零 spawn）。
+#[test]
+fn tracked_at_head_rel空串_ok_true且零spawn() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("tracked-empty-rel");
+
+    let original = std::env::var_os("PATH");
+    std::env::set_var("PATH", "");
+    let result = git::tracked_at_head(&root, "");
+    match original {
+        Some(value) => std::env::set_var("PATH", value),
+        None => std::env::remove_var("PATH"),
+    }
+
+    assert!(
+        result.expect("rel 空串应 Ok(true)"),
+        "git 不可发现仍 Ok(true)（零 spawn 直接返回）"
+    );
+}
+
+/// tracked_at_head（异常）：退出码既非 0 也非 1（如 128，路径非法 / 仓库损
+/// 坏）→ `Err`（fail-closed，与 `Ok(false)` 严格可分）。
+#[test]
+fn tracked_at_head_退出码128_err与不在案可辨() {
+    let _guard = lock_path();
+    let dir = tempfile::Builder::new()
+        .prefix("vcs-git-broken-")
+        .tempdir()
+        .expect("创建临时目录失败");
+    let broken = dir.path().to_path_buf();
+    fs_write(&broken, ".git", "garbage\n");
+
+    let error = git::tracked_at_head(&broken, "packages/desktop").expect_err("退出码 128 应 Err");
+
+    assert!(error.contains("退出码 128"), "Err 携退出码，实际: {error}");
+    assert!(
+        !error.contains("不在 git HEAD 中"),
+        "Err 不伪装成「未跟踪」（与 Ok(false) 判据可辨），实际: {error}"
+    );
+}
+
+/// tracked_at_head（异常）：git 不可发现（PATH 注入）→ `Err` 含「git 不可
+/// 用」引导，不伪装成「未跟踪」。
+#[test]
+fn tracked_at_head_git不可发现_err引导() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("tracked-missing-git");
+
+    let original = std::env::var_os("PATH");
+    std::env::set_var("PATH", "");
+    let result = git::tracked_at_head(&root, "packages/desktop");
+    match original {
+        Some(value) => std::env::set_var("PATH", value),
+        None => std::env::remove_var("PATH"),
+    }
+
+    let error = result.expect_err("git 不可发现应 Err");
+    assert!(
+        error.contains("git 不可用"),
+        "Err 含「git 不可用」引导，实际: {error}"
+    );
+}
+
+/// tracked_at_head（边界）：`rel` 超长（> 1000 字符多层路径）→ 参数原样入
+/// 线，结果稳定不 panic（`Ok` / `Err` 之一且文案可读）。
+#[test]
+fn tracked_at_head_rel超长_结果稳定不panic() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("tracked-long-rel");
+    let segments: Vec<String> = (0..40)
+        .map(|index| format!("layer{index:02}").repeat(5))
+        .collect();
+    let rel = format!("{}/tail", segments.join("/"));
+    assert!(
+        rel.len() > 1000,
+        "夹具 rel 应超 1000 字符，实际 {}",
+        rel.len()
+    );
+
+    let first = git::tracked_at_head(&root, &rel);
+    let second = git::tracked_at_head(&root, &rel);
+
+    assert_eq!(
+        first.as_ref().map_err(|error| error.clone()),
+        second.as_ref().map_err(|error| error.clone()),
+        "同参数结果稳定（零 panic）"
+    );
+    match first {
+        Ok(tracked) => assert!(!tracked, "超长未跟踪路径 → false"),
+        Err(error) => assert!(
+            error.contains("rev-parse") || error.contains("git "),
+            "Err 文案可读: {error}"
+        ),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// git 退出码通道（`git_raw` 新增私有通道不改 `git()` 既有语义）
+// ---------------------------------------------------------------------------
+
+/// `git()`（正向）：非零退出仍 `Err` 且文案「git <args> 失败（退出码 N）:
+/// stderr」逐字保留。
+#[test]
+fn git非零退出_err文案逐字保留() {
+    let _guard = lock_path();
+    let (_dir, plain) = plain_dir("git-nonzero");
+
+    let error = git::git(&plain, &["status", "--porcelain"]).expect_err("非 git 目录应 Err");
+
+    assert!(
+        error.contains("git status --porcelain 失败（退出码 "),
+        "Err 前缀携命令串与退出码，实际: {error}"
+    );
+    assert!(
+        error.contains("not a git repository"),
+        "Err 携 stderr 原文，实际: {error}"
+    );
+}
+
+/// `git()`（边界）：退出码 0 且 stdout 为空 → `Ok("")`（空面语义不变——空输
+/// 出由各调用点自判，如 `placement` 空 toplevel 仍 `Err`）。
+#[test]
+fn git退出0stdout空_空面语义不变() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("git-empty-stdout");
+
+    let stdout = git::git(&root, &["status", "--porcelain"]).expect("干净仓应 Ok");
+
+    assert_eq!(stdout, "", "退出 0 + 空 stdout → Ok(空串)");
+}
+
+// ---------------------------------------------------------------------------
+// git 步锚点（host 全树 vs 执行根子目录：AC-4 / R-2 的真件对照面）
+// ---------------------------------------------------------------------------
+
+/// `restore_baseline`（正向）：子目录 workspace 夹具传 host → `reset --hard`
+/// 覆盖**整个** worktree（域外 tracked 改动被恢复），`clean -fd` 清域外
+/// untracked。
+#[test]
+fn restore_baseline_传host_域外tracked与untracked双恢复() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("restore-host");
+    let (_wt_dir, host) = worktree_slot("restore-host");
+    git::add_worktree(&root, &host, "change/subdir").expect("建域应成功");
+
+    // 域外（rel 之外）改动 + 域外 untracked 残留
+    fs_write(&host, "a.txt", "域外 tracked 改动\n");
+    fs_write(&host, "outside-junk.txt", "域外 untracked 残留\n");
+    std::fs::create_dir_all(host.join("packages/desktop")).expect("建执行根目录失败");
+    fs_write(&host, "packages/desktop/inside.txt", "域内 untracked\n");
+
+    git::restore_baseline(&host, &[".*", "openspec"]).expect("恢复应 Ok");
+
+    assert_eq!(
+        std::fs::read_to_string(host.join("a.txt")).expect("读回 a.txt"),
+        "initial\n",
+        "域外 tracked 改动被 reset --hard 恢复"
+    );
+    assert!(
+        !host.join("outside-junk.txt").exists(),
+        "域外 untracked 残留被 clean -fd 清除（不缩域）"
+    );
+    assert!(
+        !host.join("packages/desktop/inside.txt").exists(),
+        "域内 untracked 同样被清（host 全树）"
+    );
+}
+
+/// `restore_baseline`（边界，误传锚形态）：同一夹具传 exec root（host/rel 子
+/// 目录）→ `reset --hard` 仍全域生效，但 `clean -fd` **缩域**（域外 untracked
+/// 留存）——与传 host 的对照面形成可辨差异。
+#[test]
+fn restore_baseline_传执行根_reset全域而clean缩域() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("restore-exec-root");
+    let (_wt_dir, host) = worktree_slot("restore-exec-root");
+    git::add_worktree(&root, &host, "change/subdir").expect("建域应成功");
+    let exec_root = host.join("packages/desktop");
+    std::fs::create_dir_all(&exec_root).expect("建执行根目录失败");
+
+    fs_write(&host, "a.txt", "域外 tracked 改动\n");
+    fs_write(&host, "outside-junk.txt", "域外 untracked 残留\n");
+    fs_write(&exec_root, "inside-junk.txt", "域内 untracked 残留\n");
+
+    git::restore_baseline(&exec_root, &[".*", "openspec"]).expect("恢复应 Ok");
+
+    assert_eq!(
+        std::fs::read_to_string(host.join("a.txt")).expect("读回 a.txt"),
+        "initial\n",
+        "reset --hard 与 cwd 无关（域外 tracked 改动仍被恢复）"
+    );
+    assert!(
+        host.join("outside-junk.txt").is_file(),
+        "clean -fd 缩域：域外 untracked 残留留存（锚点不可替换的反向对照）"
+    );
+    assert!(
+        !exec_root.join("inside-junk.txt").exists(),
+        "缩域内的 untracked 仍被清除"
+    );
+}
+
+/// `worktree_snapshot`（正向）：子目录 workspace 夹具传 host → index 条目含
+/// 域外条目（`ls-files -s` 不缩域）。
+#[test]
+fn worktree_snapshot_传host_含域外index条目() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("snapshot-host");
+    let (_wt_dir, host) = worktree_slot("snapshot-host");
+    git::add_worktree(&root, &host, "change/subdir").expect("建域应成功");
+    std::fs::create_dir_all(host.join("packages/desktop")).expect("建执行根目录失败");
+
+    let snapshot = git::worktree_snapshot(&host).expect("快照应成功");
+
+    let paths: Vec<String> = snapshot
+        .index
+        .iter()
+        .map(|entry| entry.path.clone())
+        .collect();
+    assert!(
+        paths.iter().any(|path| path == "a.txt"),
+        "index 含域外条目 a.txt: {paths:?}"
+    );
+}
+
+/// `worktree_snapshot`（边界）：传 exec root → index 仅含 `rel` 子树条目
+/// （缩域形态可见，证明锚点不可替换）。
+#[test]
+fn worktree_snapshot_传执行根_仅rel子树条目() {
+    let _guard = lock_path();
+    let (_dir, root, _workspace) = init_repo_with_subdir("snapshot-exec", "packages/desktop");
+    let (_wt_dir, host) = worktree_slot("snapshot-exec");
+    git::add_worktree(&root, &host, "change/subdir").expect("建域应成功");
+    let exec_root = host.join("packages/desktop");
+    assert!(exec_root.is_dir(), "执行根随检出在场");
+
+    let snapshot = git::worktree_snapshot(&exec_root).expect("快照应成功");
+
+    let paths: Vec<String> = snapshot
+        .index
+        .iter()
+        .map(|entry| entry.path.clone())
+        .collect();
+    assert!(
+        paths.iter().all(|path| path != "a.txt"),
+        "index 不含域外条目（缩域可见）: {paths:?}"
+    );
+    assert!(
+        paths.iter().any(|path| path == "keep.txt"),
+        "index 仅含 rel 子树条目: {paths:?}"
+    );
+}

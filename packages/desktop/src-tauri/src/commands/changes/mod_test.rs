@@ -283,6 +283,7 @@ fn seed_active(store: &Store, name: &str) {
             archived_at: None,
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         })
         .expect("建档 fixture 应成功");
@@ -301,6 +302,7 @@ fn seed_archived(store: &Store, name: &str) {
             archived_at: Some(ARCHIVED_AT),
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         })
         .expect("建档 fixture 应成功");
@@ -710,8 +712,8 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
     .await
     .expect("合法输入经命令层应 Ok");
 
-    // 返回 DTO 恰五键：id（铸出的身份锚）/ name / created / worktree（刻意
-    // 出线的执行锚）/ warnings
+    // 返回 DTO 恰六键：id（铸出的身份锚）/ name / created / worktree（刻意
+    // 出线的落位锚）/ execRoot（执行根原始列）/ warnings
     let value = serde_json::to_value(&outcome).expect("序列化失败");
     let mut keys: Vec<&str> = value
         .as_object()
@@ -722,8 +724,8 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
     keys.sort_unstable();
     assert_eq!(
         keys,
-        vec!["created", "id", "name", "warnings", "worktree"],
-        "恰五键面（id 为身份锚、worktree 为刻意出线的执行锚）"
+        vec!["created", "execRoot", "id", "name", "warnings", "worktree"],
+        "恰六键面（id 为身份锚、worktree 与 execRoot 为刻意出线的两根）"
     );
     assert!(!outcome.id.is_empty(), "铸出 id 非空（身份锚）");
     assert_ne!(
@@ -736,8 +738,9 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
         10,
         "created 为 UTC YYYY-MM-DD（取 db 建档 created_at）"
     );
-    let worktree = vcs_runtime::worktree_root(env.ws_root.path())
+    let worktree = vcs_runtime::placement(env.ws_root.path())
         .expect("worktree 落位派生")
+        .root
         .join("fix-bug");
     assert_eq!(
         outcome.worktree,
@@ -1234,6 +1237,7 @@ fn seed_worktree_change(
             archived_at: None,
             active_phase: None,
             worktree: Some(worktree.to_string_lossy().into_owned()),
+            exec_root: None,
             base_commit: Some("0000000000000000000000000000000000000001".to_owned()),
         })
         .expect("worktree 建档 fixture 应成功");
@@ -1355,6 +1359,262 @@ async fn read_artifact_worktree命中_主仓miss不落空且legacy持衡() {
         )
         .is_none(),
         "legacy 记录无 worktree 回退（主仓 miss → None 持衡）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 执行根维度（`record.exec_root()` 访问器供给读面）：read_artifact 与四条
+// exec 读命令的候选探测锚执行根
+// ---------------------------------------------------------------------------
+
+/// 子目录 workspace 读面夹具：主仓 changes 树零目录、host 无 openspec 树、
+/// 产物与 exec 落盘均在 `host/rel`（执行根）内。返回执行根路径。
+fn seed_exec_root_change(
+    env: &Env,
+    app: &App<tauri::test::MockRuntime>,
+    id: &str,
+    name: &str,
+    rel: &str,
+) -> PathBuf {
+    let host = env
+        .data_dir
+        .path()
+        .join("worktrees")
+        .join("repo")
+        .join(name);
+    let exec_root = host.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+    let change_dir = resolve(&exec_root).changes_root.join(name);
+    fs::create_dir_all(&change_dir).expect("预置执行根 change 目录失败");
+    fs::write(change_dir.join("proposal.md"), "# 执行根内提案").expect("预置执行根产物失败");
+    store_of(app, &env.root())
+        .create_change_record(ChangeStateRecord {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            title: name.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: CREATED_AT,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: Some(host.to_string_lossy().into_owned()),
+            exec_root: Some(exec_root.to_string_lossy().into_owned()),
+            base_commit: None,
+        })
+        .expect("双根建档 fixture 应成功");
+    exec_root
+}
+
+/// `read_artifact()`（正向）：子目录 workspace（产物在 `exec_root` 的 change
+/// 目录）→ 信封非 `None` 且内容逐字。
+#[tokio::test]
+async fn read_artifact_执行根命中且内容逐字() {
+    let env = Env::new("artifact-exec-root");
+    let app = app_with(&env);
+    let exec_root = seed_exec_root_change(
+        &env,
+        &app,
+        "id-exec-artifact",
+        "exec-change",
+        "packages/desktop",
+    );
+
+    let envelope = read_artifact(
+        app.state::<WorkspaceStores>(),
+        env.root(),
+        "id-exec-artifact".to_owned(),
+        "markdown-doc".to_owned(),
+        "proposal.md".to_owned(),
+    )
+    .expect("执行根回退应命中");
+
+    let rendered = serde_json::to_string(&envelope).expect("信封序列化应成功");
+    assert!(
+        rendered.contains("执行根内提案"),
+        "产物内容逐字回读（定位锚 = 执行根），实际: {rendered}"
+    );
+    assert!(
+        !resolve(env.ws_root.path())
+            .changes_root
+            .join("exec-change")
+            .exists(),
+        "主仓 changes 树零目录（命中面唯一为执行根）"
+    );
+    assert!(
+        !resolve(exec_root.parent().expect("执行根应有父目录"))
+            .changes_root
+            .join("exec-change")
+            .exists(),
+        "host 根下无 change 目录（不误读落位根）"
+    );
+}
+
+/// `change_dirs()`（正向）：active 记录（`exec_root` 在场）→ 四条 exec 读命令
+/// 命中 `exec_root` 内文件（候选首项为执行根）。
+#[test]
+fn exec_output_path_执行根记录经name定位命中() {
+    let env = Env::new("exec-exec-root");
+    let app = app_with(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let exec_root =
+        seed_exec_root_change(&env, &app, "id-exec-output", "exec-output", "client/app");
+
+    let exec_id = exec::record_exec_output(
+        &exec_root,
+        "exec-output",
+        foundation::layout::ReportSlot::Test,
+        b"exec root stdout\n".as_slice(),
+    )
+    .expect("执行根落盘应成功");
+
+    let path = exec_output_path(state, root, "exec-output".to_owned(), exec_id.clone())
+        .expect("执行根内记录经 name 定位应命中路径");
+    assert_eq!(
+        String::from_utf8_lossy(&fs::read(&path).expect("`.log` 应可读")),
+        "exec root stdout\n",
+        "路径指向执行根落盘字节"
+    );
+    assert!(
+        std::path::Path::new(&path).starts_with(&exec_root),
+        "命中路径在执行根内，实际: {path}"
+    );
+}
+
+/// `change_dirs()`（边界）：同名 active + archived 记录并存——两条记录的 `name`
+/// 与查询参数逐字相同（都是 `dupe`，只有 `id` / `status` / 根列不同）→ 候选序：
+/// 非 archived 的 `exec_root` 优先 → archived 的陈旧 `worktree`（`exec_root = None`
+/// 经访问器回落）→ `None`（主仓）；去重语义不变（两 change 各自 exec_id 均可回读）。
+#[test]
+fn exec_output_path_同名共存候选序_active执行根先于archived陈旧根() {
+    let env = Env::new("exec-two-roots");
+    let app = app_with(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+
+    // active：host 整树 + 其下逐段 join 的真后代执行根（产物与 exec 落执行根）
+    let active_host = env
+        .data_dir
+        .path()
+        .join("worktrees")
+        .join("repo")
+        .join("dupe-host");
+    let active_exec_root = active_host.join("packages").join("desktop");
+    let active_dir = resolve(&active_exec_root).changes_root.join("dupe");
+    fs::create_dir_all(&active_dir).expect("预置 active 执行根目录失败");
+    let store = store_of(&app, &root);
+    store
+        .create_change_record(ChangeStateRecord {
+            id: "active-id".to_owned(),
+            name: "dupe".to_owned(),
+            title: "dupe".to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: CREATED_AT,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: Some(active_host.to_string_lossy().into_owned()),
+            exec_root: Some(active_exec_root.to_string_lossy().into_owned()),
+            base_commit: None,
+        })
+        .expect("active 建档 fixture 应成功");
+    let active_exec_id = exec::record_exec_output(
+        &active_exec_root,
+        "dupe",
+        foundation::layout::ReportSlot::Test,
+        b"active stdout\n".as_slice(),
+    )
+    .expect("active 落盘应成功");
+
+    // archived：陈旧 worktree 仍在盘（归档不清理 worktree）
+    let stale = env.data_dir.path().join("worktrees").join("stale-dupe");
+    let stale_dir = resolve(&stale).changes_root.join("dupe");
+    fs::create_dir_all(&stale_dir).expect("预置 archived 陈旧目录失败");
+    let archived_exec_id = exec::record_exec_output(
+        &stale,
+        "dupe",
+        foundation::layout::ReportSlot::Test,
+        b"archived stdout\n".as_slice(),
+    )
+    .expect("archived 落盘应成功");
+    store
+        .create_change_record(ChangeStateRecord {
+            id: "archived-id".to_owned(),
+            name: "dupe".to_owned(),
+            title: "dupe".to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: CREATED_AT,
+            status: ChangeStatus::Archived,
+            archived_at: Some(ARCHIVED_AT),
+            active_phase: None,
+            worktree: Some(stale.to_string_lossy().into_owned()),
+            exec_root: None,
+            base_commit: None,
+        })
+        .expect("archived 建档 fixture 应成功");
+
+    let active_path = exec_output_path(
+        state.clone(),
+        root.clone(),
+        "dupe".to_owned(),
+        active_exec_id,
+    )
+    .expect("active 的执行根候选命中");
+    assert!(
+        std::path::Path::new(&active_path).starts_with(&active_exec_root),
+        "非 archived 的执行根先探（不被 stale 抢定位），实际: {active_path}"
+    );
+    let archived_path = exec_output_path(state, root, "dupe".to_owned(), archived_exec_id)
+        .expect("archived 的陈旧根候选命中");
+    assert!(
+        std::path::Path::new(&archived_path).starts_with(&stale),
+        "archived 记录的陈旧执行根次之，实际: {archived_path}"
+    );
+}
+
+/// `change_dirs()`（异常）：`exec_root` 越界（手改库指向 host 外的存在目录）→
+/// 访问器回落 host，候选不含域外路径（域外 exec 盘永不可回读）。
+#[test]
+fn exec_output_path_执行根越界_候选不含域外路径() {
+    let env = Env::new("exec-out-of-bounds");
+    let app = app_with(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let host = env
+        .data_dir
+        .path()
+        .join("worktrees")
+        .join("repo")
+        .join("oob");
+    let outside = env.data_dir.path().join("outside").join("oob");
+    let outside_dir = resolve(&outside).changes_root.join("oob");
+    fs::create_dir_all(&outside_dir).expect("预置域外 change 目录失败");
+    fs::create_dir_all(&host).expect("预置 host 目录失败");
+    store_of(&app, &root)
+        .create_change_record(ChangeStateRecord {
+            id: "oob".to_owned(),
+            name: "oob".to_owned(),
+            title: "oob".to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: CREATED_AT,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: Some(host.to_string_lossy().into_owned()),
+            exec_root: Some(outside.to_string_lossy().into_owned()),
+            base_commit: None,
+        })
+        .expect("越界建档 fixture 应成功");
+    let outside_exec_id = exec::record_exec_output(
+        &outside,
+        "oob",
+        foundation::layout::ReportSlot::Test,
+        b"outside stdout\n".as_slice(),
+    )
+    .expect("域外落盘应成功");
+
+    assert!(
+        exec_output_path(state, root, "oob".to_owned(), outside_exec_id).is_none(),
+        "候选不含域外路径（访问器回落 host）"
     );
 }
 
@@ -2098,6 +2358,7 @@ fn 统一查询装配_active_run_archive面两态出线() {
         missing_artifacts: vec!["design.md".to_owned()],
         delta_specs: vec!["desktop-flow".to_owned()],
         worktree: Some("/tmp/wt/archive-change".to_owned()),
+        exec_root: None,
         branch: Some("change/archive-change".to_owned()),
         merge_target: Some("main".to_owned()),
     };
@@ -2507,6 +2768,7 @@ fn seed_active_with_worktree(store: &Store, name: &str, worktree: &Path) {
             archived_at: None,
             active_phase: None,
             worktree: Some(worktree.to_string_lossy().into_owned()),
+            exec_root: None,
             base_commit: None,
         })
         .expect("建档 fixture 应成功");
@@ -2608,6 +2870,7 @@ fn exec_output_path_同名共存候选探测两change各自可回读() {
         archived_at: Some(ARCHIVED_AT),
         active_phase: None,
         worktree: Some(stale.to_string_lossy().into_owned()),
+        exec_root: None,
         base_commit: None,
     };
     store
@@ -2660,10 +2923,10 @@ fn exec_output_path_同名共存候选探测两change各自可回读() {
 // ---------------------------------------------------------------------------
 
 /// create_change_with 透传 test-only 类型（正向 / 新增）：落库
-/// `record.workflow_type == "test-only"`，返回 DTO 仍恰五键
-///（created / id / name / warnings / worktree）。
+/// `record.workflow_type == "test-only"`，返回 DTO 仍恰六键
+///（created / execRoot / id / name / warnings / worktree）。
 #[tokio::test]
-async fn create_workflow_type透传test_only且dto五键不变() {
+async fn create_workflow_type透传test_only且dto六键不变() {
     let _path_guard = crate::commands::TEST_PATH_LOCK
         .lock()
         .expect("PATH 锁不可中毒");
@@ -2693,7 +2956,7 @@ async fn create_workflow_type透传test_only且dto五键不变() {
     );
     assert_eq!(record.name, "only-tests", "name 为可展示属性");
 
-    // DTO 恰五键（类型入参不扩出线面）
+    // DTO 恰六键（类型入参不扩出线面）
     let value = serde_json::to_value(&outcome).expect("序列化失败");
     let mut keys: Vec<&str> = value
         .as_object()
@@ -2704,8 +2967,8 @@ async fn create_workflow_type透传test_only且dto五键不变() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        vec!["created", "id", "name", "warnings", "worktree"],
-        "CreateOutcome 恰五键"
+        vec!["created", "execRoot", "id", "name", "warnings", "worktree"],
+        "CreateOutcome 恰六键"
     );
 }
 
@@ -2970,6 +3233,7 @@ fn get_change_detail未知workflow_type恒none() {
             archived_at: None,
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         })
         .expect("建档 fixture 应成功");

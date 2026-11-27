@@ -19,7 +19,7 @@ use crate::state::{
     PhaseStartState, PhaseStateRecord, RunEdgeStateRecord, RunFinishCommand, RunNodeStateRecord,
     RunStartCommand, RunStateRecord, StepCommand, StepStateRecord, StoreFault,
 };
-use crate::write::worktree::{InstallRun, RepoProbe, WorktreePort};
+use crate::write::worktree::{InstallRun, RepoProbe, WorktreePlacement, WorktreePort};
 
 /// 身份锚字面量（删除入参——一切寻址以 id 为准）。
 const CHANGE_ID: &str = "0198f7a0-0000-7000-8000-0000000000d1";
@@ -78,6 +78,7 @@ fn record(
         archived_at,
         active_phase: None,
         worktree: worktree.map(str::to_owned),
+        exec_root: None,
         base_commit: None,
     }
 }
@@ -238,7 +239,11 @@ impl FakeVcs {
 }
 
 impl WorktreePort for FakeVcs {
-    fn worktree_root(&self, _main_root: &Path) -> Result<PathBuf, String> {
+    fn placement(&self, _main_root: &Path) -> Result<WorktreePlacement, String> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn tracked_at_head(&self, _main_root: &Path, _rel: &str) -> Result<bool, String> {
         unimplemented!("本用例不可达")
     }
 

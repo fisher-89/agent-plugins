@@ -29,7 +29,7 @@ pub use phase_table::{
 };
 pub use promote::{promote_explore, PromoteOutcome};
 pub use run::{run_finish, run_start};
-pub use worktree::{InstallRun, RepoProbe, WorktreePort};
+pub use worktree::{InstallRun, RepoProbe, WorktreePlacement, WorktreePort};
 
 /// 计划图侧类型再导出（phase 定义声明面）：`StepDefinition` / `StepNode` /
 /// `StepGroup` / `AgentRole` / `OnFail` / `ArtifactSpec` 本体驻 `crate::state`

@@ -1043,6 +1043,7 @@ export const ArchivePreflightSchema = z.strictObject({
 	get missingArtifacts() { return z.array(z.string()); },
 	get deltaSpecs() { return z.array(z.string()); },
 	get worktree() { return z.string().nullable(); },
+	get execRoot() { return z.string().nullable(); },
 	get branch() { return z.string().nullable(); },
 	get mergeTarget() { return z.string().nullable(); },
 });
@@ -1111,6 +1112,7 @@ export const ChangeDetailSchema = z.strictObject({
 	get runs() { return z.array(ChangeRunEntrySchema); },
 	get artifacts() { return z.array(ArtifactDescriptorSchema); },
 	get worktree() { return z.string().nullable(); },
+	get execRoot() { return z.string().nullable(); },
 });
 
 export const ChangeDetailUnifiedSchema = z.strictObject({
@@ -1236,6 +1238,7 @@ export const CreateOutcomeSchema = z.strictObject({
 	get name() { return z.string(); },
 	get created() { return z.string(); },
 	get worktree() { return z.string(); },
+	get execRoot() { return z.string().nullable(); },
 	get warnings() { return z.array(z.string()); },
 });
 

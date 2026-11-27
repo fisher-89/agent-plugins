@@ -499,6 +499,7 @@ fn project_confirmwait的archive载荷不影响投影结果() {
                 missing_artifacts: vec!["specs/x/spec.md".to_owned()],
                 delta_specs: vec!["desktop-notification-hub".to_owned()],
                 worktree: Some("/ws/wt".to_owned()),
+                exec_root: None,
                 branch: Some("change/add-feature".to_owned()),
                 merge_target: Some("main".to_owned()),
             }),

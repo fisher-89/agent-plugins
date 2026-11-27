@@ -101,6 +101,7 @@ const fakeDetail: ChangeDetail = {
   runs: [],
   artifacts: [],
   worktree: null,
+  execRoot: null,
 };
 
 // db 查看域 fixture：DbInspectorView 挂载即 invoke("db_models")，mock 必须回

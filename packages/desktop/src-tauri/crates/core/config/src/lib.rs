@@ -733,7 +733,7 @@ fn assemble_file_rule(
 /// 项目 `root` 合法性：非空白、非绝对、无 `..` 段 / 盘符 / glob 通配符。
 ///
 /// 该路径会成为依赖引导安装命令的进程 cwd——绝对路径与 `..` 会逃出
-/// worktree，故在解析期词法拒绝（`:` 一并拒绝：Windows 盘符与 ADS 形式，
+/// 执行根，故在解析期词法拒绝（`:` 一并拒绝：Windows 盘符与 ADS 形式，
 /// 同时使判定跨平台一致）。
 fn is_valid_project_root(root: &str) -> bool {
     if root.trim().is_empty() || root.contains(['*', '?', '{', '[', ':']) {

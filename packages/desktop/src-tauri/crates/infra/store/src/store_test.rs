@@ -4804,6 +4804,7 @@ fn change_archive(id: &str, name: &str, created_at: i64) -> ChangeStateRecord {
         archived_at: None,
         active_phase: None,
         worktree: None,
+        exec_root: None,
         base_commit: None,
     }
 }
@@ -4952,6 +4953,7 @@ fn change_with_title(id: &str, name: &str, title: &str, created_at: i64) -> Chan
         archived_at: None,
         active_phase: None,
         worktree: None,
+        exec_root: None,
         base_commit: None,
     }
 }
@@ -5015,6 +5017,7 @@ fn change_state_title映射进中性快照且其余字段面持衡() {
             start_at: 1_727_000_100_000,
         }),
         worktree: Some(r"C:\wt\map-change".to_owned()),
+        exec_root: None,
         base_commit: Some("0000000000000000000000000000000000000009".to_owned()),
     };
     store
@@ -5035,6 +5038,264 @@ fn change_state_title映射进中性快照且其余字段面持衡() {
     assert_eq!(snapshot.archived_at, Some(1_727_000_900_000));
     assert_eq!(snapshot.worktree.as_deref(), Some(r"C:\wt\map-change"));
     assert_eq!(snapshot.active_phase.as_ref().map(|a| a.attempt), Some(2));
+}
+
+/// change 建档记录 fixture 携双根列（`worktree` = host、`exec_root` = host/rel）。
+fn change_with_roots(
+    id: &str,
+    created_at: i64,
+    worktree: Option<&str>,
+    exec_root: Option<&str>,
+) -> ChangeStateRecord {
+    ChangeStateRecord {
+        id: id.to_owned(),
+        name: "subdir-change".to_owned(),
+        title: "子目录 change".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+        worktree: worktree.map(str::to_owned),
+        exec_root: exec_root.map(str::to_owned),
+        base_commit: None,
+    }
+}
+
+/// `create_change_record` 携 `exec_root`（正向）：`find` / `list` 与中性快照
+/// 三面逐字段一致（写面 → 落库 → 读面单点搬运）。
+#[test]
+fn create_change_record_exec_root三面一致() {
+    let env = Env::new("change-exec-root-map");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let payload = change_with_roots(
+        "chg-exec-1",
+        1_727_000_000_000,
+        Some(r"C:\wt\subdir-change"),
+        Some(r"C:\wt\subdir-change\packages\desktop"),
+    );
+    store
+        .create_change_record(payload.clone())
+        .expect("建档应成功");
+
+    let found = store
+        .find_change_record("chg-exec-1")
+        .expect("查档应成功")
+        .expect("建档在案");
+    let listed = store
+        .list_change_records()
+        .expect("清单应成功")
+        .into_iter()
+        .find(|record| record.id == "chg-exec-1")
+        .expect("清单含该档");
+
+    assert_eq!(found, payload, "find 面逐字段一致（含 exec_root）");
+    assert_eq!(listed, payload, "list 面逐字段一致（含 exec_root）");
+    assert_eq!(
+        found.exec_root.as_deref(),
+        Some(r"C:\wt\subdir-change\packages\desktop"),
+        "exec_root 列搬运保真（不臆造、不归一）"
+    );
+}
+
+/// `create_change_record` 携 `exec_root`（正向）：重开库后 `exec_root` 仍一致
+/// （落库往返）。
+#[test]
+fn create_change_record_exec_root跨重开一致() {
+    let env = Env::new("change-exec-root-reopen");
+    let ws_path = env.db_path("ws");
+    let payload = change_with_roots(
+        "chg-exec-2",
+        1_727_000_000_000,
+        Some(r"C:\wt\subdir-change"),
+        Some(r"C:\wt\subdir-change\packages\desktop"),
+    );
+    {
+        let store = open_workspace_ok(&ws_path);
+        store
+            .create_change_record(payload.clone())
+            .expect("建档应成功");
+    }
+
+    let reopened = open_workspace_ok(&ws_path);
+    let found = reopened
+        .find_change_record("chg-exec-2")
+        .expect("重开库查档应成功")
+        .expect("建档跨重开在案");
+
+    assert_eq!(found, payload, "重开库后逐字段一致");
+    assert_eq!(found.exec_root, payload.exec_root, "exec_root 落库往返保真");
+}
+
+/// `create_change_record`（边界）：`exec_root = None`（根 workspace / legacy）
+/// → 两向映射均 `None`，不臆造 `Some(worktree)`。
+#[test]
+fn create_change_record_exec_root_none两向映射none() {
+    let env = Env::new("change-exec-root-none");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    for (id, worktree) in [
+        ("chg-root-ws", Some(r"C:\wt\root-change")),
+        ("chg-legacy", None),
+    ] {
+        store
+            .create_change_record(change_with_roots(id, 1000, worktree, None))
+            .expect("建档应成功");
+
+        let found = store
+            .find_change_record(id)
+            .expect("查档应成功")
+            .expect("建档在案");
+        assert_eq!(found.exec_root, None, "写面 None → 读面 None（{id}）");
+        assert_eq!(
+            found.worktree.as_deref(),
+            worktree,
+            "worktree 列原样（{id}）"
+        );
+    }
+}
+
+/// `change_state`（边界）：`worktree` 与 `exec_root` 双列并存且可辨（互不覆
+/// 盖、两串各自原样——含尾分隔符与大小写形态零归一）。
+#[test]
+fn change_state_worktree与exec_root双列并存可辨() {
+    let env = Env::new("change-two-roots");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    store
+        .create_change_record(change_with_roots(
+            "chg-two-roots",
+            1000,
+            Some(r"C:\wt\Subdir-Change"),
+            Some(r"C:\wt\Subdir-Change\Packages\Desktop\"),
+        ))
+        .expect("建档应成功");
+
+    let found = store
+        .find_change_record("chg-two-roots")
+        .expect("查档应成功")
+        .expect("建档在案");
+
+    assert_eq!(
+        found.worktree.as_deref(),
+        Some(r"C:\wt\Subdir-Change"),
+        "worktree 列原样（不因 exec_root 在场被覆盖）"
+    );
+    assert_eq!(
+        found.exec_root.as_deref(),
+        Some(r"C:\wt\Subdir-Change\Packages\Desktop\"),
+        "exec_root 列原样（尾分隔符与大小写零归一）"
+    );
+    assert_ne!(found.worktree, found.exec_root, "两列可辨");
+}
+
+/// 其余 change 写路径（异常面：写面「读记录改一字段 upsert」不得清空
+/// `exec_root`）：`start_change_phase` / `log_change_phase` /
+/// `apply_change_backtrack` / `set_change_archived` / 启动标定（读记录清
+/// `active_phase` 后 upsert）五路径各一次 → `exec_root` 全程原地随行。
+#[test]
+fn change写路径_exec_root随行不被清空() {
+    let env = Env::new("change-exec-root-preserve");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let exec_root = r"C:\wt\subdir-change\packages\desktop";
+    store
+        .create_change_record(change_with_roots(
+            "chg-preserve",
+            1000,
+            Some(r"C:\wt\subdir-change"),
+            Some(exec_root),
+        ))
+        .expect("建档应成功");
+
+    start_phase_ok(&store, "chg-preserve", "proposal", 2000);
+    assert_eq!(
+        store
+            .find_change_record("chg-preserve")
+            .unwrap()
+            .unwrap()
+            .exec_root
+            .as_deref(),
+        Some(exec_root),
+        "start_change_phase 后 exec_root 随行"
+    );
+
+    store
+        .log_change_phase(&log_command(
+            "chg-preserve",
+            "proposal",
+            Verdict::Pass,
+            vec![check_item("检查", true)],
+            Some(2000),
+            2500,
+        ))
+        .expect("落账应成功");
+    assert_eq!(
+        store
+            .find_change_record("chg-preserve")
+            .unwrap()
+            .unwrap()
+            .exec_root
+            .as_deref(),
+        Some(exec_root),
+        "log_change_phase 后 exec_root 随行"
+    );
+
+    seed_phase_pass(&store, "chg-preserve", "design", 3000, 3500, &[]);
+    store
+        .apply_change_backtrack(&BacktrackCommand {
+            change_id: "chg-preserve".to_owned(),
+            phase: "design".to_owned(),
+            to: "proposal".to_owned(),
+            reason: "回跳".to_owned(),
+            stale_dependents: vec![],
+        })
+        .expect("回跳应成功");
+    assert_eq!(
+        store
+            .find_change_record("chg-preserve")
+            .unwrap()
+            .unwrap()
+            .exec_root
+            .as_deref(),
+        Some(exec_root),
+        "apply_change_backtrack 后 exec_root 随行"
+    );
+
+    store
+        .set_change_archived("chg-preserve", 4000)
+        .expect("归档翻转应成功");
+    let archived = store.find_change_record("chg-preserve").unwrap().unwrap();
+    assert_eq!(
+        archived.exec_root.as_deref(),
+        Some(exec_root),
+        "set_change_archived 后 exec_root 随行（归档后原样保留历史锚）"
+    );
+    assert_eq!(archived.status, ChangeStatus::Archived, "归档翻转语义零改");
+
+    // 第五路径：启动标定（残留 `active_phase` 清位后 upsert——读记录改一字段）
+    start_phase_ok(&store, "chg-preserve", "tasks", 4500);
+    let hanging = store.find_change_record("chg-preserve").unwrap().unwrap();
+    assert!(
+        hanging.active_phase.is_some(),
+        "清位前置：active_phase 在场"
+    );
+    store
+        .calibrate_interrupted_runs(5000)
+        .expect("启动标定应成功");
+    let calibrated = store.find_change_record("chg-preserve").unwrap().unwrap();
+    assert!(calibrated.active_phase.is_none(), "标定清位 active_phase");
+    assert_eq!(
+        calibrated.exec_root.as_deref(),
+        Some(exec_root),
+        "启动标定后 exec_root 随行（读记录改一字段 upsert 不清列）"
+    );
+    assert_eq!(
+        calibrated.worktree, hanging.worktree,
+        "标定不触 worktree 列（双列各自原样）"
+    );
+    assert_eq!(
+        calibrated.status,
+        ChangeStatus::Archived,
+        "标定零改 status（只清 active_phase）"
+    );
 }
 
 #[test]
@@ -5224,7 +5485,7 @@ fn open_workspace旧形态库作废重建_零报错旧数据零可达标记就�
     );
     assert!(
         physical.iter().any(|name| name == CHANGE_RECORD_TABLE),
-        "新物表 9_4_id 就位，实际表名: {physical:?}"
+        "新物表 9_5_id 就位，实际表名: {physical:?}"
     );
 }
 
@@ -5729,6 +5990,7 @@ fn preset_phase_rows_with_attempt_gap(
         active_phase: None,
         worktree: None,
         base_commit: None,
+        exec_root: None,
     })
     .expect("写入建档记录失败");
     for (id, attempt) in [(1i64, 1u32), (3, 3u32)] {
@@ -6554,9 +6816,9 @@ impl redb::Key for RawNativeDbKey {
 
 /// change 建档表裸表名（native_db 内部表命名公式：
 /// `{native_model_id}_{native_model_version}_{主键字段名小写}`；ChangeRecord
-/// id=9 / version=4（新增 title 列——旧 9_3_id / 9_2_name 表对新读面结构性
-/// 不可见）/ 主键 `id`）。
-const CHANGE_RECORD_TABLE: &str = "9_4_id";
+/// id=9 / version=5（新增 exec_root 列——旧 9_4_id / 9_3_id / 9_2_name 表对新读面
+/// 结构性不可见）/ 主键 `id`）。
+const CHANGE_RECORD_TABLE: &str = "9_5_id";
 
 /// explore 记录表裸表名（ExploreRecord id=4 / version=4（新增 session_id 列——旧
 /// 4_3_id 表对新读面结构性不可见）/ 主键 `id`；explore-name-file-binding）。
@@ -6700,7 +6962,7 @@ fn preset_old_shape_workspace_db(path: &Path, legacy_names: &[&str]) {
 
 // ---------------------------------------------------------------------------
 // 表名版本段映射（AC-8 表名机制）：物表名与 native_db 命名公式同源断言 +
-// 真实库物表名清单对照（`9_4_id` / `4_4_id` 反转 9_3_id / 4_3_id / 4_2_id / 4_1_id）
+// 真实库物表名清单对照（`9_5_id` / `4_4_id` 反转 9_4_id / 9_3_id / 4_3_id / 4_2_id / 4_1_id）
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -6717,8 +6979,8 @@ fn 表名版本段映射_物表名与命名公式同源_旧表名零在场() {
         "change 建档物表名与 native_db 内部命名公式一致"
     );
     assert_eq!(
-        CHANGE_RECORD_TABLE, "9_4_id",
-        "change 建档物表 9_4_id（v4 新增 title 列：9_3_id → 9_4_id）"
+        CHANGE_RECORD_TABLE, "9_5_id",
+        "change 建档物表 9_5_id（v5 新增 exec_root 列：9_4_id → 9_5_id）"
     );
     assert_eq!(
         EXPLORE_RECORD_TABLE,
@@ -6810,6 +7072,7 @@ fn inject_corrupt_change_row(path: &Path, id: &str, name: &str, created_at: i64)
         name,
         "requirement",
         created_at,
+        None,
         None,
         None,
     ))

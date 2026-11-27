@@ -168,6 +168,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
     activePhase: null,
     runs: [],
     worktree: null,
+    execRoot: null,
     artifacts: [],
     ...overrides,
   };

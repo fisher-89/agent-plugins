@@ -409,6 +409,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
     activePhase: null,
     runs: [],
     worktree: null,
+    execRoot: null,
     artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案', phase: 'proposal' }],
     ...overrides,
   };
@@ -570,6 +571,59 @@ describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
     const legacy = renderDetail({ detail: detail({ worktree: null }) });
     await screen.findByTestId('flow-graph');
     expect(legacy.container.querySelector('[data-testid="detail-worktree"]')).toBeNull();
+  });
+
+  it('执行根信息行：execRoot 非 null → 头部两行（worktree + 执行根），执行根文案逐字', async () => {
+    const hostPath = 'C:\\host\\.worktrees\\repo\\add-feature';
+    const execRootPath = `${hostPath}\\packages\\desktop`;
+    renderDetail({ detail: detail({ worktree: hostPath, execRoot: execRootPath }) });
+    await screen.findByTestId('flow-graph');
+
+    const worktreeRow = screen.getByTestId('detail-worktree');
+    const execRow = screen.getByTestId('detail-exec-root');
+    expect(worktreeRow.textContent).toContain(hostPath);
+    expect(execRow.textContent).toBe(`执行根：${execRootPath}`);
+    expect(execRow.className).toContain('break-all');
+  });
+
+  it('执行根信息行边界：execRoot = null（根 workspace / legacy）→ 仅 worktree 一行、执行根零渲染且零空行', async () => {
+    const { container } = renderDetail({
+      detail: detail({ worktree: 'C:\\host\\add-feature', execRoot: null }),
+    });
+    await screen.findByTestId('flow-graph');
+
+    expect(screen.getByTestId('detail-worktree').textContent).toContain('C:\\host\\add-feature');
+    expect(container.querySelector('[data-testid="detail-exec-root"]')).toBeNull();
+    const header = within(container).getByTestId('detail-header');
+    for (const leaf of within(header).getAllByText(/\S/)) {
+      expect((leaf.textContent ?? '').trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it('执行根信息行边界：worktree 与 execRoot 皆 null → 两行皆无（零占位）', async () => {
+    const { container } = renderDetail({
+      detail: detail({ worktree: null, execRoot: null }),
+    });
+    await screen.findByTestId('flow-graph');
+
+    expect(container.querySelector('[data-testid="detail-worktree"]')).toBeNull();
+    expect(container.querySelector('[data-testid="detail-exec-root"]')).toBeNull();
+  });
+
+  it('执行根信息行异常：旧形状应答（execRoot 为 undefined）→ 不渲染「执行根：undefined」，worktree 行仍在', async () => {
+    const legacyShape = detail({ worktree: 'C:\\host\\add-feature' }) as unknown as Record<
+      string,
+      unknown
+    >;
+    delete legacyShape.execRoot;
+    const { container } = renderDetail({
+      detail: legacyShape as unknown as ChangeDetail,
+    });
+    await screen.findByTestId('flow-graph');
+
+    expect(container.textContent).not.toContain('执行根：undefined');
+    expect(container.textContent).not.toContain('undefined');
+    expect(screen.getByTestId('detail-worktree').textContent).toContain('C:\\host\\add-feature');
   });
 
   it('列头 / 运行步节点点击 → detail-drawer 挂载（selection 状态在本组件）；关闭后卸载', async () => {
@@ -1545,6 +1599,7 @@ describe('ChangeDetailView：归档链退役（入口按钮 / 面板 / 状态源
         missingArtifacts: ['design.md'],
         deltaSpecs: ['desktop-flow'],
         worktree: null,
+        execRoot: null,
         branch: null,
         mergeTarget: null,
       },
@@ -2791,6 +2846,38 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
     expect(args['sessionId']).toBeNull();
   });
 
+  it('组合：active + execRoot 非空 → 面板 cwd = 执行根（非 worktree）', async () => {
+    const hostPath = 'C:\\host\\.worktrees\\repo\\add-feature';
+    const execRootPath = `${hostPath}\\packages\\desktop`;
+    renderDetail({
+      detail: detail({ worktree: hostPath, execRoot: execRootPath }),
+      artifacts: PROPOSAL_ENVELOPES,
+    });
+    await screen.findByTestId('flow-graph');
+    await expandChatPanel();
+
+    await sendFromPanel('执行根提问');
+
+    const args = sessionCommandCalls('agent_start')[0][1] as Record<string, unknown>;
+    expect(args['cwd']).toBe(execRootPath);
+    expect(args['cwd']).not.toBe(hostPath);
+  });
+
+  it('组合：execRoot 为任意非空串即原样使用（前端零越界校验，回落职责在后端访问器）', async () => {
+    const arbitrary = 'C:\\elsewhere\\hand-edited-path';
+    renderDetail({
+      detail: detail({ worktree: 'C:\\host\\add-feature', execRoot: arbitrary }),
+      artifacts: PROPOSAL_ENVELOPES,
+    });
+    await screen.findByTestId('flow-graph');
+    await expandChatPanel();
+
+    await sendFromPanel('原样使用');
+
+    const args = sessionCommandCalls('agent_start')[0][1] as Record<string, unknown>;
+    expect(args['cwd']).toBe(arbitrary);
+  });
+
   it('组合：无重放风暴——无会话时会话取数恒 0；已选会话时恒 1，均不随 refreshTick 增长', async () => {
     loadActiveRun(activeRunView());
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
@@ -3043,6 +3130,78 @@ describe('ChangeDetailView：archiRoot 派生边界（挂载点 B 回落口径�
 
     await waitFor(() => expect(archiGraphRoots()).toEqual([ROOT]));
     expect(archiGraphRoots()).not.toContain('C:\\demo\\alpha\\.worktrees\\add-feature');
+  });
+
+  it('active + execRoot 非空 → 架构页以执行根取数（非 worktree）', async () => {
+    const hostPath = 'C:\\demo\\alpha\\.worktrees\\add-feature';
+    const execRootPath = `${hostPath}\\packages\\desktop`;
+    renderDetail(
+      {
+        detail: detail({ worktree: hostPath, execRoot: execRootPath }),
+        artifacts: PROPOSAL_ENVELOPES,
+      },
+      ROOT,
+    );
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('detail-tab-architecture'));
+
+    await waitFor(() => expect(archiGraphRoots()).toEqual([execRootPath]));
+    expect(archiGraphRoots()).not.toContain(hostPath);
+  });
+
+  it('active + execRoot = null + worktree 非空 → 架构页回落 worktree 取数', async () => {
+    renderDetail(
+      {
+        detail: detail({ worktree: 'C:\\demo\\alpha\\.worktrees\\add-feature', execRoot: null }),
+        artifacts: PROPOSAL_ENVELOPES,
+      },
+      ROOT,
+    );
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('detail-tab-architecture'));
+
+    await waitFor(() =>
+      expect(archiGraphRoots()).toEqual(['C:\\demo\\alpha\\.worktrees\\add-feature']),
+    );
+  });
+
+  it('旧形状应答（execRoot 为 undefined）→ 派生回落 worktree 取数（不传 undefined 根）', async () => {
+    const legacyShape = detail({
+      worktree: 'C:\\demo\\alpha\\.worktrees\\add-feature',
+    }) as unknown as Record<string, unknown>;
+    delete legacyShape.execRoot;
+    renderDetail(
+      { detail: legacyShape as unknown as ChangeDetail, artifacts: PROPOSAL_ENVELOPES },
+      ROOT,
+    );
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('detail-tab-architecture'));
+
+    await waitFor(() =>
+      expect(archiGraphRoots()).toEqual(['C:\\demo\\alpha\\.worktrees\\add-feature']),
+    );
+    expect(archiGraphRoots()).not.toContain('undefined');
+  });
+
+  it('归档 change（execRoot 在场）→ 仍以页面主仓根取数（execRoot 不用）', async () => {
+    renderDetail(
+      {
+        detail: detail({
+          source: 'archive',
+          worktree: 'C:\\demo\\alpha\\.worktrees\\add-feature',
+          execRoot: 'C:\\demo\\alpha\\.worktrees\\add-feature\\packages\\desktop',
+        }),
+        artifacts: PROPOSAL_ENVELOPES,
+      },
+      ROOT,
+    );
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('detail-tab-architecture'));
+
+    await waitFor(() => expect(archiGraphRoots()).toEqual([ROOT]));
+    expect(archiGraphRoots()).not.toContain(
+      'C:\\demo\\alpha\\.worktrees\\add-feature\\packages\\desktop',
+    );
   });
 });
 

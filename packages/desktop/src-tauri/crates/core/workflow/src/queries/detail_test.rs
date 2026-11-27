@@ -126,6 +126,7 @@ impl Env {
             archived_at: None,
             active_phase,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         });
     }
@@ -142,6 +143,7 @@ impl Env {
             archived_at: Some(archived_at),
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         });
     }
@@ -163,6 +165,7 @@ impl Env {
             archived_at: None,
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         });
     }
@@ -895,6 +898,7 @@ fn detail_title直读建档记录且name零污染() {
         archived_at: None,
         active_phase: None,
         worktree: None,
+        exec_root: None,
         base_commit: None,
     });
     env.file("title-change", "proposal.md", "# 提案");
@@ -1319,6 +1323,7 @@ impl Env {
             archived_at: None,
             active_phase: None,
             worktree: Some(worktree.to_string_lossy().into_owned()),
+            exec_root: None,
             base_commit: Some("0000000000000000000000000000000000000001".to_owned()),
         });
     }
@@ -1429,6 +1434,7 @@ fn source映射_archived记录定位miss映射archive() {
     // 归档记录带 worktree 的存量形态（归档前建域的 change 手动删目录）
     env.seed_record(ChangeStateRecord {
         worktree: Some(worktree.to_string_lossy().into_owned()),
+        exec_root: None,
         ..env
             .store
             .get_change(ID_ARCH_GONE)
@@ -3078,4 +3084,292 @@ fn 详情边投影_nodes与runs面零扰动() {
     let node_steps: Vec<RunStepKind> = run.nodes.iter().map(|node| node.step).collect();
     assert_eq!(node_steps, steps.to_vec(), "nodes 内容 / 顺序零扰动");
     assert!(run.edges.is_empty(), "过滤只作用于 edges");
+}
+
+// ---------------------------------------------------------------------------
+// 执行根维度（ChangeDetail.exec_root 取记录**原始列**）：产物自执行根发现、
+// 回落面单点归访问器、出线形态与键序
+// ---------------------------------------------------------------------------
+
+impl Env {
+    /// 带双根列的执行锚建档种子（worktree = host、exec_root = host/rel 或
+    /// `None`）。
+    fn seed_exec_root_record(
+        &self,
+        id: &str,
+        name: &str,
+        worktree: &Path,
+        exec_root: Option<&Path>,
+    ) {
+        self.seed_record(ChangeStateRecord {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            title: name.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: T0,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: Some(worktree.to_string_lossy().into_owned()),
+            exec_root: exec_root.map(|path| path.to_string_lossy().into_owned()),
+            base_commit: None,
+        });
+    }
+}
+
+/// 子目录 workspace 夹具：host / exec root / 主仓三处 tempdir 目录树。
+struct SubdirDetailEnv {
+    env: Env,
+    host: PathBuf,
+    exec_root: PathBuf,
+}
+
+impl SubdirDetailEnv {
+    fn new(tag: &str) -> Self {
+        let env = Env::new(tag);
+        let host =
+            std::env::temp_dir().join(format!("workflow-detail-host-{}-{tag}", std::process::id()));
+        let _ = fs::remove_dir_all(&host);
+        let exec_root = host.join("packages").join("desktop");
+        Self {
+            env,
+            host,
+            exec_root,
+        }
+    }
+}
+
+impl Drop for SubdirDetailEnv {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.host);
+    }
+}
+
+/// `change_detail()`（正向）：子目录 workspace 夹具（`worktree = host`、
+/// `exec_root = host/rel`、产物写在 `exec_root` 的 change 目录）→ `artifacts`
+/// 命中、`source = Active`。
+#[test]
+fn change_detail子目录workspace_产物自执行根发现() {
+    let fixture = SubdirDetailEnv::new("detail-exec-root");
+    fixture.env.seed_exec_root_record(
+        ID_WORKTREE,
+        "subdir-change",
+        &fixture.host,
+        Some(&fixture.exec_root),
+    );
+    fixture.env.worktree_file(
+        &fixture.exec_root,
+        "subdir-change",
+        "proposal.md",
+        "# 执行根内提案",
+    );
+
+    let detail = fixture.env.detail(ID_WORKTREE);
+
+    assert!(
+        detail
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.kind == "markdown-doc" && artifact.source == "proposal.md"),
+        "产物自执行根 change 目录发现（喂 host 会恒 miss），实际: {:?}",
+        detail.artifacts
+    );
+    assert_eq!(
+        detail.source,
+        super::ChangeSource::Active,
+        "source 自记录映射"
+    );
+}
+
+/// `ChangeDetail.exec_root`（正向）：`detail.worktree` = host、`detail.execRoot`
+/// = host/rel（两值逐字来自记录、互不替代）。
+#[test]
+fn change_detail_exec_root与worktree两值逐字来自记录() {
+    let fixture = SubdirDetailEnv::new("detail-two-columns");
+    fixture.env.seed_exec_root_record(
+        ID_WORKTREE,
+        "subdir-change",
+        &fixture.host,
+        Some(&fixture.exec_root),
+    );
+
+    let detail = fixture.env.detail(ID_WORKTREE);
+
+    assert_eq!(
+        detail.worktree.as_deref(),
+        Some(fixture.host.to_string_lossy().as_ref()),
+        "worktree 列 = host"
+    );
+    assert_eq!(
+        detail.exec_root.as_deref(),
+        Some(fixture.exec_root.to_string_lossy().as_ref()),
+        "execRoot 列 = host/rel"
+    );
+    assert_ne!(detail.worktree, detail.exec_root, "两值互不替代");
+}
+
+/// `ChangeDetail.exec_root`（边界）：根 workspace（`worktree = Some(host)`、
+/// `exec_root = None`）→ `execRoot = null`、`worktree` 照常出线（前端只渲染一
+/// 行）。
+#[test]
+fn change_detail_exec_root根workspace为null且worktree照常() {
+    let env = Env::new("detail-root-ws");
+    let host = std::env::temp_dir().join(format!("workflow-detail-root-{}-ws", std::process::id()));
+    let _ = fs::remove_dir_all(&host);
+    env.seed_exec_root_record(ID_WORKTREE, "root-ws-change", &host, None);
+
+    let detail = env.detail(ID_WORKTREE);
+
+    assert_eq!(
+        detail.exec_root, None,
+        "根 workspace → execRoot = null（不回落）"
+    );
+    assert_eq!(
+        detail.worktree.as_deref(),
+        Some(host.to_string_lossy().as_ref()),
+        "worktree 照常出线"
+    );
+    let value = serde_json::to_value(&detail).expect("出线应成功");
+    assert!(
+        value.as_object().expect("对象").contains_key("execRoot"),
+        "execRoot 键恒在场（None → null，不省键）"
+    );
+    assert_eq!(value["execRoot"], serde_json::json!(null));
+    let _ = fs::remove_dir_all(&host);
+}
+
+/// `ChangeDetail.exec_root`（边界）：legacy（`worktree = None`）→ `execRoot` 与
+/// `worktree` 均 `null`，键恒在场。
+#[test]
+fn change_detail_exec_root_legacy两列皆null键恒在场() {
+    let env = Env::new("detail-legacy");
+    env.seed(ID_WORKTREE, "legacy-change", T0, None);
+
+    let detail = env.detail(ID_WORKTREE);
+
+    assert_eq!(detail.worktree, None, "legacy → worktree null");
+    assert_eq!(detail.exec_root, None, "legacy → execRoot null");
+    let value = serde_json::to_value(&detail).expect("出线应成功");
+    let object = value.as_object().expect("对象");
+    assert!(
+        object.contains_key("worktree") && object.contains_key("execRoot"),
+        "两键恒在场"
+    );
+    assert_eq!(value["worktree"], serde_json::json!(null));
+    assert_eq!(value["execRoot"], serde_json::json!(null));
+}
+
+/// `ChangeDetail.exec_root`（边界）：序列化键序——`execRoot` 与 `worktree` 相邻
+/// 且居 DTO 末位（声明序）。
+#[test]
+fn change_detail_exec_root声明序紧邻worktree且居末位() {
+    let env = Env::new("detail-key-order");
+    env.seed(ID_WORKTREE, "order-change", T0, None);
+
+    let detail = env.detail(ID_WORKTREE);
+
+    let debug = format!("{detail:?}");
+    let worktree_at = debug.rfind("worktree:").expect("Debug 含 worktree");
+    let exec_at = debug.find("exec_root:").expect("Debug 含 exec_root");
+    assert!(
+        worktree_at < exec_at,
+        "声明序 worktree 在 exec_root 之前，实际: {debug}"
+    );
+    let tail = &debug[exec_at..];
+    assert!(
+        !tail.contains("runs:") && !tail.contains("artifacts:"),
+        "exec_root 居 DTO 末位（其后无字段）"
+    );
+}
+
+/// `change_detail()`（异常）：`exec_root` 指向 host 外（手改库）→ 访问器回落
+/// host，产物自 host 定位；`execRoot` 仍出线原始越界值（原始列 vs 访问器两口径
+/// 可辨）。
+#[test]
+fn change_detail_exec_root越界_回落host定位且出线原值() {
+    let fixture = SubdirDetailEnv::new("detail-out-of-bounds");
+    let outside = fixture
+        .host
+        .parent()
+        .expect("host 应有父目录")
+        .join("outside-change");
+    fixture
+        .env
+        .seed_exec_root_record(ID_WORKTREE, "subdir-change", &fixture.host, Some(&outside));
+    // host 内产物（回落命中面）
+    fixture.env.worktree_file(
+        &fixture.host,
+        "subdir-change",
+        "proposal.md",
+        "# host 内提案",
+    );
+    // 域外产物（越界读面——若越界列生效则会读到）
+    fixture
+        .env
+        .worktree_file(&outside, "subdir-change", "tasks.md", "- [x] 域外\n");
+
+    let detail = fixture.env.detail(ID_WORKTREE);
+
+    assert!(
+        detail
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.source == "proposal.md"),
+        "回落 host 定位命中，实际: {:?}",
+        detail.artifacts
+    );
+    assert!(
+        !detail
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.source == "tasks.md"),
+        "不读域外（越界列不生效）"
+    );
+    assert_eq!(
+        detail.exec_root.as_deref(),
+        Some(outside.to_string_lossy().as_ref()),
+        "execRoot 出线原始越界值（两口径可辨）"
+    );
+    let _ = fs::remove_dir_all(&outside);
+}
+
+/// `change_detail()`（异常）：`exec_root` 指向 host/rel 但目录已被删 → 定位全
+/// miss，detail 仍可达（`source` 自 `record.status` 映射）、`execRoot` 原样出
+/// 线。
+#[test]
+fn change_detail_exec_root目录被删_detail仍可达() {
+    let fixture = SubdirDetailEnv::new("detail-exec-root-gone");
+    fixture.env.seed_exec_root_record(
+        ID_WORKTREE,
+        "subdir-change",
+        &fixture.host,
+        Some(&fixture.exec_root),
+    );
+
+    let detail = fixture
+        .env
+        .detail_opt(ID_WORKTREE)
+        .expect("建档记录恒可达详情");
+
+    assert_eq!(
+        detail.status,
+        Some(ChangeStatus::Active),
+        "状态面在（source 自 record.status 映射）"
+    );
+    assert!(detail.artifacts.is_empty(), "定位 miss 产物清单空");
+    assert_eq!(
+        detail.pipeline.len(),
+        REQUIREMENT_PHASES.len(),
+        "流水线 10 站照常"
+    );
+    assert_eq!(
+        detail.exec_root.as_deref(),
+        Some(fixture.exec_root.to_string_lossy().as_ref()),
+        "execRoot 原样出线（删除事实不改写记录）"
+    );
+    assert_eq!(
+        detail.worktree.as_deref(),
+        Some(fixture.host.to_string_lossy().as_ref()),
+        "worktree 列原样出线"
+    );
 }

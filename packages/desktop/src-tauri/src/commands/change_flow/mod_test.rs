@@ -134,6 +134,7 @@ fn seed_change_full(
             archived_at: None,
             active_phase: None,
             worktree: None,
+            exec_root: None,
             base_commit: None,
         })
         .expect("建档种子应成功");
@@ -996,6 +997,7 @@ async fn confirm后活面回运行态且归档槽清空() {
             missing_artifacts: Vec::new(),
             delta_specs: vec!["desktop-flow".to_owned()],
             worktree: None,
+            exec_root: None,
             branch: None,
             merge_target: Some("main".to_owned()),
         }),
@@ -1167,14 +1169,15 @@ fn seed_change_with_worktree(
             archived_at: None,
             active_phase: None,
             worktree: Some(worktree.to_string_lossy().into_owned()),
+            exec_root: None,
             base_commit: Some("0000000000000000000000000000000000000001".to_owned()),
         })
         .expect("worktree 建档种子应成功");
 }
 
-/// worktree 目录缺失拒绝：记录携 `worktree=Some(不存在路径)` → 发起 `Err`
-/// 含「worktree 目录不存在（可能已被手动删除）」引导且零 run 登记；仅带
-/// worktree 记录生效——legacy 记录不经此校验（对照半边）。
+/// 执行根目录缺失拒绝：记录携 `worktree=Some(不存在路径)`（`exec_root` 缺省
+/// 回落 worktree）→ 发起 `Err` 含「执行根目录不存在（可能已被手动删除）」引导
+/// 且零 run 登记；仅带 worktree 记录生效——legacy 记录不经此校验（对照半边）。
 #[tokio::test]
 async fn worktree目录缺失拒绝_显式err且零run登记() {
     let env = Env::new("wt-missing");
@@ -1200,7 +1203,7 @@ async fn worktree目录缺失拒绝_显式err且零run登记() {
     .expect_err("worktree 目录缺失应显式 Err");
 
     assert!(
-        err.contains("worktree 目录不存在") && err.contains("可能已被手动删除"),
+        err.contains("执行根目录不存在") && err.contains("可能已被手动删除"),
         "Err 引导文案（手动删除语境），实际: {err}"
     );
     assert!(
@@ -1317,6 +1320,352 @@ async fn exec_root解析成功_相位落workspace库且无第二库文件() {
             foundation::identity::workspace_identity_segment(&root)
         ),
         "库文件名 = workspace root 身份段派生（非 worktree 路径派生）"
+    );
+}
+
+/// 双根列种子（子目录 workspace 形态：`worktree` = host、`exec_root` =
+/// host/rel）。
+fn seed_change_with_roots(
+    app: &App<tauri::test::MockRuntime>,
+    root: &str,
+    name: &str,
+    worktree: &std::path::Path,
+    exec_root: Option<&std::path::Path>,
+) {
+    app.state::<WorkspaceStores>()
+        .for_root(root)
+        .expect("for_root 应成功")
+        .create_change_record(ChangeStateRecord {
+            id: name.to_owned(),
+            name: name.to_owned(),
+            title: name.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: 1727000000000,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: Some(worktree.to_string_lossy().into_owned()),
+            exec_root: exec_root.map(|path| path.to_string_lossy().into_owned()),
+            base_commit: Some("0000000000000000000000000000000000000001".to_owned()),
+        })
+        .expect("双根建档种子应成功");
+}
+
+/// exec root 解析（正向）：子目录 workspace（`worktree` = host 在场、`exec_root`
+/// = host/rel 在场、`openspec` 树在 exec_root）→ 发起成功，summary `running`；
+/// 相位半边落 **workspace root 库**（数据根 `workspaces/` 子树仅一个库文件——
+/// `for_root` 身份不被执行根污染）。
+#[tokio::test]
+async fn exec_root解析_子目录workspace发起成功且库身份不污染() {
+    let env = Env::new("subdir-exec-root");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let root = env.root();
+    let host = env
+        .data_dir
+        .path()
+        .join("worktrees")
+        .join("repo")
+        .join(CHANGE);
+    let exec_root = host.join("packages").join("desktop");
+    fs::create_dir_all(exec_root.join("openspec/changes").join(CHANGE))
+        .expect("预置执行根 openspec 树失败");
+    seed_change_with_roots(&app, &root, CHANGE, &host, Some(&exec_root));
+    seed_sdk_default_instance(&app);
+
+    let summary = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await
+    .expect("子目录 workspace 发起应成功");
+
+    assert_eq!(
+        summary.status,
+        super::ChangeRunStatus::Running,
+        "提前 resolve summary running"
+    );
+
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    wait_for("run 终态除名", || {
+        control.snapshot(&root, CHANGE).is_none()
+    });
+
+    // 库身份恒 workspace root：数据根 workspaces/ 子树恰一个库文件
+    let workspaces_dir = env.data_dir.path().join("workspaces");
+    let mut files: Vec<String> = fs::read_dir(&workspaces_dir)
+        .expect("workspaces 子树应存在")
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    files.sort();
+    assert_eq!(
+        files.len(),
+        1,
+        "执行根不产生第二库文件（for_root 身份不被污染）: {files:?}"
+    );
+    assert_eq!(
+        files[0],
+        format!(
+            "{}.redb",
+            foundation::identity::workspace_identity_segment(&root)
+        ),
+        "库文件名 = workspace root 身份段派生"
+    );
+    let runs = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功")
+        .list_change_runs(CHANGE)
+        .expect("run 史清单应成功");
+    assert_eq!(runs.len(), 1, "相位半边落 workspace root 库");
+}
+
+/// exec root 解析（异常）：`exec_root` 目录缺席（`host/rel` 被删、host 仍在）
+/// → `Err` 含「执行根目录不存在」+ 路径 + 恢复引导；零 run 登记。
+#[tokio::test]
+async fn exec_root解析_执行根缺席拒绝且零run登记() {
+    let env = Env::new("subdir-exec-gone");
+    let app = app_with(&env);
+    let root = env.root();
+    let host = env
+        .data_dir
+        .path()
+        .join("worktrees")
+        .join("repo")
+        .join(CHANGE);
+    fs::create_dir_all(&host).expect("预置 host 目录失败");
+    let missing_exec_root = host.join("packages").join("desktop");
+    seed_change_with_roots(&app, &root, CHANGE, &host, Some(&missing_exec_root));
+    seed_sdk_default_instance(&app);
+
+    let err = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await
+    .expect_err("执行根缺席应显式 Err");
+
+    assert!(
+        err.contains("执行根目录不存在") && err.contains("可能已被手动删除"),
+        "Err 文案为执行根口径，实际: {err}"
+    );
+    assert!(
+        err.contains(missing_exec_root.to_string_lossy().as_ref()),
+        "Err 携带缺失路径，实际: {err}"
+    );
+    assert!(
+        err.contains("恢复目录或手动清理后重建 change"),
+        "Err 携恢复引导，实际: {err}"
+    );
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    assert!(
+        control.snapshot(&root, CHANGE).is_none(),
+        "零 run 登记（前置校验先于 begin_run）"
+    );
+}
+
+/// exec root 解析（边界，表驱动两形态）：`exec_root` 越界（手改库指向 host
+/// 外的路径）与 `exec_root = Some("")`（空串）→ 访问器回落 host —— 发起成功
+/// （若越界 / 空串值被采用即会在存在性校验处 Err，故成功即证回落；不产生越界
+/// cwd）。
+#[tokio::test]
+async fn exec_root解析_越界与空串均回落host() {
+    for (tag, exec_root_value) in [("out-of-bounds", None), ("blank", Some(""))] {
+        let env = Env::new(&format!("subdir-fallback-{tag}"));
+        let app = app_with(&env);
+        let root = env.root();
+        let host = env
+            .data_dir
+            .path()
+            .join("worktrees")
+            .join("repo")
+            .join(CHANGE);
+        fs::create_dir_all(host.join("openspec/changes").join(CHANGE))
+            .expect("预置 host openspec 树失败");
+        let outside = env.data_dir.path().join("outside").join("elsewhere-change");
+        let exec_root = match exec_root_value {
+            // 越界：host 之外的不存在路径（若被采用 → 存在性校验必 Err）
+            None => Some(outside.as_path()),
+            // 空串：非真后代 → 回落
+            Some(blank) => Some(std::path::Path::new(blank)),
+        };
+        seed_change_with_roots(&app, &root, CHANGE, &host, exec_root);
+        seed_sdk_default_instance(&app);
+
+        let result = change_flow_start_with(
+            app.handle().clone(),
+            discarding_channel(),
+            root.clone(),
+            CHANGE.to_owned(),
+            false,
+        )
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "形态 {tag}：访问器回落 host → 发起成功（越界 / 空串值未被采用），实际: {result:?}"
+        );
+        let summary = result.expect("已断言 Ok");
+        assert_eq!(summary.status, super::ChangeRunStatus::Running);
+        let control = app.state::<Arc<ChangeFlowControl>>();
+        wait_for("run 终态除名", || {
+            control.snapshot(&root, CHANGE).is_none()
+        });
+    }
+}
+
+/// 子目录 workspace 真件夹具（`RunRequest` 装配断言用）：主仓提交 `rel` 子树内
+/// 的 static shim 与占位文件 → `worktree add` 出 host 整树检出（`exec_root` =
+/// host/rel 随检出在场；shim / 占位文件为 tracked 面，Clean 的 `reset --hard`
+/// 后仍在场）。返回 config 应登记的 shim 名。
+fn git_main_subdir_worktree(main_root: &Path, worktree: &Path, branch: &str, rel: &str) -> String {
+    let run_git = |args: &[&str], cwd: &Path| {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(cwd)
+            .args(args)
+            .output()
+            .unwrap_or_else(|error| panic!("夹具 git 拉起失败: {error}"));
+        assert!(
+            output.status.success(),
+            "夹具 git {} 失败: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    run_git(&["init", "-q"], main_root);
+    run_git(&["config", "user.name", "fixture"], main_root);
+    run_git(&["config", "user.email", "fixture@example.com"], main_root);
+    fs::write(main_root.join("seed.txt"), "seed\n").expect("写种子文件失败");
+    // 检出逐字还原（shim 内容与平台换行约定一致，不被 autocrlf 改写）
+    run_git(&["config", "core.autocrlf", "false"], main_root);
+    let rel_dir = main_root.join(rel);
+    fs::create_dir_all(&rel_dir).expect("建 rel 子树目录失败");
+    fs::write(rel_dir.join("keep.txt"), "keep\n").expect("写 rel 占位文件失败");
+    let shim = {
+        #[cfg(windows)]
+        {
+            fs::write(
+                rel_dir.join("static-shim.cmd"),
+                "@echo off\r\necho static-out\r\nexit /b 0\r\n",
+            )
+            .expect("写 shim 失败");
+            "static-shim.cmd".to_owned()
+        }
+        #[cfg(not(windows))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let script = rel_dir.join("static-shim");
+            fs::write(&script, "#!/bin/sh\necho static-out\nexit 0\n").expect("写 shim 失败");
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("补执行位");
+            "static-shim".to_owned()
+        }
+    };
+    run_git(&["add", "-A"], main_root);
+    run_git(&["commit", "-q", "-m", "init"], main_root);
+    run_git(
+        &["worktree", "add", &worktree.to_string_lossy(), "-b", branch],
+        main_root,
+    );
+    shim
+}
+
+/// `RunRequest` 装配（正向）：子目录 workspace 夹具（`exec_root` = host/rel、
+/// `worktree` = host）→ 装配面两值可辨且来源正确——检查报告树锚执行根
+/// （`RunRequest.root` = `exec_root`，host 根下零报告树）、Clean 步恢复域外残留
+/// （`RunRequest.worktree` = 记录 `worktree`，host 全树）。
+#[tokio::test]
+async fn run_request装配_root为执行根且worktree为host() {
+    let env = Env::new("run-request-assembly");
+    let app = app_with(&env);
+    let root = env.root();
+    let host = env.data_dir.path().join("wt").join(CHANGE);
+    fs::create_dir_all(env.data_dir.path().join("wt")).expect("建 wt 父目录失败");
+    let shim = git_main_subdir_worktree(
+        env.ws_root.path(),
+        &host,
+        &format!("change/{CHANGE}"),
+        "packages/desktop",
+    );
+    let exec_root = host.join("packages").join("desktop");
+    assert!(exec_root.is_dir(), "执行根随整树检出在场");
+
+    // 执行根内：工件树（Clean 排除面）+ config（dot 目录排除面）+ shim 在 PATH
+    fs::create_dir_all(exec_root.join("openspec/changes").join(CHANGE))
+        .expect("预置执行根 openspec 树失败");
+    fs::create_dir_all(exec_root.join(".dev-team")).expect("建执行根 .dev-team 目录失败");
+    fs::write(
+        exec_root.join(".dev-team/config.json"),
+        format!("{{ \"static_analysis\": \"{shim}\" }}"),
+    )
+    .expect("写 config 失败");
+    // 域外 untracked 残留（worktree 锚的观察面：锚执行根时 clean 缩域即留存）
+    fs::write(host.join("outside-junk.txt"), "域外残留\n").expect("写域外残留失败");
+
+    seed_change_with_roots(&app, &root, CHANGE, &host, Some(&exec_root));
+    seed_sdk_default_instance(&app);
+
+    let (guard, original) = prefix_path(&exec_root);
+    change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await
+    .expect("子目录 workspace 发起应成功");
+
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功");
+    let store_probe = Arc::clone(&store);
+    wait_for_up_to(
+        "initialize 相位 pass 落账",
+        Duration::from_secs(120),
+        || {
+            store_probe.list_phase_records(CHANGE).is_ok_and(|entries| {
+                entries.iter().any(|entry| {
+                    entry.phase == "initialize" && entry.verdict == workflow::model::Verdict::Pass
+                })
+            })
+        },
+    );
+    let _ = change_flow_stop_with(app.handle().clone(), root.clone(), CHANGE.to_owned());
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    wait_for_up_to("run 终态除名", Duration::from_secs(120), || {
+        control.snapshot(&root, CHANGE).is_none()
+    });
+    restore_path(guard, original);
+
+    let baseline_reports = exec_root
+        .join("openspec/changes")
+        .join(CHANGE)
+        .join("reports/baseline");
+    assert!(
+        baseline_reports.exists(),
+        "检查报告树锚执行根（RunRequest.root = exec_root）: {}",
+        baseline_reports.display()
+    );
+    assert!(
+        !host
+            .join("openspec/changes")
+            .join(CHANGE)
+            .join("reports")
+            .exists(),
+        "host 根下零报告树（root 非 host）"
+    );
+    assert!(
+        !host.join("outside-junk.txt").exists(),
+        "Clean 锚 host 全树 → 域外 untracked 残留被清（RunRequest.worktree = 记录 worktree，非执行根）"
     );
 }
 

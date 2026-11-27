@@ -105,6 +105,11 @@ pub struct RunRequest {
     /// 主 workspace root（双 root 拆分：`root` 为 worktree exec root 时本字段
     /// 恒主仓；归档步的 git / layout 锚）
     pub main_root: String,
+    /// worktree 落位目录（**host**，`None` = legacy 主 root change）。git 步与
+    /// 回收的唯一锚——MUST NOT 从 `root`（执行根）反推：子目录 workspace 下两者
+    /// 恒不等，拿执行根喂 `restore_baseline` / `worktree_snapshot` 会得到「命令
+    /// 都成功但域外改动被丢 / 索引缩域」的半域失败形态
+    pub worktree: Option<String>,
     /// change 身份锚（uuid 形态；一切寻址入参）
     pub change_id: String,
     pub run_id: String,
@@ -337,12 +342,12 @@ async fn drive(
             }
         };
         // legacy 整相位短路（initialize 表头一次性基线检查相位）：`worktree=None`
-        // 的存量记录 exec root = 主仓（root == main_root ⟺ worktree 缺席——发起
-        // 前置校验保证 worktree 在场时 exec root ≠ 主仓）——restore / 检查 spawn
-        // 在主仓执行会 reset 用户未提交改动（灾难），故步序列零执行（零 vcs /
-        // 零检查 spawn、主仓零重置零 clean），以 `settle_phase(skipped)` 收口（跳过
-        // 因可见，一次性持久同 pass 语义）
-        if phase == INITIALIZE_PHASE_ID && request.root == request.main_root {
+        // 的存量记录 exec root = 主仓——restore / 检查 spawn 在主仓执行会 reset
+        // 用户未提交改动（灾难），故步序列零执行（零 vcs / 零检查 spawn、主仓零
+        // 重置零 clean），以 `settle_phase(skipped)` 收口（跳过因可见，一次性持久
+        // 同 pass 语义）。判据读 `worktree.is_none()`（legacy 显式词），MUST NOT
+        // 用「路径相等」代理——子目录 workspace 下 exec root 与主仓恒不等
+        if phase == INITIALIZE_PHASE_ID && request.worktree.is_none() {
             trace.entry_override = None;
             if let Err(terminal) = settle_phase(
                 tools,
@@ -698,11 +703,12 @@ async fn enter_phase(
 }
 
 /// initialize Clean 步（vcs 直调先例同归档 git 步，不经 ToolCommand 枚举）：
-/// 主仓双保险（`root == main_root` → `passed` + legacy 跳过因，正常不可达——
+/// 主仓双保险（`worktree.is_none()` → `passed` + legacy 跳过因，正常不可达——
 /// 相位级短路先行）→ 排除面组装（依赖与工具产物树名单 + dot 目录 + `openspec/`
-/// 工件树增补——增补驻调用方，不入名单本体）→ `restore_baseline` 恢复 worktree
-/// 基线态（tracked reset、untracked 清除、排除面原样保留）。失败即 Terminal
-///（`on_fail=None`：步失败即步终态，不唤决策、不进相位重试）。
+/// 工件树增补——增补驻调用方，不入名单本体）→ `restore_baseline` 锚 **host 全
+/// 树**恢复 worktree 基线态（tracked reset、untracked 清除、排除面原样保留）。
+/// 锚执行根会退化为半域恢复（`reset --hard` 全树 + `clean -fd` 子树）。失败即
+/// Terminal（`on_fail=None`：步失败即步终态，不唤决策、不进相位重试）。
 async fn step_clean(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
@@ -710,7 +716,7 @@ async fn step_clean(
 ) -> Result<(), Terminal> {
     let kind = ChangeStepKind::Clean;
     let instance_no = open_step(ctx, trace, cursor, kind);
-    if ctx.request.root == ctx.request.main_root {
+    let Some(worktree) = ctx.request.worktree.as_deref() else {
         close_step(
             ctx,
             cursor,
@@ -719,7 +725,7 @@ async fn step_clean(
             StepSettle::passed(Some(TXT_SKIP_LEGACY_INITIALIZE.to_owned())),
         );
         return Ok(());
-    }
+    };
     let mut exclusions: Vec<String> = foundation::prune::PRUNED_DIR_NAMES
         .iter()
         .map(|name| (*name).to_owned())
@@ -729,7 +735,7 @@ async fn step_clean(
     let exclusion_refs: Vec<&str> = exclusions.iter().map(String::as_str).collect();
     match ctx
         .vcs
-        .restore_baseline(Path::new(&ctx.request.root), &exclusion_refs)
+        .restore_baseline(Path::new(worktree), &exclusion_refs)
     {
         Ok(summary) => {
             close_step(
