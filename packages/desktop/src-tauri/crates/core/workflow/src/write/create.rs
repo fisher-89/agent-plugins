@@ -272,8 +272,10 @@ pub fn create(
     let worktree_path = worktree.to_string_lossy().into_owned();
     // 执行根 = 落位目录 + workspace 相对偏移（`rel = ""` → `None`，语义 = 与
     // `worktree` 同值）。串一次铸出、记录与 DTO 各持一份克隆——两处各算一遍
-    // 会让取值面漂移
-    let exec_root_path = worktree.join(&placement.rel);
+    // 会让取值面漂移。`rel` 恒 `/` 分隔（git 契约），拼进本机路径前转本机
+    // 分隔符——`Path::join` 只补段间分隔符，不归一传入串内部的 `/`
+    let rel_native = placement.rel.replace('/', std::path::MAIN_SEPARATOR_STR);
+    let exec_root_path = worktree.join(rel_native);
     let exec_root = if placement.rel.is_empty() {
         None
     } else {

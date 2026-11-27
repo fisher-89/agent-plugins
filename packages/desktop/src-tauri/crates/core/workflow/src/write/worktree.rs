@@ -22,7 +22,8 @@ pub struct InstallRun {
 /// 一次给出（落位恒与 workspace 位置无关，`rel` 只参与执行根派生与准入判据）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorktreePlacement {
-    /// worktree 落位父锚：`<git 根父目录>/.worktrees/<git 根目录名>`
+    /// worktree 落位父锚：`<git 根父目录>/.worktrees/<git 根目录名>`（本机
+    /// 分隔符——该串直接持久化并出线给用户，混式分隔符不可接受）
     pub root: PathBuf,
     /// workspace root 相对 git 根的偏移（`/` 分隔、无尾分隔符；git 根
     /// workspace 为 `""`）

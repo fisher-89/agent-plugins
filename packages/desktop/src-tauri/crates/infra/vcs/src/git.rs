@@ -133,8 +133,10 @@ fn git_raw(main_root: &Path, args: &[&str]) -> Result<(i32, String, String), Str
 /// 两值——首行 = git 根、次行 = workspace root 相对 git 根的偏移（根 workspace
 /// 为空行）。偏移取 git 自身的路径表示（`trim_end_matches('/')` 归一尾分隔符），
 /// MUST NOT 由 canonicalize 路径 `strip_prefix` 重建（`\\?\` 前缀 / 真实大小写 /
-/// `\` vs `/` 三坑）。非 git 仓 / 裸仓 / 空输出映射显式引导（与 [`probe`] 同
-/// 口径）。
+/// `\` vs `/` 三坑）。toplevel 转本机分隔符（git 恒输出 `/`，Windows 亦然）——
+/// 它直接进入落位目录拼装与记录持久化，不转会留下 `D:/x\.worktrees\…` 混式；
+/// `rel` 保持 `/`（`HEAD:<rel>` 判据与 `WorktreePlacement` 契约要求 POSIX
+/// 形式）。非 git 仓 / 裸仓 / 空输出映射显式引导（与 [`probe`] 同口径）。
 pub(crate) fn placement(main_root: &Path) -> Result<(PathBuf, String), String> {
     let raw = git(
         main_root,
@@ -160,7 +162,8 @@ pub(crate) fn placement(main_root: &Path) -> Result<(PathBuf, String), String> {
         ));
     }
     let rel = lines.next().unwrap_or("").trim_end_matches('/').to_owned();
-    Ok((PathBuf::from(toplevel), rel))
+    let toplevel = PathBuf::from(toplevel.replace('/', std::path::MAIN_SEPARATOR_STR));
+    Ok((toplevel, rel))
 }
 
 /// `HEAD:<rel>` 在案判据：`rev-parse --verify --quiet HEAD:<rel>`——退出 0 =

@@ -3055,6 +3055,12 @@ fn seed_subdir(env: &Env, rel: &str) {
     seed_main_path(env, &format!("{rel}/keep.txt"), "子目录 workspace 夹具\n");
 }
 
+/// 执行根期望值：`host` join `rel`——`rel` 的 `/` 先转本机分隔符（生产侧同
+/// 式；`Path::join` 不归一传入串内部的 `/`）。
+fn exec_root_expected(host: &Path, rel: &str) -> PathBuf {
+    host.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR))
+}
+
 /// 超长偏移（> 1000 字符、多层）：逐段 40 字符、30 段。
 fn long_rel() -> String {
     let segments: Vec<String> = (0..30)
@@ -3077,7 +3083,7 @@ fn placement_非空rel_host与执行根两值逐字来自假件() {
         .expect("建域应 Ok");
 
     let host = env.worktree_root.join("fix-bug");
-    let exec_root = host.join("packages/desktop");
+    let exec_root = exec_root_expected(&host, "packages/desktop");
     assert_eq!(
         outcome.worktree,
         host.to_string_lossy(),
@@ -3127,10 +3133,7 @@ fn placement_rel单段与多段_执行根派生同解且无尾分隔符() {
             .create("fix-bug", "分段 goal")
             .unwrap_or_else(|error| panic!("rel = {rel} 建域应 Ok，实际 Err: {error}"));
 
-        let expected = env
-            .worktree_root
-            .join("fix-bug")
-            .join(rel)
+        let expected = exec_root_expected(&env.worktree_root.join("fix-bug"), rel)
             .to_string_lossy()
             .into_owned();
         assert_eq!(
@@ -3161,10 +3164,7 @@ fn placement_rel超长_原样透传零截断() {
 
     let outcome = env.create("fix-bug", "超长偏移 goal").expect("建域应 Ok");
 
-    let expected = env
-        .worktree_root
-        .join("fix-bug")
-        .join(&rel)
+    let expected = exec_root_expected(&env.worktree_root.join("fix-bug"), &rel)
         .to_string_lossy()
         .into_owned();
     let actual = outcome.exec_root.expect("超长偏移仍派生执行根");
@@ -3413,10 +3413,7 @@ fn write出口再导出_取型构造placement并驱动create() {
 
     let outcome = env.create("fix-bug", "再导出 goal").expect("建域应 Ok");
 
-    let expected = placement
-        .root
-        .join("fix-bug")
-        .join(&placement.rel)
+    let expected = exec_root_expected(&placement.root.join("fix-bug"), &placement.rel)
         .to_string_lossy()
         .into_owned();
     assert_eq!(
@@ -3488,7 +3485,11 @@ fn create子目录workspace_双列建档两串逐字且均绝对() {
     );
     assert_eq!(
         record.exec_root.as_deref(),
-        Some(host.join("packages/desktop").to_string_lossy().as_ref()),
+        Some(
+            exec_root_expected(&host, "packages/desktop")
+                .to_string_lossy()
+                .as_ref()
+        ),
         "exec_root 列 = host/rel"
     );
     let host_str = record.worktree.expect("worktree 列在场");
@@ -3585,6 +3586,31 @@ fn create子目录workspace_出线两串可辨互不替代() {
     );
 }
 
+/// 分隔符一致性（回归）：`worktree` 与 `execRoot` 两串仅含本机分隔符——git
+/// 的 `--show-toplevel` / `--show-prefix` 恒 `/` 分隔，落位拼装与执行根拼装
+/// 曾产出 `D:/x\.worktrees\…\client/app` 混式（用户可见路径）。
+#[test]
+fn create子目录workspace_两串仅含本机分隔符() {
+    let env = Env::new("create-native-separator");
+    env.vcs.set_rel("client/app");
+    seed_subdir(&env, "client/app");
+
+    let outcome = env.create("fix-bug", "分隔符 goal").expect("建域应 Ok");
+
+    let foreign = if std::path::MAIN_SEPARATOR == '/' {
+        '\\'
+    } else {
+        '/'
+    };
+    let exec_root = outcome.exec_root.expect("execRoot 出线");
+    for text in [&outcome.worktree, &exec_root] {
+        assert!(
+            !text.contains(foreign),
+            "路径串仅含本机分隔符，实际: {text}"
+        );
+    }
+}
+
 /// 执行根派生（边界）：`rel` 单段（`"client"`）与多段（`"client/app"`）→ 执行
 /// 根派生同解且两列同源。
 #[test]
@@ -3596,10 +3622,7 @@ fn create执行根派生_单段与多段两形态同解() {
 
         let outcome = env.create("fix-bug", "派生 goal").expect("建域应 Ok");
 
-        let expected = env
-            .worktree_root
-            .join("fix-bug")
-            .join(rel)
+        let expected = exec_root_expected(&env.worktree_root.join("fix-bug"), rel)
             .to_string_lossy()
             .into_owned();
         assert_eq!(
@@ -3626,10 +3649,7 @@ fn create执行根派生_超长rel记录与dto原样透传零截断() {
 
     let outcome = env.create("fix-bug", "超长 goal").expect("建域应 Ok");
 
-    let expected = env
-        .worktree_root
-        .join("fix-bug")
-        .join(&rel)
+    let expected = exec_root_expected(&env.worktree_root.join("fix-bug"), &rel)
         .to_string_lossy()
         .into_owned();
     assert_eq!(

@@ -1888,10 +1888,7 @@ fn 生成器让位而注记分家() {
     );
     let module = include_str!("mod.rs");
     for needle in ["本文件由元素的契约 markdown 生成", "勿手改", "生成物检查"] {
-        assert!(
-            module.contains(needle),
-            "`GENERATED_NOTICE` 含 `{needle}`"
-        );
+        assert!(module.contains(needle), "`GENERATED_NOTICE` 含 `{needle}`");
     }
     for command in ["api:check", "api:export", "pnpm"] {
         assert!(

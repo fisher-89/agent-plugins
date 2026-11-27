@@ -107,6 +107,18 @@ fn placement_真实git_子目录workspace仍锚定git根() {
         nested_workspace.rel, "client/app",
         "偏移 = workspace root 相对 git 根（`/` 分隔、无尾分隔符）"
     );
+    // 分隔符一致性（回归）：git 恒以 `/` 输出 toplevel；落位串须转本机分隔符，
+    // 否则 Windows 上出现 `C:/x\.worktrees\…` 混式（用户可见路径）
+    let foreign = if std::path::MAIN_SEPARATOR == '/' {
+        '\\'
+    } else {
+        '/'
+    };
+    let root_text = nested_workspace.root.to_string_lossy();
+    assert!(
+        !root_text.contains(foreign),
+        "落位串仅含本机分隔符，实际: {root_text}"
+    );
 }
 
 /// 真实 git（异常）：非 git 目录 → 显式 Err（引导文案与 create probe 同口径）。
