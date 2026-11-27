@@ -8,7 +8,7 @@
 
 ### Requirement: change 列表扫描与分组
 
-workflow crate 的 queries SHALL 返回全量 change 列表，条目集合 SHALL 为 **workspace 库 ChangeRecord 全量**（唯一基准数据源）：MUST NOT 扫描磁盘目录——active / archive 两树目录发现与「db 记录 ∪ 磁盘目录去重并集」语义整体退役，无 db 记录的存量 CLI change 不再入列（零发现，见 desktop-change-state-store「双向墙」）。条目 SHALL 携状态面：`id`（身份锚）、`name`（恒裸名）、`title`（人类可读标题，恒非空——自记录直读，见 desktop-change-state-store）、`status`（active | archived）、创建时间（`created_at`）、`active_phase` 运行中标注（可得时）。**状态归组以 db status 为权威**：带 worktree 记录的 active change 在 merge 前主仓两树未命中（目录位于其 worktree 内），SHALL 照常以 db status 归入进行中组，MUST NOT 因主仓目录缺席而被丢弃、MUST NOT 误归「未知时间」组，其工件 / 产物解析 SHALL 经记录的 worktree 路径（见 desktop-change-worktree）。归档 change SHALL 按月分组，分组时间 SHALL 以 `archived_at` 为唯一权威（磁盘目录名日期前缀不再参与分组），`archived_at` 缺失 SHALL 归入「未知时间」组而非被丢弃。缺失目录（如无归档树）SHALL NOT 影响列表结果（零磁盘触点，无降级分支）。inventory 代际标注（v0 / v1 / v2）SHALL 保持退役，MUST NOT 出现在列表 DTO。
+workflow crate 的 queries SHALL 返回全量 change 列表，条目集合 SHALL 为 **workspace 库 ChangeRecord 全量**（唯一基准数据源）：MUST NOT 扫描磁盘目录——active / archive 两树目录发现与「db 记录 ∪ 磁盘目录去重并集」语义整体退役，无 db 记录的存量 CLI change 不再入列（零发现，见 desktop-change-state-store「双向墙」）。条目 SHALL 携状态面：`id`（身份锚）、`name`（恒裸名）、`title`（人类可读标题，恒非空——自记录直读，见 desktop-change-state-store）、`status`（active | archived）、创建时间（`created_at`）、`active_phase` 运行中标注（可得时）。**状态归组以 db status 为权威**：带 worktree 记录的 active change 在 merge 前主仓两树未命中（目录位于其 worktree 内），SHALL 照常以 db status 归入进行中组，MUST NOT 因主仓目录缺席而被丢弃、MUST NOT 误归「未知时间」组，其工件 / 产物解析 SHALL 经记录的**执行根**（`exec_root` 在案即取值、否则回落 `worktree`；见 desktop-change-worktree「子目录 workspace 的执行根对齐」——`worktree` 列是落位目录，MUST NOT 直接当工作面）。归档 change SHALL 按月分组，分组时间 SHALL 以 `archived_at` 为唯一权威（磁盘目录名日期前缀不再参与分组），`archived_at` 缺失 SHALL 归入「未知时间」组而非被丢弃。缺失目录（如无归档树）SHALL NOT 影响列表结果（零磁盘触点，无降级分支）。inventory 代际标注（v0 / v1 / v2）SHALL 保持退役，MUST NOT 出现在列表 DTO。
 
 #### Scenario: db 建档条目状态面呈现
 
@@ -47,7 +47,7 @@ workflow crate 的 queries SHALL 返回全量 change 列表，条目集合 SHALL
 
 ### Requirement: change 详情聚合
 
-queries SHALL 聚合单个 change 的详情（**按 id 寻址**），状态面单源自 workspace 库：流水线相位序 SHALL 随 `record.workflow_type` 出线（`phase_table(workflow_type)` 的相位序——requirement 10 列、test-only 7 列，initialize 为首列；MUST NOT 使用固定 10 站 `PIPELINE_PHASES` 常量）逐站展开 PhaseRecord 的 attempt 序列（attempt 序号、verdict、report、checklist 的 item / pass / evidence、timestamp），并暴露 `active_phase`（自 ChangeRecord）与 backtrack 字段（backtrack_to / backtrack_reason）；checklist 自 ChecklistItemRecord 子表按打包键序重组，线面聚合形状不变。详情 SHALL 出线 `id`（身份锚）、`name`（恒裸名）与 `title`（恒非空）。详情 SHALL 出线 `worktree` 路径（自 ChangeRecord.worktree 直读透出；None → null；归档清理后字段原样保留——历史锚，见 desktop-change-archive「Cleanup 步与 worktree 自动清理」）。产物发现与信封读取的路径解析 SHALL 经 **id → 记录 → name / worktree** 分辨率；`worktree=None` 的 change 维持主仓两树解析既有语义。**文档形态分支整体退役**：db 无该 id 记录时详情 SHALL 返回「未找到」（`None`），MUST NOT 回退磁盘目录解析、MUST NOT 读取任何 workflow.json。`id` / `title` 字段为 detail 线面字段演进，SHALL 走 golden 显式重写流程。
+queries SHALL 聚合单个 change 的详情（**按 id 寻址**），状态面单源自 workspace 库：流水线相位序 SHALL 随 `record.workflow_type` 出线（`phase_table(workflow_type)` 的相位序——requirement 10 列、test-only 7 列，initialize 为首列；MUST NOT 使用固定 10 站 `PIPELINE_PHASES` 常量）逐站展开 PhaseRecord 的 attempt 序列（attempt 序号、verdict、report、checklist 的 item / pass / evidence、timestamp），并暴露 `active_phase`（自 ChangeRecord）与 backtrack 字段（backtrack_to / backtrack_reason）；checklist 自 ChecklistItemRecord 子表按打包键序重组，线面聚合形状不变。详情 SHALL 出线 `id`（身份锚）、`name`（恒裸名）与 `title`（恒非空）。详情 SHALL 出线 `worktree` 路径（自 ChangeRecord.worktree 直读透出；None → null；归档清理后字段原样保留——历史锚，见 desktop-change-archive「Cleanup 步与 worktree 自动清理」），并 SHALL 同时出线 `execRoot`（执行根：自记录访问器取值——`exec_root` 在案即原值、否则回落 `worktree`；legacy → null；根 workspace → null，见 desktop-change-worktree「子目录 workspace 的执行根对齐」）。产物发现与信封读取的路径解析 SHALL 经 **id → 记录 → name / 执行根** 分辨率；执行根为 null（legacy）的 change 维持主仓两树解析既有语义。两列各司其职：`worktree` 是落位目录（对账 / 展示），`execRoot` 是工作面（定位 / 预览），MUST NOT 互相顶替。**文档形态分支整体退役**：db 无该 id 记录时详情 SHALL 返回「未找到」（`None`），MUST NOT 回退磁盘目录解析、MUST NOT 读取任何 workflow.json。`id` / `title` 字段为 detail 线面字段演进，SHALL 走 golden 显式重写流程。
 
 详情 SHALL 同时出线 **run 执行图全量读面**：`runs` 数组（自 RunRecord 全史投影），每 run 的 `nodes`（自 RunNodeRecord 投影：phase / attempt / step / instanceNo / stepKind / status / sessionId / detail / outputRef）与 `edges`（自 RunEdgeRecord 投影：fromNodeKey / toNodeKey / edgeKind ∈ forward / feedback / retry / backtrack）。`edge_kind = retry` 的存量行 SHALL 在投影前被**单点屏蔽**（`RunEdgeKind::Retry` 保留为库解码契约——删变体会让旧行 decode 失败、`list_run_edges` 整份 Err；新写面零产出，读面即唯一屏蔽点），其余边按库读序原样出线、边序不变。节点身份键 `(phase, attempt, step, instanceNo)` SHALL 为稳定出线键；边 SHALL 显式出线。节点 `stepKind` SHALL 为二十二值全词汇（含 `mutation_test`、`archi_check`、initialize 基线步词 `clean` 与 9 个归档步词——`cleanup` 在案）。时间戳 SHALL 维持既有口径（db i64 毫秒落库、出线 ISO 串 + null）；DTO SHALL 纯 derive 零字段属性，流水线相位序 / 二十二值 nodes / edges 字段演进 SHALL 走 golden 显式重写流程，bindings 再生成同步前端类型。详情标示「运行中」SHALL 与实际在飞 run 一致；archive 相位完成落账后 `phase_next` 路由 done，详情 MUST NOT 呈运行中假象（有界降级例外——通知重查失败轮保 last-good 的过渡态由 desktop-change-flow-view「通知重查失败降级与有界重试」承载：有界重试、带「刷新失败」内联提示、收敛保证；本条款禁杀的是无界、静默的假态，强度不变）。
 
@@ -63,10 +63,15 @@ queries SHALL 聚合单个 change 的详情（**按 id 寻址**），状态面�
 - **WHEN** 打开归档 change 详情（记录 status=archived，磁盘目录名为 `YYYY-MM-DD-<name>`，经 id 寻址）
 - **THEN** 出线 `status=archived`、相位序随 workflow_type 的 pipeline 与 runs 全量呈现（archive 列 PhaseRecord 与 step 节点在案），`name` 为裸名、`id` 恒在案；产物清单经带前缀目录命中
 
-#### Scenario: worktree 路径出线与产物经 worktree 解析
+#### Scenario: worktree 路径出线与产物经执行根解析
 
 - **WHEN** 查询带 worktree 记录的 change 详情并逐个读取其产物信封
-- **THEN** detail DTO 的 `worktree` 与库内记录值逐字一致；产物清单与信封读取命中 worktree 内目录
+- **THEN** detail DTO 的 `worktree` 与库内记录值逐字一致；产物清单与信封读取命中执行根内目录（根 workspace 下 `execRoot = null`，执行根即 `worktree` 路径）
+
+#### Scenario: 子目录 workspace 的详情落执行根
+
+- **WHEN** 查询子目录 workspace（`rel = packages/desktop`）的 worktree change 详情并逐个读取其产物信封
+- **THEN** DTO 的 `worktree` = host、`execRoot` = `host/packages/desktop`（与库内记录逐字一致）；产物清单与信封读取命中 `host/packages/desktop/openspec/changes/<name>/`（主仓与 host 根两侧无该目录）
 
 #### Scenario: legacy 与 null 出线
 
@@ -245,3 +250,15 @@ detail 线面 `ChangeRunNodeRecord` SHALL 增四字段出线：`startedAt: numbe
 | `packages/desktop/src/types/generated/bindings.ts` | 类型面 | 零演进（`edgeKind` 值域仍四值），生成物零演进，过期由提交前人工核对 |
 | `crates/core/workflow/src/queries/`（detail `stepKind` 投影） | 二十二值出线 | `RunStepKind` 词面扩展自动跟随（纯 derive 零字段属性）；`archi_check` ↔ `archiCheck` 由前端归一单点承接 |
 | `crates/core/workflow/tests/corpus_golden_test.rs` | 聚合 golden 随动 | detail 线面 `nodes` 样本补一条 `archi_check` 步；diff 经 `DESKTOP_GOLDEN_REWRITE=1` 显式重写留痕 |
+
+### 模块增量：详情双列出线与执行根定位（worktree-subdir-exec-root）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约（Function / API / CLI / Component） |
+|------|------|------|
+| `crates/core/workflow/src/queries/detail.rs`（`locate_change` 调用点） | 产物定位 | 回退参改记录访问器值（执行根）；`locate_change(layout, root, name)` 签名与内部候选序（active → archive 精确 → 日期前缀后缀扫描）逐字不变 |
+| `crates/core/workflow/src/queries/detail.rs`（`ChangeDetail`） | 出线 DTO | 增 `pub exec_root: Option<String>`（camelCase → `execRoot`）；`worktree` 字段与语义不变；字段演进走 golden 显式重写流程 |
+| `src/commands/changes/mod.rs`（`read_artifact` / `change_dirs`） | 命令面定位 | `read_artifact` 回退参改执行根；`change_dirs` 候选序列改执行根（`push_worktree_candidate` 复用、探测序与去重语义不变） |
+| `crates/core/workflow/src/queries/{list,detail}.rs` | 列表读面 | **零代码改动**：列表不定位产物；仅列表 requirement 的措辞由「经记录的 worktree 路径」改准为「经记录的执行根」（指针随能力定义） |
+| `crates/core/workflow/src/queries/detail_test.rs` | 测试 | 子目录夹具的 `execRoot` 出线 / 产物命中 / legacy → null 三组断言 |

@@ -12,9 +12,9 @@ Rust 侧 SHALL 新增 crate `crates/core/config`（裸名 `config`），承载�
 
 - 依赖 SHALL 仅 `foundation`（workspace 内，取 config.json 路径）+ `serde` / `serde_json` / `specta`；MUST NOT 依赖 `workflow` / `agent` / 任何 infra crate，MUST NOT 依赖 Tauri；
 - 入口 API SHALL 为 `load(root) -> ConfigReport`（函数签名形态 design 定夺），`ConfigReport` SHALL 为 `{ config, diagnostics }` 信封：`config` 为**永远合法**的完整配置（违例字段以默认值填充），`diagnostics` 记录违例细节（哪项非法、哪些字段吃了默认、文件缺失等）；
-- 校验规则 SHALL 以 `core/config` **现行实现为权威**（`KNOWN_KEYS` 八项键集（含 `projects`）、`TestFramework` 八值枚举（`jest` / `vitest` / `vite-plus` / `bun` / `rust` / `node-test` / `go` / `pytest`）、数值阈值 0–100 值域（coverage lines / branches / functions、mutation score）、`tests[].root` 非空且 MUST NOT 含 glob 通配符（`*` `?` `{` `[`）、`projects[].root` 非空且 MUST NOT 为绝对路径 / 含 `..` 段 / `:` / glob 通配符、`projects[].language` 只校验类型（内容零校验：无白名单 / 无归一 / 无交叉校验）、`projects[].depends_on` 只校验类型（内容零校验：无引用 / 自引用 / 成环 / 去重判定）、`schema` 字段字面量 `spec-driven`、顶层未知字段 passthrough 保留）：原对齐源（CLI zod `config.schema.ts`）已随插件退役删除，MUST NOT 再作为权威或对齐断言的目标；机器可读镜像见「`config.schema.json` 静态镜像与实现一致性」requirement；
+- 校验规则 SHALL 以 `core/config` **现行实现为权威**（`KNOWN_KEYS` 八项键集（含 `projects`）、`TestFramework` 八值枚举（`jest` / `vitest` / `vite-plus` / `bun` / `rust` / `node-test` / `go` / `pytest`）、数值阈值 0–100 值域（coverage lines / branches / functions、mutation score）、`tests[].root` 非空且 MUST NOT 含 glob 通配符（`*` `?` `{` `[`）、`projects[].root` 非空且 MUST NOT 为绝对路径 / 含 `..` 段 / `:` / glob 通配符（拒绝理由：该路径会成为依赖安装命令的进程 cwd——逃出执行根即逃出沙箱，谓词本身零改动）、`projects[].language` 只校验类型（内容零校验：无白名单 / 无归一 / 无交叉校验）、`projects[].depends_on` 只校验类型（内容零校验：无引用 / 自引用 / 成环 / 去重判定）、`schema` 字段字面量 `spec-driven`、顶层未知字段 passthrough 保留）：原对齐源（CLI zod `config.schema.ts`）已随插件退役删除，MUST NOT 再作为权威或对齐断言的目标；机器可读镜像见「`config.schema.json` 静态镜像与实现一致性」requirement；
 - 默认值 SHALL 为：coverage lines 80 / branches 70 / functions 75、mutation score 70、suite `cwd` `.`、`tests` `[]`、`projects` `[]`、`schema` `spec-driven`——数值以本 spec 与 `core/config` 实现为权威，原对齐源（CLI `defaults.ts`）已随插件退役删除，MUST NOT 再出现「对齐 `defaults.ts`」类断言或注释；
-- `projects` SHALL 为顶层数组（元素 `{ root: string, language?: string, depends_on?: string[] }`，字段集封闭，承载项目锚点声明 —— 目录锚点 + 编码语言标注 + 项目间依赖声明）：缺失 / 显式 null → 空列表且**零诊断**（「有配置才按项目根扫描」）；非数组 → 空列表 + `InvalidValue`（path `projects`）；元素非对象或 `root` 缺失 / 非法（空串、非字符串、绝对路径、`..` 段、`:`、glob 通配符）→ 该元素剔除 + `InvalidValue`（path `projects[i]` / `projects[i].root`）；合法元素保序保留，`root` 为相对 worktree 根的项目目录；元素内其余子键静默忽略（沿现状处置，零诊断）；
+- `projects` SHALL 为顶层数组（元素 `{ root: string, language?: string, depends_on?: string[] }`，字段集封闭，承载项目锚点声明 —— 目录锚点 + 编码语言标注 + 项目间依赖声明）：缺失 / 显式 null → 空列表且**零诊断**（「有配置才按项目根扫描」）；非数组 → 空列表 + `InvalidValue`（path `projects`）；元素非对象或 `root` 缺失 / 非法（空串、非字符串、绝对路径、`..` 段、`:`、glob 通配符）→ 该元素剔除 + `InvalidValue`（path `projects[i]` / `projects[i].root`）；合法元素保序保留，`root` 为相对**执行根**的项目目录（git 根 workspace 下执行根即 worktree 根；workspace root 为仓库子目录时执行根为 `worktree/<rel>`，见 desktop-change-worktree「子目录 workspace 的执行根对齐」——`rel` 本身 MUST NOT 出现在配置里）；元素内其余子键静默忽略（沿现状处置，零诊断）；
 - `projects[].language` SHALL 为**开放字符串**（编码语言标注，如 `rust` / `typescript`）：缺失 / 显式 null → `None` 且**零诊断**；字符串 → `Some` 原样保留（MUST NOT trim、MUST NOT 大小写 / 别名归一、MUST NOT 白名单校验、MUST NOT 与 `tests[].framework` 交叉校验）；非字符串 → `None` + `InvalidValue`（path `projects[i].language`）；该字段 MUST NOT 影响元素去留（元素身份只由 `root` 决定）；
 - `projects[].depends_on` SHALL 为**字符串数组**（依赖的项目根，值宜为某个 `projects[].root`——镜像 description 可作提示文案，非断言）：缺失 / 显式 null → `None` 且**零诊断**；全字符串数组 → `Some`（保序、不去重、**零引用校验**：悬空 / 自引用 / 成环 / 重复项一律原样保留且零诊断，脏数据免疫责任在消费侧，见「项目协议语义边界与消费点纪律」）；非数组或元素混入非字符串 → `None` + `InvalidValue`（path `projects[i].depends_on`）；该字段 MUST NOT 影响元素去留；
 - `projects` 元素字段集 SHALL 封闭为 `root` / `language` / `depends_on` 三项：运行策略常量（active 建档数上限、worktree 磁盘门槛等）MUST NOT 经该键承载；
@@ -71,6 +71,11 @@ Rust 侧 SHALL 新增 crate `crates/core/config`（裸名 `config`），承载�
 
 - **WHEN** 含 `language` / `depends_on` 的合法 config 重序列化回 `Value` 再经同一组装
 - **THEN** 二次组装零诊断（两字段回写形态可被判为合法），`config` 输出仍是同一套校验可接受的合法配置
+
+#### Scenario: 项目根对位执行根
+
+- **WHEN** 子目录 workspace（`rel = packages/desktop`）配置 `projects: [{ root: "." }]` 并创建 change
+- **THEN** bootstrap 的执行根为 `host/packages/desktop`，项目 `root` 解析为 `<执行根>/.`（即执行根自身），安装命令 cwd 落在该子树内；配置中不出现 `rel` 段；`..` 与绝对路径仍按既有谓词拒绝（零放宽）
 
 #### Scenario: 路径经 foundation 取得
 
@@ -341,3 +346,14 @@ desktop 前端 SHALL 维持全管线通过（`vp check --fix` / knip / `vp test`
 | `packages/desktop/src-tauri/src/commands/mod.rs` | API（登记） | `all_commands!` 增 `workspace_config_apply`（`commands/config` 轨道）与 `list_config_chat_sessions`（`commands/exec` 轨道） |
 | `packages/desktop/src/views/config/config-view.tsx` | Component | 单列 → 横向分栏：左栏常驻 config 会话面板（`desktop-config-agent`），右栏既有分区 + `config-refresh`；应用成功经 `useWorkspaceConfig().refresh()` 重取 |
 | `packages/desktop/src/types/generated/bindings.ts` / `bindings.zod.ts` | API（生成物） | 经 `bindings:export` 再生成：`workspaceConfigApply`（`candidate` 出线 `unknown`）、`listConfigChatSessions`；MUST NOT 手改 |
+
+### 模块增量：项目根相对基准改执行根（worktree-subdir-exec-root）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约（Function / API / CLI / Component） |
+|------|------|------|
+| `crates/core/config/config.schema.json`（`projects.description` / `projects.items.properties.root.description`） | 编辑器直读镜像 | 描述文案「相对 worktree 根」→「相对执行根」；键集、类型、值域、`default` 与两处断言锚点零改动（须与实现同 commit） |
+| `crates/core/config/src/lib.rs`（`is_valid_project_root` 注释） | 拒绝理由留痕 | 注释理由「逃出 worktree」→「逃出执行根」；谓词（非空白 / 非绝对 / 无 `..` / 无 `:` / 无 glob）逐字不变，`KNOWN_KEYS` / `TestFramework` / `validate` 零改动 |
+| `crates/core/workflow/src/write/create.rs`（`BootstrapProject.root` 文档 / `bootstrap_project` 警告文案） | 消费侧口径 | 文档与警告文案「相对 worktree 根」「在 worktree 内不存在」→「相对执行根」「在执行根内不存在」；遍历与安装语义零改动（见 desktop-change-worktree「确定性依赖 bootstrap」） |
+| `crates/core/config/src/lib_test.rs` | 测试 | 描述文案不参与一致性断言（零断言改动）；`projects` 字段矩阵零改动 |

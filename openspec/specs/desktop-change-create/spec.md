@@ -8,12 +8,12 @@ desktop 桌面端补充"新建变更"入口：用户在变更清单页输入 cha
 
 ### Requirement: 写面 create 操作进程内创建 change
 
-`core/workflow` 写面 `create` 操作 SHALL 创建 change 域并在同一次创建语义内分配 worktree（生命周期与落位细则见 desktop-change-worktree）：① 在 workspace 库建档（`ChangeRecord`：`id`（本次铸出的稳定唯一身份锚，UUID 形态——铸出点由 design 定稿）、`name` / `title`（人类可读标题，恒非空——`title` 入参空白时回退 `name`）/ workflow_type=入参（合法值 = `phase_table` 命中：`requirement` | `test-only`；非法值显式拒绝）/ created_at / status=active / worktree=本次分配的绝对路径 / base_commit=创建基线）；② 以主仓 HEAD 为基线 `git worktree add` 落位于 git 根同级 `.worktrees/<仓库目录名>/`（落位与 branch `change/<name>` 仍 name 化）并建 branch `change/<name>`；③ 在 worktree 内创建 `openspec/changes/<name>/` 目录树（含父树，`create_dir_all` 语义）并写出 `explore.md`（goal 原文）；④ 执行确定性 bootstrap 与脏仓探测、收集警告。四段 SHALL 构成一次创建语义（分段顺序与失败补偿边界由 design 定稿；MUST NOT 出现「目录在而记录缺」的可用性破口：建档先行的补偿语义保持，worktree 段失败的回收边界由 design 定稿，bootstrap 段失败 MUST NOT 回滚）。MUST NOT 产出 workflow.json。该操作 SHALL 为进程内同步调用（MUST NOT 引入 tokio / async runtime，沿写面 sync 纪律；落库与 worktree / bootstrap 执行均经 port 缝由壳层装配实现，core/workflow 零 infra 依赖、零进程 spawn），SHALL 经 `Layout` 取全部磁盘路径（MUST NOT 自拼 `openspec` 目录名字面量）。前置校验 SHALL 在任何写 IO 之前完成且拒绝面零副作用：名称 kebab-case + 长度、goal 非空白、`workflow_type` 合法值（`phase_table` 命中）、冲突检查（主仓 active 目录已存在或 db 已有同名 **active** 记录——name 无唯一约束，冲突判定为显式扫描查重，归档同名不拒）、git 可用性（git 不可发现或主仓非 git 仓）、branch `change/<name>` 已存在、worktree 目标目录已存在、**active 建档数上限**（db `status=active` 存量记录数 ≥ 5 时拒绝——上限 5 为硬编码定值，MUST NOT 进 `config.json`，对齐 `FEEDBACK_LOOP_LIMIT` 先例；错误文案 SHALL 含当前计数与上限并引导「归档或手动清理」）、**worktree 磁盘实占保底门槛**（`.worktrees/<仓库目录名>/` 子树直属目录数 > 7 时拒绝——门槛 = 上限 5 + 冗余 2，db 与磁盘漂移（孤儿 worktree / 手动残留不占 active 额度但占磁盘）防线；错误文案 SHALL 含当前目录数、门槛与 worktree 落位根绝对路径，并以**双源**引导（`git worktree list` 对账 + 直接检查该落位根下的子目录；已注销孤儿不在 git 登记面——`list` 不显示、`prune` 无事可做，单源指引会让用户无从自救）。自愈不归本门槛（回收单点自带 OS 层兜底，见 desktop-change-worktree「worktree 回收两段式」），本门槛仅为失控防线）。两道上限检查为前置第八 / 九道，拒绝面零 worktree、零建档、零目录、零 branch 触碰。既有写面操作（`phase_next` / `phase_start` / `phase_log` / `backtrack` / `archive`）语义 MUST NOT 因新增语义改变（寻址参数随全库换锚改 change id，见 desktop-change-state-store）；写触点收口为 change 域目录内产物文件、workspace 库 change 状态与 worktree 建域三面，MUST NOT 泛化为任意 workspace 写通道。
+`core/workflow` 写面 `create` 操作 SHALL 创建 change 域并在同一次创建语义内分配 worktree（生命周期与落位细则见 desktop-change-worktree）：① 在 workspace 库建档（`ChangeRecord`：`id`（本次铸出的稳定唯一身份锚，UUID 形态——铸出点由 design 定稿）、`name` / `title`（人类可读标题，恒非空——`title` 入参空白时回退 `name`）/ workflow_type=入参（合法值 = `phase_table` 命中：`requirement` | `test-only`；非法值显式拒绝）/ created_at / status=active / worktree=本次分配的绝对路径（git 落位目录 host）/ exec_root=本次执行根（`rel` 非空时 = `worktree/<rel>`；根 workspace MUST NOT 写该列，见 desktop-change-worktree「子目录 workspace 的执行根对齐」）/ base_commit=创建基线）；② 以主仓 HEAD 为基线 `git worktree add` 落位于 git 根同级 `.worktrees/<仓库目录名>/`（落位与 branch `change/<name>` 仍 name 化）并建 branch `change/<name>`；③ 在**执行根**内创建 `openspec/changes/<name>/` 目录树（含父树，`create_dir_all` 语义）并写出 `explore.md`（goal 原文；`rel = ""` 时执行根即 worktree 根）；④ 执行确定性 bootstrap（扫描与安装锚 = 执行根）与脏仓探测、收集警告。四段 SHALL 构成一次创建语义（分段顺序与失败补偿边界由 design 定稿；MUST NOT 出现「目录在而记录缺」的可用性破口：建档先行的补偿语义保持，worktree 段失败的回收边界由 design 定稿，bootstrap 段失败 MUST NOT 回滚）。MUST NOT 产出 workflow.json。该操作 SHALL 为进程内同步调用（MUST NOT 引入 tokio / async runtime，沿写面 sync 纪律；落库与 worktree / bootstrap 执行均经 port 缝由壳层装配实现，core/workflow 零 infra 依赖、零进程 spawn），SHALL 经 `Layout` 取全部磁盘路径（MUST NOT 自拼 `openspec` 目录名字面量）。前置校验 SHALL 在任何写 IO 之前完成且拒绝面零副作用：名称 kebab-case + 长度、goal 非空白、`workflow_type` 合法值（`phase_table` 命中）、冲突检查（主仓 active 目录已存在或 db 已有同名 **active** 记录——name 无唯一约束，冲突判定为显式扫描查重，归档同名不拒）、git 可用性（git 不可发现或主仓非 git 仓）、branch `change/<name>` 已存在、worktree 目标目录已存在、**active 建档数上限**（db `status=active` 存量记录数 ≥ 5 时拒绝——上限 5 为硬编码定值，MUST NOT 进 `config.json`，对齐 `FEEDBACK_LOOP_LIMIT` 先例；错误文案 SHALL 含当前计数与上限并引导「归档或手动清理」）、**子目录跟踪判据**（workspace root 为 git 仓库子目录时，其相对偏移须在 `HEAD` 中在案——`rel = ""` 恒命中且 MUST NOT 新增 git spawn；缺失形态（未跟踪 / `HEAD` 已删 / 被 gitignore）显式拒绝并给跟踪引导，见 desktop-change-worktree「子目录 workspace 的执行根对齐」）、**worktree 磁盘实占保底门槛**（`.worktrees/<仓库目录名>/` 子树直属目录数 > 7 时拒绝——门槛 = 上限 5 + 冗余 2，db 与磁盘漂移（孤儿 worktree / 手动残留不占 active 额度但占磁盘）防线；错误文案 SHALL 含当前目录数、门槛与 worktree 落位根绝对路径，并以**双源**引导（`git worktree list` 对账 + 直接检查该落位根下的子目录；已注销孤儿不在 git 登记面——`list` 不显示、`prune` 无事可做，单源指引会让用户无从自救）。自愈不归本门槛（回收单点自带 OS 层兜底，见 desktop-change-worktree「worktree 回收两段式」），本门槛仅为失控防线）。两道上限检查为前置第八 / 九道，子目录跟踪判据为**第十道**（位置 MUST 在 `git worktree add` 与建档之前），拒绝面零 worktree、零建档、零目录、零 branch 触碰。`git worktree add` 成功后 SHALL 断言执行根目录在场（后置断言），缺席即走既有补偿链（回收 host + branch + 建档）后 `Err`。既有写面操作（`phase_next` / `phase_start` / `phase_log` / `backtrack` / `archive`）语义 MUST NOT 因新增语义改变（寻址参数随全库换锚改 change id，见 desktop-change-state-store）；写触点收口为 change 域目录内产物文件、workspace 库 change 状态与 worktree 建域三面，MUST NOT 泛化为任意 workspace 写通道。
 
 #### Scenario: 空白树上创建成功并分配 worktree
 
 - **WHEN** 对无 `changes` 目录树的 git 仓 workspace 以合法名称、goal 与 `workflow_type="requirement"` 调用写面 `create`（title 传空白）
-- **THEN** worktree 落位于 `<git 根父目录>/.worktrees/<git 根目录名>/<name>` 且基线为主仓 HEAD，worktree 内 `changes_root/<name>/explore.md` 存在且内容为 goal 原文（UTF-8，无附加结构包装），db 出现 `ChangeRecord`（id 铸出在案、`title` 回退 = name、`workflow_type="requirement"`、status=active、created_at、worktree、base_commit）
+- **THEN** worktree 落位于 `<git 根父目录>/.worktrees/<git 根目录名>/<name>` 且基线为主仓 HEAD，执行根内（根 workspace 下即 worktree 根）`changes_root/<name>/explore.md` 存在且内容为 goal 原文（UTF-8，无附加结构包装），db 出现 `ChangeRecord`（id 铸出在案、`title` 回退 = name、`workflow_type="requirement"`、status=active、created_at、worktree、base_commit）
 - **AND** worktree 目录内无 workflow.json，`eval.json` 与 `.openspec.yaml` 不存在；主仓 active 树不含该目录
 
 #### Scenario: test-only 建档落类型
@@ -57,6 +57,11 @@ desktop 桌面端补充"新建变更"入口：用户在变更清单页输入 cha
 - **WHEN** 手动路径以空白 title 调用写面 `create`，promote 路径以 explore.title（如「API 重试调研」）调用写面 `create`
 - **THEN** 手动路径 `ChangeRecord.title` 回退 = name；promote 路径 `ChangeRecord.title` 为「API 重试调研」，两者均非空
 
+#### Scenario: 子目录未跟踪即拒绝且零副作用
+
+- **WHEN** workspace root 为 git 仓库子目录且该子目录在 `HEAD` 中不存在（未跟踪 / 已删除 / 被 ignore）时调用写面 `create`
+- **THEN** 返回显式 `Err`（文案含相对偏移、成因与跟踪引导）；零建档、零目录、零 worktree、零 branch；主仓 `git status` 与 `git worktree list` 零变化
+
 #### Scenario: sync 与 port 缝纪律保持
 
 - **WHEN** 审查写面 `create` 的依赖与签名
@@ -99,7 +104,7 @@ desktop 桌面端补充"新建变更"入口：用户在变更清单页输入 cha
 
 ### Requirement: create_change IPC 命令面
 
-desktop-app 命令层 SHALL 提供 `create_change` 命令（落位 `commands/changes/` 命令组；该组同组承载 change 域读命令 `list_changes` / `get_change_detail` / `read_artifact`，见 desktop-app-shell「Tauri command 轨道组织」）：三件事纪律薄包装（参数转换 → 调写面 `create` → 错误映射），blank root 显式 `Err`，返回 `Result<T, String>`。返回 DTO SHALL 为 `CreateOutcome`：`id`（本次铸出的 change 身份锚——前端以 `/changes/<id>` 进入详情）、`name`、`created`、`worktree`（本次分配的 worktree 绝对路径）、`warnings`（警告清单：脏仓引导 / bootstrap 结果 / 未知管理器注记等，干净且顺利时为空）——主仓 openspec 目录树路径知识仍 MUST NOT 下沉前端；worktree 绝对路径为**刻意出线的执行锚**（用户 review / 手动 commit / merge 可达性拍板，见 desktop-change-worktree「worktree 路径 UI 可见性」）。手动新建路径 SHALL 在命令层以 `title = name` 调写面 `create`（IPC 签名为四参 `(root, name, goal, workflow_type)`，title 不加输入框，workflow_type 自类型选择器——默认 requirement）；promote 路径经 `create_change_with` 泛型缝显式传 `explore.title` 与 workflow_type。命令 SHALL 经 `#[specta::specta]` 出线并登记入 `all_commands!`，TS bindings 随既有管线重导出（过期由提交前人工核对）；`CreateOutcome` 字段演进 SHALL 走 golden 显式重写流程（wire contract 冻结约束）。
+desktop-app 命令层 SHALL 提供 `create_change` 命令（落位 `commands/changes/` 命令组；该组同组承载 change 域读命令 `list_changes` / `get_change_detail` / `read_artifact`，见 desktop-app-shell「Tauri command 轨道组织」）：三件事纪律薄包装（参数转换 → 调写面 `create` → 错误映射），blank root 显式 `Err`，返回 `Result<T, String>`。返回 DTO SHALL 为 `CreateOutcome`：`id`（本次铸出的 change 身份锚——前端以 `/changes/<id>` 进入详情）、`name`、`created`、`worktree`（本次分配的 worktree 绝对路径——git 落位目录）、`execRoot`（本次执行根；根 workspace / legacy 形态 → `null`）、`warnings`（警告清单：脏仓引导 / bootstrap 结果 / 未知管理器注记等，干净且顺利时为空）——主仓 openspec 目录树路径知识仍 MUST NOT 下沉前端；`worktree` 与 `execRoot` 为**刻意出线的两列**（前者供 review / 手动 commit / merge 可达性，后者指向用户实际编辑的工作面，见 desktop-change-worktree「worktree 路径 UI 可见性」），两者 MUST NOT 互相顶替。手动新建路径 SHALL 在命令层以 `title = name` 调写面 `create`（IPC 签名为四参 `(root, name, goal, workflow_type)`，title 不加输入框，workflow_type 自类型选择器——默认 requirement）；promote 路径经 `create_change_with` 泛型缝显式传 `explore.title` 与 workflow_type。命令 SHALL 经 `#[specta::specta]` 出线并登记入 `all_commands!`，TS bindings 随既有管线重导出（过期由提交前人工核对）；`CreateOutcome` 字段演进 SHALL 走 golden 显式重写流程（wire contract 冻结约束）。
 
 #### Scenario: 命令注册与类型出线
 
@@ -114,7 +119,7 @@ desktop-app 命令层 SHALL 提供 `create_change` 命令（落位 `commands/cha
 #### Scenario: 返回 DTO 字段集
 
 - **WHEN** 审查 `create_change` 返回类型的字段集
-- **THEN** 恰为 `id` / `name` / `created` / `worktree` / `warnings` 五字段（title 与 workflow_type 不进 CreateOutcome，经详情 / 清单出线），无主仓 openspec 目录树路径字段
+- **THEN** 恰为 `id` / `name` / `created` / `worktree` / `execRoot` / `warnings` 六字段（title 与 workflow_type 不进 CreateOutcome，经详情 / 清单出线），无主仓 openspec 目录树路径字段；根 workspace 的 `execRoot` 为 `null`
 
 #### Scenario: 警告抵达前端
 
@@ -229,3 +234,16 @@ desktop-app 命令层 SHALL 提供 `create_change` 命令（落位 `commands/cha
 |------|------|-------------|
 | （零实现触点） | 边界改写 | 本 delta 只订正「`projects` 键承载面」的措辞：字段集封闭为 `root` / `language` / `depends_on`（软规则章见 desktop-workspace-config）；写面 `create` 的上限 5 与门槛 7 仍是源码常量单点，`config.json` / config schema 中无承载键，前置八 / 九道校验语义零改动 |
 | `crates/core/workflow/src/write/create.rs`（签名随动） | Function | `create` 的项目入参改收 `&[BootstrapProject]`（构造面见 desktop-change-worktree「确定性依赖 bootstrap」）；名称 / goal / 冲突 / git / branch / 目录 / 两道上限的校验时序与拒绝面零变化 |
+
+### 模块增量：create 双列建档与前置第十道（worktree-subdir-exec-root）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约（Function / API / CLI / Component） |
+|------|------|------|
+| `crates/core/workflow/src/write/create.rs`（`create`） | 建域组合 | 前置校验新增第十道 `vcs.tracked_at_head(main_root, rel)`（`rel = ""` 零 spawn）；建档 `ChangeStateRecord` 同时携 `worktree`（host）与 `exec_root`；`resolve(&exec_root)` 建目录树 + `explore.md`；后置 `exec_root.is_dir()` 断言；`bootstrap(&exec_root, projects, …)` |
+| `crates/core/workflow/src/write/create.rs`（`CreateOutcome`） | 出线 DTO | 增 `pub exec_root: Option<String>`（serde camelCase → `execRoot`）；`worktree: String` 语义钉为 host |
+| `crates/core/workflow/src/write/promote.rs` | promote 透传 | 逐字不变（`promote_explore` → `create` 同参数，执行根由 create 承担；源 explore 读取仍锚主仓 workspace root） |
+| `src/commands/changes/mod.rs`（`create_change` / `create_change_with`） | 命令面 | 薄包装零新增参数；`CreateOutcome` 原样透传（新增字段随 specta 出线） |
+| `packages/desktop/src/views/changes/components/change-create-dialog.tsx` | 成功面 | 落位行 + 条件执行根行（`execRoot = null` 零占位） |
+| `crates/core/workflow/src/write/create_test.rs` | 测试 | 前置第十道六形态、双列建档、后置补偿、子目录建域四件套（见 desktop-change-worktree 与提案 AC-2 / AC-3） |
