@@ -10850,3 +10850,88 @@ fn find_session_summary与清单面等值两形态_none全等与some仅快照位
         "副本置空不回写 found（单查仍携快照面）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 退出显式关库：redb Drop 写 allocator state + 清恢复标记；Closed 面与幂等
+// ---------------------------------------------------------------------------
+
+/// redb 文件头 god byte 的两个标志位（第 9 字节）：恢复标记与两阶段提交位。
+const RECOVERY_REQUIRED_BIT: u8 = 0x02;
+const TWO_PHASE_COMMIT_BIT: u8 = 0x04;
+
+/// 关闭后读 db 文件头（redb 运行期对文件持强制锁——MUST 在 close/drop 之后读）。
+fn god_byte(path: &Path) -> u8 {
+    let bytes = fs::read(path).expect("读取 db 文件失败");
+    assert!(bytes.len() > 9, "db 文件头长度不足");
+    bytes[9]
+}
+
+/// 关库写入快修标记：恢复标记清除、两阶段提交位置位；外部 Arc 持有不阻止
+/// 关库（closed 后操作返回 Closed）；幂等；重开数据完整。
+#[test]
+fn close_清除恢复标记并写allocator状态_重开数据完整() {
+    let env = Env::new("close-header");
+    let path = env.db_path("ws");
+    let store = Arc::new(open_workspace_ok(&path));
+    create_change_ok(store.as_ref(), "close-me", 1000);
+
+    let peek = Arc::clone(&store);
+    store.close();
+    assert!(
+        matches!(peek.list_change_records(), Err(StoreError::Closed)),
+        "外部 Arc 持有不阻止关库；关闭后操作返回 Closed"
+    );
+    store.close(); // 幂等：二次 close 零副作用
+    drop(peek);
+    drop(store);
+
+    let god = god_byte(&path);
+    assert_eq!(
+        god & RECOVERY_REQUIRED_BIT,
+        0,
+        "关闭后 recovery_required 应被清除（下次打开不走修复扫描）"
+    );
+    assert_eq!(
+        god & TWO_PHASE_COMMIT_BIT,
+        TWO_PHASE_COMMIT_BIT,
+        "关闭应做 quick-repair commit（allocator state 落盘）"
+    );
+
+    let reopened = open_workspace_ok(&path);
+    assert!(
+        reopened
+            .find_change_record("close-me")
+            .expect("重开读档应成功")
+            .is_some(),
+        "关库后重开数据完整"
+    );
+}
+
+/// close_all：两级库全部关闭；closed 闸阻断 for_root 再开新库；幂等。
+#[test]
+fn close_all_关闭全局与缓存workspace_且不再开新库() {
+    let env = StoresEnv::new("close-all");
+    let stores = env.open();
+    let root = env.root_of("ws-a");
+    let workspace = stores.for_root(&root).expect("预开 workspace 库失败");
+    let global = stores.global_shared();
+
+    stores.close_all();
+    assert!(
+        matches!(stores.global().list_workspaces(), Err(StoreError::Closed)),
+        "全局库应已关闭"
+    );
+    assert!(
+        matches!(global.list_workspaces(), Err(StoreError::Closed)),
+        "全局库外部 Arc 持有不阻止关闭"
+    );
+    assert!(
+        matches!(workspace.list_change_records(), Err(StoreError::Closed)),
+        "已缓存 workspace 库应已关闭"
+    );
+    assert!(
+        matches!(stores.for_root(&root), Err(StoreError::Closed)),
+        "关库后 for_root 不应再开新库"
+    );
+    stores.close_all(); // 幂等
+}

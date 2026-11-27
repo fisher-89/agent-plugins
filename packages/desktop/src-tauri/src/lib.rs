@@ -8,3 +8,4 @@ pub mod bindings;
 pub mod commands;
 pub mod env;
 pub mod selfcheck;
+pub mod shutdown;

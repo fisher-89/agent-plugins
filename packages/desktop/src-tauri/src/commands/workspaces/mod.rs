@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use store::{StoreError, WorkspaceRecord, WorkspaceStores};
 
@@ -31,14 +31,25 @@ fn list_workspaces_inner(stores: &WorkspaceStores) -> Result<Vec<WorkspaceRecord
 /// root 时 upsert 幂等并再次校验）。
 #[tauri::command]
 #[specta::specta]
-pub fn add_workspace(
-    stores: State<'_, WorkspaceStores>,
-    root: String,
-) -> Result<WorkspaceRecord, String> {
-    add_workspace_inner(&stores, Path::new(&root)).map_err(|e| e.to_string())
+pub async fn add_workspace(app: AppHandle, root: String) -> Result<WorkspaceRecord, String> {
+    add_workspace_with(app, root).await
 }
 
-fn add_workspace_inner(
+/// [`add_workspace`] 的泛型测试缝：注册后的预开可能触发 workspace 库冷开
+/// （redb 修复扫描），整段落阻塞池。
+pub(crate) async fn add_workspace_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+) -> Result<WorkspaceRecord, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let stores = app.state::<WorkspaceStores>();
+        add_workspace_inner(stores.inner(), Path::new(&root)).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|error| format!("添加 workspace 任务失败: {error}"))?
+}
+
+pub(crate) fn add_workspace_inner(
     stores: &WorkspaceStores,
     root: &Path,
 ) -> Result<WorkspaceRecord, StoreError> {

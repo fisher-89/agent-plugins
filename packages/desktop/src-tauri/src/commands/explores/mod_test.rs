@@ -6,16 +6,78 @@ use std::fs;
 use std::path::PathBuf;
 
 use agent::{AgentEvent, AgentEventKind};
-use tauri::{App, Manager};
+use tauri::{App, Manager, State};
 
 use store::{AgentEngineKind, SessionConfigSnapshot, SessionRecord, WorkspaceStores};
 use workflow::queries as queries_lib;
 
-use super::{
-    create_explore_record, delete_explore_record, ensure_explore_session, explore_doc_path,
-    list_explore_records, promote_explore_with, rename_explore_record, scan_explores,
-    update_explore_title, update_explore_workflow_type,
-};
+use super::{explore_doc_path, promote_explore_with};
+
+/// 命令 wrapper 的同步测试缝：async 化后语义由 `*_inner` 承载（首 poll 判据另测）。
+fn scan_explores(
+    root: String,
+    stores: State<'_, WorkspaceStores>,
+) -> Result<Vec<queries_lib::ExploreScanEntry>, String> {
+    super::scan_explores_inner(stores.inner(), &root)
+}
+
+fn list_explore_records(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+) -> Result<Vec<store::ExploreRecord>, String> {
+    super::list_explore_records_inner(stores.inner(), &root)
+}
+
+fn create_explore_record(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    name: Option<String>,
+) -> Result<store::ExploreRecord, String> {
+    super::create_explore_record_inner(stores.inner(), &root, name.as_deref())
+}
+
+fn rename_explore_record(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    name: String,
+    new_name: String,
+) -> Result<store::ExploreRecord, String> {
+    super::rename_explore_record_inner(stores.inner(), &root, &name, &new_name)
+}
+
+fn delete_explore_record(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    name: String,
+) -> Result<bool, String> {
+    super::delete_explore_record_inner(stores.inner(), &root, &name)
+}
+
+fn update_explore_title(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    name: String,
+    title: String,
+) -> Result<store::ExploreRecord, String> {
+    super::update_explore_title_inner(stores.inner(), &root, &name, &title)
+}
+
+fn update_explore_workflow_type(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    name: String,
+    workflow_type: String,
+) -> Result<store::ExploreRecord, String> {
+    super::update_explore_workflow_type_inner(stores.inner(), &root, &name, &workflow_type)
+}
+
+fn ensure_explore_session(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    name: String,
+) -> Result<store::ExploreRecord, String> {
+    super::ensure_explore_session_inner(stores.inner(), &root, &name)
+}
 
 // ---------------------------------------------------------------------------
 // 装置：tempfile 数据根 + workspace 真实文件树
@@ -115,6 +177,55 @@ fn app_with_stores(env: &Env) -> App<tauri::test::MockRuntime> {
     let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
     app.manage(stores);
     app
+}
+
+/// 探索命令首 poll 为 `Pending`：冷开落阻塞池（启动纪律逐命令取样）。
+#[test]
+fn 探索命令首次poll为pending() {
+    let env = Env::new("offload-first-poll");
+    let app = app_with_stores(&env);
+    let root = env.root();
+    crate::commands::assert_offloaded(super::scan_explores_with(
+        app.handle().clone(),
+        root.clone(),
+    ));
+    crate::commands::assert_offloaded(super::list_explore_records_with(
+        app.handle().clone(),
+        root.clone(),
+    ));
+    crate::commands::assert_offloaded(super::create_explore_record_with(
+        app.handle().clone(),
+        root.clone(),
+        Some("topic".to_owned()),
+    ));
+    crate::commands::assert_offloaded(super::rename_explore_record_with(
+        app.handle().clone(),
+        root.clone(),
+        "topic".to_owned(),
+        "renamed".to_owned(),
+    ));
+    crate::commands::assert_offloaded(super::delete_explore_record_with(
+        app.handle().clone(),
+        root.clone(),
+        "topic".to_owned(),
+    ));
+    crate::commands::assert_offloaded(super::update_explore_title_with(
+        app.handle().clone(),
+        root.clone(),
+        "topic".to_owned(),
+        "标题".to_owned(),
+    ));
+    crate::commands::assert_offloaded(super::update_explore_workflow_type_with(
+        app.handle().clone(),
+        root.clone(),
+        "topic".to_owned(),
+        "requirement".to_owned(),
+    ));
+    crate::commands::assert_offloaded(super::ensure_explore_session_with(
+        app.handle().clone(),
+        root,
+        "topic".to_owned(),
+    ));
 }
 
 /// 落一份 explore 归属会话行（source=explore，source_ref=记录 id 十进制串）。

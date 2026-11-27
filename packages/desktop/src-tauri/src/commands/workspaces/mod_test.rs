@@ -4,11 +4,20 @@ use std::sync::Arc;
 
 use agent::{AgentEvent, AgentEventKind};
 use serde_json::json;
-use tauri::{App, Manager};
+use tauri::{App, Manager, State};
 use tempfile::TempDir;
 
-use super::{add_workspace, list_workspaces, remove_workspace};
+use super::{list_workspaces, remove_workspace};
 use store::{AgentEngineKind, SessionConfigSnapshot, SessionRecord, WorkspaceStores};
+
+/// `add_workspace` 的同步测试缝：async 化后语义由 `add_workspace_inner` 承载
+/// （首 poll 判据另测 `add_workspace_with`）。
+fn add_workspace(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+) -> Result<store::WorkspaceRecord, String> {
+    super::add_workspace_inner(stores.inner(), Path::new(&root)).map_err(|e| e.to_string())
+}
 
 /// 数据根 + workspace 根目录临时环境：tempfile RAII，测试结束自动清理。
 struct Env {
@@ -70,6 +79,17 @@ fn app_with_stores(env: &Env) -> App<tauri::test::MockRuntime> {
     let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
     app.manage(stores);
     app
+}
+
+/// 注册命令首 poll 为 `Pending`：预开（可能含 redb 修复扫描）落阻塞池。
+#[test]
+fn add_workspace首次poll为pending() {
+    let env = Env::new("offload-first-poll");
+    let app = app_with_stores(&env);
+    crate::commands::assert_offloaded(super::add_workspace_with(
+        app.handle().clone(),
+        env.root_of("offload"),
+    ));
 }
 
 /// 落一份带来源三元组的会话行（会话域级联/历史断言的底座）。

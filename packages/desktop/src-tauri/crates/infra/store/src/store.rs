@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use ::notification::{Notification, NotificationKind, NotificationPage};
 use agent::{
@@ -48,6 +49,8 @@ pub enum StoreError {
     Conflict(String),
     /// 目标记录不存在（miss 非幂等写面）
     NotFound(String),
+    /// 库已关闭（进程退出关库后，任何后续操作的可辨识拒绝面）
+    Closed,
 }
 
 impl fmt::Display for StoreError {
@@ -57,6 +60,7 @@ impl fmt::Display for StoreError {
             Self::Canonicalize(msg) => write!(f, "canonicalize: {msg}"),
             Self::Conflict(msg) => write!(f, "conflict: {msg}"),
             Self::NotFound(msg) => write!(f, "not_found: {msg}"),
+            Self::Closed => write!(f, "closed: store 已关闭"),
         }
     }
 }
@@ -427,12 +431,35 @@ pub(crate) fn workspace_db_path(workspaces_dir: &Path, canonical_root: &str) -> 
 ///
 /// 单进程约束：双开（如 dev 与正式版指向同一 db 文件）不保证安全，见 crate 文档。
 pub struct Store {
-    db: Database<'static>,
+    /// 可关句柄：`close` 取走 `Some` 即触发 redb 的 Drop（写 allocator state、
+    /// 清恢复标记）；在途调用经已 clone 的 `Arc` 安全收尾，不阻塞关库。
+    db: RwLock<Option<Arc<Database<'static>>>>,
     /// 实例维度（打开点锁定；信封 API 过滤依据）
     dimension: DbDimension,
 }
 
 impl Store {
+    /// 短锁取句柄：锁只在 clone 期间持有，不与任何嵌套 store 调用互等。
+    fn db(&self) -> Result<Arc<Database<'static>>, StoreError> {
+        self.db
+            .read()
+            .map_err(|_| StoreError::Db("store 锁中毒".to_owned()))?
+            .as_ref()
+            .cloned()
+            .ok_or(StoreError::Closed)
+    }
+
+    /// 退出关库：取走底层句柄；最后一个 `Arc` 释放时 redb Drop 执行
+    /// quick-repair commit（写 allocator state + 置 two-phase）并清恢复标记，
+    /// 下次打开走快路径。幂等；关闭后所有操作返回 [`StoreError::Closed`]。
+    ///
+    /// 不等待在途调用——它们持已 clone 的 `Arc` 安全收尾，最后一个释放时完成
+    /// 关库；进程退出路径以有界等待兜底（见 desktop-app-shell 退出钩子）。
+    pub fn close(&self) {
+        let taken = self.db.write().expect("store 锁不可中毒").take();
+        drop(taken);
+    }
+
     /// 打开全局库（user 维度模型组：workspace 注册表 + agent 管理两模型）。
     pub fn open_global(path: &Path) -> Result<Self, StoreError> {
         Self::open_with(path, global_models(), DbDimension::User)
@@ -479,7 +506,8 @@ impl Store {
     /// 读库级格式版本标记（[`StoreMetaRecord`] 固定单键 `"format"`）；标记
     /// 缺失（旧形态库 / 全新库）→ `None`。
     fn workspace_format_version(&self) -> Result<Option<u32>, StoreError> {
-        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let db = self.db()?;
+        let r = db.r_transaction().map_err(db_err("开启读事务"))?;
         let hit: Option<StoreMetaRecord> = r
             .get()
             .primary(WORKSPACE_STORE_FORMAT_KEY)
@@ -489,7 +517,8 @@ impl Store {
 
     /// 写库级格式版本标记（固定单键 `"format"`，幂等覆写）。
     fn write_workspace_format(&self) -> Result<(), StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         rw.upsert(StoreMetaRecord {
             key: WORKSPACE_STORE_FORMAT_KEY.to_owned(),
             format_version: WORKSPACE_STORE_FORMAT_VERSION,
@@ -522,7 +551,10 @@ impl Store {
             let db = Builder::new()
                 .create(models, path)
                 .map_err(|e| StoreError::Db(format!("创建 {} 失败: {e}", path.display())))?;
-            return Ok(Self { db, dimension });
+            return Ok(Self {
+                db: RwLock::new(Some(Arc::new(db))),
+                dimension,
+            });
         }
         let db = Builder::new().open(models, path).map_err(|e| {
             StoreError::Db(format!(
@@ -530,7 +562,10 @@ impl Store {
                 path.display()
             ))
         })?;
-        Ok(Self { db, dimension })
+        Ok(Self {
+            db: RwLock::new(Some(Arc::new(db))),
+            dimension,
+        })
     }
 
     /// canonicalize + upsert：已存在 → 原记录原样返回（保留 `added_at`，
@@ -541,7 +576,8 @@ impl Store {
             .map_err(StoreError::Canonicalize)?
             .to_string_lossy()
             .into_owned();
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let stored: Option<WorkspaceRecord> = rw
             .get()
             .primary(key.as_str())
@@ -573,7 +609,8 @@ impl Store {
         let Some(key) = self.resolve_key(root)? else {
             return Ok(false);
         };
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let stored: Option<WorkspaceRecord> =
             rw.get().primary(key.as_str()).map_err(db_err("读取记录"))?;
         let Some(record) = stored else {
@@ -589,7 +626,8 @@ impl Store {
 
     /// 会话行落库（id 来自 core 铸造，字符串主键直用）。
     pub fn create_session(&self, session: &SessionRecord) -> Result<SessionRecord, StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         rw.insert(session.clone()).map_err(db_err("写入会话记录"))?;
         rw.commit().map_err(db_err("提交 create_session 事务"))?;
         Ok(session.clone())
@@ -597,7 +635,8 @@ impl Store {
 
     /// 主键直查会话（Continue 校验与装配消费）。
     pub fn find_session(&self, session_id: &str) -> Result<Option<SessionRecord>, StoreError> {
-        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let db = self.db()?;
+        let r = db.r_transaction().map_err(db_err("开启读事务"))?;
         let hit: Option<SessionRecord> = r
             .get()
             .primary(session_id)
@@ -644,7 +683,8 @@ impl Store {
         session_id: &str,
         started_at: i64,
     ) -> Result<AgentRunRecord, StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         // 主键自然序表尾即最大 id（双向迭代 next_back，与旧 last()+1 同口径）
         let next_id = match rw
             .scan()
@@ -683,7 +723,8 @@ impl Store {
         session_id: &str,
         events: &[AgentEvent],
     ) -> Result<(), StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         for event in events {
             if event.kind.is_delta() {
                 continue; // 增量永不见（碎事件根因的落库半边修复）
@@ -700,7 +741,8 @@ impl Store {
     /// 无行回 0。同会话多轮共享单调 seq 空间的读半边——轮级归零会与既有
     /// 行撞（会话, seq）主键（续注同会话的反馈修复边曾因此必死）。
     pub fn next_session_seq(&self, session_id: &str) -> Result<u64, StoreError> {
-        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let db = self.db()?;
+        let r = db.r_transaction().map_err(db_err("开启读事务"))?;
         let scan = r.scan();
         let primary = scan
             .primary::<SessionEventRecord>()
@@ -725,7 +767,8 @@ impl Store {
         turn_id: i64,
         record: &AgentRunRecord,
     ) -> Result<(), StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let mut stored: AgentRunRecord =
             rw.get()
                 .primary(turn_id)
@@ -750,7 +793,8 @@ impl Store {
         remote: Option<&str>,
         updated_at: i64,
     ) -> Result<(), StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let mut stored: SessionRecord = rw
             .get()
             .primary(session_id)
@@ -854,8 +898,8 @@ impl Store {
 
     /// 转录重放
     pub fn list_session_events(&self, session_id: &str) -> Result<Vec<AgentEvent>, String> {
-        let r = self
-            .db
+        let db = self.db().map_err(|e| e.to_string())?;
+        let r = db
             .r_transaction()
             .map_err(|e| db_err("开启读事务")(e).to_string())?;
         let scan = r
@@ -946,7 +990,8 @@ impl Store {
                 )));
             }
         }
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let next_id = match rw
             .scan()
             .primary::<ExploreRecord>()
@@ -1022,7 +1067,8 @@ impl Store {
         let mut updated = stored;
         updated.name = new_name.to_owned();
         updated.updated_at = now_millis();
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         rw.upsert(updated.clone()).map_err(db_err("写入探索记录"))?;
         rw.commit()
             .map_err(db_err("提交 rename_explore_record 事务"))?;
@@ -1034,7 +1080,8 @@ impl Store {
         let Some(record) = self.find_explore_record(root, name)? else {
             return Ok(false);
         };
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let pointer = record.session_id.as_deref();
         let source_ref = record.id.to_string();
         let bound_sessions: Vec<SessionRecord> = rw
@@ -1109,7 +1156,8 @@ impl Store {
             .ok_or_else(|| StoreError::Db(format!("记录不存在: root={root:?} name={name:?}")))?;
         updated.title = title.to_owned();
         updated.updated_at = now_millis();
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         rw.upsert(updated.clone()).map_err(db_err("写入探索记录"))?;
         rw.commit().map_err(db_err("提交 set_explore_title 事务"))?;
         Ok(updated)
@@ -1136,7 +1184,8 @@ impl Store {
             .ok_or_else(|| StoreError::Db(format!("记录不存在: root={root:?} name={name:?}")))?;
         updated.workflow_type = workflow_type.trim().to_ascii_lowercase();
         updated.updated_at = now_millis();
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         rw.upsert(updated.clone()).map_err(db_err("写入探索记录"))?;
         rw.commit()
             .map_err(db_err("提交 set_explore_workflow_type 事务"))?;
@@ -1164,7 +1213,8 @@ impl Store {
         }
         updated.promoted_to = Some(change_id.to_owned());
         updated.updated_at = now_millis();
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         rw.upsert(updated.clone()).map_err(db_err("写入探索记录"))?;
         rw.commit()
             .map_err(db_err("提交 mark_explore_promoted 事务"))?;
@@ -1203,7 +1253,8 @@ impl Store {
             None => {
                 let session = empty_explore_session(&record);
                 let id = session.id.clone();
-                let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+                let db = self.db()?;
+                let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
                 rw.insert(session).map_err(db_err("写入探索空会话"))?;
                 rw.commit()
                     .map_err(db_err("提交 ensure_explore_session 建会话事务"))?;
@@ -1212,7 +1263,8 @@ impl Store {
         };
         record.session_id = Some(session_id);
         record.updated_at = now_millis();
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         rw.upsert(record.clone()).map_err(db_err("写入探索记录"))?;
         rw.commit()
             .map_err(db_err("提交 ensure_explore_session 事务"))?;
@@ -1251,7 +1303,8 @@ impl Store {
         if !self.is_unstarted_session(session_id)? {
             return Ok(());
         }
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let mut stored: SessionRecord = rw
             .get()
             .primary(session_id)
@@ -1273,7 +1326,8 @@ impl Store {
         session_id: &str,
         content: &str,
     ) -> Result<bool, StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let stored: Option<SessionPreambleRecord> = rw
             .get()
             .primary(session_id)
@@ -1298,7 +1352,8 @@ impl Store {
         &self,
         session_id: &str,
     ) -> Result<Option<SessionPreambleRecord>, StoreError> {
-        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let db = self.db()?;
+        let r = db.r_transaction().map_err(db_err("开启读事务"))?;
         let hit: Option<SessionPreambleRecord> = r
             .get()
             .primary(session_id)
@@ -1313,7 +1368,8 @@ impl Store {
 
     /// 主键直查 provider（运行发起解析与 save 回填原值消费）。
     pub fn find_agent_provider(&self, id: i64) -> Result<Option<AgentProviderRecord>, StoreError> {
-        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let db = self.db()?;
+        let r = db.r_transaction().map_err(db_err("开启读事务"))?;
         let hit: Option<AgentProviderRecord> =
             r.get().primary(id).map_err(db_err("读取 provider 记录"))?;
         Ok(hit)
@@ -1329,7 +1385,8 @@ impl Store {
         if provider.name.trim().is_empty() {
             return Err(StoreError::Db("provider 名不得为空白".to_owned()));
         }
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let all: Vec<AgentProviderRecord> = rw
             .scan()
             .primary::<AgentProviderRecord>()
@@ -1362,7 +1419,8 @@ impl Store {
     /// 删除 provider：被任一 agent `provider_id` 引用 → `Err`（含引用方 name
     /// 提示，不级联不删除——引用完整性）；miss 幂等 `Ok(false)`。
     pub fn remove_agent_provider(&self, id: i64) -> Result<bool, StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let stored: Option<AgentProviderRecord> =
             rw.get().primary(id).map_err(db_err("读取 provider 记录"))?;
         let Some(record) = stored else {
@@ -1399,7 +1457,8 @@ impl Store {
 
     /// 主键直查 agent 实例（显式路径解析消费）。
     pub fn find_agent_instance(&self, id: i64) -> Result<Option<AgentInstanceRecord>, StoreError> {
-        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let db = self.db()?;
+        let r = db.r_transaction().map_err(db_err("开启读事务"))?;
         let hit: Option<AgentInstanceRecord> =
             r.get().primary(id).map_err(db_err("读取 agent 记录"))?;
         Ok(hit)
@@ -1440,7 +1499,8 @@ impl Store {
                 agent.name
             )));
         }
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         if let Some(provider_id) = agent.provider_id {
             let referenced: Option<AgentProviderRecord> = rw
                 .get()
@@ -1497,7 +1557,8 @@ impl Store {
     /// 删除 agent 实例：默认 agent 同事务先清标记再删（标记唯一写口纪律；
     /// 删除后全局无默认，无顺延）；miss 幂等 `Ok(false)`。
     pub fn remove_agent_instance(&self, id: i64) -> Result<bool, StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let stored: Option<AgentInstanceRecord> =
             rw.get().primary(id).map_err(db_err("读取 agent 记录"))?;
         let Some(mut record) = stored else {
@@ -1518,7 +1579,8 @@ impl Store {
     /// （[`CLI_TENANT_RETIRED`]——默认标记仅可落 sdk 实例，防造出必失败的
     /// 缺省发起路径）；返回更新后记录。
     pub fn set_default_agent_instance(&self, id: i64) -> Result<AgentInstanceRecord, StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let all: Vec<AgentInstanceRecord> = rw
             .scan()
             .primary::<AgentInstanceRecord>()
@@ -1578,7 +1640,8 @@ impl Store {
             worktree: record.worktree,
             base_commit: record.base_commit,
         };
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         rw.insert(stored.clone()).map_err(db_err("写入建档记录"))?;
         rw.commit()
             .map_err(db_err("提交 create_change_record 事务"))?;
@@ -1588,7 +1651,8 @@ impl Store {
     /// 补偿删除（create 双写 fs 半边失败回滚面，design D5）：按 id 删除本次
     /// 自插行；miss 幂等 `Ok(false)`。
     pub fn delete_change_record(&self, id: &str) -> Result<bool, StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let stored: Option<ChangeRecord> = rw.get().primary(id).map_err(db_err("读取建档记录"))?;
         let Some(record) = stored else {
             return Ok(false); // miss 幂等
@@ -1613,7 +1677,8 @@ impl Store {
     /// 与补偿删除 `delete_change_record` 职责分立：本函数不参与 create 回滚
     /// 链（补偿面只该删本次自插的单行，零级联）。
     pub fn delete_change_cascade(&self, id: &str) -> Result<bool, StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let stored: Option<ChangeRecord> = rw.get().primary(id).map_err(db_err("读取建档记录"))?;
         let Some(record) = stored else {
             return Ok(false); // miss 幂等
@@ -1710,7 +1775,8 @@ impl Store {
 
     /// 主键 id 直查建档记录（`None` = 未建档——不再有文档形态语义）。
     pub fn find_change_record(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreError> {
-        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let db = self.db()?;
+        let r = db.r_transaction().map_err(db_err("开启读事务"))?;
         let hit: Option<ChangeRecord> = r.get().primary(id).map_err(db_err("读取建档记录"))?;
         Ok(hit.as_ref().map(change_state))
     }
@@ -1733,7 +1799,8 @@ impl Store {
         phase: &str,
         now: i64,
     ) -> Result<PhaseStartState, StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let mut stored: ChangeRecord = rw
             .get()
             .primary(change_id)
@@ -1771,7 +1838,8 @@ impl Store {
     /// [`StoreError::NotFound`]，重复落账 → [`StoreError::Conflict`]。任一环
     /// 节失败整体回滚零残留。
     pub fn log_change_phase(&self, command: &PhaseLogCommand) -> Result<u32, StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let mut change_row: ChangeRecord = rw
             .get()
             .primary(command.change_id.as_str())
@@ -1858,7 +1926,8 @@ impl Store {
     /// 行并存，与既往 JSON 载体上标记 + 传播两次读改写的合成终态一致），禁止
     /// 快照克隆整行后推覆写先写标记。
     pub fn apply_change_backtrack(&self, command: &BacktrackCommand) -> Result<(), StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let rows: Vec<PhaseRecord> = rw
             .scan()
             .primary::<PhaseRecord>()
@@ -1919,7 +1988,8 @@ impl Store {
         phase: &str,
         session_id: &str,
     ) -> Result<(), StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let latest = rw
             .scan()
             .primary::<PhaseRecord>()
@@ -1945,7 +2015,8 @@ impl Store {
     /// status 翻转（归档 db 半边）：status=archived + archived_at；主键 id 与
     /// name 均不变；miss → [`StoreError::NotFound`]。
     pub fn set_change_archived(&self, id: &str, archived_at: i64) -> Result<(), StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let mut stored: ChangeRecord = rw
             .get()
             .primary(id)
@@ -1961,7 +2032,8 @@ impl Store {
 
     /// 步骤审计行追加（行 id 写事务内 max+1）。
     pub fn append_change_step(&self, command: &StepCommand) -> Result<(), StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         // 主键自然序表尾即最大 id（max+1 分配，与插入原子）
         let next_id = match rw
             .scan()
@@ -2053,7 +2125,8 @@ impl Store {
     /// run 发起落行：同 run_id 冲突 → [`StoreError::Conflict`]；插 running
     /// 行（status=running 起步、无 reason、无收口时刻）。
     pub fn start_change_run(&self, command: &RunStartCommand) -> Result<(), StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let existing: Option<RunRecord> = rw
             .get()
             .primary(command.run_id.as_str())
@@ -2087,7 +2160,8 @@ impl Store {
                 command.status.as_str()
             )));
         }
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let mut run_row: RunRecord = rw
             .get()
             .primary(command.run_id.as_str())
@@ -2200,7 +2274,8 @@ impl Store {
                     .map(|active| (record.id.as_str(), active))
             })
             .collect();
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let mut calibrated = Vec::with_capacity(running.len());
         for mut run_row in running {
             run_row.status = RunStatus::Interrupted;
@@ -2243,7 +2318,8 @@ impl Store {
         if running.is_empty() {
             return Ok(Vec::new());
         }
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let mut calibrated = Vec::with_capacity(running.len());
         for mut turn_row in running {
             turn_row.status = agent::AgentRunStatus::Interrupted;
@@ -2350,7 +2426,8 @@ impl Store {
     /// `level`，`read_at` 与 `created_at` 原样保留（重投不复活已读、首次事件
     /// 时刻稳定）；未命中 → 全量插入（`read_at = None`）。
     pub fn publish_notification(&self, notification: &Notification) -> Result<(), StoreError> {
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let stored: Option<NotificationRecord> = rw
             .get()
             .primary(notification.id.as_str())
@@ -2421,7 +2498,8 @@ impl Store {
     pub fn mark_notifications_read(&self, ids: &[String]) -> Result<u32, StoreError> {
         let wanted: HashSet<&str> = ids.iter().map(String::as_str).collect();
         let now = now_millis();
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let all: Vec<NotificationRecord> = rw
             .scan()
             .primary::<NotificationRecord>()
@@ -2449,7 +2527,8 @@ impl Store {
     /// `Some(now)`；返回**提交后**的剩余未读数（恒 0）。
     pub fn mark_all_notifications_read(&self) -> Result<u32, StoreError> {
         let now = now_millis();
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let all: Vec<NotificationRecord> = rw
             .scan()
             .primary::<NotificationRecord>()
@@ -2478,7 +2557,8 @@ impl Store {
         let confirm_prefix = format!("run:{run_id}:confirm:");
         let ask_prefix = format!("run:{run_id}:ask:");
         let now = now_millis();
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let db = self.db()?;
+        let rw = db.rw_transaction().map_err(db_err("开启写事务"))?;
         let all: Vec<NotificationRecord> = rw
             .scan()
             .primary::<NotificationRecord>()
@@ -2503,7 +2583,8 @@ impl Store {
 
     /// 本库已注册模型清单与记录计数
     pub fn list_models(&self) -> Result<Vec<ModelInfo>, StoreError> {
-        envelope::list_models(&self.db, self.dimension)
+        let db = self.db()?;
+        envelope::list_models(db.as_ref(), self.dimension)
     }
 
     /// 按模型主键自然序分页扫描（`skip(offset).take(limit)`；`limit` 上限
@@ -2511,13 +2592,15 @@ impl Store {
     /// 返回分页信封（records + total 同一读事务快照）；key/value 均为
     /// JSON 值，native_db 类型不越信封。
     pub fn scan(&self, model: &str, offset: u32, limit: u32) -> Result<RecordsPage, StoreError> {
-        envelope::scan(&self.db, self.dimension, model, offset, limit)
+        let db = self.db()?;
+        envelope::scan(db.as_ref(), self.dimension, model, offset, limit)
     }
 
     /// 本库维度表清单（表名 / 维度 / 计数 / 表介绍）：说明来自 `///` doc 经
     /// `specta` 类型图派生，字段不展开（清单便宜、全量字段白烧上下文）。
     pub fn describe(&self) -> Result<Vec<ModelDoc>, QueryError> {
-        describe::tables(&self.db, self.dimension)
+        let db = self.db().map_err(describe::store_err)?;
+        describe::tables(db.as_ref(), self.dimension)
     }
 
     /// 单表全字段说明（线名 / 渲染类型 / doc）；未知表 `Err` 携本维度候选表名。
@@ -2530,7 +2613,8 @@ impl Store {
     /// `MAX_SCAN_LIMIT`（后者管 IPC 载重）。只读：零写事务，`total` / `matched`
     /// / `records` 同一读事务快照。
     pub fn query(&self, spec: &QuerySpec) -> Result<QueryPage, QueryError> {
-        query::run(&self.db, self.dimension, spec)
+        let db = self.db().map_err(describe::store_err)?;
+        query::run(db.as_ref(), self.dimension, spec)
     }
 
     /// 主键自然序全表读出（workspace / run 清单共用）。坏行解码失败显式
@@ -2541,7 +2625,8 @@ impl Store {
         &self,
         context: &'static str,
     ) -> Result<Vec<T>, StoreError> {
-        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let db = self.db()?;
+        let r = db.r_transaction().map_err(db_err("开启读事务"))?;
         r.scan()
             .primary::<T>()
             .map_err(db_err(context))?
@@ -2569,7 +2654,8 @@ impl Store {
 
     /// canonical key 是否已入库（命中判定，不取值）。
     fn contains_key(&self, key: &str) -> Result<bool, StoreError> {
-        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let db = self.db()?;
+        let r = db.r_transaction().map_err(db_err("开启读事务"))?;
         let hit: Option<WorkspaceRecord> = r.get().primary(key).map_err(db_err("读取记录"))?;
         Ok(hit.is_some())
     }
@@ -2589,6 +2675,9 @@ pub struct WorkspaceStores {
     /// per-root 打开实例缓存（canonical root → 实例；缓存锁跨开库持有——
     /// 并发 `for_root` 串行化，同一 db 文件进程内单开硬保证）
     cache: Mutex<HashMap<String, Arc<Store>>>,
+    /// 关库闸（退出路径置位）：置位后 `for_root` 不再开新库，避免关库与
+    /// 并发开库竞态留下未关句柄。
+    closed: AtomicBool,
 }
 
 impl WorkspaceStores {
@@ -2601,6 +2690,7 @@ impl WorkspaceStores {
             global,
             workspaces_dir: data_root.join(WORKSPACES_DIR_NAME),
             cache: Mutex::new(HashMap::new()),
+            closed: AtomicBool::new(false),
         })
     }
 
@@ -2621,11 +2711,19 @@ impl WorkspaceStores {
     /// 文件锁冲突），异根各自独立实例。不校验全局注册表归属：root 恒来自前端
     /// 清单（canonical root），与 cwd 同一信任级别（blank root 在命令层已拦）。
     pub fn for_root(&self, root: &str) -> Result<Arc<Store>, StoreError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(StoreError::Closed);
+        }
         let key = canonical::canonical_key(Path::new(root))
             .map_err(StoreError::Canonicalize)?
             .to_string_lossy()
             .into_owned();
         let mut cache = self.cache.lock().expect("workspace 库缓存锁不可中毒");
+        // 双检：close_all 先置闸再抢同一把 cache 锁——持锁后复核保证关库后
+        // 不会再有新实例落缓存（否则关库会漏掉并发开出来的库）。
+        if self.closed.load(Ordering::Acquire) {
+            return Err(StoreError::Closed);
+        }
         if let Some(store) = cache.get(&key) {
             return Ok(store.clone());
         }
@@ -2635,6 +2733,22 @@ impl WorkspaceStores {
         ))?);
         cache.insert(key, store.clone());
         Ok(store)
+    }
+
+    /// 退出关库：置闸阻断新开 → 关全部已缓存 workspace 库 → 关全局库。
+    /// 幂等；不等待在途调用（各库 `Store::close` 的语义见其文档）。
+    pub fn close_all(&self) {
+        if self.closed.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let stores: Vec<Arc<Store>> = {
+            let mut cache = self.cache.lock().expect("workspace 库缓存锁不可中毒");
+            cache.drain().map(|(_, store)| store).collect()
+        };
+        for store in stores {
+            store.close();
+        }
+        self.global.close();
     }
 }
 

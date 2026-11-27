@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use tauri::ipc::{Channel, InvokeResponseBody};
-use tauri::{App, Manager};
+use tauri::{App, Manager, State};
 
 use ::agent::{
     AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus, AskRegistry,
@@ -14,11 +14,70 @@ use store::{
     AgentProviderRecord, AgentRunRecord, SessionConfigSnapshot, SessionRecord, WorkspaceStores,
 };
 
-use super::{
-    agent_session_transcript, agent_session_watch_with, agent_sessions, agent_start,
-    agent_start_with, agent_stop, list_archi_chat_sessions, list_change_chat_sessions,
-    list_config_chat_sessions, session_detail,
-};
+use super::{agent_session_watch_with, agent_start, agent_start_with, agent_stop};
+
+/// 命令 wrapper 的同步测试缝：async 化后语义由 `*_inner` 承载（首 poll 判据另测）。
+fn agent_sessions(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    source: Option<String>,
+    source_ref: Option<String>,
+    offset: u32,
+    limit: u32,
+) -> Result<::agent::SessionPage, String> {
+    super::agent_sessions_inner(
+        stores.inner(),
+        &root,
+        source.as_deref(),
+        source_ref.as_deref(),
+        offset,
+        limit,
+    )
+}
+
+fn agent_session_transcript(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    session_id: String,
+) -> Result<Vec<::agent::AgentEvent>, String> {
+    super::agent_session_transcript_inner(stores.inner(), &root, &session_id)
+}
+
+fn session_detail(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    session_id: String,
+) -> Result<Option<::agent::SessionSummary>, String> {
+    super::session_detail_inner(stores.inner(), &root, &session_id)
+}
+
+fn list_change_chat_sessions(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    id: String,
+    offset: u32,
+    limit: u32,
+) -> Result<::agent::SessionPage, String> {
+    super::list_change_chat_sessions_inner(stores.inner(), &root, &id, offset, limit)
+}
+
+fn list_archi_chat_sessions(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    offset: u32,
+    limit: u32,
+) -> Result<::agent::SessionPage, String> {
+    super::list_archi_chat_sessions_inner(stores.inner(), &root, offset, limit)
+}
+
+fn list_config_chat_sessions(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    offset: u32,
+    limit: u32,
+) -> Result<::agent::SessionPage, String> {
+    super::list_config_chat_sessions_inner(stores.inner(), &root, offset, limit)
+}
 
 // ---------------------------------------------------------------------------
 // 装置：tempdir 真库 + mock app 托管态 + fixture 落库
@@ -70,6 +129,51 @@ fn app_with_stores(env: &Env) -> App<tauri::test::MockRuntime> {
     // steer 注入注册表：与 `src/main.rs` 同址同型空表托管（agent_steer 取用面）
     app.manage(Arc::new(SteerRegistry::default()));
     app
+}
+
+/// 会话读命令首 poll 为 `Pending`：冷开落阻塞池（逐命令取样）。
+#[test]
+fn 会话读命令首次poll为pending() {
+    let env = Env::new("offload-first-poll");
+    let app = app_with_stores(&env);
+    let root = env.root_of("offload");
+    crate::commands::assert_offloaded(super::agent_sessions_with(
+        app.handle().clone(),
+        root.clone(),
+        None,
+        None,
+        0,
+        20,
+    ));
+    crate::commands::assert_offloaded(super::agent_session_transcript_with(
+        app.handle().clone(),
+        root.clone(),
+        "ses-offload".to_owned(),
+    ));
+    crate::commands::assert_offloaded(super::session_detail_with(
+        app.handle().clone(),
+        root.clone(),
+        "ses-offload".to_owned(),
+    ));
+    crate::commands::assert_offloaded(super::list_change_chat_sessions_with(
+        app.handle().clone(),
+        root.clone(),
+        "chg-offload".to_owned(),
+        0,
+        20,
+    ));
+    crate::commands::assert_offloaded(super::list_archi_chat_sessions_with(
+        app.handle().clone(),
+        root.clone(),
+        0,
+        20,
+    ));
+    crate::commands::assert_offloaded(super::list_config_chat_sessions_with(
+        app.handle().clone(),
+        root,
+        0,
+        20,
+    ));
 }
 
 /// 丢弃型 Channel（发送信封即弃；查询面用例不观测实时流）。

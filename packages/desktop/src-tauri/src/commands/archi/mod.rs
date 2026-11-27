@@ -28,8 +28,9 @@
 //! 执行契约：四条取数命令（`archi_graph` / `archi_drift` / `archi_file_tree` /
 //! `archi_api_check`）的成本随仓库规模增长（批量读子系统 / 全仓解析），故一律为
 //! `pub async fn`，底经 `spawn_blocking` 落阻塞池——命令体不在 IPC 线程内联，窗口
-//! 不随取数冻结。执行线程纪律与判据的唯一持有者是 `desktop-app-shell` 的「命令执行
-//! 线程纪律（批量子系统 IO）」，本文件不复述。
+//! 不随取数冻结。`archi_change_summary` 另因记录解析需冷开 workspace 库（可能含
+//! redb 修复扫描）而同为 async + `spawn_blocking`。执行线程纪律与判据的唯一持有者
+//! 是 `desktop-app-shell` 的「命令执行线程纪律」，本文件不复述。
 //!
 //! 能力 spec：`specs/desktop-archi-model/spec.md`（IPC 九命令契约）。
 
@@ -46,11 +47,12 @@ use archi::GateTier;
 use foundation::cancel::CancelFlag;
 use orchestration::port::ArchiveVcsPort;
 use store::WorkspaceStores;
-use tauri::State;
+use tauri::AppHandle;
 use vcs_runtime::ProcessArchiveVcs;
 use workflow::state::ChangeStatus;
 
 use crate::commands::atomic::write_atomic;
+use crate::commands::store_task;
 
 #[cfg(test)]
 mod mod_test;
@@ -117,15 +119,37 @@ pub fn archi_module_inner(root: &Path, element: &str) -> Result<ArchiModuleDetai
 /// 归档确认面的模型结构 diff 摘要（`null` = 无改动 / 无可比基线）。
 #[tauri::command]
 #[specta::specta]
-pub fn archi_change_summary(
-    stores: State<'_, WorkspaceStores>,
+pub async fn archi_change_summary(
+    app: AppHandle,
     root: String,
     change_id: String,
 ) -> Result<Option<ArchiChangeSummary>, String> {
-    check_root(Path::new(&root))?;
-    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
+    archi_change_summary_with(app, root, change_id).await
+}
+
+/// [`archi_change_summary`] 的泛型测试缝：记录解析需冷开 workspace 库，
+/// 整段落阻塞池（与四条取数命令同纪律）。
+pub(crate) async fn archi_change_summary_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    change_id: String,
+) -> Result<Option<ArchiChangeSummary>, String> {
+    store_task::run_store_task("归档摘要任务失败", app, move |stores| {
+        resolve_change_summary(stores, &root, &change_id)
+    })
+    .await
+}
+
+/// 记录 → 改动侧 → 结构 diff 的领域组装纯函数（测试缝）。
+fn resolve_change_summary(
+    stores: &WorkspaceStores,
+    root: &str,
+    change_id: &str,
+) -> Result<Option<ArchiChangeSummary>, String> {
+    check_root(Path::new(root))?;
+    let store = stores.for_root(root).map_err(|e| e.to_string())?;
     let record = store
-        .find_change_record(&change_id)
+        .find_change_record(change_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("change \"{change_id}\" 未建档（无 ChangeRecord）"))?;
     // 归档 change 的执行根恒回落主仓根（与会话 cwd 同口径）；active 且 worktree
@@ -134,7 +158,7 @@ pub fn archi_change_summary(
         ChangeStatus::Archived => None,
         ChangeStatus::Active => record.worktree,
     };
-    archi_change_summary_inner(Path::new(&root), worktree.as_deref())
+    archi_change_summary_inner(Path::new(root), worktree.as_deref())
 }
 
 /// [`archi_change_summary`] 的领域组装纯函数：主仓基线 + 改动侧（worktree 或主仓

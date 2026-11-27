@@ -24,6 +24,7 @@ use store::WorkspaceStores;
 use agent::AgentRunMessage;
 
 use crate::commands::archi::ArchiArtifactWriter;
+use crate::commands::store_task;
 
 /// change chat 会话清单的来源词（读侧词汇收在命令层，前端零来源词汇；写侧同
 /// 词由面板的受控常量给出——`source` 是自由字符串，无枚举可耦合）
@@ -341,43 +342,91 @@ pub(crate) async fn agent_session_watch_with<R: tauri::Runtime>(
 /// 会话清单分页 + 聚合统计
 #[tauri::command]
 #[specta::specta]
-pub fn agent_sessions(
-    stores: State<'_, WorkspaceStores>,
+pub async fn agent_sessions(
+    app: AppHandle,
     root: String,
     source: Option<String>,
     source_ref: Option<String>,
     offset: u32,
     limit: u32,
 ) -> Result<SessionPage, String> {
-    if is_blank_root(&root) {
+    agent_sessions_with(app, root, source, source_ref, offset, limit).await
+}
+
+/// [`agent_sessions`] 的泛型测试缝（冷开落阻塞池）。
+pub(crate) async fn agent_sessions_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    source: Option<String>,
+    source_ref: Option<String>,
+    offset: u32,
+    limit: u32,
+) -> Result<SessionPage, String> {
+    store_task::run_store_task("会话清单读取任务失败", app, move |stores| {
+        agent_sessions_inner(
+            stores,
+            &root,
+            source.as_deref(),
+            source_ref.as_deref(),
+            offset,
+            limit,
+        )
+    })
+    .await
+}
+
+fn agent_sessions_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    source: Option<&str>,
+    source_ref: Option<&str>,
+    offset: u32,
+    limit: u32,
+) -> Result<SessionPage, String> {
+    if is_blank_root(root) {
         return Ok(SessionPage {
             sessions: Vec::new(),
             total: 0,
         });
     }
-    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
-    agent_runtime::session_query(store).list_sessions(
-        source.as_deref(),
-        source_ref.as_deref(),
-        offset,
-        limit,
-    )
+    let store = stores.for_root(root).map_err(|e| e.to_string())?;
+    agent_runtime::session_query(store).list_sessions(source, source_ref, offset, limit)
 }
 
 /// 会话全史转录重放（密封事件 seq 序，不要求运行进程存活）；blank root →
 /// 空结果。
 #[tauri::command]
 #[specta::specta]
-pub fn agent_session_transcript(
-    stores: State<'_, WorkspaceStores>,
+pub async fn agent_session_transcript(
+    app: AppHandle,
     root: String,
     session_id: String,
 ) -> Result<Vec<::agent::AgentEvent>, String> {
-    if is_blank_root(&root) {
+    agent_session_transcript_with(app, root, session_id).await
+}
+
+/// [`agent_session_transcript`] 的泛型测试缝（冷开 + 转录读取落阻塞池）。
+pub(crate) async fn agent_session_transcript_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    session_id: String,
+) -> Result<Vec<::agent::AgentEvent>, String> {
+    store_task::run_store_task("会话转录读取任务失败", app, move |stores| {
+        agent_session_transcript_inner(stores, &root, &session_id)
+    })
+    .await
+}
+
+fn agent_session_transcript_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    session_id: &str,
+) -> Result<Vec<::agent::AgentEvent>, String> {
+    if is_blank_root(root) {
         return Ok(Vec::new());
     }
-    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
-    agent_runtime::session_query(store).transcript(&session_id)
+    let store = stores.for_root(root).map_err(|e| e.to_string())?;
+    agent_runtime::session_query(store).transcript(session_id)
 }
 
 /// 按 id 单查会话（行 + 聚合统计 + 轮行）：root 寻址所属 workspace 库直查
@@ -385,17 +434,37 @@ pub fn agent_session_transcript(
 /// id 显式 `Err`（单查语义与清单空态区分）。
 #[tauri::command]
 #[specta::specta]
-pub fn session_detail(
-    stores: State<'_, WorkspaceStores>,
+pub async fn session_detail(
+    app: AppHandle,
     root: String,
     session_id: String,
 ) -> Result<Option<SessionSummary>, String> {
-    if is_blank_root(&root) {
+    session_detail_with(app, root, session_id).await
+}
+
+/// [`session_detail`] 的泛型测试缝（冷开落阻塞池）。
+pub(crate) async fn session_detail_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    session_id: String,
+) -> Result<Option<SessionSummary>, String> {
+    store_task::run_store_task("会话详情读取任务失败", app, move |stores| {
+        session_detail_inner(stores, &root, &session_id)
+    })
+    .await
+}
+
+fn session_detail_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    session_id: &str,
+) -> Result<Option<SessionSummary>, String> {
+    if is_blank_root(root) {
         return Ok(None);
     }
-    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
+    let store = stores.for_root(root).map_err(|e| e.to_string())?;
     agent_runtime::session_query(store)
-        .find_session_detail(&session_id)
+        .find_session_detail(session_id)
         .map(Some)
 }
 
@@ -406,23 +475,47 @@ pub fn session_detail(
 /// blank root → 空页信封（读面语义，与 `agent_sessions` 同口径）。
 #[tauri::command]
 #[specta::specta]
-pub fn list_change_chat_sessions(
-    stores: State<'_, WorkspaceStores>,
+pub async fn list_change_chat_sessions(
+    app: AppHandle,
     root: String,
     id: String,
     offset: u32,
     limit: u32,
 ) -> Result<SessionPage, String> {
-    if is_blank_root(&root) {
+    list_change_chat_sessions_with(app, root, id, offset, limit).await
+}
+
+/// [`list_change_chat_sessions`] 的泛型测试缝（冷开落阻塞池）。
+pub(crate) async fn list_change_chat_sessions_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    id: String,
+    offset: u32,
+    limit: u32,
+) -> Result<SessionPage, String> {
+    store_task::run_store_task("change 会话清单读取任务失败", app, move |stores| {
+        list_change_chat_sessions_inner(stores, &root, &id, offset, limit)
+    })
+    .await
+}
+
+fn list_change_chat_sessions_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    id: &str,
+    offset: u32,
+    limit: u32,
+) -> Result<SessionPage, String> {
+    if is_blank_root(root) {
         return Ok(SessionPage {
             sessions: Vec::new(),
             total: 0,
         });
     }
-    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
+    let store = stores.for_root(root).map_err(|e| e.to_string())?;
     agent_runtime::session_query(store).list_sessions(
         Some(CHANGE_CHAT_SOURCE),
-        Some(&id),
+        Some(id),
         offset,
         limit,
     )
@@ -436,19 +529,41 @@ pub fn list_change_chat_sessions(
 /// blank root → 空页信封（读面语义，与 `agent_sessions` 同口径）。
 #[tauri::command]
 #[specta::specta]
-pub fn list_archi_chat_sessions(
-    stores: State<'_, WorkspaceStores>,
+pub async fn list_archi_chat_sessions(
+    app: AppHandle,
     root: String,
     offset: u32,
     limit: u32,
 ) -> Result<SessionPage, String> {
-    if is_blank_root(&root) {
+    list_archi_chat_sessions_with(app, root, offset, limit).await
+}
+
+/// [`list_archi_chat_sessions`] 的泛型测试缝（冷开落阻塞池）。
+pub(crate) async fn list_archi_chat_sessions_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    offset: u32,
+    limit: u32,
+) -> Result<SessionPage, String> {
+    store_task::run_store_task("archi 会话清单读取任务失败", app, move |stores| {
+        list_archi_chat_sessions_inner(stores, &root, offset, limit)
+    })
+    .await
+}
+
+fn list_archi_chat_sessions_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    offset: u32,
+    limit: u32,
+) -> Result<SessionPage, String> {
+    if is_blank_root(root) {
         return Ok(SessionPage {
             sessions: Vec::new(),
             total: 0,
         });
     }
-    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
+    let store = stores.for_root(root).map_err(|e| e.to_string())?;
     agent_runtime::session_query(store).list_sessions(Some(ARCHI_CHAT_SOURCE), None, offset, limit)
 }
 
@@ -460,18 +575,40 @@ pub fn list_archi_chat_sessions(
 /// blank root → 空页信封（读面语义，不触库）。
 #[tauri::command]
 #[specta::specta]
-pub fn list_config_chat_sessions(
-    stores: State<'_, WorkspaceStores>,
+pub async fn list_config_chat_sessions(
+    app: AppHandle,
     root: String,
     offset: u32,
     limit: u32,
 ) -> Result<SessionPage, String> {
-    if is_blank_root(&root) {
+    list_config_chat_sessions_with(app, root, offset, limit).await
+}
+
+/// [`list_config_chat_sessions`] 的泛型测试缝（冷开落阻塞池）。
+pub(crate) async fn list_config_chat_sessions_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    offset: u32,
+    limit: u32,
+) -> Result<SessionPage, String> {
+    store_task::run_store_task("config 会话清单读取任务失败", app, move |stores| {
+        list_config_chat_sessions_inner(stores, &root, offset, limit)
+    })
+    .await
+}
+
+fn list_config_chat_sessions_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    offset: u32,
+    limit: u32,
+) -> Result<SessionPage, String> {
+    if is_blank_root(root) {
         return Ok(SessionPage {
             sessions: Vec::new(),
             total: 0,
         });
     }
-    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
+    let store = stores.for_root(root).map_err(|e| e.to_string())?;
     agent_runtime::session_query(store).list_sessions(Some(CONFIG_CHAT_SOURCE), None, offset, limit)
 }

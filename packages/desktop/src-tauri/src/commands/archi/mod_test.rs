@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use foundation::layout::archi_graph_model_dir;
 use store::{Store, WorkspaceStores};
-use tauri::{App, Manager};
+use tauri::{App, Manager, State};
 use workflow::state::{ChangeStateRecord, ChangeStatus};
 
 use archi::drift::ArchiDriftMode;
@@ -22,11 +22,19 @@ use archi::GateTier;
 
 use super::{
     archi_api_check, archi_api_check_inner, archi_api_generate, archi_api_generate_inner,
-    archi_change_summary, archi_change_summary_inner, archi_drift, archi_drift_inner,
-    archi_file_tree, archi_file_tree_inner, archi_graph, archi_graph_inner, archi_module,
-    archi_module_inner, archi_relation, archi_relation_inner, archi_set_gate, archi_set_gate_inner,
-    check_root,
+    archi_change_summary_inner, archi_drift, archi_drift_inner, archi_file_tree,
+    archi_file_tree_inner, archi_graph, archi_graph_inner, archi_module, archi_module_inner,
+    archi_relation, archi_relation_inner, archi_set_gate, archi_set_gate_inner, check_root,
 };
+
+/// `archi_change_summary` 的同步测试缝：async 化后语义由记录解析 + 纯函数承载。
+fn archi_change_summary(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    change_id: String,
+) -> Result<Option<archi::dto::ArchiChangeSummary>, String> {
+    super::resolve_change_summary(stores.inner(), &root, &change_id)
+}
 
 /// 确定性时间戳（UTC unix 毫秒）。
 const CREATED_AT: i64 = 1727000000000;
@@ -132,6 +140,19 @@ fn app_with(data_root: &Path) -> App<tauri::test::MockRuntime> {
     let stores = WorkspaceStores::open(data_root).expect("打开测试全局库失败");
     app.manage(stores);
     app
+}
+
+/// 归档摘要命令首 poll 为 `Pending`：记录解析的冷开落阻塞池。
+#[test]
+fn archi_change_summary首次poll为pending() {
+    let data_root = TempDir::new("offload-data");
+    let ws_root = TempDir::new("offload-ws");
+    let app = app_with(data_root.path());
+    crate::commands::assert_offloaded(super::archi_change_summary_with(
+        app.handle().clone(),
+        ws_root.root(),
+        "chg-offload".to_owned(),
+    ));
 }
 
 /// 命令同源的 workspace 库实例（`for_root` 缓存缝）。
@@ -1508,8 +1529,8 @@ fn 命令层零领域规则() {
         .collect();
     assert_eq!(
         sync_commands.len(),
-        14,
-        "五条同步命令 与 九条 *_inner 各一件（实际：{sync_commands:?}）"
+        13,
+        "四条同步命令 与 九条 *_inner 各一件（实际：{sync_commands:?}）"
     );
     let async_commands: Vec<&str> = source
         .lines()
@@ -1517,8 +1538,8 @@ fn 命令层零领域规则() {
         .collect();
     assert_eq!(
         async_commands.len(),
-        4,
-        "四条取数命令（archi_graph / archi_drift / archi_file_tree / archi_api_check）为 async fn（实际：{async_commands:?}）"
+        5,
+        "四条取数命令 + archi_change_summary（冷开 store）为 async fn（实际：{async_commands:?}）"
     );
     assert_eq!(
         source
@@ -1526,6 +1547,11 @@ fn 命令层零领域规则() {
             .count(),
         4,
         "四条取数命令各经一次阻塞池投递"
+    );
+    assert_eq!(
+        source.matches("store_task::run_store_task(").count(),
+        1,
+        "archi_change_summary 经共享 store 冷开出口投递阻塞池"
     );
     for wrapper in [
         "tauri::async_runtime::spawn_blocking(move || archi_graph_inner(",
@@ -2313,10 +2339,10 @@ fn 命令层零领域规则与头注释口径() {
         );
     }
 
-    // 另五条命令与九条 `*_inner` 的同步形态（形态差异只在四条取数 wrapper）
+    // 另四条命令与九条 `*_inner` 的同步形态（形态差异只在取数 wrapper 与
+    // archi_change_summary 的冷开 store 出口）
     for name in [
         "archi_module",
-        "archi_change_summary",
         "archi_set_gate",
         "archi_api_generate",
         "archi_relation",
@@ -2335,6 +2361,22 @@ fn 命令层零领域规则与头注释口径() {
             "{name} 体内零 `.await` / 零阻塞池投递：\n{body}"
         );
     }
+
+    // `archi_change_summary` 归「workspace 库冷开适用面」：async 命令 +
+    // `*_with` 执行体经共享 store 出口（`for_root` 在阻塞闭包内）。
+    assert!(
+        source.contains("pub async fn archi_change_summary("),
+        "archi_change_summary 为 `pub async fn`（冷开 store 不落 IPC 线程）"
+    );
+    assert!(
+        source.contains("pub(crate) async fn archi_change_summary_with<"),
+        "archi_change_summary 的执行体为泛型 `*_with` 测试缝"
+    );
+    assert!(
+        source.contains("store_task::run_store_task(\"归档摘要任务失败\""),
+        "archi_change_summary 经共享 store 冷开出口投递阻塞池"
+    );
+
     for inner in [
         "archi_graph_inner",
         "archi_module_inner",

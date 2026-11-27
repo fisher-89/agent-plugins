@@ -92,7 +92,13 @@ fn main() {
 
     // `App::run` 无返回值（启动期失败在内部 panic）：setup 失败的 fail fast 面
     // 由 `expect`（build）与 setup 返回的 Err 共同承载，这里只进事件循环。
-    app.run(|_, _| {});
+    // `Exit` 是 tao 结束进程前的最后回调：主动关库（Windows 退出走
+    // `std::process::exit`，App/state 析构不可依赖；关库让下次打开走快路径）。
+    app.run(|handle, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            dev_team::shutdown::shutdown_stores(handle);
+        }
+    });
 }
 
 /// setup 钩子：只做真正需要 runtime 的事（打开双库 / 引擎日志 / panic 钩子 /

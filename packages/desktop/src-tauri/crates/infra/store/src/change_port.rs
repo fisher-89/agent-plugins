@@ -19,6 +19,7 @@ fn fault(error: StoreError) -> StoreFault {
         StoreError::Canonicalize(msg) => StoreFault::Db(msg),
         StoreError::Conflict(msg) => StoreFault::Conflict(msg),
         StoreError::NotFound(msg) => StoreFault::NotFound(msg),
+        StoreError::Closed => StoreFault::Db("store 已关闭".to_owned()),
     }
 }
 

@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 mod mod_test;
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 
+use crate::commands::store_task;
 use foundation::layout::resolve;
 use store::{ExploreRecord, WorkspaceStores, EXPLORE_PLACEHOLDER_PREFIX};
 use vcs_runtime::ProcessWorktree;
@@ -59,17 +60,32 @@ fn is_kebab_case(name: &str) -> bool {
 /// store 建档口径，避免「点击后报错」）；blank root → 空结果。
 #[tauri::command]
 #[specta::specta]
-pub fn scan_explores(
+pub async fn scan_explores(app: AppHandle, root: String) -> Result<Vec<ExploreScanEntry>, String> {
+    scan_explores_with(app, root).await
+}
+
+/// [`scan_explores`] 的泛型测试缝（冷开 + 磁盘扫描落阻塞池）。
+pub(crate) async fn scan_explores_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
     root: String,
-    stores: State<'_, WorkspaceStores>,
 ) -> Result<Vec<ExploreScanEntry>, String> {
-    if is_blank_root(&root) {
+    store_task::run_store_task("探索扫描任务失败", app, move |stores| {
+        scan_explores_inner(stores, &root)
+    })
+    .await
+}
+
+fn scan_explores_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+) -> Result<Vec<ExploreScanEntry>, String> {
+    if is_blank_root(root) {
         return Ok(Vec::new());
     }
-    let layout = resolve(Path::new(&root));
-    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
+    let layout = resolve(Path::new(root));
+    let store = stores.for_root(root).map_err(|e| e.to_string())?;
     let bound: Vec<String> = store
-        .list_explore_records(&root)
+        .list_explore_records(root)
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|record| record.name)
@@ -102,17 +118,35 @@ pub fn explore_doc_path(root: String, name: String) -> Option<String> {
 /// explore 记录清单
 #[tauri::command]
 #[specta::specta]
-pub fn list_explore_records(
-    stores: State<'_, WorkspaceStores>,
+pub async fn list_explore_records(
+    app: AppHandle,
     root: String,
 ) -> Result<Vec<ExploreRecord>, String> {
-    if is_blank_root(&root) {
+    list_explore_records_with(app, root).await
+}
+
+/// [`list_explore_records`] 的泛型测试缝（冷开落阻塞池）。
+pub(crate) async fn list_explore_records_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+) -> Result<Vec<ExploreRecord>, String> {
+    store_task::run_store_task("探索清单读取任务失败", app, move |stores| {
+        list_explore_records_inner(stores, &root)
+    })
+    .await
+}
+
+fn list_explore_records_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+) -> Result<Vec<ExploreRecord>, String> {
+    if is_blank_root(root) {
         return Ok(Vec::new());
     }
     stores
-        .for_root(&root)
+        .for_root(root)
         .map_err(|e| e.to_string())?
-        .list_explore_records(&root)
+        .list_explore_records(root)
         .map_err(|e| e.to_string())
 }
 
@@ -122,18 +156,38 @@ pub fn list_explore_records(
 /// `Err`（写无空结果语义）。
 #[tauri::command]
 #[specta::specta]
-pub fn create_explore_record(
-    stores: State<'_, WorkspaceStores>,
+pub async fn create_explore_record(
+    app: AppHandle,
     root: String,
     name: Option<String>,
 ) -> Result<ExploreRecord, String> {
-    if is_blank_root(&root) {
+    create_explore_record_with(app, root, name).await
+}
+
+/// [`create_explore_record`] 的泛型测试缝（冷开落阻塞池）。
+pub(crate) async fn create_explore_record_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    name: Option<String>,
+) -> Result<ExploreRecord, String> {
+    store_task::run_store_task("探索建档任务失败", app, move |stores| {
+        create_explore_record_inner(stores, &root, name.as_deref())
+    })
+    .await
+}
+
+fn create_explore_record_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    name: Option<&str>,
+) -> Result<ExploreRecord, String> {
+    if is_blank_root(root) {
         return Err("非法 root: 不得为空白".to_owned());
     }
     stores
-        .for_root(&root)
+        .for_root(root)
         .map_err(|e| e.to_string())?
-        .create_explore_record(&root, name.as_deref())
+        .create_explore_record(root, name)
         .map_err(|e| e.to_string())
 }
 
@@ -141,19 +195,41 @@ pub fn create_explore_record(
 /// blank root → `Err`。
 #[tauri::command]
 #[specta::specta]
-pub fn rename_explore_record(
-    stores: State<'_, WorkspaceStores>,
+pub async fn rename_explore_record(
+    app: AppHandle,
     root: String,
     name: String,
     new_name: String,
 ) -> Result<ExploreRecord, String> {
-    if is_blank_root(&root) {
+    rename_explore_record_with(app, root, name, new_name).await
+}
+
+/// [`rename_explore_record`] 的泛型测试缝（冷开落阻塞池）。
+pub(crate) async fn rename_explore_record_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    name: String,
+    new_name: String,
+) -> Result<ExploreRecord, String> {
+    store_task::run_store_task("探索改名任务失败", app, move |stores| {
+        rename_explore_record_inner(stores, &root, &name, &new_name)
+    })
+    .await
+}
+
+fn rename_explore_record_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    name: &str,
+    new_name: &str,
+) -> Result<ExploreRecord, String> {
+    if is_blank_root(root) {
         return Err("非法 root: 不得为空白".to_owned());
     }
     stores
-        .for_root(&root)
+        .for_root(root)
         .map_err(|e| e.to_string())?
-        .rename_explore_record(&root, &name, &new_name)
+        .rename_explore_record(root, name, new_name)
         .map_err(|e| e.to_string())
 }
 
@@ -162,18 +238,38 @@ pub fn rename_explore_record(
 /// blank root → `Err`。
 #[tauri::command]
 #[specta::specta]
-pub fn delete_explore_record(
-    stores: State<'_, WorkspaceStores>,
+pub async fn delete_explore_record(
+    app: AppHandle,
     root: String,
     name: String,
 ) -> Result<bool, String> {
-    if is_blank_root(&root) {
+    delete_explore_record_with(app, root, name).await
+}
+
+/// [`delete_explore_record`] 的泛型测试缝（冷开落阻塞池）。
+pub(crate) async fn delete_explore_record_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    name: String,
+) -> Result<bool, String> {
+    store_task::run_store_task("探索删除任务失败", app, move |stores| {
+        delete_explore_record_inner(stores, &root, &name)
+    })
+    .await
+}
+
+fn delete_explore_record_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    name: &str,
+) -> Result<bool, String> {
+    if is_blank_root(root) {
         return Err("非法 root: 不得为空白".to_owned());
     }
     stores
-        .for_root(&root)
+        .for_root(root)
         .map_err(|e| e.to_string())?
-        .delete_explore_record(&root, &name)
+        .delete_explore_record(root, name)
         .map_err(|e| e.to_string())
 }
 
@@ -183,22 +279,44 @@ pub fn delete_explore_record(
 /// 返回更新后的记录。
 #[tauri::command]
 #[specta::specta]
-pub fn update_explore_title(
-    stores: State<'_, WorkspaceStores>,
+pub async fn update_explore_title(
+    app: AppHandle,
     root: String,
     name: String,
     title: String,
 ) -> Result<ExploreRecord, String> {
-    if is_blank_root(&root) {
+    update_explore_title_with(app, root, name, title).await
+}
+
+/// [`update_explore_title`] 的泛型测试缝（冷开落阻塞池）。
+pub(crate) async fn update_explore_title_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    name: String,
+    title: String,
+) -> Result<ExploreRecord, String> {
+    store_task::run_store_task("探索标题回填任务失败", app, move |stores| {
+        update_explore_title_inner(stores, &root, &name, &title)
+    })
+    .await
+}
+
+fn update_explore_title_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    name: &str,
+    title: &str,
+) -> Result<ExploreRecord, String> {
+    if is_blank_root(root) {
         return Err("非法 root: 不得为空白".to_owned());
     }
     if title.trim().is_empty() {
         return Err("非法 title: 不得为空白".to_owned());
     }
     stores
-        .for_root(&root)
+        .for_root(root)
         .map_err(|e| e.to_string())?
-        .set_explore_title(&root, &name, &title)
+        .set_explore_title(root, name, title)
         .map_err(|e| e.to_string())
 }
 
@@ -209,24 +327,48 @@ pub fn update_explore_title(
 /// 的记录。
 #[tauri::command]
 #[specta::specta]
-pub fn update_explore_workflow_type(
-    stores: State<'_, WorkspaceStores>,
+pub async fn update_explore_workflow_type(
+    app: AppHandle,
     root: String,
     name: String,
     workflow_type: String,
 ) -> Result<ExploreRecord, String> {
-    if is_blank_root(&root) {
+    update_explore_workflow_type_with(app, root, name, workflow_type).await
+}
+
+/// [`update_explore_workflow_type`] 的泛型测试缝（冷开落阻塞池）。
+pub(crate) async fn update_explore_workflow_type_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    name: String,
+    workflow_type: String,
+) -> Result<ExploreRecord, String> {
+    store_task::run_store_task(
+        "探索工作流类型回填任务失败",
+        app,
+        move |stores| update_explore_workflow_type_inner(stores, &root, &name, &workflow_type),
+    )
+    .await
+}
+
+fn update_explore_workflow_type_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    name: &str,
+    workflow_type: &str,
+) -> Result<ExploreRecord, String> {
+    if is_blank_root(root) {
         return Err("非法 root: 不得为空白".to_owned());
     }
-    if phase_table(&workflow_type).is_none() {
+    if phase_table(workflow_type).is_none() {
         return Err(format!(
             "workflow_type \"{workflow_type}\" 不受支持（支持 requirement / test-only）"
         ));
     }
     stores
-        .for_root(&root)
+        .for_root(root)
         .map_err(|e| e.to_string())?
-        .set_explore_workflow_type(&root, &name, &workflow_type)
+        .set_explore_workflow_type(root, name, workflow_type)
         .map_err(|e| e.to_string())
 }
 
@@ -236,18 +378,38 @@ pub fn update_explore_workflow_type(
 /// 不存在 → 显式 `Err`。
 #[tauri::command]
 #[specta::specta]
-pub fn ensure_explore_session(
-    stores: State<'_, WorkspaceStores>,
+pub async fn ensure_explore_session(
+    app: AppHandle,
     root: String,
     name: String,
 ) -> Result<ExploreRecord, String> {
-    if is_blank_root(&root) {
+    ensure_explore_session_with(app, root, name).await
+}
+
+/// [`ensure_explore_session`] 的泛型测试缝（冷开落阻塞池）。
+pub(crate) async fn ensure_explore_session_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    name: String,
+) -> Result<ExploreRecord, String> {
+    store_task::run_store_task("探索会话归位任务失败", app, move |stores| {
+        ensure_explore_session_inner(stores, &root, &name)
+    })
+    .await
+}
+
+fn ensure_explore_session_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    name: &str,
+) -> Result<ExploreRecord, String> {
+    if is_blank_root(root) {
         return Err("非法 root: 不得为空白".to_owned());
     }
     stores
-        .for_root(&root)
+        .for_root(root)
         .map_err(|e| e.to_string())?
-        .ensure_explore_session(&root, &name)
+        .ensure_explore_session(root, name)
         .map_err(|e| e.to_string())
 }
 

@@ -658,6 +658,37 @@ store SHALL 以**独立模型** `SessionPreambleRecord` 承载 agent 会话的�
 - **WHEN** 以新版本打开本变更前的存量 workspace 库（无 `session_preamble` 表数据）
 - **THEN** 打开成功、既有记录原样可读、`SessionRecord` 行零改动；`find_session_preamble` 对任一会话返回 `Ok(None)`，无迁移步骤、无版本 bump
 
+### Requirement: 退出显式关库与 Closed 面
+
+进程退出路径 SHALL 显式关闭全部已打开库，使下一次打开走 redb 快路径；MUST NOT 依赖 App / managed state 的析构（Windows 退出经 `std::process::exit`，析构不保证执行）。
+
+- **关库语义**：`Store::close(&self)` SHALL 取走底层 native_db/redb 句柄并释放；最后一个句柄引用释放时 redb 的 Drop 执行 quick-repair commit（写 allocator state、置 two-phase）并清 `recovery_required`。`close` 幂等；不等待在途调用（它们持已克隆句柄安全收尾）。
+- **Closed 面**：关闭后任何操作 SHALL 返回 `StoreError::Closed`（`Display` 前缀 `closed:`）；port 适配器映射到既有故障面（`StoreFault::Db` / `QueryError::Db`），MUST NOT panic。
+- **注册表关库**：`WorkspaceStores::close_all(&self)` SHALL 置 closed 闸（此后 `for_root` 返回 `Closed`，MUST NOT 再开新库）、关全部已缓存 workspace 库、关全局库；幂等；与并发 `for_root` 的竞态由 cache 锁 + closed 双检收敛。
+- **Shell 钩子**：desktop-app SHALL 在 `RunEvent::Exit` 调 `shutdown_stores`（关库线程 + 有界等待，上限 3s；超时留痕并放弃）。`ExitRequested` MUST NOT 关库（该事件可被 prevent）。
+- **边界（MUST NOT 视为数据损坏）**：更新安装器的 `std::process::exit`、进程崩溃、强杀、断电不经过 `RunEvent::Exit`；此时本次退出可能留脏，下次打开做一次全库修复（UI 不冻结由 `desktop-app-shell` 命令执行线程纪律保证）。redb 事务原子保证无数据丢失。
+- **不变量**：关库 MUST NOT 改变 data 面（记录 / 转录 / 注册表原样），只影响下次打开的恢复路径（allocator-state 快路径 vs 全库修复）。
+
+#### Scenario: 正常退出后恢复标记清除
+
+- **WHEN** 打开 workspace 库并写入记录后调用 `Store::close` 并释放全部句柄
+- **THEN** 文件头 `recovery_required` 位为 0、`two_phase_commit` 位为 1（quick-repair 标记已落盘）；重开同一库数据完整
+
+#### Scenario: 关闭后操作被显式拒绝
+
+- **WHEN** 在 `Store::close` 之后（含外部仍持 `Arc<Store>` 克隆的情形）调用任一 store 操作
+- **THEN** 返回 `StoreError::Closed`；重复 `close` 零副作用
+
+#### Scenario: close_all 阻断再开库
+
+- **WHEN** 对 `WorkspaceStores` 调用 `close_all` 后再调用 `for_root`
+- **THEN** 返回 `StoreError::Closed`，且全局库与已缓存 workspace 库的操作同样返回 `Closed`；二次 `close_all` 幂等
+
+#### Scenario: 强杀边界不承诺关库
+
+- **WHEN** 进程被强杀（或经更新安装器 `std::process::exit` 退出）后再次打开同一库
+- **THEN** 允许出现一次全库修复扫描（恢复标记仍在），数据完整、读取正确；该路径 MUST NOT 被登记为缺陷
+
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
@@ -750,3 +781,18 @@ store SHALL 以**独立模型** `SessionPreambleRecord` 承载 agent 会话的�
 | `crates/infra/store/src/store.rs` | 模型注册与操作面 | `workspace_models()` 注册（doc 模型计数同步）；`stamp_session_preamble`（写一次，行存在即 `Ok(false)`）/ `find_session_preamble`（主键直查）/ `find_session_summary` 读快照并填 DTO；清单读面零读 |
 | `crates/infra/store/src/envelope.rs` | 信封注册 | `MODEL_ENTRIES` 增 `session_preamble`（count / scan / key_of / schema / walk） |
 | `crates/core/agent/src/session.rs` | 出线 DTO（消费方） | `SessionPreambleInfo { saved_at, content }` 与 `SessionSummary.preamble`（见 `desktop-agent-execution`）；本能力不定义 DTO、只提供持久形态 |
+
+### 模块增量：退出显式关库（desktop-startup-store-close）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约 |
+|---|---|---|
+| `crates/infra/store/src/store.rs`（`Store`，改） | 可关句柄 | `db: RwLock<Option<Arc<Database>>>`；私有 `db()` 短锁 clone 句柄（不与嵌套 store 调用互等）；`pub fn close(&self)` 取走句柄（幂等；在途调用持 clone 收尾）；操作面签名零变化 |
+| `crates/infra/store/src/store.rs`（`StoreError`，改） | 错误面 | 增 `Closed` 变体（`Display` = `closed: store 已关闭`）；`change_port::fault` 映射 `StoreFault::Db`；`describe::store_err` 走既有 `other` 分支 |
+| `crates/infra/store/src/store.rs`（`WorkspaceStores`，改） | 注册表关库 | 增 `closed: AtomicBool`；`for_root` 闸前 + cache 锁内双检；`pub fn close_all(&self)` 幂等关全局 + 清缓存逐库关闭 |
+| `packages/desktop/src-tauri/src/shutdown.rs`（新） | 退出钩子 | `shutdown_stores<R>(&AppHandle<R>)`：关库线程 + `recv_timeout(3s)`；超时 `eprintln!` 留痕并放弃（下次修复，UI 不冻结） |
+| `packages/desktop/src-tauri/src/main.rs`（改） | 退出接线 | `app.run` 回调在 `RunEvent::Exit` 调 `shutdown_stores`；`ExitRequested` 不关库；`run_return` 零改动 |
+| `packages/desktop/src-tauri/src/lib.rs`（改） | 模块面 | `pub mod shutdown;`（main 与测试共用） |
+| `crates/infra/store/src/store_test.rs` / `packages/desktop/src-tauri/src/shutdown_test.rs`（新测试） | 回归 | 关库后文件头两标志位断言（非计时）、Closed 面、幂等、外部 Arc 不阻止关库、close_all 闸断新开；mock app 退出钩子端到端 |
+| 前端 / bindings / `all_commands!` | 零改动 | 命令名 / 参数 / 返回 / 错误文案零变化；`bindings:export` 逐字节不变 |

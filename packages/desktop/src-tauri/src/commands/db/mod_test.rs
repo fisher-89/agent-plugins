@@ -1,10 +1,29 @@
 use std::path::{Path, PathBuf};
 
 use ::agent::{AgentEvent, AgentEventKind};
-use tauri::{App, Manager};
+use tauri::{App, Manager, State};
 
-use super::{db_models, db_records};
 use store::{AgentEngineKind, DbDimension, SessionConfigSnapshot, SessionRecord, WorkspaceStores};
+
+/// 命令 wrapper 的同步测试缝：async 化后语义由 `*_inner` 承载（首 poll 判据另测）。
+fn db_models(
+    stores: State<'_, WorkspaceStores>,
+    scope: DbDimension,
+    root: String,
+) -> Result<Vec<store::ModelInfo>, String> {
+    super::db_models_inner(stores.inner(), scope, &root)
+}
+
+fn db_records(
+    stores: State<'_, WorkspaceStores>,
+    scope: DbDimension,
+    root: String,
+    model: String,
+    offset: u32,
+    limit: u32,
+) -> Result<store::RecordsPage, String> {
+    super::db_records_inner(stores.inner(), scope, &root, &model, offset, limit)
+}
 
 /// 数据根 + workspace 根目录临时环境：tempfile RAII，测试结束自动清理。
 struct Env {
@@ -43,6 +62,27 @@ fn app_with_stores(env: &Env) -> App<tauri::test::MockRuntime> {
     let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
     app.manage(stores);
     app
+}
+
+/// db 命令首 poll 为 `Pending`：workspace 库冷开落阻塞池。
+#[test]
+fn db命令首次poll为pending() {
+    let env = Env::new("offload-first-poll");
+    let app = app_with_stores(&env);
+    let root = env.root_of("offload");
+    crate::commands::assert_offloaded(super::db_models_with(
+        app.handle().clone(),
+        DbDimension::Workspace,
+        root.clone(),
+    ));
+    crate::commands::assert_offloaded(super::db_records_with(
+        app.handle().clone(),
+        DbDimension::Workspace,
+        root,
+        "workspace_record".to_owned(),
+        0,
+        10,
+    ));
 }
 
 fn add_workspace(stores: &WorkspaceStores, dir: &Path) -> store::WorkspaceRecord {

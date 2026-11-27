@@ -35,15 +35,69 @@ use ::agent::AskRegistry;
 use foundation::layout::{resolve, Layout};
 use serde_json::json;
 use store::{Store, WorkspaceStores};
-use tauri::{App, Manager};
+use tauri::{App, Manager, State};
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::queries as core_queries;
 use workflow::state::{ChangeStateRecord, ChangeStatus, PhaseLogCommand};
 
-use super::{
-    archive_change_with, create_change, create_change_with, delete_change_with, exec_output_path,
-    get_change_detail, list_changes, read_artifact, read_exec_command, read_exec_output_delta,
-};
+use super::{archive_change_with, create_change, create_change_with, delete_change_with};
+
+/// 命令 wrapper 的同步测试缝：async 化后语义由 `*_inner` 承载（首 poll 判据另测）。
+fn list_changes(stores: State<'_, WorkspaceStores>, root: String) -> super::ChangeList {
+    super::list_changes_inner(stores.inner(), &root)
+}
+
+/// [`list_changes`] 同款测试缝（详情命令）。
+fn get_change_detail(
+    stores: State<'_, WorkspaceStores>,
+    control: State<'_, Arc<orchestration::control::ChangeFlowControl>>,
+    root: String,
+    id: String,
+) -> Result<Option<super::ChangeDetailUnified>, String> {
+    super::get_change_detail_inner(stores.inner(), control.inner().as_ref(), &root, &id)
+}
+
+/// 产物读取测试缝（async 化后语义由 inner 承载）。
+fn read_artifact(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    id: String,
+    kind: String,
+    source: String,
+) -> Option<workflow::artifacts::ArtifactEnvelope> {
+    super::read_artifact_inner(stores.inner(), &root, &id, &kind, &source)
+}
+
+/// exec 输出路径测试缝。
+fn exec_output_path(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    change_name: String,
+    exec_id: String,
+) -> Option<String> {
+    super::exec_output_path_inner(stores.inner(), &root, &change_name, &exec_id)
+}
+
+/// exec 命令读取测试缝。
+fn read_exec_command(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    change_name: String,
+    exec_id: String,
+) -> Option<String> {
+    super::read_exec_command_inner(stores.inner(), &root, &change_name, &exec_id)
+}
+
+/// exec 输出增量读取测试缝。
+fn read_exec_output_delta(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    change_name: String,
+    exec_id: String,
+    from_offset: u64,
+) -> Option<super::ExecOutputChunk> {
+    super::read_exec_output_delta_inner(stores.inner(), &root, &change_name, &exec_id, from_offset)
+}
 
 /// 确定性时间戳（UTC unix 毫秒；2024-09-22 / 2026-02-02）。
 const CREATED_AT: i64 = 1727000000000;
@@ -166,6 +220,54 @@ fn store_of(app: &App<tauri::test::MockRuntime>, root: &str) -> Arc<Store> {
     app.state::<WorkspaceStores>()
         .for_root(root)
         .expect("for_root 应成功")
+}
+
+/// 冷开命令首 poll 为 `Pending`：命令体落阻塞池，不在 IPC 线程内联
+/// （`desktop-app-shell` 命令执行线程纪律；执行体 = `*_with` 缝）。
+#[test]
+fn 冷开命令首次poll为pending() {
+    let env = Env::new("offload-first-poll");
+    let app = app_with(&env);
+    let root = env.root();
+    crate::commands::assert_offloaded(super::list_changes_with(app.handle().clone(), root.clone()));
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+    crate::commands::assert_offloaded(super::get_change_detail_with(
+        app.handle().clone(),
+        control,
+        root.clone(),
+        "seeded-active".to_owned(),
+    ));
+    crate::commands::assert_offloaded(super::read_artifact_with(
+        app.handle().clone(),
+        root.clone(),
+        "seeded-active".to_owned(),
+        "tasks-progress".to_owned(),
+        "tasks.md".to_owned(),
+    ));
+    crate::commands::assert_offloaded(super::exec_output_path_with(
+        app.handle().clone(),
+        root.clone(),
+        "seeded-active".to_owned(),
+        "exec-1".to_owned(),
+    ));
+    crate::commands::assert_offloaded(super::read_exec_command_with(
+        app.handle().clone(),
+        root.clone(),
+        "seeded-active".to_owned(),
+        "exec-1".to_owned(),
+    ));
+    crate::commands::assert_offloaded(super::read_exec_output_delta_with(
+        app.handle().clone(),
+        root.clone(),
+        "seeded-active".to_owned(),
+        "exec-1".to_owned(),
+        0,
+    ));
+    crate::commands::assert_offloaded(super::archive_change_offloaded(
+        app.handle().clone(),
+        root,
+        "seeded-active".to_owned(),
+    ));
 }
 
 /// db 建档 active 记录（status=active 起步）。

@@ -9,8 +9,9 @@
 //! `Result<T, String>`，`Err` 由 Tauri 转为前端 reject，MUST NOT 静默吞掉
 //! 失败（workspace 库打开失败同样 reject，前端 inline 持久呈现）。
 
-use tauri::State;
+use tauri::AppHandle;
 
+use crate::commands::store_task;
 use store::{DbDimension, ModelInfo, RecordsPage, WorkspaceStores};
 
 #[cfg(test)]
@@ -26,16 +27,36 @@ fn is_blank_root(root: &str) -> bool {
 /// Workspace blank root → 空结果不触发库解析）。
 #[tauri::command]
 #[specta::specta]
-pub fn db_models(
-    stores: State<'_, WorkspaceStores>,
+pub async fn db_models(
+    app: AppHandle,
     scope: DbDimension,
     root: String,
 ) -> Result<Vec<ModelInfo>, String> {
+    db_models_with(app, scope, root).await
+}
+
+/// [`db_models`] 的泛型测试缝（workspace 库冷开落阻塞池）。
+pub(crate) async fn db_models_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    scope: DbDimension,
+    root: String,
+) -> Result<Vec<ModelInfo>, String> {
+    store_task::run_store_task("db 模型清单任务失败", app, move |stores| {
+        db_models_inner(stores, scope, &root)
+    })
+    .await
+}
+
+fn db_models_inner(
+    stores: &WorkspaceStores,
+    scope: DbDimension,
+    root: &str,
+) -> Result<Vec<ModelInfo>, String> {
     match scope {
         DbDimension::User => stores.global().list_models().map_err(|e| e.to_string()),
-        DbDimension::Workspace if is_blank_root(&root) => Ok(Vec::new()),
+        DbDimension::Workspace if is_blank_root(root) => Ok(Vec::new()),
         DbDimension::Workspace => {
-            let store = stores.for_root(&root).map_err(|e| e.to_string())?;
+            let store = stores.for_root(root).map_err(|e| e.to_string())?;
             store.list_models().map_err(|e| e.to_string())
         }
     }
@@ -46,23 +67,49 @@ pub fn db_models(
 /// Global 忽略 root，Workspace blank root → 空信封不触发库解析）。
 #[tauri::command]
 #[specta::specta]
-pub fn db_records(
-    stores: State<'_, WorkspaceStores>,
+pub async fn db_records(
+    app: AppHandle,
     scope: DbDimension,
     root: String,
     model: String,
     offset: u32,
     limit: u32,
 ) -> Result<RecordsPage, String> {
+    db_records_with(app, scope, root, model, offset, limit).await
+}
+
+/// [`db_records`] 的泛型测试缝（workspace 库冷开落阻塞池）。
+pub(crate) async fn db_records_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    scope: DbDimension,
+    root: String,
+    model: String,
+    offset: u32,
+    limit: u32,
+) -> Result<RecordsPage, String> {
+    store_task::run_store_task("db 记录扫描任务失败", app, move |stores| {
+        db_records_inner(stores, scope, &root, &model, offset, limit)
+    })
+    .await
+}
+
+fn db_records_inner(
+    stores: &WorkspaceStores,
+    scope: DbDimension,
+    root: &str,
+    model: &str,
+    offset: u32,
+    limit: u32,
+) -> Result<RecordsPage, String> {
     match scope {
-        DbDimension::User => stores.global().scan(&model, offset, limit),
-        DbDimension::Workspace if is_blank_root(&root) => Ok(RecordsPage {
+        DbDimension::User => stores.global().scan(model, offset, limit),
+        DbDimension::Workspace if is_blank_root(root) => Ok(RecordsPage {
             records: Vec::new(),
             total: 0,
         }),
         DbDimension::Workspace => {
-            let store = stores.for_root(&root).map_err(|e| e.to_string())?;
-            store.scan(&model, offset, limit)
+            let store = stores.for_root(root).map_err(|e| e.to_string())?;
+            store.scan(model, offset, limit)
         }
     }
     .map_err(|e| e.to_string())

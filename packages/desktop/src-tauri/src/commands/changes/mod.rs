@@ -4,6 +4,7 @@ use std::sync::Arc;
 use orchestration::control::ChangeFlowControl;
 use tauri::{AppHandle, Manager, State};
 
+use crate::commands::store_task;
 use foundation::layout::resolve;
 use store::WorkspaceStores;
 use vcs_runtime::ProcessWorktree;
@@ -47,21 +48,48 @@ fn is_blank_root(root: &str) -> bool {
     root.trim().is_empty()
 }
 
+/// 空列表（读命令空结果语义的唯一形状）。
+fn empty_change_list() -> ChangeList {
+    ChangeList {
+        active: Vec::new(),
+        archive_groups: Vec::new(),
+    }
+}
+
 /// change 列表（db 单源全量；active + archive 按月分组）。IPC 签名不变
 /// （Result 面不引入）：blank root 与开库失败均给出空列表（读命令空结果
 /// 语义，不 panic）；零磁盘扫描触点（无 db 记录的存量 CLI change 零发现）。
 #[tauri::command]
 #[specta::specta]
-pub fn list_changes(stores: State<'_, WorkspaceStores>, root: String) -> ChangeList {
-    let empty = || ChangeList {
-        active: Vec::new(),
-        archive_groups: Vec::new(),
-    };
+pub async fn list_changes(app: AppHandle, root: String) -> ChangeList {
+    list_changes_with(app, root).await
+}
+
+/// [`list_changes`] 的泛型测试缝（首 poll 判据用 MockRuntime 句柄）。
+/// 冷开 workspace 库可能包含 redb 修复扫描（GB 级库秒级），命令体落阻塞池：
+/// 窗口不随首次开库冻结（`desktop-app-shell` 命令执行线程纪律）。
+pub(crate) async fn list_changes_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+) -> ChangeList {
     if is_blank_root(&root) {
-        return empty();
+        return empty_change_list();
     }
-    let Ok(store) = stores.for_root(&root) else {
-        return empty(); // 开库失败：读命令空结果语义，不进入查询链路
+    store_task::run_store_task("变更清单读取任务失败", app, move |stores| {
+        Ok(list_changes_inner(stores, &root))
+    })
+    .await
+    // JoinError（阻塞任务 panic）同样收敛为读命令空结果语义
+    .unwrap_or_else(|_| empty_change_list())
+}
+
+/// [`list_changes`] 的领域组装纯函数（测试缝）：空白 / 开库失败 → 空列表。
+pub(crate) fn list_changes_inner(stores: &WorkspaceStores, root: &str) -> ChangeList {
+    if is_blank_root(root) {
+        return empty_change_list();
+    }
+    let Ok(store) = stores.for_root(root) else {
+        return empty_change_list(); // 开库失败：读命令空结果语义，不进入查询链路
     };
     queries::list_changes(store.as_ref())
 }
@@ -75,8 +103,19 @@ pub fn list_changes(stores: State<'_, WorkspaceStores>, root: String) -> ChangeL
 /// 感知在 core `change_detail` 内（record 先读后定位，磁盘面恒自记录供给）。
 #[tauri::command]
 #[specta::specta]
-pub fn get_change_detail(
-    stores: State<'_, WorkspaceStores>,
+pub async fn get_change_detail(
+    app: AppHandle,
+    control: State<'_, Arc<ChangeFlowControl>>,
+    root: String,
+    id: String,
+) -> Result<Option<ChangeDetailUnified>, String> {
+    get_change_detail_with(app, control, root, id).await
+}
+
+/// [`get_change_detail`] 的泛型测试缝（首 poll 判据用 MockRuntime 句柄）。
+/// 冷开 workspace 库可能包含 redb 修复扫描，命令体落阻塞池（同 list_changes）。
+pub(crate) async fn get_change_detail_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
     control: State<'_, Arc<ChangeFlowControl>>,
     root: String,
     id: String,
@@ -84,20 +123,38 @@ pub fn get_change_detail(
     if is_blank_root(&root) {
         return Ok(None);
     }
-    let Ok(store) = stores.for_root(&root) else {
+    let control = Arc::clone(control.inner());
+    store_task::run_store_task("变更详情读取任务失败", app, move |stores| {
+        get_change_detail_inner(stores, control.as_ref(), &root, &id)
+    })
+    .await
+}
+
+/// [`get_change_detail`] 的领域组装纯函数（测试缝）：空白 / 开库失败 →
+/// `Ok(None)`；读失败 → `Err`。
+pub(crate) fn get_change_detail_inner(
+    stores: &WorkspaceStores,
+    control: &ChangeFlowControl,
+    root: &str,
+    id: &str,
+) -> Result<Option<ChangeDetailUnified>, String> {
+    if is_blank_root(root) {
+        return Ok(None);
+    }
+    let Ok(store) = stores.for_root(root) else {
         return Ok(None); // 开库失败：空结果语义维持，不进入查询链路
     };
-    let layout = resolve(Path::new(&root));
+    let layout = resolve(Path::new(root));
     // StoreFault → 错误串映射收命令层单点（D4：kind 前缀已在 Display 单点）；
     // None（未知 id，真「未找到」）→ 空结果语义
     let Some(detail) =
-        queries::change_detail(&layout, store.as_ref(), &id).map_err(|fault| fault.to_string())?
+        queries::change_detail(&layout, store.as_ref(), id).map_err(|fault| fault.to_string())?
     else {
         return Ok(None);
     };
     // 活面投影：注册表快照（终态即除名 → None 语义不变；键 id 化同式）；
     // startedAt ISO 化收命令层单点（快照毫秒 → 线面 ISO 串）
-    let active_run = control.snapshot(&root, &id).map(|snapshot| ActiveRunView {
+    let active_run = control.snapshot(root, id).map(|snapshot| ActiveRunView {
         run_id: snapshot.run_id,
         status: snapshot.status,
         phase: snapshot.phase,
@@ -128,8 +185,19 @@ pub fn get_change_detail(
 /// 定位键（id → 记录 → name 分辨率单点）。
 #[tauri::command]
 #[specta::specta]
-pub fn read_artifact(
-    stores: State<'_, WorkspaceStores>,
+pub async fn read_artifact(
+    app: AppHandle,
+    root: String,
+    id: String,
+    kind: String,
+    source: String,
+) -> Option<ArtifactEnvelope> {
+    read_artifact_with(app, root, id, kind, source).await
+}
+
+/// [`read_artifact`] 的泛型测试缝（冷开落阻塞池；首 poll 判据用）。
+pub(crate) async fn read_artifact_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
     root: String,
     id: String,
     kind: String,
@@ -138,13 +206,31 @@ pub fn read_artifact(
     if is_blank_root(&root) {
         return None;
     }
-    let Ok(store) = stores.for_root(&root) else {
+    store_task::run_store_task("产物读取任务失败", app, move |stores| {
+        Ok(read_artifact_inner(stores, &root, &id, &kind, &source))
+    })
+    .await
+    .unwrap_or(None)
+}
+
+/// [`read_artifact`] 的领域组装纯函数（测试缝）。
+fn read_artifact_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    id: &str,
+    kind: &str,
+    source: &str,
+) -> Option<ArtifactEnvelope> {
+    if is_blank_root(root) {
+        return None;
+    }
+    let Ok(store) = stores.for_root(root) else {
         return None;
     };
-    let layout = resolve(Path::new(&root));
-    let record = store.find_change_record(&id).ok().flatten()?;
+    let layout = resolve(Path::new(root));
+    let record = store.find_change_record(id).ok().flatten()?;
     let location = locate_change(&layout, record.worktree.as_deref(), record.name.as_str())?;
-    core_read_artifact(&location.dir, &kind, &source)
+    core_read_artifact(&location.dir, kind, source)
 }
 
 /// 运行中增量读的出线载荷（`exec::ExecOutputDelta` 的 1:1 映射）。
@@ -198,8 +284,18 @@ fn change_dirs(stores: &WorkspaceStores, root: &str, change_name: &str) -> Vec<s
 /// `exec_id` → `None`。
 #[tauri::command]
 #[specta::specta]
-pub fn exec_output_path(
-    stores: State<'_, WorkspaceStores>,
+pub async fn exec_output_path(
+    app: AppHandle,
+    root: String,
+    change_name: String,
+    exec_id: String,
+) -> Option<String> {
+    exec_output_path_with(app, root, change_name, exec_id).await
+}
+
+/// [`exec_output_path`] 的泛型测试缝（冷开落阻塞池；首 poll 判据用）。
+pub(crate) async fn exec_output_path_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
     root: String,
     change_name: String,
     exec_id: String,
@@ -207,9 +303,31 @@ pub fn exec_output_path(
     if is_blank_root(&root) {
         return None;
     }
-    change_dirs(&stores, &root, &change_name)
+    store_task::run_store_task("exec 输出路径解析任务失败", app, move |stores| {
+        Ok(exec_output_path_inner(
+            stores,
+            &root,
+            &change_name,
+            &exec_id,
+        ))
+    })
+    .await
+    .unwrap_or(None)
+}
+
+/// [`exec_output_path`] 的领域组装纯函数（测试缝）。
+fn exec_output_path_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    change_name: &str,
+    exec_id: &str,
+) -> Option<String> {
+    if is_blank_root(root) {
+        return None;
+    }
+    change_dirs(stores, root, change_name)
         .into_iter()
-        .find_map(|dir| exec::exec_output_log_path_in(&dir, &exec_id))
+        .find_map(|dir| exec::exec_output_log_path_in(&dir, exec_id))
         .map(|path| path.to_string_lossy().into_owned())
 }
 
@@ -217,8 +335,18 @@ pub fn exec_output_path(
 /// （面板优雅降级「命令未记录」，非错误）。
 #[tauri::command]
 #[specta::specta]
-pub fn read_exec_command(
-    stores: State<'_, WorkspaceStores>,
+pub async fn read_exec_command(
+    app: AppHandle,
+    root: String,
+    change_name: String,
+    exec_id: String,
+) -> Option<String> {
+    read_exec_command_with(app, root, change_name, exec_id).await
+}
+
+/// [`read_exec_command`] 的泛型测试缝（冷开落阻塞池；首 poll 判据用）。
+pub(crate) async fn read_exec_command_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
     root: String,
     change_name: String,
     exec_id: String,
@@ -226,9 +354,31 @@ pub fn read_exec_command(
     if is_blank_root(&root) {
         return None;
     }
-    change_dirs(&stores, &root, &change_name)
+    store_task::run_store_task("exec 命令读取任务失败", app, move |stores| {
+        Ok(read_exec_command_inner(
+            stores,
+            &root,
+            &change_name,
+            &exec_id,
+        ))
+    })
+    .await
+    .unwrap_or(None)
+}
+
+/// [`read_exec_command`] 的领域组装纯函数（测试缝）。
+fn read_exec_command_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    change_name: &str,
+    exec_id: &str,
+) -> Option<String> {
+    if is_blank_root(root) {
+        return None;
+    }
+    change_dirs(stores, root, change_name)
         .into_iter()
-        .find_map(|dir| exec::read_exec_command_in(&dir, &exec_id))
+        .find_map(|dir| exec::read_exec_command_in(&dir, exec_id))
 }
 
 /// 增量读输出记录：`from_offset = 0` 即全量；游标唯一产出方在后端（前端零字节
@@ -236,8 +386,19 @@ pub fn read_exec_command(
 /// 可分辨：「运行中，等待输出…」vs「（无输出记录）」）。
 #[tauri::command]
 #[specta::specta]
-pub fn read_exec_output_delta(
-    stores: State<'_, WorkspaceStores>,
+pub async fn read_exec_output_delta(
+    app: AppHandle,
+    root: String,
+    change_name: String,
+    exec_id: String,
+    from_offset: u64,
+) -> Option<ExecOutputChunk> {
+    read_exec_output_delta_with(app, root, change_name, exec_id, from_offset).await
+}
+
+/// [`read_exec_output_delta`] 的泛型测试缝（冷开落阻塞池；首 poll 判据用）。
+pub(crate) async fn read_exec_output_delta_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
     root: String,
     change_name: String,
     exec_id: String,
@@ -246,9 +407,33 @@ pub fn read_exec_output_delta(
     if is_blank_root(&root) {
         return None;
     }
-    change_dirs(&stores, &root, &change_name)
+    store_task::run_store_task("exec 输出增量读取任务失败", app, move |stores| {
+        Ok(read_exec_output_delta_inner(
+            stores,
+            &root,
+            &change_name,
+            &exec_id,
+            from_offset,
+        ))
+    })
+    .await
+    .unwrap_or(None)
+}
+
+/// [`read_exec_output_delta`] 的领域组装纯函数（测试缝）。
+fn read_exec_output_delta_inner(
+    stores: &WorkspaceStores,
+    root: &str,
+    change_name: &str,
+    exec_id: &str,
+    from_offset: u64,
+) -> Option<ExecOutputChunk> {
+    if is_blank_root(root) {
+        return None;
+    }
+    change_dirs(stores, root, change_name)
         .into_iter()
-        .find_map(|dir| exec::read_exec_output_delta_in(&dir, &exec_id, from_offset))
+        .find_map(|dir| exec::read_exec_output_delta_in(&dir, exec_id, from_offset))
         .map(|delta| ExecOutputChunk {
             text: delta.text,
             next_offset: delta.next_offset,
@@ -330,8 +515,24 @@ pub(crate) async fn create_change_with<R: tauri::Runtime>(
 /// 本轮无前端入口）。
 #[tauri::command]
 #[specta::specta]
-pub fn archive_change(app: AppHandle, root: String, id: String) -> Result<ArchiveOutcome, String> {
-    archive_change_with(app, root, id)
+pub async fn archive_change(
+    app: AppHandle,
+    root: String,
+    id: String,
+) -> Result<ArchiveOutcome, String> {
+    archive_change_offloaded(app, root, id).await
+}
+
+/// [`archive_change`] 的泛型测试缝：归档写面（双写 + 目录改名）落阻塞池，
+/// 命令体不在 IPC 线程内联。
+pub(crate) async fn archive_change_offloaded<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    id: String,
+) -> Result<ArchiveOutcome, String> {
+    tauri::async_runtime::spawn_blocking(move || archive_change_with(app, root, id))
+        .await
+        .map_err(|error| format!("归档任务失败: {error}"))?
 }
 
 /// [`archive_change`] 的泛型测试缝（生产注入 Wry 句柄、测试注入 MockRuntime

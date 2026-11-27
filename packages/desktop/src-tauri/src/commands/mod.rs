@@ -11,8 +11,25 @@ pub mod explores;
 pub mod fs;
 pub mod notifications;
 pub mod stats;
+pub(crate) mod store_task;
 pub mod watch;
 pub mod workspaces;
+
+/// 命令 future 首 poll 必须为 `Pending`（= 命令体已投递阻塞池，未在 IPC 线程
+/// 内联执行）。判据只取单次 poll，零计时零阈值（沿 `desktop-app-shell` 的
+/// 命令执行线程纪律）。
+#[cfg(test)]
+pub(crate) fn assert_offloaded<F: std::future::Future>(future: F) {
+    use std::task::{Context, Poll, Waker};
+    let mut context = Context::from_waker(Waker::noop());
+    let mut future = std::pin::pin!(future);
+    match future.as_mut().poll(&mut context) {
+        Poll::Pending => {}
+        Poll::Ready(_) => {
+            panic!("首次 poll 必须为 Pending（命令体在 IPC 线程内联 ⇒ 窗口随取数冻结）")
+        }
+    }
+}
 
 /// PATH 进程全局窗口的命令测试共享串行化锁（测试装置）：命令层以 PATH 隔离
 /// 驱动引擎不可达收敛（change_flow / exec 的合成收敛链路），窗口期间全进程
