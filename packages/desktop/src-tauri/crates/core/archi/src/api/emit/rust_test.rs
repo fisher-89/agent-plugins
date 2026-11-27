@@ -1,12 +1,20 @@
 //! `api::emit::rust`（`.i.rs` 渲染）的单元测试：七种协议映射（`object` → `struct`、
-//! `enum` → `enum`、`oneOf` / `anyOf` → 带负载 enum、`x-class` → `trait`、标量 →
+//! `oneOf` / `anyOf` 全 `const` → 封闭 `enum`、其余 union → 带负载 enum、`x-class` → `trait`、标量 →
 //! newtype、`x-function` → `pub fn`、`Outcome` → `Result<T, String>`）、非 `required` →
 //! `Option<T>`、自动构造器、签名见证形态（`super::` 前缀）、透传 `pub use`、头注释四句、
 //! 泛型零支持与幂等；闸二（D45 / AC-23 ②⑤）的注释转义单点 `rust_comment_text`（防断行）
 //! 与变体名归一 `variant_name`（恒为合法标识符，经 `render` 的 enum 成员断言）。
 //!
+//! 本变更的核心闸（AC-2 golden）：`ArchiAssetSet` / `ArchiInterfaceAsset` / `ElementKind` /
+//! `GateTier` 四类型的**类型定义段**与 `dto.rs` 手写段落逐字比对（比对面取
+//! `include_str!("../../dto.rs")`，不另抄期望文本）；另有整数宽度「只认三条完整值域」、
+//! serde 命名策略（容器 `rename_all` / 关键字 `r#` / 逐项 `rename`）、文档注释三处位置、
+//! wire 面射程与 facet 五形态 / 环容忍。
+//!
 //! 零 mock：手写接口定义 JSON 经 `Contract::from_schema` 投影产出输入；本渲染器纯出
 //! `String`（文件系统 / 时钟 / 子进程零依赖）。
+
+use std::collections::BTreeMap;
 
 use serde_json::Value;
 
@@ -33,7 +41,7 @@ fn prepare_local(source: &str) -> (Contract, Value) {
 /// 渲染（失败即断言失败）。
 ///
 /// 「空 scope」由**入参**表达（D46）：空查表 + 目录 / crate 形态的 `EmitTarget`——渲染器
-/// 只有四参 `render` 这一个出口，MUST NOT 靠第二个函数表达退化形态。
+/// 只有五参 `render` 这一个出口，MUST NOT 靠第二个函数表达退化形态。
 fn empty_target() -> EmitTarget {
     EmitTarget {
         kind: GeneratedKind::Rust,
@@ -42,10 +50,15 @@ fn empty_target() -> EmitTarget {
     }
 }
 
+/// 空解析表：本文件全部用例都在单元素内渲染（零跨元素 `$ref` 的 facet 递归）。
+fn no_schemas() -> BTreeMap<String, Value> {
+    BTreeMap::new()
+}
+
 /// 渲染（失败即断言失败）。
 fn render_source(source: &str) -> String {
     let (contract, schema) = prepare_local(source);
-    render(&contract, &schema, &meta(), &empty_target())
+    render(&contract, &schema, &meta(), &empty_target(), &no_schemas())
 }
 
 /// 只含 `api-types` fence 的源文渲染。
@@ -140,19 +153,18 @@ fn render的非required字段为option() {
 // enum / oneOf / anyOf / x-class
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-5）：`{"enum":["a","b"]}` → `pub enum` 两变体（变体名经 `variant_name` 归一）。
+/// 正向（AC-3 / AC-5）：`oneOf` 全标量 `const` → 封闭 `pub enum`（unit variant，变体名经
+/// `variant_name` 归一；`enum` 数组写法已退役）。
 ///
 /// 表驱动两形态（同一映射，入参字符面不同）：
 /// ① 标识符干净的取值（`a` / `b`）→ 驼峰形态 `A` / `B`；
 /// ② 含非标识符字符的取值（`it's` / `a b`）→ 归一后仍落 `ItS` / `AB`（归一而非转义）。
 ///
-/// `Deserialize` 派生本期零下发（元素 crate 是否有 `serde` 不在本层判定：出参面是纯
-/// `String`、结构上无错误面，见待决问题 1「本期不落实现、不写死」）⇒ **不派生、亦不降级
-/// 为错误**：同一文本零 `serde` 字样，且 `render` 的 `String` 返回值本身无错误通道。
+/// 封闭枚举是**有数据位**的形态（词表值就是线形态）⇒ 三项 wire 派生同进同出。
 #[test]
-fn render的enum为pub_enum() {
+fn render的封闭枚举为pub_enum() {
     // ① 标识符干净的取值
-    let text = render_types(r#"{"Mode": {"enum": ["a", "b"]}}"#);
+    let text = render_types(r#"{"Mode": {"oneOf": [{"const": "a"}, {"const": "b"}]}}"#);
     assert!(
         text.contains("pub enum Mode {"),
         "enum → pub enum：\n{text}"
@@ -161,7 +173,7 @@ fn render的enum为pub_enum() {
     assert!(text.contains("    B,"), "两变体均在案：\n{text}");
 
     // ② 含非标识符字符的取值：仍经 `variant_name` 归一为合法变体名
-    let dirty = render_types(r#"{"Mode": {"enum": ["it's", "a b"]}}"#);
+    let dirty = render_types(r#"{"Mode": {"oneOf": [{"const": "it's"}, {"const": "a b"}]}}"#);
     assert!(
         dirty.contains("pub enum Mode {"),
         "非标识符取值仍落 pub enum：\n{dirty}"
@@ -169,12 +181,12 @@ fn render的enum为pub_enum() {
     assert!(dirty.contains("    ItS,"), "`it's` → `ItS`：\n{dirty}");
     assert!(dirty.contains("    AB,"), "`a b` → `AB`：\n{dirty}");
 
-    // 不派生、亦不降级为错误（两形态同一判据：零 serde 字样）
+    // 封闭枚举出 wire 面（三项同进同出）：词表值就是线形态，序列化有落点
     for form in [&text, &dirty] {
-        for forbidden in ["Deserialize", "Serialize", "#[derive(serde", "serde::"] {
+        for required in ["Serialize", "Deserialize", "specta::Type"] {
             assert!(
-                !form.contains(forbidden),
-                "enum 文本 MUST NOT 携带 {forbidden}（派生面本期留白）：\n{form}"
+                form.contains(required),
+                "封闭枚举 MUST 带 {required}（有数据位的形态出 wire 面）：\n{form}"
             );
         }
     }
@@ -299,9 +311,9 @@ fn render的oneof兜底分支仍落占位变体() {
 }
 
 /// 异常（**D59 / AC-34 ②** 源码自证）：`fn choice_payload` 零残留；`variants_block`
-/// 体内零标量表（该函数体 `"i64"` 零命中）；`rust.rs` 全文 `"i64"` 恰 **2**（剩
-/// `value_type` 与 `scalar_type` 两处合法映射——MUST NOT 取 1，那会让 `scalar_type`
-/// 被误判为残留）；`contract.rs` 的注释词面已改指 `value_type`。
+/// 体内零标量表（该函数体 `"i64"` 零命中）；`rust.rs` 全文 `"i64"` 恰 **2**（`value_type`
+/// 的非对象兜底与 `integer_type` 的值域兜底两处；宽度判定已收敛到 `integer_type` 单点，
+/// `scalar_type` 不再自带字面量）；`contract.rs` 的注释词面已改指 `value_type`。
 #[test]
 fn choice_payload零残留且单通路() {
     let source = include_str!("rust.rs");
@@ -572,7 +584,8 @@ fn render的透传pub_use() {
         form: crate::api::paths::EntryForm::Crate,
         modules,
     };
-    let text = render_target(&target, &contract, &schema, &meta()).expect("渲染应成功");
+    let text =
+        render_target(&target, &contract, &schema, &meta(), &no_schemas()).expect("渲染应成功");
     assert!(
         text.contains("pub use crate::input::AgentInput;"),
         "透传模块路径取自查表（`crate::*` 形态）：\n{text}"
@@ -771,26 +784,30 @@ fn render规模与特殊字符() {
         "非 ASCII 类型名原样：\n{text}"
     );
     assert!(!text.contains('\0'), "MUST NOT 含裸 NUL");
+    // 超长 `description` 只落类型级 `///` 注释行（单行、零断行、零裸代码行）
+    let doc = format!("/// {long}");
+    let has_doc = text.lines().any(|line| line == doc);
     assert!(
-        !text.contains(&long),
-        "超长 description 不进类型段（不破坏语法）：\n{}",
-        &text[..200.min(text.len())]
+        has_doc,
+        "超长 description 落单行 `///`（不折行、不破坏语法）：{}",
+        text.lines().take(8).collect::<Vec<_>>().join("\n")
     );
 }
 
-/// 异常（AC-5 / 待决问题 1 的裁定面）：`enum` 的 `Deserialize` 派生按元素 crate 现有
-/// 依赖决定，而 `render` 的签名是纯出 `String`、**不收元素依赖面**——设计 `:491` 描述的
-/// 「元素 crate 已有 `serde` ⇒ 返回 `ApiError::Element`」这一分支在实现里不存在（本渲染器
-/// 零 `ApiError` 构造，见 `render签名不含错误面`）。本用例据实现事实钉住两侧：
+/// 异常（AC-3 / AC-8）：封闭枚举落 wire 面（有数据位的形态），且不降级为错误。
 ///
-/// ① **不降级为错误**：`enum` 形 `$defs` 经 `render_target` 分派后仍 `Ok`（`Err` 只会
+/// ① **不降级为错误**：union 形 `$defs` 经 `render_target` 分派后仍 `Ok`（`Err` 只会
 ///    来自上游 `reject_generics` / `verify_defs`），且文本落 `pub enum` 与两变体；
-/// ② **不静默下发 serde**：同一文本零 `Deserialize` / `Serialize` 字样（元素 crate 可能
-///    无 serde 依赖，硬写派生会直接编译失败），派生面留给首个真实 `enum` 元素契约落地时
-///    按该元素 `Cargo.toml` 定（待决问题 1）。
+/// ② **不静默丢线形态**：三项 wire 派生在场（封闭枚举的词表值就是线形态）——
+///    元素 crate 的 `serde` / `specta` 依赖是**消费方前置**（缺依赖的表现是 `cargo build` 失败），
+///    渲染期不探测依赖面。
 #[test]
-fn render的enum不落serde派生且不降级为错误() {
-    let source = mirrored_schema_text(FQN, r#""Mode": {"enum": ["a", "b"]}"#, "");
+fn render的封闭枚举落wire面且不降级为错误() {
+    let source = mirrored_schema_text(
+        FQN,
+        r#""Mode": {"oneOf": [{"const": "a"}, {"const": "b"}]}"#,
+        "",
+    );
     let (contract, schema) = prepare_local(&source);
 
     // ① 经语言分派处（`render_target`）走完整路径：`Ok` 而非 `Err(ApiError::Element)`
@@ -799,7 +816,7 @@ fn render的enum不落serde派生且不降级为错误() {
         form: crate::api::paths::EntryForm::Crate,
         modules: std::collections::BTreeMap::new(),
     };
-    let text = render_target(&target, &contract, &schema, &meta())
+    let text = render_target(&target, &contract, &schema, &meta(), &no_schemas())
         .expect("enum 形态不降级为 Element 错误（本期不按元素依赖面判错）");
     assert!(
         text.contains("pub enum Mode {"),
@@ -808,11 +825,11 @@ fn render的enum不落serde派生且不降级为错误() {
     assert!(text.contains("    A,"), "变体 A 在案：\n{text}");
     assert!(text.contains("    B,"), "变体 B 在案：\n{text}");
 
-    // ② 零 serde 派生（派生面按待决问题 1 留白；硬写会与零 serde 依赖的元素 crate 冲突）
-    for forbidden in ["Deserialize", "Serialize", "#[derive(serde", "serde::"] {
+    // ② wire 面三项同进同出（封闭枚举是有数据位的形态）
+    for required in ["Serialize", "Deserialize", "specta::Type"] {
         assert!(
-            !text.contains(forbidden),
-            "enum 文本 MUST NOT 携带 {forbidden}（派生面本期留白）：\n{text}"
+            text.contains(required),
+            "封闭枚举 MUST 带 {required}（wire 面在场）：\n{text}"
         );
     }
     // 本渲染器与分派处都不构造 `Element` 错误：源码自证（`Err` 只在 `reject_generics` /
@@ -826,12 +843,25 @@ fn render的enum不落serde派生且不降级为错误() {
         "语言分派处零 `ApiError::Element` 构造（同层不产出元素面错误）"
     );
 
-    // 源码自证：`emit/rust.rs` 内零 `serde::`（不引用任何 serde 派生 / 序列化 API）；
-    // `serde_json` 的 `use` 只取 `Map` / `Value` 两个类型（零 `to_string` 一类的产出面）
+    // 源码自证：生成物的 import 是**字面量**（derive 名与手写逐字相同，绕过 `serde::` 限定路径）；
+    // 本文件零任何 serde 派生 / 序列化 API 调用
     let rust_source = include_str!("rust.rs");
+    assert_eq!(
+        rust_source
+            .matches("\"use serde::{Deserialize, Serialize};")
+            .count(),
+        1,
+        "wire 面的非限定导入字面量恰 1 处：\n{rust_source}"
+    );
+    for qualified in ["serde::Serialize,", "serde::Deserialize,"] {
+        assert!(
+            !rust_source.contains(qualified),
+            "derive 项 MUST NOT 写成限定路径 `{qualified}`（那会破坏与手写的逐字相同）"
+        );
+    }
     assert!(
-        !rust_source.contains("serde::"),
-        "`emit/rust.rs` 零 `serde::` 引用（派生面本期留白；`serde_json::` 不算 `serde::`）"
+        rust_source.contains("use serde::{Deserialize, Serialize};"),
+        "有 wire 面时补非限定导入（否则生成物编译不过，且与手写逐字相同会破）"
     );
     assert!(
         rust_source.contains("use serde_json::{Map, Value};"),
@@ -843,11 +873,18 @@ fn render的enum不落serde派生且不降级为错误() {
 #[test]
 fn render签名不含错误面() {
     let source = include_str!("rust.rs");
+    // 第五参（只读解析表）使签名超 100 字符 ⇒ rustfmt 必折成多行
     assert!(
         source.contains(
+            "pub fn render(\n    contract: &Contract,\n    schema: &Value,\n    meta: &ApiMeta,\n    target: &EmitTarget,\n    schemas: &BTreeMap<String, Value>,\n) -> String {"
+        ),
+        "渲染器签名为五参单形（解析表末位）、纯出 String（D46）"
+    );
+    assert!(
+        !source.contains(
             "pub fn render(contract: &Contract, schema: &Value, meta: &ApiMeta, target: &EmitTarget) -> String"
         ),
-        "渲染器签名为四参单形、纯出 String（D46）"
+        "四参单行形态已退役（第五参入参）"
     );
     assert!(
         !source.contains("ApiError::Contract"),
@@ -907,7 +944,8 @@ fn render的modules查不到目标只出注释() {
         form: crate::api::paths::EntryForm::Crate,
         modules: std::collections::BTreeMap::new(),
     };
-    let text = render_target(&target, &contract, &schema, &meta()).expect("查不到目标不是错误");
+    let text = render_target(&target, &contract, &schema, &meta(), &no_schemas())
+        .expect("查不到目标不是错误");
     assert!(
         text.contains("// 透传自 App.Frontend.Components.Agent.Input"),
         "只留注释：\n{text}"
@@ -923,11 +961,23 @@ fn render的modules查不到目标只出注释() {
         r#""Item": {"type": "object", "properties": {}}"#,
         "",
     ));
-    let by_empty = render_target(&target, &plain_contract, &plain_schema, &meta())
-        .expect("零透传条目渲染成功");
+    let by_empty = render_target(
+        &target,
+        &plain_contract,
+        &plain_schema,
+        &meta(),
+        &no_schemas(),
+    )
+    .expect("零透传条目渲染成功");
     assert_eq!(
         by_empty,
-        render(&plain_contract, &plain_schema, &meta(), &target),
+        render(
+            &plain_contract,
+            &plain_schema,
+            &meta(),
+            &target,
+            &no_schemas()
+        ),
         "无透传条目时查表不参与（两路逐字相等）"
     );
 }
@@ -969,7 +1019,9 @@ fn enum_members(text: &str, name: &str) -> Vec<String> {
     body[..end]
         .lines()
         .map(|line| line.trim().trim_end_matches(',').to_owned())
-        .filter(|member| !member.is_empty())
+        .filter(|member| {
+            !member.is_empty() && !member.starts_with("///") && !member.starts_with("#[")
+        })
         .collect()
 }
 
@@ -1031,10 +1083,15 @@ fn rust_comment_text的消费面() {
         calls >= 2,
         "注释拼接均以 `rust_comment_text(` 包裹（定义 + 消费点）；实际 {calls} 处"
     );
-    assert!(
-        !source.contains("// {"),
-        "零裸 `// {{…}}` 插值进注释（契约文本一律先过 rust_comment_text）"
-    );
+    // 零裸 `// {`：唯一允许的形态是 `/// {`（[`doc_line`] 内部已过 `rust_comment_text`）。
+    // 裸 `// {{…}}` 插值会让契约文本未转义就进注释，故逐处钉前一个字符。
+    for (index, _) in source.match_indices("// {") {
+        assert_eq!(
+            source[..index].chars().next_back(),
+            Some('/'),
+            "注释插值只允许 `/// {{` 形态（位置 {index}）"
+        );
+    }
 
     // 行为面：透传目标 FQN 含换行 → `// 透传自 …` 仍是一行注释
     let (contract, schema) = prepare_local(&mirrored_schema_text(
@@ -1047,7 +1104,8 @@ fn rust_comment_text的消费面() {
         form: crate::api::paths::EntryForm::Crate,
         modules: std::collections::BTreeMap::new(),
     };
-    let text = render_target(&target, &contract, &schema, &meta()).expect("换行不影响渲染成功");
+    let text = render_target(&target, &contract, &schema, &meta(), &no_schemas())
+        .expect("换行不影响渲染成功");
     let comments: Vec<&str> = text
         .lines()
         .filter(|line| line.starts_with("// 透传自 "))
@@ -1070,11 +1128,13 @@ fn rust_comment_text的消费面() {
 /// 空串 → `Unknown`、干净取值只驼峰化；且 `variant_name` 在产品面恰 1 处定义（归一单点，
 /// TS 侧零同名函数）。
 #[test]
-fn render的enum变体名恒为合法标识符() {
-    let text = render_types(r#"{"Mode": {"enum": ["it's", "a b", "1abc", "", "ready"]}}"#);
+fn render的枚举变体名恒为合法标识符() {
+    let text = render_types(
+        r#"{"Mode": {"oneOf": [{"const": "it's"}, {"const": "a b"}, {"const": "1abc"}, {"const": ""}, {"const": "ready"}]}}"#,
+    );
     assert!(
         text.contains("pub enum Mode {"),
-        "enum → pub enum：\n{text}"
+        "封闭枚举 → pub enum：\n{text}"
     );
 
     let members = enum_members(&text, "Mode");
@@ -1151,22 +1211,21 @@ fn 注释与标识符两族闸的分工() {
 }
 
 // ---------------------------------------------------------------------------
-// 出口单形（D46 / AC-24）：四参带签名恰一、零异名孪生、render_scope 私有
+// 出口单形（D46 / AC-24）：五参带签名恰一、零异名孪生、render_scope 私有
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-24 ① / D46）：`emit/rust.rs` 内**带完整四参签名**的 `pub fn render` **恰 1**
-/// 命中（`target` **末位**、返回 `String` 四事实同钉；MUST NOT 只数 `^pub fn render\(`）；
-/// 行为面：同一契约 + 同一 `EmitTarget` 经 `render(..)` 与经 `emit::render_target(..)`
-/// 分派产出逐字相等。
+/// 正向（AC-24 ① / D46）：`emit/rust.rs` 内**带完整五参签名**的 `pub fn render` **恰 1**
+/// 命中（解析表 **末位**、返回 `String`；第五参使签名超 100 字符 ⇒ rustfmt 折成多行，
+/// 此处按多行形态钉；MUST NOT 只数 `^pub fn render\(`）；行为面：同一契约 + 同一
+/// `EmitTarget` 经 `render(..)` 与经 `emit::render_target(..)` 分派产出逐字相等。
 #[test]
-fn render出口单形四参签名恰一() {
+fn render出口单形五参签名恰一() {
     let source = include_str!("rust.rs");
-    const SIGNATURE: &str =
-        "pub fn render(contract: &Contract, schema: &Value, meta: &ApiMeta, target: &EmitTarget) -> String";
+    const SIGNATURE: &str = "pub fn render(\n    contract: &Contract,\n    schema: &Value,\n    meta: &ApiMeta,\n    target: &EmitTarget,\n    schemas: &BTreeMap<String, Value>,\n) -> String {";
     assert_eq!(
         source.matches(SIGNATURE).count(),
         1,
-        "四参单形（`target` 末位、返回 `String`）恰 1 处（D46）"
+        "五参单形（解析表末位、返回 `String`）恰 1 处（D46）"
     );
 
     let (contract, schema) = prepare_local(&mirrored_schema_text(
@@ -1175,8 +1234,9 @@ fn render出口单形四参签名恰一() {
         "",
     ));
     let target = empty_target();
-    let direct = render(&contract, &schema, &meta(), &target);
-    let dispatched = render_target(&target, &contract, &schema, &meta()).expect("分派应成功");
+    let direct = render(&contract, &schema, &meta(), &target, &no_schemas());
+    let dispatched =
+        render_target(&target, &contract, &schema, &meta(), &no_schemas()).expect("分派应成功");
     assert_eq!(direct, dispatched, "分派零额外语义（两路逐字相等）");
 }
 
@@ -1206,7 +1266,13 @@ fn render零异名孪生() {
         r#""Item": {"type": "object", "properties": {}}"#,
         "",
     ));
-    let by_empty = render(&plain_contract, &plain_schema, &meta(), &empty_target());
+    let by_empty = render(
+        &plain_contract,
+        &plain_schema,
+        &meta(),
+        &empty_target(),
+        &no_schemas(),
+    );
     let mut filled = empty_target();
     filled.modules.insert(
         "App.Core.A".to_owned(),
@@ -1217,7 +1283,13 @@ fn render零异名孪生() {
     );
     assert_eq!(
         by_empty,
-        render(&plain_contract, &plain_schema, &meta(), &filled),
+        render(
+            &plain_contract,
+            &plain_schema,
+            &meta(),
+            &filled,
+            &no_schemas()
+        ),
         "零透传条目时查表不参与（空 scope 由入参表达）"
     );
 }
@@ -1253,7 +1325,7 @@ fn render_scope保持私有() {
 /// 边界（AC-24 ④ / D46）：产品 `.rs`（滤 `*_test.rs`）内 `rust::render(` 的直连面**恰为
 /// 分派器一处**——`MUST NOT 用「零命中」作判据`（分派器本身必然调该函数，零命中只会在
 /// 「没有任何调用者」时成立，是假判据）；判据是「恰 1 命中 + 命中文件即 `api/emit/mod.rs`」。
-/// 本文件（测试）以四参形态直接驱动 `render` 属测试相位的合法姿态。
+/// 本文件（测试）以完整五参形态直接驱动 `render` 属测试相位的合法姿态。
 #[test]
 fn 产品侧零直连rust渲染器() {
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -1397,7 +1469,7 @@ fn common_type按表展开且随表变化() {
     );
     let mut meta = meta();
     meta.common = custom;
-    let text = render(&contract, &schema, &meta, &empty_target());
+    let text = render(&contract, &schema, &meta, &empty_target(), &no_schemas());
     assert!(
         text.contains("Mapped<String>"),
         "产物经表展开（改表即变产物）：\n{text}"
@@ -1421,7 +1493,7 @@ fn common_type空表回落普通分派() {
     let (contract, schema) = prepare_local(&source);
     let mut meta = meta();
     meta.common = BTreeMap::new();
-    let text = render(&contract, &schema, &meta, &empty_target());
+    let text = render(&contract, &schema, &meta, &empty_target(), &no_schemas());
     assert!(
         text.contains("const _: fn() -> serde_json::Value = super::load;"),
         "空表 ⇒ 回落普通 object 分派（不 panic）：\n{text}"
@@ -1831,7 +1903,7 @@ fn render的演练草案金样() {
     for expected in [
         "pub session: Option<SessionSummary>,",
         "pub sessions: Vec<Option<SessionSummary>>,",
-        "pub pendingToolCallId: Option<SessionSummary>,",
+        "pub pending_tool_call_id: Option<SessionSummary>,",
         "pub send: fn(input: Option<&str>) -> bool,",
     ] {
         assert!(
@@ -2268,14 +2340,14 @@ fn render非法形态不可达() {
 }
 
 /// 回归（AC-1 / 幂等）：同一 schema 两次渲染逐字相等；非类条目（零字段 object / 有字段
-/// object / `enum` / `oneOf` / 标量）与既有产物形态一致。
+/// object / 封闭枚举（`oneOf` 全 `const`）/ 带负载 `oneOf` / 标量）与既有产物形态一致。
 #[test]
 fn render幂等且非类条目形态不变() {
     let source = mirrored_schema_text(
         FQN,
         r##""Unit": {"type": "object", "properties": {}},
             "Item": {"type": "object", "properties": {"a": {"type": "string"}}},
-            "Choice": {"enum": ["a", "b"]},
+            "Choice": {"oneOf": [{"const": "a"}, {"const": "b"}]},
             "Variant": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
             "Scalar": {"type": "integer"}"##,
         "",
@@ -2320,5 +2392,1258 @@ fn render入参拼装兜底() {
     assert!(
         statics.contains("    fn open(raw: BTreeMap<String, i64>);\n"),
         "静态方法复用同一拼装点：\n{statics}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 契约词汇的「类型出生能力」：golden / 宽度 / 命名 / 文档 / wire 面 / facet
+// （AC-2 / AC-3 / AC-5 / AC-6 / AC-7 / AC-8 / AC-9）
+//
+// 本节全部用例零 mock：契约原文手写 → `prepare` 真实投影 → `render` 纯出 `String`；
+// golden 比对面取 `include_str!("../../dto.rs")` 的手写类型本体（生成物与手写逐字相同是
+// 本变更的核心闸，故期望文本直接取源码，不另抄一份）。
+// ---------------------------------------------------------------------------
+
+/// `dto.rs` 全文：golden 逐字比对的**唯一事实源**。
+const DTO_SOURCE: &str = include_str!("../../dto.rs");
+
+/// 文本内某类型的**定义段**（连续 `#[…]` 属性行起、类型体闭合行止）。
+///
+/// 属性面可能折行（`#[derive(` / `    …十项…,` / `)]` 三行形态）——向上收集按括号配对走，
+/// 不能只看行首 `#[`（`)]` 收尾行不以 `#[` 开头，只看行首会把折行 derive 整块漏掉）。
+///
+/// 类型级 `///` 不进比对面（D-11 例外：手写类型文档是契约表达不了的多行段落）；字段 /
+/// 变体级 `///` 在类型体内，照比。
+fn type_segment(source: &str, type_name: &str) -> String {
+    let lines: Vec<&str> = source.lines().collect();
+    let heads = [
+        format!("pub struct {type_name}"),
+        format!("pub enum {type_name}"),
+    ];
+    let anchor = lines
+        .iter()
+        .position(|line| {
+            let trimmed = line.trim_end();
+            heads.iter().any(|head| {
+                trimmed.starts_with(head.as_str())
+                    && trimmed[head.len()..]
+                        .chars()
+                        .next()
+                        .is_none_or(|next| matches!(next, ' ' | '{' | '(' | ';'))
+            })
+        })
+        .unwrap_or_else(|| panic!("文本内应有类型 `{type_name}` 的定义段"));
+    let mut start = anchor;
+    // 向上收集属性块：`unclosed` 是「还需上方多少个开括号」——折行 derive 的 `)]` 收尾行
+    // 让它是正数，只有括号配平且本行不是属性行首时才停。
+    let mut unclosed = 0i32;
+    while start > 0 {
+        let previous = lines[start - 1].trim();
+        let opens = previous
+            .chars()
+            .filter(|character| matches!(character, '(' | '['))
+            .count() as i32;
+        let closes = previous
+            .chars()
+            .filter(|character| matches!(character, ')' | ']'))
+            .count() as i32;
+        let remaining = unclosed + closes - opens;
+        if unclosed == 0 && !previous.starts_with("#[") && remaining <= 0 {
+            break;
+        }
+        unclosed = remaining;
+        start -= 1;
+    }
+    let mut end = anchor;
+    if lines[anchor].contains('{') {
+        let mut depth = 0i32;
+        for (index, line) in lines.iter().enumerate().skip(anchor) {
+            for character in line.chars() {
+                match character {
+                    '{' => depth += 1,
+                    '}' => depth -= 1,
+                    _ => {}
+                }
+            }
+            if depth <= 0 {
+                end = index;
+                break;
+            }
+        }
+    }
+    lines[start..=end].join("\n")
+}
+
+/// 跨元素字段引用（`<相对前缀><目标叶段>.schema.json#/$defs/<名>`；前缀经 `paths` 单点求，
+/// 夹具 MUST NOT 手算 `../` 层数）。
+fn external_ref(target: &str, name: &str) -> String {
+    format!(
+        "{}{}.schema.json#/$defs/{name}",
+        crate::api::paths::ref_relative(FQN, target),
+        crate::api::paths::leaf_name(target)
+    )
+}
+
+/// `ArchiAssetSet` 的契约原文：三字段 `$ref` 到本文件 `$defs` 条目 + 逐字段语义，`required`
+/// 全列、键全 `camelCase`；三个目标类型只需「可 `Eq`」即够（比对面只有 `ArchiAssetSet` 段）。
+fn archi_asset_set_types() -> &'static str {
+    r##"{
+  "ArchiAssetSet": {
+    "type": "object",
+    "properties": {
+      "topology": {"$ref": "#/$defs/ArchiTopologyAsset", "description": "拓扑（模型声明位置与出入度数；零额外读盘）"},
+      "interface": {"$ref": "#/$defs/ArchiInterfaceAsset", "description": "接口（`<叶段>.schema.json`；只给键名摘要，不给 content）"},
+      "doc": {"$ref": "#/$defs/ArchiDocAsset", "description": "文档（`<叶段>.md`；只给 `##` 段名与体量，不给正文）"}
+    },
+    "required": ["topology", "interface", "doc"]
+  },
+  "ArchiTopologyAsset": {"type": "object", "properties": {"file": {"type": "string"}}, "required": ["file"]},
+  "ArchiInterfaceAsset": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+  "ArchiDocAsset": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
+}"##
+}
+
+/// 正向（AC-2 core gate）：`ArchiAssetSet` 的类型定义段与 `dto.rs::ArchiAssetSet` **逐字
+/// 相同**——derive 单行（≤96 字符）+ 容器级 `#[serde(rename_all = "camelCase")]` + 三行
+/// 字段 `///` + 三行字段。
+#[test]
+fn render的golden资产集与dto逐字相同() {
+    let text = render_types(archi_asset_set_types());
+    let handwritten = type_segment(DTO_SOURCE, "ArchiAssetSet");
+    assert_eq!(
+        type_segment(&text, "ArchiAssetSet"),
+        handwritten,
+        "类型定义段 MUST 与 `dto.rs::ArchiAssetSet` 逐字相同：\n{text}"
+    );
+    assert!(
+        handwritten.contains(
+            "#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]"
+        ),
+        "derive 单行在案（≤96 字符不折行）：\n{handwritten}"
+    );
+    assert!(
+        handwritten.contains("#[serde(rename_all = \"camelCase\")]"),
+        "容器级 `rename_all` 上场（零逐项 `rename`）：\n{handwritten}"
+    );
+}
+
+/// 异常（AC-2 / AC-9 保守口径）：三字段 `$ref` 指向解析表缺席的跨元素目标（空表）⇒ 字段行
+/// 照出、`Eq` 保守缺席、零 `Err` / 零 panic、零半截属性行（推不出来只是不推）。
+#[test]
+fn render的golden资产集跨元素目标缺席时保守不推eq() {
+    let types = format!(
+        r##"{{"ArchiAssetSet": {{"type": "object", "properties": {{
+  "topology": {{"$ref": "{topology}", "description": "拓扑（模型声明位置与出入度数；零额外读盘）"}},
+  "interface": {{"$ref": "{interface}", "description": "接口（`<叶段>.schema.json`；只给键名摘要，不给 content）"}},
+  "doc": {{"$ref": "{doc}", "description": "文档（`<叶段>.md`；只给 `##` 段名与体量，不给正文）"}}
+}}, "required": ["topology", "interface", "doc"]}}}}"##,
+        topology = external_ref("App.Backend.Infra.Agent", "ArchiTopologyAsset"),
+        interface = external_ref("App.Backend.Infra.Agent", "ArchiInterfaceAsset"),
+        doc = external_ref("App.Backend.Infra.Agent", "ArchiDocAsset"),
+    );
+    let text = render_types(&types);
+    let segment = type_segment(&text, "ArchiAssetSet");
+    for field in [
+        "    pub topology: ArchiTopologyAsset,",
+        "    pub interface: ArchiInterfaceAsset,",
+        "    pub doc: ArchiDocAsset,",
+    ] {
+        assert!(
+            segment.contains(field),
+            "字段行照出（`$ref` 不可解析不影响类型文本）：缺失 `{field}`\n{text}"
+        );
+    }
+    assert_eq!(
+        segment
+            .lines()
+            .filter(|line| line.starts_with("#[derive"))
+            .count(),
+        1,
+        "derive 恰一行（零半截属性行）：\n{segment}"
+    );
+    assert!(
+        !segment.contains(", Eq"),
+        "目标缺席 ⇒ `Eq` 保守缺席（推不出来只是不推）：\n{segment}"
+    );
+}
+
+/// 边界（AC-2 / AC-5）：`required: []`（空数组）⇒ 三字段全 `Option<…>`，容器
+/// `rename_all` 与 derive 其余项形态不变；`properties: {}`（空对象）⇒ 走零字段形态，
+/// 不产空 `{}` 块。
+#[test]
+fn render的golden资产集可选轴与零字段形态() {
+    let optional_types = archi_asset_set_types().replace(
+        "\"required\": [\"topology\", \"interface\", \"doc\"]",
+        "\"required\": []",
+    );
+    let optional = render_types(&optional_types);
+    let segment = type_segment(&optional, "ArchiAssetSet");
+    for field in [
+        "    pub topology: Option<ArchiTopologyAsset>,",
+        "    pub interface: Option<ArchiInterfaceAsset>,",
+        "    pub doc: Option<ArchiDocAsset>,",
+    ] {
+        assert!(
+            segment.contains(field),
+            "`required: []` ⇒ 全 `Option<…>`：缺失 `{field}`\n{optional}"
+        );
+    }
+    assert!(
+        segment.contains("#[serde(rename_all = \"camelCase\")]")
+            && segment.contains(
+                "#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]"
+            ),
+        "可选轴不动属性面（容器 serde 形态与 derive 项集不变）：\n{segment}"
+    );
+    assert!(
+        !segment.contains("Option<Option<"),
+        "可选与可空不叠成双层：\n{segment}"
+    );
+
+    let zero = render_types(r#"{"ArchiAssetSet": {"type": "object", "properties": {}}}"#);
+    assert!(
+        zero.contains("pub struct ArchiAssetSet;"),
+        "`properties: {{}}` ⇒ 零字段形态，不产空花括号块：\n{zero}"
+    );
+    assert!(
+        !zero.contains("pub struct ArchiAssetSet {"),
+        "零字段 MUST NOT 出空花括号块：\n{zero}"
+    );
+}
+
+/// `ArchiInterfaceAsset` 的契约原文：`path` 可空、`present` 布尔、`bytes` 完整 `u64` 值域、
+/// 三数组、键为 Rust 关键字的 `abstract`，`required` 全列。
+fn archi_interface_asset_types() -> &'static str {
+    r##"{
+  "ArchiInterfaceAsset": {
+    "type": "object",
+    "properties": {
+      "path": {"type": ["string", "null"], "description": "接口定义文件的 repo 相对路径（派生不出路径时为 `null`）"},
+      "present": {"type": "boolean", "description": "文件是否在盘（`false` 时三数组为空、`bytes = 0`）"},
+      "bytes": {"type": "integer", "minimum": 0, "maximum": 18446744073709551615, "description": "文件字节数（不在盘 ⇒ `0`）"},
+      "ops": {"type": "array", "items": {"type": "string"}, "description": "操作键（`properties` 里带 `x-function` 的键）"},
+      "types": {"type": "array", "items": {"type": "string"}, "description": "本模块自有类型键（`$defs` 里非纯 `$ref` alias 者）"},
+      "reexports": {"type": "array", "items": {"type": "string"}, "description": "透传键（`$defs` 里的纯 `$ref` alias 者）"},
+      "abstract": {"type": "string", "description": "一句话判读（`abstract` 是 Rust 保留字，故字段名带后缀、线格式由 `rename` 出线）"}
+    },
+    "required": ["path", "present", "bytes", "ops", "types", "reexports", "abstract"]
+  }
+}"##
+}
+
+/// 正向（AC-2 / AC-5 / AC-6）：五类字段行与 `dto.rs::ArchiInterfaceAsset` 逐字相同
+/// （`abstract_note` 字段名属 D-11 例外：只比 `pub r#abstract: String` 与 wire 名
+/// `abstract`，不比手写后辍名）。
+#[test]
+fn render的golden接口资产与dto逐字相同() {
+    let text = render_types(archi_interface_asset_types());
+    let handwritten = type_segment(DTO_SOURCE, "ArchiInterfaceAsset");
+    for line in [
+        "    pub path: Option<String>,",
+        "    pub present: bool,",
+        "    pub bytes: u64,",
+        "    pub ops: Vec<String>,",
+        "    pub types: Vec<String>,",
+        "    pub reexports: Vec<String>,",
+    ] {
+        assert!(
+            handwritten.contains(line),
+            "手写基准内含 `{line}`：\n{handwritten}"
+        );
+        assert!(
+            text.contains(line),
+            "生成物内含 `{line}`（与 `dto.rs` 逐字相同）：\n{text}"
+        );
+    }
+    assert!(
+        text.contains("    pub r#abstract: String,"),
+        "关键字键 `abstract` ⇒ `pub r#abstract`（`r#` 剥前缀即 wire 名）：\n{text}"
+    );
+    assert!(
+        handwritten.contains("rename = \"abstract\""),
+        "手写侧以 `rename` 出同一线格式（wire 名同为 `abstract`）：\n{handwritten}"
+    );
+    assert!(
+        !text.contains("rename = \"abstract\""),
+        "生成物侧由容器级 `rename_all` 覆盖，零逐项 `rename`：\n{text}"
+    );
+    assert_eq!(
+        type_segment(&text, "ArchiInterfaceAsset")
+            .lines()
+            .filter(|line| line.starts_with("#[derive"))
+            .count(),
+        1,
+        "derive 单行（7 项 76 字符）：\n{text}"
+    );
+}
+
+/// 异常（AC-7）：某字段 `description: ""`（空串）⇒ 该字段零 `///` 行且其余字段行与带说明时
+/// 逐字相同（单字段归因，零连带改写）；`description` 为 `null` / `true`（非字符串）⇒ 同为零
+/// 行、不 panic。
+#[test]
+fn render的空说明只摘该字段的注释行() {
+    let described = render_types(
+        r#"{"Item": {"type": "object", "properties": {"a": {"type": "string", "description": "说明"}, "b": {"type": "boolean"}}, "required": ["a", "b"]}}"#,
+    );
+    for blank in [r#""""#, "null", "true"] {
+        let undecorated = render_types(&format!(
+            r#"{{"Item": {{"type": "object", "properties": {{"a": {{"type": "string", "description": {blank}}}, "b": {{"type": "boolean"}}}}, "required": ["a", "b"]}}}}"#
+        ));
+        let without_key = render_types(
+            r#"{"Item": {"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "boolean"}}, "required": ["a", "b"]}}"#,
+        );
+        assert_eq!(
+            undecorated, without_key,
+            "`description: {blank}` ⇒ 与不带该键逐字相同（零连带改写）：\n{undecorated}"
+        );
+        assert!(
+            !type_segment(&undecorated, "Item").contains("///"),
+            "非字符串 / 空串说明零 `///` 行：\n{undecorated}"
+        );
+    }
+    assert!(
+        type_segment(&described, "Item").contains("    /// 说明\n    pub a: String,"),
+        "有说明时字段 `///` 在字段行之上：\n{described}"
+    );
+}
+
+/// 边界（AC-6 / AC-2）：`required` 缺省（全可选）与全列两形态对照——`path` 本身可空 + 可选
+/// 叠加仍只 `Option<String>`（`Option<Option<…>>` 零产出）；`bytes` 上界恰为 20 位十进制
+/// `u64::MAX` ⇒ 精确命中 `u64`（不经 f64 近似）；`["integer","null"]` + 完整 u32 值域 ⇒
+/// `Option<u32>`。
+#[test]
+fn render的golden接口资产宽度与可选叠加() {
+    let all_optional = archi_interface_asset_types().replace(
+        "\"required\": [\"path\", \"present\", \"bytes\", \"ops\", \"types\", \"reexports\", \"abstract\"]",
+        "\"required\": []",
+    );
+    let text = render_types(&all_optional);
+    assert!(
+        text.contains("    pub path: Option<String>,"),
+        "可空 + 可选叠加仍只一层 `Option<…>`：\n{text}"
+    );
+    assert!(
+        !text.contains("Option<Option<"),
+        "零双层 `Option<…>`：\n{text}"
+    );
+    assert!(
+        text.contains("    pub bytes: Option<u64>,"),
+        "`u64::MAX`（20 位十进制）精确命中 `u64`：\n{text}"
+    );
+
+    let nullable_u32 = render_types(&holder_types(
+        r#"{"type": ["integer", "null"], "minimum": 0, "maximum": 4294967295}"#,
+        true,
+    ));
+    assert_eq!(
+        field_line(&nullable_u32, "f").trim(),
+        "pub f: Option<u32>,",
+        "可空 + 完整 u32 值域 ⇒ `Option<u32>`：\n{nullable_u32}"
+    );
+}
+
+/// `ElementKind` 的契约原文：`oneOf` 四分支 `const` + 逐分支语义、无 `default`。
+fn element_kind_types() -> &'static str {
+    r##"{"ElementKind": {"oneOf": [
+  {"const": "package", "description": "包级（最小编译单元 / 独立依赖管理）"},
+  {"const": "domain", "description": "域级（按业务实体边界聚合的代码）"},
+  {"const": "module", "description": "模块级（目录型模块 / 视图 / 单文件组件）"},
+  {"const": "composite", "description": "组合（无实际层级，仅将过多的同级元素分类；可嵌套在任意类型之上）"}
+]}}"##
+}
+
+/// 正向（AC-3 / AC-2）：四 `const` 分支 ⇒ 与 `dto.rs::ElementKind` 段落逐字相同——9 项
+/// derive 单行（88 字符）+ `#[serde(rename_all = "lowercase")]` + 四变体各带 `///`；零
+/// `Default` / 零 `#[default]`（`default` 缺席即不推，D-2）。
+#[test]
+fn render的golden元素种类与dto逐字相同() {
+    let text = render_types(element_kind_types());
+    let handwritten = type_segment(DTO_SOURCE, "ElementKind");
+    assert_eq!(
+        type_segment(&text, "ElementKind"),
+        handwritten,
+        "类型定义段 MUST 与 `dto.rs::ElementKind` 逐字相同：\n{text}"
+    );
+    assert!(
+        handwritten.contains(
+            "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]"
+        ),
+        "9 项 derive 单行在案：\n{handwritten}"
+    );
+    assert!(
+        handwritten.contains("#[serde(rename_all = \"lowercase\")]"),
+        "变体面候选序 `lowercase` 首试（与手写逐字对齐）：\n{handwritten}"
+    );
+    assert!(
+        !handwritten.contains("Default") && !handwritten.contains("#[default]"),
+        "`default` 缺席 ⇒ 零 `Default` / 零 `#[default]`：\n{handwritten}"
+    );
+}
+
+/// 异常（AC-3 / Q-6 保守口径）：`"default": "unknown"`（值不命中任何 `const` 分支）⇒ 零
+/// `Default`、零 `#[default]`、零 `Err`。
+#[test]
+fn render的default不命中任何分支时零default() {
+    let text = render_types(
+        r#"{"Mode": {"oneOf": [{"const": "a"}, {"const": "b"}], "default": "unknown"}}"#,
+    );
+    assert!(
+        text.contains("pub enum Mode {"),
+        "形态不变（仍为封闭枚举）：\n{text}"
+    );
+    assert!(
+        !text.contains("Default") && !text.contains("#[default]"),
+        "值不命中 ⇒ MUST NOT 推 `Default`：\n{text}"
+    );
+    assert!(
+        text.contains("    A,") && text.contains("    B,"),
+        "两分支仍在案：\n{text}"
+    );
+}
+
+/// 边界（AC-3）：单 `const` 分支（`oneOf` 一项）⇒ 仍为封闭枚举形态（unit variant、零悬垂
+/// 括号）；`const` 文本非法标识符面归一为合法变体名。
+#[test]
+fn render的封闭枚举单分支与非法标识符归一() {
+    let single = render_types(r#"{"Mode": {"oneOf": [{"const": "only"}]}}"#);
+    assert!(
+        single.contains("pub enum Mode {\n    Only,\n}\n"),
+        "单分支仍是封闭枚举（unit variant、零悬垂括号）：\n{single}"
+    );
+    assert_eq!(
+        enum_members(&single, "Mode"),
+        vec!["Only"],
+        "唯一变体在案：\n{single}"
+    );
+
+    let dirty = render_types(
+        r#"{"Mode": {"oneOf": [{"const": "it's"}, {"const": "a b"}, {"const": "1st"}, {"const": ""}]}}"#,
+    );
+    assert_eq!(
+        enum_members(&dirty, "Mode"),
+        vec!["ItS", "AB", "V1st", "Unknown"],
+        "四类非标识符文本归一：\n{dirty}"
+    );
+    for member in enum_members(&dirty, "Mode") {
+        assert!(
+            is_rust_identifier(&member),
+            "变体名恒为合法标识符：{member:?}"
+        );
+    }
+}
+
+/// `GateTier` 的契约原文：三 `const`（`off` / `warn` / `strict`）+ `"default": "off"`。
+fn gate_tier_types() -> &'static str {
+    r##"{"GateTier": {"oneOf": [
+  {"const": "off", "description": "不参与门禁（缺省）"},
+  {"const": "warn", "description": "违例仅告警"},
+  {"const": "strict", "description": "违例即门禁失败"}
+], "default": "off"}}"##
+}
+
+/// 正向（AC-3 / AC-12 折行锚）：三 `const` + `default` ⇒ 与 `dto.rs::GateTier` 逐字相同——
+/// 10 项 derive **折三行**（组装串 97 字符）+ `#[serde(rename_all = "lowercase")]` +
+/// `#[default]` 在 `Off,` 上方 + 逐变体 `///`。
+#[test]
+fn render的golden门禁档位折行与default() {
+    let text = render_types(gate_tier_types());
+    let handwritten = type_segment(DTO_SOURCE, "GateTier");
+    assert_eq!(
+        type_segment(&text, "GateTier"),
+        handwritten,
+        "类型定义段 MUST 与 `dto.rs::GateTier` 逐字相同：\n{text}"
+    );
+    assert!(
+        handwritten.contains(
+            "#[derive(\n    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type,\n)]"
+        ),
+        "10 项 derive 折三行（rustfmt 固定点）：\n{handwritten}"
+    );
+    assert!(
+        handwritten.contains("    /// 不参与门禁（缺省）\n    #[default]\n    Off,"),
+        "`#[default]` 落在 `Off,` 上方、`///` 之后：\n{handwritten}"
+    );
+}
+
+/// 异常（AC-8 / AC-9）：混合分支（两个 `const` + 一个 `$ref` 负载）⇒ `const` 支落 unit
+/// variant、负载支沿用既有带负载形态；wire 面不出、`Eq` / `Copy` / `Hash` 全缺、零 panic。
+#[test]
+fn render的混合分支零wire面且facet保守() {
+    let text = render_types(
+        r##"{"Mixed": {"oneOf": [{"const": "a"}, {"const": "b"}, {"$ref": "#/$defs/Load"}], "default": "a"},
+  "Load": {"type": "object", "properties": {}}}"##,
+    );
+    let segment = type_segment(&text, "Mixed");
+    assert!(
+        segment.contains("    A,") && segment.contains("    B,"),
+        "`const` 支落 unit variant：\n{text}"
+    );
+    assert!(
+        segment.contains("    LoadLoad(Load),"),
+        "负载支沿用既有带负载形态：\n{text}"
+    );
+    for absent in ["Serialize", ", Eq", "Copy", "Hash", "#[default]"] {
+        assert!(
+            !segment.contains(absent),
+            "带负载 union MUST NOT 出 `{absent}`：\n{segment}"
+        );
+    }
+    assert!(
+        !text.contains("use serde::"),
+        "零 wire 面 ⇒ 零 `serde` 导入：\n{text}"
+    );
+}
+
+/// 边界（AC-12 / AC-11）：10+ `const` 分支 + `default`（10 项 derive）⇒ derive 行折三行且
+/// 两次渲染逐字相同（固定点稳定）；`oneOf: []`（空分支集）⇒ 不 panic、零半截属性行、两次
+/// 渲染逐字相同。
+#[test]
+fn render的超大词表与空union() {
+    let consts: Vec<String> = (0..12)
+        .map(|index| format!("{{\"const\": \"v{index}\"}}"))
+        .collect();
+    let types = format!(
+        r#"{{"Big": {{"oneOf": [{}], "default": "v0"}}}}"#,
+        consts.join(", ")
+    );
+    let big = render_types(&types);
+    assert!(
+        big.contains(
+            "#[derive(\n    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type,\n)]"
+        ),
+        "10 项 derive 折三行（超大词表不动固定点）：\n{big}"
+    );
+    assert!(
+        big.contains("    #[default]\n    V0,"),
+        "`#[default]` 落在首个分支：\n{big}"
+    );
+    assert_eq!(big, render_types(&types), "两次渲染逐字相同");
+    assert_eq!(
+        enum_members(&big, "Big").len(),
+        12,
+        "12 个 unit variant 在案：\n{big}"
+    );
+
+    let empty = render_types(r#"{"Void": {"oneOf": []}}"#);
+    assert!(
+        empty.contains("pub enum Void {\n}\n"),
+        "空 union 不 panic、零半截属性行：\n{empty}"
+    );
+    assert_eq!(
+        empty,
+        render_types(r#"{"Void": {"oneOf": []}}"#),
+        "空 union 两次渲染逐字相同"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 整数宽度：三条完整值域是唯一可推的目标（AC-6）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-6）：三条完整值域各出对应类型；字段位与标量 newtype 位两臂同源。
+#[test]
+fn render的整数宽度按完整值域() {
+    let cases = [
+        (
+            r#"{"type": "integer", "minimum": 0, "maximum": 4294967295}"#,
+            "u32",
+        ),
+        (
+            r#"{"type": "integer", "minimum": 0, "maximum": 18446744073709551615}"#,
+            "u64",
+        ),
+        (
+            r#"{"type": "integer", "minimum": -2147483648, "maximum": 2147483647}"#,
+            "i32",
+        ),
+    ];
+    for (fragment, expected) in cases {
+        let field = render_types(&holder_types(fragment, true));
+        assert_eq!(
+            field_line(&field, "f").trim(),
+            format!("pub f: {expected},"),
+            "字段位命中 `{expected}`：\n{field}"
+        );
+        let newtype = render_types(&format!(r#"{{"T": {fragment}}}"#));
+        assert!(
+            newtype.contains(&format!("pub struct T(pub {expected});")),
+            "标量 newtype 位与字段位同源（`{expected}`）：\n{newtype}"
+        );
+    }
+    assert!(
+        DTO_SOURCE.contains("pub bytes: u64,"),
+        "手写基准同样落 `u64`（golden 前提）：\n{}",
+        type_segment(DTO_SOURCE, "ArchiInterfaceAsset")
+    );
+}
+
+/// 异常（AC-6）：部分范围与单边一律 `i64`——业务约束 ≠ 本地精度；`exclusive*` 先 ±1 归一；
+/// `number` 的值域不参与宽度推导（仍 `f64`）。
+#[test]
+fn render的部分值域与number一律不推窄类型() {
+    let cases = [
+        (r#"{"type": "integer", "maximum": 100}"#, "i64"),
+        (r#"{"type": "integer", "minimum": 0}"#, "i64"),
+        (r#"{"type": "integer", "minimum": -1}"#, "i64"),
+        (
+            r#"{"type": "integer", "minimum": 0, "maximum": 4294967296}"#,
+            "i64",
+        ),
+        (
+            r#"{"type": "integer", "exclusiveMinimum": -1, "exclusiveMaximum": 4294967296}"#,
+            "u32",
+        ),
+        (
+            r#"{"type": "number", "minimum": 0, "maximum": 4294967295}"#,
+            "f64",
+        ),
+    ];
+    for (fragment, expected) in cases {
+        let text = render_types(&holder_types(fragment, true));
+        assert_eq!(
+            field_line(&text, "f").trim(),
+            format!("pub f: {expected},"),
+            "`{fragment}` ⇒ `{expected}`：\n{text}"
+        );
+    }
+}
+
+/// 边界（AC-6）：无 bounds ⇒ `i64` 且与今天产物逐字相同；`minimum` / `maximum` 非数字 ⇒
+/// `i64`、不 panic；`minimum > maximum` 的畸形区间 ⇒ `i64`（不外溢、不 panic）。
+#[test]
+fn render的整数宽度边界保守() {
+    let cases = [
+        (r#"{"type": "integer"}"#, "i64"),
+        (
+            r#"{"type": "integer", "minimum": "0", "maximum": null}"#,
+            "i64",
+        ),
+        (
+            r#"{"type": "integer", "minimum": true, "maximum": false}"#,
+            "i64",
+        ),
+        (r#"{"type": "integer", "minimum": 10, "maximum": 1}"#, "i64"),
+    ];
+    for (fragment, expected) in cases {
+        let text = render_types(&holder_types(fragment, true));
+        assert_eq!(
+            field_line(&text, "f").trim(),
+            format!("pub f: {expected},"),
+            "`{fragment}` ⇒ `{expected}`（保守兜底）：\n{text}"
+        );
+    }
+
+    let bare = render_types(r#"{"Count": {"type": "integer"}}"#);
+    assert!(
+        bare.contains("pub struct Count(pub i64);"),
+        "无 bounds 的裸整数与今天产物逐字相同：\n{bare}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 命名策略：容器级 rename_all 优先、关键字走 r#、全不命中才逐项 rename（AC-5）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-5）：`camelCase` 键 ⇒ `snake_case` + 容器级 `rename_all`；关键字键 ⇒
+/// `pub r#in` 且零逐项 `rename`（`r#` 剥前缀即 wire 名）。
+#[test]
+fn render的关键字键走raw标识符() {
+    let text = render_types(
+        r#"{"Item": {"type": "object", "properties": {"in": {"type": "integer"}, "typeOnly": {"type": "boolean"}}, "required": ["in", "typeOnly"]}}"#,
+    );
+    assert!(
+        text.contains("#[serde(rename_all = \"camelCase\")]"),
+        "容器级 `rename_all` 上场：\n{text}"
+    );
+    assert_eq!(
+        field_line(&text, "r#in").trim(),
+        "pub r#in: i64,",
+        "关键字键 ⇒ `pub r#in`：\n{text}"
+    );
+    assert_eq!(
+        field_line(&text, "type_only").trim(),
+        "pub type_only: bool,",
+        "camelCase 键 ⇒ `snake_case` 本地名：\n{text}"
+    );
+    assert!(
+        !text.contains("rename = \"in\""),
+        "`r#` 剥前缀即 wire 名 ⇒ 零逐项 `rename`：\n{text}"
+    );
+
+    let abstract_key = render_types(
+        r#"{"Item": {"type": "object", "properties": {"abstract": {"type": "string"}}, "required": ["abstract"]}}"#,
+    );
+    assert!(
+        abstract_key.contains("    pub r#abstract: String,"),
+        "`abstract` 键同式出 `pub r#abstract`：\n{abstract_key}"
+    );
+}
+
+/// 异常（AC-5）：候选 `rename_all` 全不命中（wire 名 `a-b` / `x y` 一类不可机械回归）⇒ 每
+/// 字段上方逐项 `#[serde(rename = …)]`，本地名仍 `snake_case`；wire 名含引号 / 反斜杠 / 换行
+/// ⇒ 经 `string_literal`（`{:?}` 形态）转义，产物恒为合法 Rust 字面量。
+#[test]
+fn render的不可机械回归键走逐项rename() {
+    let text = render_types(
+        r#"{"Item": {"type": "object", "properties": {"a-b": {"type": "integer"}, "x y": {"type": "string"}}, "required": ["a-b", "x y"]}}"#,
+    );
+    assert!(
+        !text.contains("rename_all"),
+        "容器级候选全不命中 ⇒ 零 `rename_all`：\n{text}"
+    );
+    assert!(
+        text.contains("    #[serde(rename = \"a-b\")]\n    pub a_b: i64,"),
+        "逐项 `rename` 在字段行上方、本地名仍 `snake_case`：\n{text}"
+    );
+    assert!(
+        text.contains("    #[serde(rename = \"x y\")]\n    pub x_y: String,"),
+        "空格键同式：\n{text}"
+    );
+
+    // 转义面：引号 / 反斜杠 / 换行经 `string_literal`（`{:?}` 形态）
+    let escaped = render_types(
+        "{\"Item\": {\"type\": \"object\", \"properties\": {\"a\\\"b\": {\"type\": \"integer\"}, \"c\\\\d\": {\"type\": \"string\"}}}}",
+    );
+    assert!(
+        escaped.contains("    #[serde(rename = \"a\\\"b\")]"),
+        "引号经 `string_literal` 转义（`{{:?}}` 形态）：\n{escaped}"
+    );
+    assert!(
+        escaped.contains("    #[serde(rename = \"c\\\\d\")]"),
+        "反斜杠经 `string_literal` 转义：\n{escaped}"
+    );
+    assert!(
+        !escaped.contains("rename = \"a\"b\""),
+        "MUST NOT 手拼未转义引号（产物必须是合法 Rust 字面量）：\n{escaped}"
+    );
+}
+
+/// 边界（AC-5 / R-12）：四候选逐一命中 + 全不命中各断言所选形态（字段面 `lowercase` 是
+/// identity ⇒ 该档只在变体面可达，故按面分组）；变体面候选序 `lowercase` 首试；四不可 raw
+/// 的词由写闸拒收（零产出）。
+#[test]
+fn render的serde形态选择逐档命中() {
+    // 字段面：camelCase 首试、snake_case identity 次之、PascalCase 兜底
+    let field_cases = [
+        (
+            "camelCase",
+            r#"{"Item": {"type": "object", "properties": {"typeOnly": {"type": "boolean"}}}}"#,
+            "#[serde(rename_all = \"camelCase\")]",
+        ),
+        (
+            "snake_case",
+            r#"{"Item": {"type": "object", "properties": {"type_only": {"type": "boolean"}}}}"#,
+            "#[serde(rename_all = \"snake_case\")]",
+        ),
+        (
+            "PascalCase",
+            r#"{"Item": {"type": "object", "properties": {"TypeOnly": {"type": "boolean"}}}}"#,
+            "#[serde(rename_all = \"PascalCase\")]",
+        ),
+    ];
+    for (label, types, expected) in field_cases {
+        let text = render_types(types);
+        assert!(
+            text.contains(expected),
+            "字段面 {label}：所选形态 `{expected}` 上场：\n{text}"
+        );
+    }
+
+    // 变体面：lowercase 首试，camelCase / snake_case / PascalCase 依次兜底
+    let variant_cases = [
+        (
+            "lowercase",
+            r#"{"Mode": {"oneOf": [{"const": "a"}]}}"#,
+            "#[serde(rename_all = \"lowercase\")]",
+        ),
+        (
+            "camelCase",
+            r#"{"Mode": {"oneOf": [{"const": "warnValue"}]}}"#,
+            "#[serde(rename_all = \"camelCase\")]",
+        ),
+        (
+            "snake_case",
+            r#"{"Mode": {"oneOf": [{"const": "warn_value"}]}}"#,
+            "#[serde(rename_all = \"snake_case\")]",
+        ),
+        (
+            "PascalCase",
+            r#"{"Mode": {"oneOf": [{"const": "Warn"}]}}"#,
+            "#[serde(rename_all = \"PascalCase\")]",
+        ),
+    ];
+    for (label, types, expected) in variant_cases {
+        let text = render_types(types);
+        assert!(
+            text.contains(expected),
+            "变体面 {label}：所选形态 `{expected}` 上场：\n{text}"
+        );
+    }
+
+    // 全不命中两形态：字段面与变体面都走逐项 `rename`
+    let struct_none =
+        render_types(r#"{"Item": {"type": "object", "properties": {"a-b": {"type": "boolean"}}}}"#);
+    assert!(
+        !struct_none.contains("rename_all") && struct_none.contains("#[serde(rename = \"a-b\")]"),
+        "字段面全不命中 ⇒ 逐项 `rename`：\n{struct_none}"
+    );
+    let variant_none = render_types(r#"{"Mode": {"oneOf": [{"const": "a-b"}]}}"#);
+    assert!(
+        !variant_none.contains("rename_all")
+            && variant_none.contains("    #[serde(rename = \"a-b\")]\n    AB,"),
+        "变体面全不命中 ⇒ 逐项 `rename`：\n{variant_none}"
+    );
+
+    // 变体面候选序：单字小写词只有 `lowercase` 首试才与手写 `ElementKind` 对齐
+    let kind = render_types(element_kind_types());
+    assert!(
+        kind.contains("#[serde(rename_all = \"lowercase\")]")
+            && !kind.contains("#[serde(rename_all = \"camelCase\")]"),
+        "变体面 `lowercase` 首试：\n{kind}"
+    );
+
+    // 四不可 raw 的词由写闸拒收 ⇒ 渲染器结构上收不到，零 `r#self` / `r#Self` / `r#super` /
+    // `r#crate` 产出
+    for word in ["self", "Self", "super", "crate"] {
+        let value: Value = serde_json::from_str(&format!(
+            r#"{{"$defs": {{"T": {{"type": "object", "properties": {{"{word}": {{"type": "string"}}}}}}}}}}"#
+        ))
+        .expect("夹具必须是合法 JSON");
+        let message = match crate::api::schema::verify_defs(&value) {
+            Ok(()) => panic!("`{word}` 应被写闸拒收"),
+            Err(ApiError::Contract(message)) => message,
+            Err(other) => panic!("期望 ApiError::Contract，实际：{other:?}"),
+        };
+        assert!(
+            message.contains(&format!("properties.{word}")),
+            "文案点名该字段位（`{word}`）：{message}"
+        );
+    }
+    // 渲染器内零硬编码的四词例外（拒收在写闸，不在渲染期）
+    let source = include_str!("rust.rs");
+    for word in ["r#self", "r#Self", "r#super", "r#crate"] {
+        assert!(
+            !source.contains(&format!("\"{word}\"")),
+            "渲染器零 `{word}` 硬编码（四词由写闸拒收，渲染期不设第二份例外）"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 文档注释：类型 / 字段 / 变体三处各一条正例（AC-7）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-7）：类型级 / 字段级 / 变体级三处各出一行 `///`，文本与契约逐字相等，位置固定
+/// （类型 `///` 在 derive 行之上、字段 `///` 在字段行之上、变体 `///` 在变体行之上）。
+#[test]
+fn render的三处文档注释位置固定() {
+    let text = render_types(
+        r#"{"Shown": {"type": "object", "description": "类型级说明", "properties": {"f": {"type": "string", "description": "字段级说明"}}},
+  "Mode": {"oneOf": [{"const": "a", "description": "变体级说明"}]}}"#,
+    );
+    assert!(
+        text.contains("/// 类型级说明\n#[derive("),
+        "类型级 `///` 在 derive 行之上：\n{text}"
+    );
+    assert!(
+        text.contains("    /// 字段级说明\n    pub f: Option<String>,"),
+        "字段级 `///` 在字段行之上：\n{text}"
+    );
+    assert!(
+        text.contains("    /// 变体级说明\n    A,"),
+        "变体级 `///` 在变体行之上：\n{text}"
+    );
+    for line in text
+        .lines()
+        .filter(|line| line.trim_start().starts_with("///"))
+    {
+        assert_eq!(line, line.trim_end(), "注释行零尾随空白：{line:?}");
+    }
+}
+
+/// 异常（AC-7）：含 `\n` / `\r` / `U+2028` / `U+2029` / `*/` 的 `description` ⇒ 折成空格、
+/// 零断行、零非法语法（注释不顶出裸代码行）；`\0`（NUL）与 emoji 原样保留、不 panic。
+#[test]
+fn render的说明折行不破语法() {
+    let text = render_types(
+        "{\"Item\": {\"type\": \"object\", \"description\": \"a\\nb\\rc\\u2028d\\u2029e */ f\", \"properties\": {}}}",
+    );
+    assert!(
+        text.contains("/// a b c d e */ f\n"),
+        "四类断行字符折成空格、`*/` 原样（注释内无需转义）：\n{text}"
+    );
+    assert_eq!(
+        text.lines()
+            // 类型级 `///` 顶格、构造器的 `/// 构造器` 缩进四格：按顶格判即零污染
+            .filter(|line| line.starts_with("///"))
+            .count(),
+        1,
+        "类型级注释恰一行（零断行；自动构造器的 `/// 构造器` 不在判据内）：\n{text}"
+    );
+
+    let raw = render_types(
+        "{\"Item\": {\"type\": \"object\", \"description\": \"\\u0000 与 emoji 🎯 原样\", \"properties\": {}}}",
+    );
+    assert!(
+        raw.contains("/// \u{0} 与 emoji 🎯 原样"),
+        "NUL 与 emoji 原样保留（不 panic、不改写）：\n{raw}"
+    );
+}
+
+/// 边界（AC-7 / AC-12）：`description: ""` / 纯空白串 / 键缺省三形态 ⇒ 零注释行；>1000 字符
+/// 的 `description` ⇒ 单行产出且行尾零空白（`trim_end` 固定点）；op 的
+/// `x-function.description` 仍丢弃。
+#[test]
+fn render的说明边界与op说明丢弃() {
+    let without = render_types(r#"{"Item": {"type": "object", "properties": {}}}"#);
+    for blank in [r#""""#, r#""   ""#] {
+        let text = render_types(&format!(
+            r#"{{"Item": {{"type": "object", "description": {blank}, "properties": {{}}}}}}"#
+        ));
+        assert_eq!(text, without, "`description: {blank}` ⇒ 零注释行：\n{text}");
+    }
+    assert!(
+        !type_segment(&without, "Item").contains("///"),
+        "键缺省 ⇒ 类型段零注释行（构造器的自证 `///` 不在类型段内）：\n{without}"
+    );
+
+    let long = "长".repeat(1001);
+    let text = render_types(&format!(
+        r#"{{"Item": {{"type": "object", "description": "{long}", "properties": {{}}}}}}"#
+    ));
+    let doc_lines: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("///"))
+        .collect();
+    assert_eq!(doc_lines.len(), 1, "超长说明单行产出：\n{text}");
+    assert_eq!(doc_lines[0], doc_lines[0].trim_end(), "行尾零空白");
+    assert!(
+        doc_lines[0].chars().count() > 1000,
+        "整段文本在案（不折行、不截断）：{}",
+        doc_lines[0].chars().count()
+    );
+
+    // op 的 `x-function.description` 仍丢弃：两次渲染逐字节相同
+    let with_description = render_source(&op_schema(
+        FQN,
+        "load",
+        r#"{"description": "操作说明不进体", "returns": {"type": "string"}}"#,
+    ));
+    let without_description = render_source(&op_schema(
+        FQN,
+        "load",
+        r#"{"returns": {"type": "string"}}"#,
+    ));
+    assert_eq!(
+        with_description, without_description,
+        "op 的 `x-function.description` 丢弃（签名见证逐字不变）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// wire 面射程：谁出三项派生、谁零 wire 面（AC-8）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-8）：有字段 struct / 封闭枚举 / 标量 newtype 三形态各出
+/// `Serialize, Deserialize, specta::Type` 三项且落在固定相对序位；头注释后出
+/// `use serde::{Deserialize, Serialize};`（非限定名，`serde` 行在前）。
+#[test]
+fn render的三形态出wire面() {
+    let types = r#"{
+  "Item": {"type": "object", "properties": {"f": {"type": "string"}}},
+  "Mode": {"oneOf": [{"const": "a"}]},
+  "Count": {"type": "integer"}
+}"#;
+    let text = render_types(types);
+    for name in ["Item", "Mode", "Count"] {
+        let segment = type_segment(&text, name);
+        for item in ["Serialize", "Deserialize", "specta::Type"] {
+            assert!(
+                segment.contains(item),
+                "`{name}` MUST 带 `{item}`（三项同进同出）：\n{segment}"
+            );
+        }
+        let derive = segment
+            .lines()
+            .find(|line| line.starts_with("#[derive("))
+            .expect("derive 行在案");
+        assert!(
+            derive.find("Serialize") < derive.find("Deserialize")
+                && derive.find("Deserialize") < derive.find("specta::Type"),
+            "`{name}` 三项相对序固定：{derive}"
+        );
+    }
+    assert!(
+        text.contains("use serde::{Deserialize, Serialize};\n"),
+        "wire 面在场 ⇒ 非限定导入于头注释之后：\n{text}"
+    );
+}
+
+/// 异常（AC-8 / Q-3）：含 `x-function` 字段的 struct ⇒ 零 wire 面（无 JSON 线形态），字段仍
+/// 出 `fn(…)` 指针形；带负载 union ⇒ 零 wire 面 + 零 `Eq` / `Copy` / `Hash`、零 panic。
+#[test]
+fn render的函数字段与带负载union零wire面() {
+    let function_struct = render_types(
+        r#"{"Hooks": {"type": "object", "properties": {"run": {"x-function": {"params": [{"name": "text", "schema": {"type": "string"}}], "returns": {"type": "boolean"}}}}, "required": ["run"]}}"#,
+    );
+    let segment = type_segment(&function_struct, "Hooks");
+    assert!(
+        segment.contains("    pub run: fn(text: &str) -> bool,"),
+        "函数字段仍出 `fn(…)` 指针形：\n{segment}"
+    );
+    for absent in ["Serialize", "Deserialize", "specta::Type", "serde"] {
+        assert!(
+            !segment.contains(absent),
+            "含 `x-function` 字段 ⇒ 零 wire 面（`{absent}` 缺席）：\n{segment}"
+        );
+    }
+    assert!(
+        !function_struct.contains("use serde::"),
+        "零 wire 面 ⇒ 零 `serde` 导入：\n{function_struct}"
+    );
+
+    let payload_union = render_types(
+        r##"{"Choice": {"oneOf": [{"$ref": "#/$defs/A"}]}, "A": {"type": "object", "properties": {"f": {"type": "string"}}}}"##,
+    );
+    let segment = type_segment(&payload_union, "Choice");
+    for absent in ["Serialize", ", Eq", "Copy", "Hash"] {
+        assert!(
+            !segment.contains(absent),
+            "带负载 union MUST NOT 出 `{absent}`：\n{segment}"
+        );
+    }
+}
+
+/// 边界（AC-1 / AC-8）：零字段 `object` ⇒ derive 逐字
+/// `#[derive(Debug, Clone, Copy, PartialEq, Eq)]`（零 `Hash` / 零 `Default`）；产物含
+/// `BTreeMap<` ⇒ 出 `use std::collections::BTreeMap;`（`serde` 行在前、`std` 行在后）；两
+/// 导入皆无 ⇒ 零字节。
+#[test]
+fn render的条件import与零字段派生() {
+    let zero_field = render_types(r#"{"LocalArchiCheck": {"type": "object", "properties": {}}}"#);
+    let segment = type_segment(&zero_field, "LocalArchiCheck");
+    assert_eq!(
+        segment, "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub struct LocalArchiCheck;",
+        "零字段形态逐字（零 `Hash` / 零 `Default` / 零 wire 面）：\n{zero_field}"
+    );
+    assert!(
+        !zero_field.contains("use "),
+        "两导入皆无 ⇒ 零字节（AC-1 零 diff 前提）：\n{zero_field}"
+    );
+
+    let both = render_types(
+        r#"{"Holder": {"type": "object", "properties": {"map": {"type": "object", "additionalProperties": {"type": "integer"}}}, "required": ["map"]}}"#,
+    );
+    let serde_line = both.find("use serde::{Deserialize, Serialize};");
+    let map_line = both.find("use std::collections::BTreeMap;");
+    assert!(
+        serde_line.is_some() && map_line.is_some(),
+        "两个条件导入同样在场：\n{both}"
+    );
+    assert!(
+        serde_line.unwrap() < map_line.unwrap(),
+        "`serde` 行在前、`std` 行在后：\n{both}"
+    );
+    assert!(
+        both.contains("pub map: BTreeMap<String, i64>,"),
+        "`BTreeMap<` 是 `std` 导入的判据来源：\n{both}"
+    );
+
+    let only_map = render_types(
+        r#"{"Holder": {"type": "object", "properties": {"map": {"type": "object", "additionalProperties": {"type": "integer"}}, "run": {"x-function": {}}}, "required": ["map", "run"]}}"#,
+    );
+    assert!(
+        only_map.contains("use std::collections::BTreeMap;") && !only_map.contains("use serde::"),
+        "零 wire 面但含 `BTreeMap<` ⇒ 只出 `std` 导入：\n{only_map}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// facet：五形态逐项相等与环容忍（AC-9）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-9）：表驱动五形态逐项对拍——derive 集合与相对序（`Debug, Clone, Copy, Default,
+/// PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type` 子序）逐项相等。
+#[test]
+fn render的五形态facet逐项相等() {
+    let cases = [
+        (
+            "零字段 object",
+            r#"{"T": {"type": "object", "properties": {}}}"#,
+            "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
+        ),
+        (
+            "封闭枚举",
+            r#"{"T": {"oneOf": [{"const": "a"}]}}"#,
+            "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]",
+        ),
+        (
+            "有字段 struct",
+            r#"{"T": {"type": "object", "properties": {"f": {"type": "string"}}}}"#,
+            "#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]",
+        ),
+        (
+            "标量 newtype",
+            r#"{"T": {"type": "string"}}"#,
+            "#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]",
+        ),
+        (
+            "带负载 union",
+            r##"{"T": {"oneOf": [{"$ref": "#/$defs/A"}]}, "A": {"type": "object", "properties": {}}}"##,
+            "#[derive(Debug, Clone, PartialEq)]",
+        ),
+    ];
+    for (label, types, expected) in cases {
+        let text = render_types(types);
+        let segment = type_segment(&text, "T");
+        let derive: Vec<&str> = segment
+            .lines()
+            .filter(|line| line.starts_with("#[derive"))
+            .collect();
+        assert_eq!(
+            derive
+                .first()
+                .map(|line| line.trim_end())
+                .filter(|_| derive.len() == 1),
+            Some(expected),
+            "{label}：derive 集合与序固定（期望 `{expected}`）：\n{segment}"
+        );
+    }
+}
+
+/// 异常（AC-9）：含 `number` 字段（`f64`）⇒ 无 `Eq`；含 `x-function` 字段 ⇒ 无 `Eq` 且零
+/// wire 面；字段走映射规则（`common.json` 的 `Outcome`）⇒ 无 `Eq`；`$ref` 不可解析 ⇒ 无
+/// `Eq`（保守、零 `Err`）。
+#[test]
+fn render的facet保守不推eq() {
+    let cases = [
+        (
+            "number 字段（f64）",
+            r#"{"T": {"type": "object", "properties": {"f": {"type": "number"}}}}"#,
+            "#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]",
+        ),
+        (
+            "x-function 字段",
+            r#"{"T": {"type": "object", "properties": {"f": {"x-function": {}}}}}"#,
+            "#[derive(Debug, Clone, PartialEq)]",
+        ),
+        (
+            "映射规则字段（Outcome）",
+            r#"{"T": {"type": "object", "properties": {"f": {"outcome": {"type": "string"}}}}}"#,
+            "#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]",
+        ),
+        (
+            "$ref 不可解析",
+            r##"{"T": {"type": "object", "properties": {"f": {"$ref": "#/$defs/Ghost"}}}}"##,
+            "#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]",
+        ),
+    ];
+    for (label, types, expected) in cases {
+        let text = render_types(types);
+        let segment = type_segment(&text, "T");
+        let derive = segment
+            .lines()
+            .find(|line| line.starts_with("#[derive("))
+            .unwrap_or_else(|| panic!("{label}：derive 行在案\n{segment}"));
+        assert_eq!(
+            derive.trim_end(),
+            expected,
+            "{label}：`Eq` 保守缺席（不假设可 `Eq`）：\n{segment}"
+        );
+    }
+}
+
+/// 边界（AC-9）：自引用 `$ref` 环（T 的字段 `$ref` 到 T）⇒ 无 `Copy`、有限步返回、零栈溢出
+/// 零 panic；互引环（A→B→A）同判；同一 schema 两次 `render` 逐字相等（纯函数、零读盘）；
+/// `$ref` 指向解析表缺席的目标与指向环的两形态不混淆。
+#[test]
+fn render的facet环容忍与纯函数性() {
+    let self_cycle = r##"{"T": {"type": "object", "properties": {"next": {"$ref": "#/$defs/T"}}, "required": ["next"]}}"##;
+    let text = render_types(self_cycle);
+    let segment = type_segment(&text, "T");
+    assert!(
+        !segment.contains(", Eq") && !segment.contains("Copy"),
+        "自引用环 ⇒ 无 `Eq` / 无 `Copy`（不 panic、不死循环）：\n{segment}"
+    );
+    assert_eq!(
+        text,
+        render_types(self_cycle),
+        "同一 schema 两次渲染逐字相等（facet 是 schema 的纯函数）"
+    );
+
+    let mutual = r##"{
+  "A": {"type": "object", "properties": {"b": {"$ref": "#/$defs/B"}}, "required": ["b"]},
+  "B": {"type": "object", "properties": {"a": {"$ref": "#/$defs/A"}}, "required": ["a"]}
+}"##;
+    let mutual_text = render_types(mutual);
+    for name in ["A", "B"] {
+        let segment = type_segment(&mutual_text, name);
+        assert!(
+            !segment.contains(", Eq"),
+            "互引环 `{name}` ⇒ 无 `Eq`（环上的假设是 `false`）：\n{segment}"
+        );
+    }
+    assert_eq!(
+        mutual_text,
+        render_types(mutual),
+        "互引环两次渲染逐字相等（有限步返回）"
+    );
+
+    // 两形态不混淆：环（有目标）与缺席（无目标）都保守不推 `Eq`，但都不是错误
+    let absent = render_types(
+        r##"{"T": {"type": "object", "properties": {"next": {"$ref": "#/$defs/Ghost"}}, "required": ["next"]}}"##,
+    );
+    assert!(
+        !type_segment(&absent, "T").contains(", Eq"),
+        "索引表缺席的目标同样保守不推：\n{absent}"
+    );
+    assert_ne!(
+        type_segment(&absent, "T"),
+        type_segment(&text, "T"),
+        "两条路径的产物可区分（字段类型文本不同，成因不混同）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 旧形态退役的源码自证（AC-3 / AC-4）
+// ---------------------------------------------------------------------------
+
+/// 异常（AC-4）：`enum` 数组形态的渲染支已整体删除——`enum_block` **零命中**、
+/// `type_block` 内零 `"enum"` 触发支（两渲染器同判）；签名见证与错误族持衡。
+#[test]
+fn render的enum数组渲染支已退役() {
+    let source = include_str!("rust.rs");
+    assert_eq!(
+        source.matches("enum_block").count(),
+        0,
+        "`enum_block` 零命中（函数已删）：\n"
+    );
+    let type_body = function_body(source, "fn type_block(");
+    assert!(
+        !type_body.contains("\"enum\""),
+        "`type_block` 内零 `\"enum\"` 数组触发支：\n{type_body}"
+    );
+    assert!(
+        source.matches("ApiError::Element").count() == 0,
+        "渲染器零 `ApiError::Element` 构造（错误族持衡）"
+    );
+
+    let emit_mod = include_str!("mod.rs");
+    assert_eq!(
+        emit_mod.matches("ApiError::Element").count(),
+        0,
+        "分派器同样零 `ApiError::Element` 构造"
+    );
+    assert_eq!(
+        emit_mod.matches("enum_block").count(),
+        0,
+        "`emit/mod.rs` 零 `enum_block` 引用"
+    );
+
+    // 见证形态逐字不变（R-6 禁令：MUST NOT 顺手改接收器位）
+    let witness = function_body(source, "fn op_witness(");
+    assert!(
+        witness.contains("super::{owner}::{}") && witness.contains("\"super::{}\""),
+        "`op_witness` 的 owner / 自由函数两臂逐字不变：\n{witness}"
     );
 }

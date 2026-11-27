@@ -2290,9 +2290,9 @@ fn verify_class_key_positions合法位() {
     }
 }
 
-/// 异常（AC-4 落点）：非类条目四形态——纯 `object` / `enum` / 标量 / 纯 `$ref` alias 上
-/// 写 `x-constructor` ⇒ 各 `Err` 点名 `$defs.<T>.x-constructor` 与出路；`x-static` 写进
-/// `enum` / 纯 alias 两臂同断言。
+/// 异常（AC-4 落点）：非类条目四形态——纯 `object` / 封闭枚举（`oneOf` 全 `const`）/ 标量 /
+/// 纯 `$ref` alias 上写 `x-constructor` ⇒ 各 `Err` 点名 `$defs.<T>.x-constructor` 与出路；
+/// `x-static` 写进封闭枚举 / 纯 alias 两臂同断言。
 #[test]
 fn verify_class_key_positions非类条目四形态() {
     let constructor = r#""x-constructor": {"x-function": {}}"#;
@@ -2303,8 +2303,10 @@ fn verify_class_key_positions非类条目四形态() {
             format!(r#"{{"Plain": {{"type": "object", {constructor}}}}}"#),
         ),
         (
-            "enum",
-            format!(r#"{{"Plain": {{"enum": ["a", "b"], {constructor}}}}}"#),
+            "封闭枚举",
+            format!(
+                r#"{{"Plain": {{"oneOf": [{{"const": "a"}}, {{"const": "b"}}], {constructor}}}}}"#
+            ),
         ),
         (
             "标量",
@@ -2331,8 +2333,8 @@ fn verify_class_key_positions非类条目四形态() {
 
     for (label, defs) in [
         (
-            "enum",
-            format!(r#"{{"Plain": {{"enum": ["a"], {statics}}}}}"#),
+            "封闭枚举",
+            format!(r#"{{"Plain": {{"oneOf": [{{"const": "a"}}], {statics}}}}}"#),
         ),
         (
             "纯 $ref alias",
@@ -2636,6 +2638,256 @@ fn schema闸九别名与doc随动() {
         assert!(
             source.contains(needle),
             "闸 ⑨ 的 doc 含 `{needle}`（与判据同批）"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 封闭词汇的三判：顶层 `enum` / 裸 `const` / 不可 raw 的键名（AC-4）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-4）：`oneOf` / `anyOf` 全 `const` 形态放行（零 `Err`）；`oneOf` 分支内的
+/// `const` 正常通过。
+#[test]
+fn verify_defs的oneof与const分支放行() {
+    for key in ["oneOf", "anyOf"] {
+        let schema = json!({"$defs": {"Mode": {key: [
+            {"const": "a", "description": "取值 a"},
+            {"const": "b", "description": "取值 b"}
+        ]}}});
+        assert!(
+            verify_defs(&schema).is_ok(),
+            "`{key}` 全 `const` 分支是唯一合法形态：{key}"
+        );
+    }
+
+    for constant in [json!("text"), json!(1), json!(true), json!(null)] {
+        let schema = json!({"$defs": {"Mode": {"oneOf": [{"const": constant}]}}});
+        assert!(
+            verify_defs(&schema).is_ok(),
+            "`oneOf` 分支内的标量 `const` 放行：{constant}"
+        );
+    }
+}
+
+/// 异常（AC-4）：条目顶层 `enum` 数组 ⇒ `Err`，文案点名 `$defs.Plain.enum` 且含可执行出路
+/// （完整 `oneOf` 样例片段，MUST NOT 只写「非法」）。
+#[test]
+fn verify_defs拒收顶层enum数组() {
+    let schema = json!({"$defs": {"Plain": {"enum": ["a", "b"]}}});
+    let error = contract_error(verify_defs(&schema));
+    assert!(
+        error.contains("$defs.Plain.enum"),
+        "文案点名 pointer：{error}"
+    );
+    assert!(
+        error.contains("\"oneOf\"") && error.contains("\"const\""),
+        "文案给出可执行出路（`oneOf` + `const` 样例片段）：{error}"
+    );
+    assert!(
+        error.contains("description"),
+        "出路含逐值语义的落点（`description`）：{error}"
+    );
+}
+
+/// 边界（AC-4）：`enum: []`（空数组）同样拒收（只认键在场）；`$ref` 与 `enum` 并列时既有
+/// 「透传条目不得带结构关键字」先命中（判序单点归因，新三判不遮蔽既有规则）。
+#[test]
+fn verify_defs的顶层enum判序与空数组() {
+    let empty = json!({"$defs": {"Plain": {"enum": []}}});
+    let error = contract_error(verify_defs(&empty));
+    assert!(
+        error.contains("$defs.Plain.enum"),
+        "空数组同样拒收（判据只认键在场）：{error}"
+    );
+
+    let tied = json!({"$defs": {"AgentInput": {
+        "$ref": "../Frontend/Agent.schema.json#/$defs/AgentInput",
+        "enum": ["a"]
+    }}});
+    let tied_error = contract_error(verify_defs(&tied));
+    assert!(
+        tied_error.contains("结构关键字"),
+        "既有 `$ref` 纯度规则先命中（判序在外层）：{tied_error}"
+    );
+    assert!(
+        !tied_error.contains("退役写法"),
+        "新三判不遮蔽既有规则：{tied_error}"
+    );
+}
+
+/// 异常（AC-4）：条目顶层裸 `const` ⇒ `Err` 并点名 `$defs.T.const`，文案写明「`const` 只在
+/// `oneOf` / `anyOf` 分支内且 MUST 是标量」。
+#[test]
+fn verify_defs拒收顶层裸const() {
+    let schema = json!({"$defs": {"T": {"const": "a"}}});
+    let error = contract_error(verify_defs(&schema));
+    assert!(error.contains("$defs.T.const"), "文案点名 pointer：{error}");
+    assert!(
+        error.contains("oneOf") && error.contains("标量"),
+        "文案写明落点与标量约束：{error}"
+    );
+}
+
+/// 边界（AC-4）：`const: 1` / `const: false` / `const: null` 三非字符串值同样拒收（判据只认
+/// 键在场）；字段位 `properties.<f>.const` 当前不判（Q-8 已知窗口——放行并登记为窗口）。
+#[test]
+fn verify_defs的顶层const只看键在场() {
+    for constant in [json!(1), json!(false), json!(null)] {
+        let schema = json!({"$defs": {"T": {"const": constant}}});
+        let error = contract_error(verify_defs(&schema));
+        assert!(
+            error.contains("$defs.T.const"),
+            "非字符串顶层 `const` 同样拒收（{constant}）：{error}"
+        );
+    }
+
+    let field_position = json!({"$defs": {"T": {
+        "type": "object",
+        "properties": {"f": {"const": "a"}}
+    }}});
+    assert!(
+        verify_defs(&field_position).is_ok(),
+        "字段位 `const` 不在本判据射程（Q-8 已知窗口，不虚构判据）"
+    );
+}
+
+/// 正向（AC-4 / AC-5）：可 raw 的关键字键（`type` / `in` / `abstract` / `match` / `move`）
+/// 放行——`r#` 形态可达。
+#[test]
+fn verify_defs放行可raw的关键字键() {
+    let schema = json!({"$defs": {"T": {
+        "type": "object",
+        "properties": {
+            "type": {"type": "string"},
+            "in": {"type": "integer"},
+            "abstract": {"type": "string"},
+            "match": {"type": "boolean"},
+            "move": {"type": "boolean"}
+        }
+    }}});
+    assert!(
+        verify_defs(&schema).is_ok(),
+        "五个可 raw 的关键字键全部放行（`r#` 形态可达）"
+    );
+}
+
+/// 异常（AC-4 / AC-5）：`properties` 键 ∈ `{self, Self, super, crate}` 四词各 `Err`，文案点名
+/// `$defs.<T>.properties.<f>` 并给出路「改名」；`self` 与 `Self` 大小写两值分别可判。
+#[test]
+fn verify_defs拒收不可raw的键名() {
+    for word in ["self", "Self", "super", "crate"] {
+        let schema = json!({"$defs": {"T": {
+            "type": "object",
+            "properties": {word: {"type": "string"}}
+        }}});
+        let error = contract_error(verify_defs(&schema));
+        assert!(
+            error.contains(&format!("$defs.T.properties.{word}")),
+            "文案点名字段位（`{word}`）：{error}"
+        );
+        assert!(
+            error.contains("改名"),
+            "出路是改名（`r#{word}` 是非法 Rust）：{error}"
+        );
+    }
+    assert_ne!(
+        contract_error(verify_defs(&json!({"$defs": {"T": {
+            "type": "object",
+            "properties": {"self": {"type": "string"}}
+        }}}))),
+        contract_error(verify_defs(&json!({"$defs": {"T": {
+            "type": "object",
+            "properties": {"Self": {"type": "string"}}
+        }}}))),
+        "`self` 与 `Self` 大小写两值分别可判（零归一）"
+    );
+}
+
+/// 边界（AC-4）：四词出现在第二层（`properties.a.properties.self`）不判（只判第一层
+/// `properties` 的键）；四词出现在 `required` 数组里不判（判据只认 `properties` 键）。
+#[test]
+fn verify_defs的四词只在第一层生效() {
+    let nested = json!({"$defs": {"T": {
+        "type": "object",
+        "properties": {"a": {
+            "type": "object",
+            "properties": {"self": {"type": "string"}}
+        }}
+    }}});
+    assert!(
+        verify_defs(&nested).is_ok(),
+        "第二层 `properties.self` 不在射程（只判第一层键）"
+    );
+
+    let in_required = json!({"$defs": {"T": {
+        "type": "object",
+        "properties": {"own": {"type": "string"}},
+        "required": ["self"]
+    }}});
+    assert!(
+        verify_defs(&in_required).is_ok(),
+        "`required` 里的四词不判（判据只认 `properties` 键）"
+    );
+}
+
+/// 异常（AC-4 判序）：同时违反 `$ref` 纯度与顶层 `enum` ⇒ 文案归因 `$ref` 结构关键字；
+/// `x-class` 带属性与顶层 `enum` 同时在场 ⇒ 归因 `x-class` 骨架规则（新三判排在既有规则
+/// 之后，零改判）。
+#[test]
+fn verify_defs的新三判排在既有规则之后() {
+    let tied_ref = json!({"$defs": {"Plain": {
+        "$ref": "#/$defs/Other",
+        "enum": ["a"]
+    }}});
+    let ref_error = contract_error(verify_defs(&tied_ref));
+    assert!(
+        ref_error.contains("结构关键字"),
+        "`$ref` 结构关键字先命中：{ref_error}"
+    );
+
+    let tied_class = json!({"$defs": {"Plain": {
+        "type": "object",
+        "x-class": true,
+        "properties": {"count": {"type": "integer"}},
+        "enum": ["a"]
+    }}});
+    let class_error = contract_error(verify_defs(&tied_class));
+    assert!(
+        class_error.contains("x-class"),
+        "`x-class` 骨架规则先命中：{class_error}"
+    );
+    assert!(
+        !class_error.contains("退役写法"),
+        "新三判不遮蔽既有的 `x-class` 判据：{class_error}"
+    );
+}
+
+/// 回归（AC-4）：写闸只有一份校验——`validate_schema`（同一实现）对顶层 `enum` / 裸 `const`
+/// / 不可 raw 键名三形态同样 `Err`（零第二份判据）。
+#[test]
+fn validate_schema与verify_defs同源() {
+    let cases = [
+        (
+            r#""Plain": {"enum": ["a", "b"]}"#,
+            "Plain",
+            "$defs.Plain.enum",
+        ),
+        (r#""T": {"const": "a"}"#, "T", "$defs.T.const"),
+        (
+            r#""T": {"type": "object", "properties": {"self": {"type": "string"}}}"#,
+            "T",
+            "$defs.T.properties.self",
+        ),
+    ];
+    for (defs, name, pointer) in cases {
+        // 镜像条目补齐（闸 ⑥ 先过），使本用例真正落到封闭词汇三判
+        let properties = format!("\"{name}\": {{\"$ref\": \"#/$defs/{name}\"}}");
+        let text = schema_text(defs, &properties);
+        let message = parse_error(validate_schema(FQN, &text));
+        assert!(
+            message.contains(pointer),
+            "写闸与装载期同源（同一实现报同一 pointer `{pointer}`）：{message}"
         );
     }
 }

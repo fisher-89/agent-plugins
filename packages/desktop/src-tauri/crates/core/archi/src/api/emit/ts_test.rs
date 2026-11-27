@@ -1,9 +1,12 @@
 //! `api::emit::ts`（`.i.ts` 渲染）的单元测试：七种协议映射（`object` →
-//! `export interface`、`enum` → `as const` + 同名 `type`、`x-class` → `interface` +
+//! `export interface`、封闭枚举 → 字面量联合、`x-class` → `interface` +
 //! 降级注释、标量 → 别名（不记 degraded）、`oneOf` / `anyOf` → union、`x-function` →
 //! `(…) => R` / `Promise<R>`、非 `required` → `{field}?: T`、显式 null → `T | null`
 //! 至多一次、数组元素位 → `(T | null)[]`）、透传 `export type { … } from`、
 //! 头注释、ambient-free 与无品牌类型、幂等与格式化器不动点（一律单引号）。
+//!
+//! 本变更相关：封闭词表的唯一形态是字面量联合（`enum` 关键字 / `as const` / 逐值 JSDoc
+//! 全部退役）、字段名原样不派生、第五参解析表在 TS 侧结构上不用。
 //!
 //! 零 mock：手写接口定义 JSON 经 `Contract::from_schema` 投影；`paths::ts_import_specifier`
 //! 真实调用；本文件零 `eprintln!`（警告单点在 `emit/mod.rs`）——以源码自证表达。
@@ -37,12 +40,17 @@ fn prepare_local(source: &str) -> (Contract, Value) {
     prepare(source, FQN, FILE)
 }
 
+/// 空解析表：本文件全部用例都在单元素内渲染（零跨元素 `$ref` 的 facet 递归）。
+fn no_schemas() -> BTreeMap<String, Value> {
+    BTreeMap::new()
+}
+
 /// 渲染（目录形态的 root；失败即断言失败）。
 ///
 /// 「空 scope」由**入参**表达（D46）：空查表 + 目录形态的 `EmitTarget`。
 fn render_source(source: &str) -> String {
     let (contract, schema) = prepare_local(source);
-    render(&contract, &schema, &meta(), &empty_scope())
+    render(&contract, &schema, &meta(), &empty_scope(), &no_schemas())
 }
 
 /// 空 scope 的 `EmitTarget`（空查表 + 目录形态；D46 的退化形态由入参表达）。
@@ -66,6 +74,7 @@ fn render_root(contract: &Contract, schema: &Value, meta: &ApiMeta, element_root
         schema,
         meta,
         &render_root_target_for(contract, element_root),
+        &no_schemas(),
     )
 }
 
@@ -248,28 +257,42 @@ fn render的函数指针与ref字段形态() {
 // enum / x-class / 标量 / oneOf
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-5 / AC-6）：`enum` → `as const` 数组 + 同名 `type`（值 / 类型共存），数组元素
-/// 一律单引号；零值 enum 形态可判。
+/// 正向（AC-3）：`oneOf` 全标量 `const` → **字面量联合**（单引号）；十分 `anyOf`
+/// 同形；零 `enum` 关键字、零 `as const` 数组、零逐值注释。
 #[test]
-fn render的enum为as_const与同名type() {
-    let text = render_types(r#"{"Mode": {"enum": ["a", "b"]}}"#);
+fn render的封闭枚举为字面量联合() {
+    for key in ["oneOf", "anyOf"] {
+        let text = render_types(&format!(
+            r#"{{"Mode": {{"{key}": [{{"const": "a"}}, {{"const": "b"}}]}}}}"#
+        ));
+        assert!(
+            text.contains("export type Mode = 'a' | 'b';"),
+            "{key} 全 const → 字面量联合（单引号）：\n{text}"
+        );
+        for forbidden in ["enum ", "as const", "(typeof "] {
+            assert!(
+                !text.contains(forbidden),
+                "MUST NOT 出 `{forbidden}`（旧形态已退役）：\n{text}"
+            );
+        }
+        assert!(
+            !text.contains("/*"),
+            "TS 侧逐值 JSDoc 零产出（留白可断言）：\n{text}"
+        );
+    }
+
+    // 混合分支：字面量与普通成员同拼一个 union
+    let mixed = render_types(r#"{"Mode": {"oneOf": [{"const": "a"}, {"type": "string"}]}}"#);
     assert!(
-        text.contains("export const Mode = ['a', 'b'] as const;"),
-        "as const 数组（单引号）：\n{text}"
-    );
-    assert!(
-        text.contains("export type Mode = (typeof Mode)[number];"),
-        "同名类型别名（同名值 / 类型共存）：\n{text}"
-    );
-    assert!(
-        !text.contains("[\"a\", \"b\"]"),
-        "数组字面量 MUST NOT 用双引号（prettier 不动点）：\n{text}"
+        mixed.contains("export type Mode = 'a' | string;"),
+        "混合分支拼 union：\n{mixed}"
     );
 
-    let empty = render_types(r#"{"None": {"enum": []}}"#);
+    // 空 union：`never`（既有 `union_of` 口径）
+    let empty = render_types(r#"{"None": {"oneOf": []}}"#);
     assert!(
-        empty.contains("export const None = [] as const;"),
-        "零值 enum 形态可判：\n{empty}"
+        empty.contains("export type None = never;"),
+        "空 union 落 `never`：\n{empty}"
     );
 }
 
@@ -451,7 +474,7 @@ fn render目录形态specifier() {
 }
 
 /// 边界（D41 / D46）：「空 scope」由**入参**表达——空查表 + 目录形态的 `EmitTarget`
-/// 传进四参 `render` 后与「有查表但零透传条目」形态**逐字相等**（MUST NOT 两套模板、
+/// 传进五参 `render` 后与「有查表但零透传条目」形态**逐字相等**（MUST NOT 两套模板、
 /// MUST NOT 第二个函数入口）；有透传条目而查表为空时只出注释、零 specifier。
 #[test]
 fn render的空scope由入参表达() {
@@ -466,7 +489,7 @@ fn render的空scope由入参表达() {
         "",
     );
     let (contract, schema) = prepare_local(&with_reexport);
-    let by_empty_table = render(&contract, &schema, &meta(), &empty_scope());
+    let by_empty_table = render(&contract, &schema, &meta(), &empty_scope(), &no_schemas());
     assert!(
         by_empty_table.contains("// 透传自 App.Frontend.Components.Agent.Input"),
         "查不到目标只留注释：\n{by_empty_table}"
@@ -489,12 +512,31 @@ fn render的空scope由入参表达() {
         },
     );
     assert_eq!(
-        render(&plain_contract, &plain_schema, &meta(), &empty_scope()),
-        render(&plain_contract, &plain_schema, &meta(), &filled),
+        render(
+            &plain_contract,
+            &plain_schema,
+            &meta(),
+            &empty_scope(),
+            &no_schemas()
+        ),
+        render(
+            &plain_contract,
+            &plain_schema,
+            &meta(),
+            &filled,
+            &no_schemas()
+        ),
         "无透传条目时查表不参与（空 scope 由入参表达、同一实现）"
     );
     assert!(
-        !render(&plain_contract, &plain_schema, &meta(), &filled).contains(" from '"),
+        !render(
+            &plain_contract,
+            &plain_schema,
+            &meta(),
+            &filled,
+            &no_schemas()
+        )
+        .contains(" from '"),
         "无透传条目零 import 语句"
     );
 }
@@ -1165,7 +1207,7 @@ fn render幂等与键序() {
 fn render形态为格式化器不动点() {
     let text = render_source(&mirrored_schema_text(
         FQN,
-        r#""Mode": {"enum": ["a", "b"]}, "Item": {"type": "object", "properties": {"a": {"type": "string"}}}"#,
+        r#""Mode": {"oneOf": [{"const": "a"}, {"const": "b"}]}, "Item": {"type": "object", "properties": {"a": {"type": "string"}}}"#,
         "",
     ));
     for line in text.lines() {
@@ -1251,7 +1293,7 @@ fn render的name取路径末段而非fqn末段() {
         form: EntryForm::SubdirModule,
         modules,
     };
-    let text = render(&contract, &schema, &meta(), &target);
+    let text = render(&contract, &schema, &meta(), &target, &no_schemas());
     assert!(
         text.contains("from '../archi.i'"),
         "specifier 的 `<name>` 取路径末段：\n{text}"
@@ -1274,7 +1316,7 @@ fn render的name取路径末段而非fqn末段() {
         form: EntryForm::SubdirModule,
         modules: std::mem::take(&mut empty),
     };
-    let degraded = render(&contract, &schema, &meta(), &target_without);
+    let degraded = render(&contract, &schema, &meta(), &target_without, &no_schemas());
     assert!(
         degraded.contains(&format!("// 透传自 {FQN}")),
         "查不到目标即只出注释：\n{degraded}"
@@ -1311,7 +1353,7 @@ fn render的查表值特殊字符() {
             form: EntryForm::SubdirModule,
             modules,
         };
-        let text = render(&contract, &schema, &meta(), &target);
+        let text = render(&contract, &schema, &meta(), &target, &no_schemas());
         let expected = paths::ts_import_specifier(EntryForm::SubdirModule, name);
         assert!(
             text.contains(&format!("from '{expected}'")),
@@ -1391,18 +1433,15 @@ fn ts_string_literal边界() {
     );
 }
 
-/// 异常（AC-23 ③ 关键行为 / D45）：`enum` 值经 `ts_string_literal` 后产出**合法 TS**；
+/// 异常（AC-23 ③ 关键行为 / D45）：`const` 值经 `ts_string_literal` 后产出**合法 TS**；
 /// 源码自证零 `format!("'{text}'")` 形态的裸插值。
 #[test]
-fn render的enum值经ts_string_literal() {
-    let text = render_types(r#"{"Mode": {"enum": ["it's a \"quote\"", "a\nb"]}}"#);
+fn render的const值经ts_string_literal() {
+    let text =
+        render_types(r#"{"Mode": {"oneOf": [{"const": "it's a \"quote\""}, {"const": "a\nb"}]}}"#);
     assert!(
-        text.contains(r#"export const Mode = ['it\'s a "quote"', 'a\nb'] as const;"#),
+        text.contains(r#"export type Mode = 'it\'s a "quote"' | 'a\nb';"#),
         "两成员各自经转义单点（合法 TS）：\n{text}"
-    );
-    assert!(
-        text.contains("export type Mode = (typeof Mode)[number];"),
-        "同名类型别名并存：\n{text}"
     );
 
     // 反例：源码内零裸插值形态、`ts_string_literal(` 调用在案
@@ -1456,7 +1495,7 @@ fn render的透传注释经ts_comment_text() {
         form: EntryForm::SingleFile,
         modules: BTreeMap::new(),
     };
-    let text = render(&contract, &schema, &meta(), &target);
+    let text = render(&contract, &schema, &meta(), &target, &no_schemas());
     let comments: Vec<&str> = text
         .lines()
         .filter(|line| line.starts_with("// 透传自 "))
@@ -1519,7 +1558,7 @@ fn 零serde_json_to_string生成字面量() {
 }
 
 // ---------------------------------------------------------------------------
-// 出口单形（D46 / AC-24）：四参带签名恰一、零异名孪生、render_scope 私有
+// 出口单形（D46 / AC-24）：五参带签名恰一、零异名孪生、render_scope 私有
 // ---------------------------------------------------------------------------
 
 /// 取源码内顶层函数体（自 `signature` 起的花括号配对区段；未命中即断言失败）。
@@ -1580,20 +1619,19 @@ fn scan_product_rs(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
     }
 }
 
-/// 正向（AC-24 ① / D46）：`emit/ts.rs` 内**带完整四参签名**的 `pub fn render` **恰 1**
-/// 命中（同时钉住「恰一个导出」「四参」「`target` 末位」「返回 `String`」四事实——
-/// MUST NOT 只数 `^pub fn render\(`，那形态在三参孪生与四参单形下同为 1）；行为面：
-/// 同一契约 + 同一 `EmitTarget` 经 `render(..)` 与经 `emit::render_target(..)` 分派产出
-/// 逐字相等（分派零额外语义）。
+/// 正向（AC-24 ① / D46）：`emit/ts.rs` 内**带完整五参签名**的 `pub fn render` **恰 1**
+/// 命中（同时钉住「恰一个导出」「五参」「解析表末位」「返回 `String`」；第五
+/// 参使签名超 100 字符 ⇒ rustfmt 折成多行，此处按多行形态钉；MUST NOT 只数
+/// `^pub fn render\(`）；行为面：同一契约 + 同一 `EmitTarget` 经 `render(..)` 与经
+/// `emit::render_target(..)` 分派产出逐字相等（分派零额外语义）。
 #[test]
-fn render出口单形四参签名恰一() {
+fn render出口单形五参签名恰一() {
     let source = include_str!("ts.rs");
-    const SIGNATURE: &str =
-        "pub fn render(contract: &Contract, schema: &Value, meta: &ApiMeta, target: &EmitTarget) -> String";
+    const SIGNATURE: &str = "pub fn render(\n    contract: &Contract,\n    schema: &Value,\n    meta: &ApiMeta,\n    target: &EmitTarget,\n    _schemas: &BTreeMap<String, Value>,\n) -> String {";
     assert_eq!(
         source.matches(SIGNATURE).count(),
         1,
-        "四参单形（`target` 末位、返回 `String`）恰 1 处（D46）"
+        "五参单形（解析表末位、返回 `String`）恰 1 处（D46）"
     );
     // 返回 `String`（纯函数、零错误面）：本渲染器不构造 `ApiError`
     assert!(
@@ -1608,9 +1646,10 @@ fn render出口单形四参签名恰一() {
         "",
     ));
     let target = empty_scope();
-    let direct = render(&contract, &schema, &meta(), &target);
+    let direct = render(&contract, &schema, &meta(), &target, &no_schemas());
     let dispatched =
-        crate::api::emit::render_target(&target, &contract, &schema, &meta()).expect("分派应成功");
+        crate::api::emit::render_target(&target, &contract, &schema, &meta(), &no_schemas())
+            .expect("分派应成功");
     assert_eq!(direct, dispatched, "分派零额外语义（两路逐字相等）");
 }
 
@@ -1794,6 +1833,7 @@ fn ts侧specifier转义零筛选() {
                 },
             )]),
         },
+        &no_schemas(),
     );
     let expected = paths::ts_import_specifier(EntryForm::SingleFile, dotted);
     assert_eq!(
@@ -1823,7 +1863,7 @@ fn ts侧specifier转义零筛选() {
                 },
             )]),
         };
-        let text = render(&contract, &schema, &meta(), &target);
+        let text = render(&contract, &schema, &meta(), &target, &no_schemas());
         let specifier = paths::ts_import_specifier(EntryForm::SubdirModule, name);
         let literal = ts_string_literal(&specifier);
         assert!(
@@ -1865,7 +1905,7 @@ fn 同一schema两侧形态收敛() {
         form: EntryForm::SingleFile,
         modules: BTreeMap::new(),
     };
-    let ts_text = render(&contract, &schema, &meta(), &target);
+    let ts_text = render(&contract, &schema, &meta(), &target, &no_schemas());
     assert!(
         ts_text.contains("run: (input: string) => boolean")
             || ts_text.contains("run(input: string)"),
@@ -1878,7 +1918,8 @@ fn 同一schema两侧形态收敛() {
         form: EntryForm::Crate,
         modules: BTreeMap::new(),
     };
-    let rust_text = crate::api::emit::rust::render(&contract, &schema, &meta(), &rust_target);
+    let rust_text =
+        crate::api::emit::rust::render(&contract, &schema, &meta(), &rust_target, &no_schemas());
     assert!(
         rust_text.contains("fn run(input: &str) -> bool"),
         "Rust 侧同一 schema 出函数签名（`x-class` 内为 trait 方法，零「一侧出函数、另一侧出 Value」）：\n{rust_text}"
@@ -1924,7 +1965,7 @@ fn common_type按表展开且随表变化() {
     );
     let mut meta = meta();
     meta.common = custom;
-    let text = render(&contract, &schema, &meta, &empty_scope());
+    let text = render(&contract, &schema, &meta, &empty_scope(), &no_schemas());
     assert!(text.contains("Mapped<string>"), "产物经表展开：\n{text}");
     assert!(
         !text.contains("ok:"),
@@ -1945,7 +1986,7 @@ fn common_type空表回落普通分派() {
     let (contract, schema) = prepare_local(&source);
     let mut meta = meta();
     meta.common = BTreeMap::new();
-    let text = render(&contract, &schema, &meta, &empty_scope());
+    let text = render(&contract, &schema, &meta, &empty_scope(), &no_schemas());
     assert!(!text.contains("ok:"), "空表不产出资产文本形：\n{text}");
 }
 
@@ -2705,7 +2746,7 @@ fn render零产出与幂等() {
             "Unit": {"type": "object", "properties": {}},
             "Marker": {"type": "object", "x-class": true, "properties": {}},
             "Scalar": {"type": "integer"},
-            "Choice": {"enum": ["a", "b"]},
+            "Choice": {"oneOf": [{"const": "a"}, {"const": "b"}]},
             "Variant": {"oneOf": [{"type": "string"}, {"type": "integer"}]}"##,
         "",
     );
@@ -2722,5 +2763,186 @@ fn render零产出与幂等() {
     assert!(
         !illegal.contains("export declare const"),
         "`x-static` 非对象 ⇒ 零值声明、零 panic：\n{illegal}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 契约词汇的「类型出生能力」：字面量联合、旧形态退役、键名不派生（AC-3 / AC-4）
+// ---------------------------------------------------------------------------
+
+/// 异常（AC-3）：非字符串 `const`（数字 / 布尔）⇒ `to_string()` 原样（TS 字面量类型都不必
+/// 加引号）；字符串 `const` 的控制字符仍逐字符经 `ts_string_literal`。
+#[test]
+fn render的const标量字面量原样() {
+    let numbers = render_types(r#"{"Rank": {"oneOf": [{"const": 1}, {"const": 2}]}}"#);
+    assert!(
+        numbers.contains("export type Rank = 1 | 2;"),
+        "数字 `const` 原样（不加引号）：\n{numbers}"
+    );
+
+    let flags = render_types(r#"{"Flag": {"oneOf": [{"const": true}, {"const": false}]}}"#);
+    assert!(
+        flags.contains("export type Flag = true | false;"),
+        "布尔 `const` 原样：\n{flags}"
+    );
+
+    let controls =
+        render_types("{\"Tick\": {\"oneOf\": [{\"const\": \"a\\rb\"}, {\"const\": \"a\\tb\"}, {\"const\": \"a\\u2028b\"}]}}");
+    assert!(
+        controls.contains("export type Tick = 'a\\rb' | 'a\\tb' | 'a\\u2028b';"),
+        "控制字符逐字符经 `ts_string_literal`（合法 TS）：\n{controls}"
+    );
+}
+
+/// 边界（AC-3）：单 `const` 分支 ⇒ 无悬垂 `|`；`>1000` 字符的 `const` 文本 ⇒ 单行产出不
+/// panic；空 union 落 `never`（既有 `union_of` 口径）。
+#[test]
+fn render的字面量联合单分支与超长值() {
+    let single = render_types(r#"{"Only": {"oneOf": [{"const": "a"}]}}"#);
+    assert!(
+        single.contains("export type Only = 'a';"),
+        "单分支零悬垂 `|`：\n{single}"
+    );
+    assert!(
+        !single.contains("'a' |"),
+        "单分支 MUST NOT 出悬垂竖线：\n{single}"
+    );
+
+    let long = "长".repeat(1001);
+    let text = render_types(&format!(
+        r#"{{"Wide": {{"oneOf": [{{"const": "{long}"}}]}}}}"#
+    ));
+    let line = text
+        .lines()
+        .find(|line| line.starts_with("export type Wide"))
+        .unwrap_or_else(|| panic!("超长值仍产出单条声明：\n{text}"));
+    assert!(
+        line.chars().count() > 1000 && line.trim_end() == line,
+        "超长 `const` 单行产出（不折行、零尾随空白）：{}",
+        line.chars().count()
+    );
+}
+
+/// 正向（AC-4 / AC-3 旧形态退役）：封闭枚举产物零 `enum` 关键字、零 `as const` 数组、零
+/// 同名值对象（`export const`）、零逐值 JSDoc；源码面 `enum_block` 零命中、`type_block` 内
+/// 零 `"enum"` 数组触发支。
+#[test]
+fn render的旧枚举形态已整体退役() {
+    let text = render_types(
+        r#"{"Mode": {"oneOf": [{"const": "off", "description": "关"}, {"const": "on", "description": "开"}]}}"#,
+    );
+    for forbidden in [
+        "enum ",
+        "as const",
+        "(typeof ",
+        "export const",
+        "/**",
+        "// 关",
+    ] {
+        assert!(
+            !text.contains(forbidden),
+            "产物零 `{forbidden}`（旧形态与逐值注释一并退役）：\n{text}"
+        );
+    }
+    assert!(
+        text.contains("export type Mode = 'off' | 'on';"),
+        "唯一形态是字面量联合：\n{text}"
+    );
+
+    let source = include_str!("ts.rs");
+    assert_eq!(
+        source.matches("enum_block").count(),
+        0,
+        "`enum_block` 零命中（函数已删）"
+    );
+    let code_lines: Vec<&str> = source
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect();
+    assert!(
+        !code_lines.iter().any(|line| line.contains("as const")),
+        "源码代码面零 `as const` 产出点（仅注释可提旧形态）"
+    );
+    let type_body = function_body(source, "fn type_block(");
+    assert!(
+        !type_body.contains("\"enum\""),
+        "`type_block` 内零 `\"enum\"` 数组触发支：\n{type_body}"
+    );
+}
+
+/// 正向（AC-5 对照面）：TS 侧**不派生字段名**——camelCase 键与关键字键在 interface 中原样
+/// 出现（契约键即 wire 名），零 `r#` 形态、零 `#[serde` 形态。
+#[test]
+fn render的字段名原样不派生() {
+    let text = render_types(
+        r#"{"Item": {"type": "object", "properties": {"typeOnly": {"type": "boolean"}, "in": {"type": "integer"}, "abstract": {"type": "string"}}, "required": ["typeOnly"]}}"#,
+    );
+    assert!(
+        text.contains("typeOnly: boolean;"),
+        "camelCase 键原样：\n{text}"
+    );
+    assert!(
+        text.contains("in?: number;"),
+        "关键字键 `in` 原样（TS 不派生 `r#`）：\n{text}"
+    );
+    assert!(
+        text.contains("abstract?: string;"),
+        "关键字键 `abstract` 原样：\n{text}"
+    );
+    for forbidden in ["r#", "#[serde", "rename_all"] {
+        assert!(
+            !text.contains(forbidden),
+            "TS 侧零 `{forbidden}`（键名不派生）：\n{text}"
+        );
+    }
+    assert!(
+        !text.contains("typeOnly?: boolean;"),
+        "`required` 内的字段不带 `?`（可选轴只落自己的符号）：\n{text}"
+    );
+}
+
+/// 异常（AC-3 / 解析表零使用）：传入**非空**解析表与空表的产物逐字相同——TS 侧零 facet
+/// 递归、零 `$ref` 可解析性判定（解析表在签名里，结构上不用）。
+#[test]
+fn render的解析表不参与ts产物() {
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        r##""Item": {"type": "object", "properties": {"f": {"$ref": "#/$defs/Ghost"}}},
+            "Mode": {"oneOf": [{"const": "a"}]}"##,
+        "",
+    ));
+    let mut filled: BTreeMap<String, Value> = BTreeMap::new();
+    filled.insert(
+        "App.Backend.Infra.Agent".to_owned(),
+        serde_json::json!({"$defs": {"Ghost": {"type": "object", "x-function": {}}}}),
+    );
+    let with_table = render(&contract, &schema, &meta(), &empty_scope(), &filled);
+    let without_table = render(&contract, &schema, &meta(), &empty_scope(), &no_schemas());
+    assert_eq!(
+        with_table, without_table,
+        "解析表非空 / 空两形态产物逐字相同（TS 侧零 facet 递归）"
+    );
+    assert!(
+        with_table.contains("f?: Ghost;"),
+        "`$ref` 只按名字投影（零可解析性判定）：\n{with_table}"
+    );
+}
+
+/// 边界（AC-1 存量零 diff 锚）：`$defs` 为空 ⇒ 仅头注释（与今天逐字相同）；`properties: {}`
+/// ⇒ `export interface T {}` 逐字持衡。
+#[test]
+fn render的空defs与空属性表持衡() {
+    let empty = render_source(&empty_schema(FQN));
+    assert!(
+        empty
+            .lines()
+            .all(|line| line.is_empty() || line.starts_with("//")),
+        "`$defs` 为空 ⇒ 仅头注释：\n{empty}"
+    );
+
+    let zero_field = render_types(r#"{"Unit": {"type": "object", "properties": {}}}"#);
+    assert!(
+        zero_field.contains("export interface Unit {}"),
+        "`properties: {{}}` ⇒ 空 interface（逐字持衡）：\n{zero_field}"
     );
 }

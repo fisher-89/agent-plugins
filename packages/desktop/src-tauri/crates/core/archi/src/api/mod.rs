@@ -507,7 +507,8 @@ pub fn render_all(root: &Path, snapshot: &ApiSnapshot) -> Result<Vec<GeneratedFi
             form,
             modules: module_refs(contract, &elements, kind),
         };
-        let content = emit::render_target(&target, contract, schema_value, &meta)?;
+        let content =
+            emit::render_target(&target, contract, schema_value, &meta, &snapshot.schemas)?;
         files.push(GeneratedFile { path, content });
     }
     files.push(GeneratedFile {
@@ -597,8 +598,13 @@ fn categories_of(schema: Option<&Value>) -> BTreeMap<String, usize> {
 /// 单个 `$defs` 条目的形状名（开放字符串集；新增形状只改本函数）。
 ///
 /// 判序固定：纯 `$ref` → `reexport`；`x-class` → `class`；`oneOf` / `anyOf` →
-/// `variant`；`enum` → `enum`；标量（`string` / `integer` / `number` / `boolean` 且
-/// 无 `enum`）→ `scalar`；其余（含 `object`）→ `object`。
+/// `enum`（非空且**全 `const` 分支**，即封闭枚举）或 `variant`（其余 union：带负载分支
+/// 或空 union——两者都是「线形态未定义」的 union）；标量（`string` / `integer` /
+/// `number` / `boolean` 且无 `enum`）→ `scalar`；其余（含 `object`）→ `object`。
+///
+/// `enum` 类目**仍保留名字、只改触发点**：`enum` 数组已在装载期被
+/// [`schema::verify_defs`] 拒收，故旧路径自然归零，`categories` 的键集合不变
+/// （`INDEX.toml` 与面板零改动）。
 ///
 /// **MUST NOT 复用判据分类**（`check` 模块里按 kind 打标那个函数）：那是判据结果的
 /// 分类（`entry` / `contract` / …），随债数漂移；本函数是接口形状的静态分布，只随
@@ -613,11 +619,12 @@ fn def_shape(definition: &Value) -> &'static str {
     if object.get("x-class").and_then(Value::as_bool) == Some(true) {
         return "class";
     }
-    if object.contains_key("oneOf") || object.contains_key("anyOf") {
-        return "variant";
-    }
-    if object.contains_key("enum") {
-        return "enum";
+    if let Some(choices) = union_choices(definition) {
+        return if is_closed_enum(choices) {
+            "enum"
+        } else {
+            "variant"
+        };
     }
     if object
         .get("type")
@@ -627,6 +634,29 @@ fn def_shape(definition: &Value) -> &'static str {
         return "scalar";
     }
     "object"
+}
+
+/// union 分支集（`oneOf` 优先、`anyOf` 次之；两者皆缺 / 非数组 ⇒ `None`）——union 的
+/// **唯一识别点**（`def_shape` 的类目分派与 [`emit::rust`] 的形态判定共读它）。
+pub(crate) fn union_choices(definition: &Value) -> Option<&Vec<Value>> {
+    definition
+        .get("oneOf")
+        .or_else(|| definition.get("anyOf"))
+        .and_then(Value::as_array)
+}
+
+/// 封闭枚举判据（`enum` 类目与 Rust 封闭枚举形态的**唯一触发点**）：union **非空**且
+/// **每个分支都是标量 `const`**。
+///
+/// 空 union 与任一分支带负载都不是封闭词表——前者没有词，后者线形态未定义
+/// （`oneOf` 不定义判别位），故一律不是。
+pub(crate) fn is_closed_enum(choices: &[Value]) -> bool {
+    !choices.is_empty()
+        && choices.iter().all(|choice| {
+            choice.get("const").is_some_and(|constant| {
+                constant.is_string() || constant.is_number() || constant.is_boolean()
+            })
+        })
 }
 
 /// 取数器草稿（**只出字符串、零写盘**）：定位入口 → 读源 → 抽取 → **双草稿**

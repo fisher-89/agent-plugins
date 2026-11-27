@@ -1745,7 +1745,7 @@ path = [\"src/shapes/\"]
     let fqn = "App.Core.Shapes";
     temp.write_pair_schema(
         fqn,
-        &mirrored_schema_text(fqn, r##""Reexport": {"$ref": "#/$defs/Alpha"}, "Class": {"type": "object", "x-class": true}, "Variant": {"oneOf": [{"$ref": "#/$defs/Alpha"}]}, "Choice": {"enum": ["a", "b"]}, "Scalar": {"type": "integer"}, "Object": {"type": "object", "properties": {}}, "Both": {"type": "object", "x-class": true, "oneOf": [{"$ref": "#/$defs/Alpha"}]}, "Alpha": {"type": "object", "properties": {}}"##, ""),
+        &mirrored_schema_text(fqn, r##""Reexport": {"$ref": "#/$defs/Alpha"}, "Class": {"type": "object", "x-class": true}, "Variant": {"oneOf": [{"$ref": "#/$defs/Alpha"}]}, "Choice": {"oneOf": [{"const": "a"}, {"const": "b"}]}, "Scalar": {"type": "integer"}, "Object": {"type": "object", "properties": {}}, "Both": {"type": "object", "x-class": true, "oneOf": [{"$ref": "#/$defs/Alpha"}]}, "Alpha": {"type": "object", "properties": {}}"##, ""),
     );
     temp.write("src/shapes/lib.rs", "pub fn f() {}\n");
 
@@ -1757,10 +1757,10 @@ path = [\"src/shapes/\"]
         .find(|file| file.path == paths::index_path(temp.root()))
         .expect("INDEX 在案");
 
-    // 逐形状断言（判序：$ref → x-class → oneOf/anyOf → enum → 标量 → object）
+    // 逐形状断言（判序：$ref → x-class → oneOf/anyOf → enum（全 `const`）/ variant → 标量 → object）
     let expected_counts = [
         ("class", 2),    // Class + Both（x-class 先于 oneOf）
-        ("enum", 1),     // Choice
+        ("enum", 1),     // Choice（全 `const` 分支 ⇒ 封闭枚举）
         ("object", 2),   // Object + Alpha
         ("reexport", 1), // Reexport（纯 $ref alias）
         ("scalar", 1),   // Scalar
@@ -3402,14 +3402,14 @@ fn 整链路装配通过() {
 const FQN_PILOT: &str = "App.Backend.Infra.ArchiRuntime";
 
 // ---------------------------------------------------------------------------
-// 装配面的四参单形（D46 / AC-24 ③）与关键字目标的拒绝（D48 / D50 / AC-27）
+// 装配面的五参单形（D46 / AC-24 ③）与关键字目标的拒绝（D48 / D50 / AC-27）
 // ---------------------------------------------------------------------------
 
 /// 边界（**D46 / AC-24 ③** 源码自证）：`render_all` 只经 `emit::render_target` 分派——
-/// 本文件内 `emit::{rust,ts}::render` **零直连**；`render_target(` 的实参形态为四元且
-/// `target` 在首位（与 `emit/mod.rs` 的签名一致，MUST NOT 主张与渲染器同序）。
+/// 本文件内 `emit::{rust,ts}::render` **零直连**；`render_target(` 的实参形态为五元且
+/// `target` 在首位、解析表在末位（与 `emit/mod.rs` 的签名一致，MUST NOT 主张与渲染器同序）。
 #[test]
-fn render_all按四参单形调render_target() {
+fn render_all按五参单形调render_target() {
     let source = include_str!("mod.rs");
     for direct in ["rust::render(", "ts::render("] {
         assert!(
@@ -3423,28 +3423,33 @@ fn render_all按四参单形调render_target() {
         "`emit::render_target(` 恰 1 处调用（唯一分派入口）"
     );
 
-    // 实参形态：`&target, contract, schema_value, &meta`（`target` 首位，四元）
+    // 实参形态：`&target, contract, schema_value, &meta, &snapshot.schemas`
+    // （`target` 首位、FQN → 接口原文的只读解析表末位，五元）
     let start = source.find("emit::render_target(").expect("分派调用在案");
     let call = &source[start..];
     let end = call.find(')').expect("调用收尾");
     let call = &call[..end];
-    for (index, argument) in ["&target", "contract", "schema_value", "&meta"]
-        .iter()
-        .enumerate()
-    {
+    let arguments = [
+        "&target",
+        "contract",
+        "schema_value",
+        "&meta",
+        "&snapshot.schemas",
+    ];
+    for (index, argument) in arguments.iter().enumerate() {
         assert!(
             call.contains(argument),
             "第 {} 个实参 `{argument}` 在案：{call}",
             index + 1
         );
     }
-    let order: Vec<usize> = ["&target", "contract", "schema_value", "&meta"]
+    let order: Vec<usize> = arguments
         .iter()
         .map(|argument| call.find(argument).expect("实参在案"))
         .collect();
     assert!(
         order.windows(2).all(|pair| pair[0] < pair[1]),
-        "实参序为 `(target, contract, schema, meta)`（`target` 首位）：{call}"
+        "实参序为 `(target, contract, schema, meta, schemas)`（`target` 首位、解析表末位）：{call}"
     );
 }
 
@@ -6179,5 +6184,159 @@ fn 出口面零别名与既有名单逐字不变() {
             block.contains(name),
             "既有出口名 `{name}` 逐字不变：{block}"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `def_shape` 的封闭枚举触发点：非空且全 `const`（AC-11）
+// ---------------------------------------------------------------------------
+
+/// 边界（AC-11）：`oneOf: []`（空 union）⇒ `variant`（「非空且全 `const`」的边界）；单
+/// `const` 分支 ⇒ `enum`；`$defs` 缺省（仅留白空表）⇒ `categories` 空表且不 panic。
+#[test]
+fn render_all的def_shape空union与单分支() {
+    let temp = TempDir::new("render-all-shape-edges");
+    temp.write_model(
+        "[element.\"App.Core.Edges\"]
+kind = \"module\"
+gate = \"warn\"
+path = [\"src/edges/\"]
+",
+    );
+    let fqn = "App.Core.Edges";
+    temp.write_pair_schema(
+        fqn,
+        &mirrored_schema_text(
+            fqn,
+            r##""Empty": {"oneOf": []}, "Single": {"oneOf": [{"const": "a"}]}, "AnySingle": {"anyOf": [{"const": "b"}]}, "Alpha": {"type": "object", "properties": {}}"##,
+            "",
+        ),
+    );
+    temp.write("src/edges/lib.rs", "pub fn f() {}\n");
+
+    let elements = [element(fqn, &["src/edges/"])];
+    let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
+    let files = render_all(temp.root(), &snapshot).expect("渲染应成功");
+    let index = files
+        .iter()
+        .find(|file| file.path == paths::index_path(temp.root()))
+        .expect("INDEX 在案");
+
+    with_entry_categories(&index.content, fqn, |categories| {
+        let counts: BTreeMap<&str, u64> = categories
+            .iter()
+            .map(|(shape, count)| (shape.as_str(), *count))
+            .collect();
+        assert_eq!(
+            counts.get("variant").copied(),
+            Some(1),
+            "空 union ⇒ `variant`（「非空且全 `const`」的边界）：\n{}",
+            index.content
+        );
+        assert_eq!(
+            counts.get("enum").copied(),
+            Some(2),
+            "单 `const` 分支（`oneOf` / `anyOf` 各一）⇒ `enum`：\n{}",
+            index.content
+        );
+        assert_eq!(
+            counts.get("object").copied(),
+            Some(1),
+            "零字段 object 归 `object`：\n{}",
+            index.content
+        );
+    });
+
+    let blank = TempDir::new("render-all-shape-blank");
+    blank.write_model(
+        "[element.\"App.Core.Blank\"]
+kind = \"module\"
+gate = \"warn\"
+path = [\"src/blank/\"]
+",
+    );
+    blank.write_pair_schema(
+        "App.Core.Blank",
+        &mirrored_schema_text("App.Core.Blank", "", ""),
+    );
+    blank.write("src/blank/lib.rs", "pub fn f() {}\n");
+    let elements = [element("App.Core.Blank", &["src/blank/"])];
+    let snapshot = load_contracts(blank.root(), &elements).expect("装载应成功");
+    let files = render_all(blank.root(), &snapshot).expect("留白元素渲染应成功");
+    let index = files
+        .iter()
+        .find(|file| file.path == paths::index_path(blank.root()))
+        .expect("INDEX 在案");
+    assert!(
+        !index.content.contains("[entry.categories]"),
+        "`$defs` 缺省 ⇒ `categories` 空表（整段省略）：\n{}",
+        index.content
+    );
+}
+
+/// `INDEX.toml` 文本内某 entry 的 `categories` 子表（键 → 计数）；缺席即断言失败。
+fn with_entry_categories(index: &str, fqn: &str, check: impl FnOnce(&BTreeMap<String, u64>)) {
+    let document = index
+        .parse::<toml_edit::DocumentMut>()
+        .unwrap_or_else(|error| panic!("INDEX.toml 应可解析：{error}\n{index}"));
+    let entry = document["entry"]
+        .as_array_of_tables()
+        .expect("`[[entry]]` 在案")
+        .iter()
+        .find(|table| table["fqn"].as_str() == Some(fqn))
+        .unwrap_or_else(|| panic!("entry `{fqn}` 在案：\n{index}"));
+    let mut counts: BTreeMap<String, u64> = BTreeMap::new();
+    if let Some(categories) = entry["categories"].as_table() {
+        for (shape, item) in categories.iter() {
+            counts.insert(shape.to_owned(), item.as_integer().unwrap_or(0) as u64);
+        }
+    }
+    check(&counts);
+}
+
+/// 异常（AC-11）：`enum` 数组条目在装载期已被写闸拒收（`render_all` 结构上收不到）⇒
+/// `def_shape` 内 `"enum"` 数组触发支源码自证零命中；`INDEX` 零新类目键。
+#[test]
+fn render_all的def_shape零enum数组支() {
+    let source = include_str!("mod.rs");
+    let def_shape_body = source
+        .split("fn def_shape(")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .expect("`def_shape` 函数体在案");
+    assert!(
+        !def_shape_body.contains("contains_key(\"enum\")")
+            && !def_shape_body.contains("[\"enum\"]"),
+        "`def_shape` 内零 `enum` 数组触发支（条目在装载期即被拒）：\n{def_shape_body}"
+    );
+    assert!(
+        def_shape_body.contains("is_closed_enum("),
+        "`enum` 类目的唯一触发点是 `oneOf` / `anyOf` 全 `const`：\n{def_shape_body}"
+    );
+
+    // 写闸拒收：`enum` 数组条目进不了 `render_all`
+    let temp = TempDir::new("render-all-legacy-enum");
+    temp.write_model(
+        "[element.\"App.Core.Legacy\"]
+kind = \"module\"
+gate = \"warn\"
+path = [\"src/legacy/\"]
+",
+    );
+    temp.write_pair_schema(
+        "App.Core.Legacy",
+        &mirrored_schema_text("App.Core.Legacy", r##""Plain": {"enum": ["a", "b"]}"##, ""),
+    );
+    temp.write("src/legacy/lib.rs", "pub fn f() {}\n");
+    let elements = [element("App.Core.Legacy", &["src/legacy/"])];
+    let error = match load_contracts(temp.root(), &elements) {
+        Ok(_) => panic!("`enum` 数组条目应在装载期被写闸拒收"),
+        Err(error) => error,
+    };
+    match error {
+        ApiError::Contract(message) => {
+            assert!(message.contains("enum"), "文案点名退役写法：{message}")
+        }
+        other => panic!("期望 ApiError::Contract，实际：{other:?}"),
     }
 }

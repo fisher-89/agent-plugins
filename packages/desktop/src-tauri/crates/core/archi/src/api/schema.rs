@@ -152,7 +152,8 @@ fn collect_degraded<'a>(value: &'a Value, pointer: &str, marks: &mut Vec<(String
 /// ⑨ 复用三闸        [`super::contract::verify`]（七族名字 / 落点（封闭四处）/ `required ⊆ properties`
 ///                   / `x-class` 条目的三条预留名）
 ///                   + [`verify_defs`]（五条 `$defs` 规则、`x-class` 骨架四判据与两键形态、
-///                   两键落点单趟、降级词表）
+///                   两键落点单趟、封闭词表形态三判（`enum` 数组 / 裸 `const` / 不可 raw 键名）、
+///                   降级词表）
 /// ```
 ///
 /// `Contract.file` 取接口文件的 repo 相对路径（`<models>/<分层目录…>/<叶段>.schema.json`，
@@ -486,7 +487,10 @@ fn locate(file: &str, error: ApiError) -> ApiError {
 /// 5. **MUST NOT 按结构去重**（本函数不做任何合并动作即满足；相等形状不合并）；
 /// 6. 任意对象位的 `x-common.degraded` 取值 MUST ∈ 封闭四值词表 [`DEGRADED_KINDS`]
 ///    （**非字符串亦拒收**），错误点名该标记的 JSON pointer 并列四值；`x-common.note`
-///    不受校验、不进债表（自由注记）。
+///    不受校验、不进债表（自由注记）；
+/// 7. **封闭词表形态三判**（[`verify_closed_vocabulary`]，排在每条目末尾 ⇒ 既有五条规则与
+///    `x-class` 骨架规则先命中）：条目顶层 `enum` 拒收 / 条目顶层裸 `const` 拒收 / 条目第一层
+///    `properties` 的键 ∈ 四不可 raw 词拒收。
 ///
 /// `x-class: true` 的类型是 trait，**仅允许方法**，且骨架与行为面分两处声明。判序固定
 /// （判序即错误面）：
@@ -595,6 +599,9 @@ pub fn verify_defs(schema: &Value) -> Result<(), ApiError> {
             verify_class_members(name, definition)?;
         }
         collect_nested_refs(name, definition)?;
+        // 封闭词表形态三判：排在每条目末尾 ⇒ 既有五条 `$defs` 规则与 `x-class` 骨架规则
+        // 先命中（外层规则与骨架规则优先，MUST NOT 被新判据遮蔽）
+        verify_closed_vocabulary(name, definition)?;
     }
     // 两个新键的落点（全文档单趟；排在逐条目循环之后 ⇒ 外层规则先命中，`degraded` 词表仍在最后）
     verify_class_key_positions(schema)?;
@@ -621,6 +628,55 @@ pub fn verify_defs(schema: &Value) -> Result<(), ApiError> {
     }
     Ok(())
 }
+
+/// 封闭词表形态三判（同落 ⑨、**闸数不变**）：① 条目顶层 `enum` 数组 → 退役；② 条目顶层
+/// 裸 `const` → 只许在 union 分支内；③ 条目第一层 `properties` 的键命中四不可 raw 词 → 改名。
+///
+/// 判序 ①②③ 固定，且三条都排在既有五条 `$defs` 规则与 `x-class` 骨架规则**之后**（调用点见
+/// [`verify_defs`]）——外层规则与骨架规则优先，MUST NOT 被新判据遮蔽。错误文案的第一行自足
+/// （文件前缀由 [`locate`] 补；这里点名 JSON pointer 并给可执行出路）。
+///
+/// `enum` 数组退役的理由是「同一语义两种写法就是第二份真相」，且两条路此前各缺一半：`enum`
+/// 数组没有逐值语义落点、`oneOf` + `const` 在 Rust 侧落 `Variant0` 兜底。收敛后语义与形状
+/// 同处一处（`description` 在分支上、值在 `const` 上）。
+///
+/// 四词拒收的理由是**机械派生不成立**：`r#self` / `r#Self` / `r#super` / `r#crate` 是非法
+/// raw identifier，而「加后缀改名」不可从契约机械派生（手写侧 `in_degree` / `abstract_note`
+/// 就是人为加后缀）。故 fail-closed 并给出路「改名」，不在渲染期兜底。
+fn verify_closed_vocabulary(name: &str, definition: &Map<String, Value>) -> Result<(), ApiError> {
+    if definition.contains_key("enum") {
+        return Err(ApiError::Contract(format!(
+            "`$defs.{name}.enum` 是退役写法——封闭词表 MUST 写成 \
+             `\"oneOf\": [{{\"const\": \"<值>\", \"description\": \"<语义>\"}}, …]`：每个取值一个\
+             分支，`const` 承载线格式的值、`description` 承载该值的语义（Rust 出 unit variant + \
+             `///`，TS 出字面量联合）；`enum` 数组没有逐值语义的落点，故整条退役"
+        )));
+    }
+    if definition.contains_key("const") {
+        return Err(ApiError::Contract(format!(
+            "`$defs.{name}.const` 不允许裸写——`const` 只允许出现在 `oneOf` / `anyOf` 的分支内，\
+             且 MUST 是标量（字符串 / 数字 / 布尔）；单值类型直接写标量 `type`（如 \
+             `\"type\": \"string\"`），封闭词表写给 `oneOf` 的多个 `const` 分支"
+        )));
+    }
+    let Some(properties) = definition.get("properties").and_then(Value::as_object) else {
+        return Ok(());
+    };
+    for field in properties.keys() {
+        if !RAW_KEYWORD_DENIED.contains(&field.as_str()) {
+            continue;
+        }
+        return Err(ApiError::Contract(format!(
+            "`$defs.{name}.properties.{field}` 的名字不可表达——`{field}` 无法作 raw identifier\
+             （`r#{field}` 是非法 Rust），而「加后缀」不可从契约机械派生；出路是改名（例如 \
+             `own`）：契约没有第二套命名的声明位，故改名即改线格式，改名后按需同步调用方"
+        )));
+    }
+    Ok(())
+}
+
+/// 目标语言无法 raw 转义的关键字（见 [`verify_closed_vocabulary`] 的第三判）。
+const RAW_KEYWORD_DENIED: [&str; 4] = ["self", "Self", "super", "crate"];
 
 /// `x-class` 条目的两个行为面键的**形态**判点（单个对象 + 对象型 `x-function` + 禁项）。
 ///

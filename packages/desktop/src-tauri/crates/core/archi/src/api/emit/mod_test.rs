@@ -36,6 +36,11 @@ fn prepare_local(source: &str) -> (Contract, serde_json::Value) {
     prepare(source, FQN, FILE)
 }
 
+/// 空解析表：本文件全部用例都在单元素内渲染（零跨元素 `$ref` 的 facet 递归）。
+fn no_schemas() -> BTreeMap<String, serde_json::Value> {
+    BTreeMap::new()
+}
+
 /// 渲染目标（`kind` + 落点 + 元素根 + 入口形态 + 透传查表）。
 ///
 /// 机械随动（D40 / D41）：`form` / `modules` 两字段为此处显式给出——渲染器零形态推导、
@@ -103,8 +108,14 @@ fn identifiers(text: &str) -> Vec<String> {
 #[test]
 fn render_target的rust分派() {
     let (contract, schema) = prepare_local(&pilot_source());
-    let text = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta())
-        .expect("Rust 渲染应成功");
+    let text = render_target(
+        &target(GeneratedKind::Rust),
+        &contract,
+        &schema,
+        &meta(),
+        &no_schemas(),
+    )
+    .expect("Rust 渲染应成功");
 
     assert!(
         text.contains("pub struct LocalArchiCheck;"),
@@ -124,6 +135,7 @@ fn render_target的ts分派() {
         &contract,
         &schema,
         &meta(),
+        &no_schemas(),
     )
     .expect("TS 渲染应成功");
 
@@ -155,13 +167,20 @@ fn render_target两侧键集一致() {
     );
     let (contract, schema) = prepare_local(&source);
 
-    let rust = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta())
-        .expect("Rust 渲染应成功");
+    let rust = render_target(
+        &target(GeneratedKind::Rust),
+        &contract,
+        &schema,
+        &meta(),
+        &no_schemas(),
+    )
+    .expect("Rust 渲染应成功");
     let ts = render_target(
         &target(GeneratedKind::TypeScript),
         &contract,
         &schema,
         &meta(),
+        &no_schemas(),
     )
     .expect("TS 渲染应成功");
 
@@ -193,8 +212,14 @@ fn render_target两侧键集一致() {
 #[test]
 fn render_target单契约粒度() {
     let (contract, schema) = prepare_local(&pilot_source());
-    let text = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta())
-        .expect("渲染应成功");
+    let text = render_target(
+        &target(GeneratedKind::Rust),
+        &contract,
+        &schema,
+        &meta(),
+        &no_schemas(),
+    )
+    .expect("渲染应成功");
     assert!(!text.contains("[[entry]]"), "不产 INDEX 条目");
     assert!(!text.contains("\"$schema\""), "不产 schema.json");
 
@@ -211,10 +236,10 @@ fn render_target单契约粒度() {
     let mut single_form = target(GeneratedKind::TypeScript);
     single_form.form = EntryForm::SingleFile;
 
-    let directory_text =
-        render_target(&directory_form, &contract, &schema, &meta()).expect("目录形态渲染应成功");
-    let single_text =
-        render_target(&single_form, &contract, &schema, &meta()).expect("单文件形态渲染应成功");
+    let directory_text = render_target(&directory_form, &contract, &schema, &meta(), &no_schemas())
+        .expect("目录形态渲染应成功");
+    let single_text = render_target(&single_form, &contract, &schema, &meta(), &no_schemas())
+        .expect("单文件形态渲染应成功");
     assert!(
         directory_text.contains("from '../Input.i'"),
         "目录形态用 `../`：\n{directory_text}"
@@ -246,7 +271,13 @@ fn render_target泛型零支持() {
         let source = mirrored_schema_text(FQN, format!("\"{name}\": {definition}"), "");
         let (contract, schema) = prepare_local(&source);
         for kind in [GeneratedKind::Rust, GeneratedKind::TypeScript] {
-            let message = contract_error(render_target(&target(kind), &contract, &schema, &meta()));
+            let message = contract_error(render_target(
+                &target(kind),
+                &contract,
+                &schema,
+                &meta(),
+                &no_schemas(),
+            ));
             assert!(message.contains(name), "点名泛型类型：{message}");
             assert!(message.contains("泛型"), "点明泛型零支持：{message}");
         }
@@ -260,6 +291,7 @@ fn render_target泛型零支持() {
         &contract,
         &schema,
         &meta(),
+        &no_schemas(),
     ));
     assert!(
         message.contains("Wrapper<T>"),
@@ -272,8 +304,14 @@ fn render_target泛型零支持() {
 fn render_target无type值退化不panic() {
     let source = mirrored_schema_text(FQN, r#""Mystery": {"description": "无 type 键"}"#, "");
     let (contract, schema) = prepare_local(&source);
-    let rust = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta())
-        .expect("Rust 侧退化不 panic");
+    let rust = render_target(
+        &target(GeneratedKind::Rust),
+        &contract,
+        &schema,
+        &meta(),
+        &no_schemas(),
+    )
+    .expect("Rust 侧退化不 panic");
     assert!(rust.contains("Mystery"), "类型名仍在案：\n{rust}");
 
     let ts = render_target(
@@ -281,6 +319,7 @@ fn render_target无type值退化不panic() {
         &contract,
         &schema,
         &meta(),
+        &no_schemas(),
     )
     .expect("TS 侧退化不 panic");
     assert!(ts.contains("Mystery"), "类型名仍在案：\n{ts}");
@@ -297,8 +336,14 @@ fn render_target空契约() {
     let source = empty_schema(FQN);
     let (contract, schema) = prepare_local(&source);
 
-    let rust = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta())
-        .expect("空契约渲染应成功");
+    let rust = render_target(
+        &target(GeneratedKind::Rust),
+        &contract,
+        &schema,
+        &meta(),
+        &no_schemas(),
+    )
+    .expect("空契约渲染应成功");
     assert!(!rust.contains("pub use"), "空契约不出透传：\n{rust}");
     assert!(
         !rust.lines().any(|line| line.starts_with("impl ")),
@@ -316,6 +361,7 @@ fn render_target空契约() {
         &contract,
         &schema,
         &meta(),
+        &no_schemas(),
     )
     .expect("空契约 TS 渲染应成功");
     assert!(!ts.contains("export "), "空契约不出 export：\n{ts}");
@@ -347,13 +393,20 @@ fn render_target零写盘源码自证() {
 fn render_target载元单点() {
     let (contract, schema) = prepare_local(&pilot_source());
     let meta = meta();
-    let rust = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta)
-        .expect("Rust 渲染应成功");
+    let rust = render_target(
+        &target(GeneratedKind::Rust),
+        &contract,
+        &schema,
+        &meta,
+        &no_schemas(),
+    )
+    .expect("Rust 渲染应成功");
     let ts = render_target(
         &target(GeneratedKind::TypeScript),
         &contract,
         &schema,
         &meta,
+        &no_schemas(),
     )
     .expect("TS 渲染应成功");
 
@@ -406,8 +459,14 @@ fn missing_x_class_source() -> String {
 #[test]
 fn render_target的x_class警告不影响返回值() {
     let (contract, schema) = prepare_local(&missing_x_class_source());
-    let rust = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta())
-        .expect("警告不改变返回码（Ok）");
+    let rust = render_target(
+        &target(GeneratedKind::Rust),
+        &contract,
+        &schema,
+        &meta(),
+        &no_schemas(),
+    )
+    .expect("警告不改变返回码（Ok）");
     assert!(
         rust.contains("pub struct Runner"),
         "未标 x-class 按 object 渲染（函数指针结构体是合法意图）：\n{rust}"
@@ -442,8 +501,14 @@ fn render_target的x_class零警告形态() {
     for (name, definition, expected) in cases {
         let source = mirrored_schema_text(FQN, definition, "");
         let (contract, schema) = prepare_local(&source);
-        let text = render_target(&target(GeneratedKind::Rust), &contract, &schema, &meta())
-            .expect("零警告形态应渲染成功");
+        let text = render_target(
+            &target(GeneratedKind::Rust),
+            &contract,
+            &schema,
+            &meta(),
+            &no_schemas(),
+        )
+        .expect("零警告形态应渲染成功");
         assert!(
             text.contains(expected),
             "类型 {name} 的渲染形态（{expected}）在案：
@@ -489,6 +554,7 @@ fn render_target的x_class警告不进报告面() {
         &warning_contract,
         &warning_schema,
         &meta(),
+        &no_schemas(),
     )
     .expect("警告形态仍 Ok");
     let without_warning = render_target(
@@ -496,6 +562,7 @@ fn render_target的x_class警告不进报告面() {
         &plain_contract,
         &plain_schema,
         &meta(),
+        &no_schemas(),
     )
     .expect("无警告形态 Ok");
 
@@ -585,7 +652,7 @@ fn render_target的emit_target三字段面() {
         let mut emit_target = target(GeneratedKind::TypeScript);
         emit_target.form = form;
         let (contract, schema) = prepare_local(&pilot_source());
-        let text = render_target(&emit_target, &contract, &schema, &meta())
+        let text = render_target(&emit_target, &contract, &schema, &meta(), &no_schemas())
             .expect("三形态均可传入且渲染成功");
         assert!(
             text.contains("export interface LocalArchiCheck"),
@@ -651,8 +718,10 @@ fn render_target的emit_target三字段面() {
 fn render_target删两字段零行为影响() {
     let (contract, schema) = prepare_local(&pilot_source());
     let emit_target = target(GeneratedKind::Rust);
-    let first = render_target(&emit_target, &contract, &schema, &meta()).expect("首次渲染");
-    let second = render_target(&emit_target, &contract, &schema, &meta()).expect("二次渲染");
+    let first =
+        render_target(&emit_target, &contract, &schema, &meta(), &no_schemas()).expect("首次渲染");
+    let second =
+        render_target(&emit_target, &contract, &schema, &meta(), &no_schemas()).expect("二次渲染");
     assert_eq!(first, second, "同一三字段目标的产物逐字节相等");
 
     let bindings: [(&str, &str); 3] = [
@@ -702,7 +771,7 @@ fn render_target的modules查不到目标即退化() {
 
     let mut without_target = target(GeneratedKind::Rust);
     without_target.modules = BTreeMap::new();
-    let rust = render_target(&without_target, &contract, &schema, &meta())
+    let rust = render_target(&without_target, &contract, &schema, &meta(), &no_schemas())
         .expect("查不到目标不是错误（只出注释）");
     assert!(
         rust.contains("// 透传自 App.Frontend.Components.Agent.Input"),
@@ -719,8 +788,14 @@ fn render_target的modules查不到目标即退化() {
 
     let mut without_target_ts = target(GeneratedKind::TypeScript);
     without_target_ts.modules = BTreeMap::new();
-    let ts =
-        render_target(&without_target_ts, &contract, &schema, &meta()).expect("TS 同样只出注释");
+    let ts = render_target(
+        &without_target_ts,
+        &contract,
+        &schema,
+        &meta(),
+        &no_schemas(),
+    )
+    .expect("TS 同样只出注释");
     assert!(
         !ts.contains(" from '"),
         "TS 侧不产 specifier（零 import 语句）：\n{ts}"
@@ -734,10 +809,16 @@ fn render_target的modules查不到目标即退化() {
     ));
     let mut empty_modules = target(GeneratedKind::Rust);
     empty_modules.modules = BTreeMap::new();
-    let by_empty =
-        render_target(&empty_modules, &plain.0, &plain.1, &meta()).expect("零透传条目渲染成功");
-    let by_filled = render_target(&target(GeneratedKind::Rust), &plain.0, &plain.1, &meta())
-        .expect("查表在场但零透传条目");
+    let by_empty = render_target(&empty_modules, &plain.0, &plain.1, &meta(), &no_schemas())
+        .expect("零透传条目渲染成功");
+    let by_filled = render_target(
+        &target(GeneratedKind::Rust),
+        &plain.0,
+        &plain.1,
+        &meta(),
+        &no_schemas(),
+    )
+    .expect("查表在场但零透传条目");
     assert_eq!(
         by_empty, by_filled,
         "无透传条目时查表不参与（输出逐字相等）"
@@ -860,10 +941,10 @@ fn render_target的形态由调用方决定() {
     let mut as_single = target(GeneratedKind::TypeScript);
     as_single.form = EntryForm::SingleFile;
 
-    let directory =
-        render_target(&as_directory, &contract, &schema, &meta()).expect("目录形态渲染成功");
-    let single =
-        render_target(&as_single, &contract, &schema, &meta()).expect("单文件形态渲染成功");
+    let directory = render_target(&as_directory, &contract, &schema, &meta(), &no_schemas())
+        .expect("目录形态渲染成功");
+    let single = render_target(&as_single, &contract, &schema, &meta(), &no_schemas())
+        .expect("单文件形态渲染成功");
     assert_ne!(
         directory, single,
         "形态入参改变输出（证明形态不是渲染器自算的）"
@@ -965,8 +1046,9 @@ fn render_target是唯一分派入口且不与渲染器同序() {
     // ④ 行为面：分派与直接调用逐字相等
     let (contract, schema) = prepare_local(&pilot_source());
     let rust_target = target(GeneratedKind::Rust);
-    let dispatched = render_target(&rust_target, &contract, &schema, &meta()).expect("分派应成功");
-    let direct = super::rust::render(&contract, &schema, &meta(), &rust_target);
+    let dispatched = render_target(&rust_target, &contract, &schema, &meta(), &no_schemas())
+        .expect("分派应成功");
+    let direct = super::rust::render(&contract, &schema, &meta(), &rust_target, &no_schemas());
     assert_eq!(dispatched, direct, "分派零额外语义（逐字相等）");
 }
 
@@ -1055,25 +1137,26 @@ fn render_target与render产出逐字相等() {
 
     let rust_target = target(GeneratedKind::Rust);
     let rust_dispatched =
-        render_target(&rust_target, &contract, &schema, &meta).expect("分派应成功");
-    let rust_direct = super::rust::render(&contract, &schema, &meta, &rust_target);
+        render_target(&rust_target, &contract, &schema, &meta, &no_schemas()).expect("分派应成功");
+    let rust_direct = super::rust::render(&contract, &schema, &meta, &rust_target, &no_schemas());
     assert_eq!(
         rust_dispatched, rust_direct,
         "Rust 分支：分派与直接调用逐字相等（零额外语义）"
     );
 
     let ts_target = target(GeneratedKind::TypeScript);
-    let ts_dispatched = render_target(&ts_target, &contract, &schema, &meta).expect("分派应成功");
-    let ts_direct = super::ts::render(&contract, &schema, &meta, &ts_target);
+    let ts_dispatched =
+        render_target(&ts_target, &contract, &schema, &meta, &no_schemas()).expect("分派应成功");
+    let ts_direct = super::ts::render(&contract, &schema, &meta, &ts_target, &no_schemas());
     assert_eq!(
         ts_dispatched, ts_direct,
         "TypeScript 分支：分派与直接调用逐字相等"
     );
 }
 
-/// 边界（**D46**）：`render_target` 的实参序 `(target, contract, schema, meta)` 与两渲染
-/// 器的 `(contract, schema, meta, target)` **本就不同序**，MUST NOT 主张同序——签名逐字在案
-/// 即证；行为面：交换实参序后输出改变（`target` 不是可忽略的末项）。
+/// 边界（**D46**）：`render_target` 的实参序 `(target, contract, schema, meta, schemas)` 与两
+/// 渲染器的 `(contract, schema, meta, target, schemas)` **本就不同序**，MUST NOT 主张同序——
+/// 签名逐字在案即证；行为面：交换实参序后输出改变（`target` 不是可忽略的末项）。
 #[test]
 fn render_target实参序与渲染器不同() {
     let source = include_str!("mod.rs");
@@ -1085,11 +1168,12 @@ fn render_target实参序与渲染器不同() {
         ("emit/rust.rs", include_str!("rust.rs")),
         ("emit/ts.rs", include_str!("ts.rs")),
     ] {
+        // 第五参（只读解析表）使签名超 100 字符 ⇒ rustfmt 必折成多行
         assert!(
             renderer.contains(
-                "pub fn render(contract: &Contract, schema: &Value, meta: &ApiMeta, target: &EmitTarget) -> String"
+                "pub fn render(\n    contract: &Contract,\n    schema: &Value,\n    meta: &ApiMeta,\n    target: &EmitTarget,\n"
             ),
-            "`{path}` 的四参签名 `target` 在**末位**（定形串带类型，三参孪生下恒 0）"
+            "`{path}` 的五参签名 `target` 在次末位、解析表在末位（定形串带类型）"
         );
     }
 }
@@ -1098,8 +1182,8 @@ fn render_target实参序与渲染器不同() {
 // 第四类机械随动的归属二分（D53 / AC-30 ④）：测试相位侧的断言面与用例名
 // ---------------------------------------------------------------------------
 
-/// 边界（**D53 / AC-30 ④**——归测试相位，非实现相位）：四参单形落地后，两个 sidecar
-/// 用例文件的**调用面**已是四参（无一遗留三参 `render(..)` / `render_with_root(..)` /
+/// 边界（**D53 / AC-30 ④**——归测试相位，非实现相位）：五参单形落地后，两个 sidecar
+/// 用例文件的**调用面**已是五参（无一遗留三参 `render(..)` / `render_with_root(..)` /
 /// `render_with_target(..)`），且**断言面保留原意图**：签名自证串带完整类型、`pub use`
 /// 断言仍见证「模块路径取自 `paths::rust_module_path`」而非 FQN 派生。
 #[test]
@@ -1108,7 +1192,7 @@ fn 第四类随动的测试相位断言面() {
         ("emit/rust_test.rs", include_str!("rust_test.rs")),
         ("emit/ts_test.rs", include_str!("ts_test.rs")),
     ] {
-        // ① 调用面已是四参：三参形态与两个异名孪生的**调用**零命中
+        // ① 调用面已是五参：三参形态与两个异名孪生的**调用**零命中
         for legacy in [
             "render(&contract, &schema, &meta())",
             "render(contract, schema, meta)",
@@ -1117,16 +1201,17 @@ fn 第四类随动的测试相位断言面() {
         ] {
             assert!(
                 !source.contains(legacy),
-                "`{path}` 内零 `{legacy}`（调用形态已适配四参单形，D53 编译前置）"
+                "`{path}` 内零 `{legacy}`（调用形态已适配五参单形，D53 编译前置）"
             );
         }
 
         // ② 签名自证串带完整类型（不是裸 `^pub fn render\(` 计数）
+        // 五参使签名超 100 字符 ⇒ rustfmt 折多行；侧车的自证串按转义多行形态在案
         assert!(
             source.contains(
-                "pub fn render(contract: &Contract, schema: &Value, meta: &ApiMeta, target: &EmitTarget) -> String"
+                "pub fn render(\\n    contract: &Contract,\\n    schema: &Value,\\n    meta: &ApiMeta,\\n    target: &EmitTarget,\\n"
             ),
-            "`{path}` 的签名自证串带完整类型（钉住「四参 + `target` 末位 + 返回 `String`」）"
+            "`{path}` 的签名自证串带完整类型（钉住「五参 + 解析表末位 + 返回 `String`」）"
         );
     }
 
@@ -1140,5 +1225,244 @@ fn 第四类随动的测试相位断言面() {
     assert!(
         rust_source.contains("module.module_path"),
         "查表值只取 `ModuleRef.module_path`（真值源在 `paths::rust_module_path`，渲染器零派生）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 跨元素 `$ref` 的 facet 递归：链路 render_target → rust::render → facets →
+// def_entry → schemas（AC-9 / 解析表是只读读面）
+// ---------------------------------------------------------------------------
+
+/// 跨元素字段引用（`<相对前缀><目标叶段>.schema.json#/$defs/<名>`；前缀经 `paths` 单点求）。
+fn external_ref(target: &str, name: &str) -> String {
+    format!(
+        "{}{}.schema.json#/$defs/{name}",
+        crate::api::paths::ref_relative(FQN, target),
+        crate::api::paths::leaf_name(target)
+    )
+}
+
+/// 解析表条目：`FQN → 接口原文`（值就是 `.schema.json` 的 JSON 文本投影）。
+fn schema_table(entries: &[(&str, &str)]) -> BTreeMap<String, serde_json::Value> {
+    entries
+        .iter()
+        .map(|(fqn, source)| {
+            let value: serde_json::Value =
+                serde_json::from_str(source).expect("解析表夹具必须是合法 JSON");
+            ((*fqn).to_owned(), value)
+        })
+        .collect()
+}
+
+/// 单字段 struct 源文：`f` 指向给定 `$ref`。
+fn holder_ref_source(reference: &str) -> String {
+    mirrored_schema_text(
+        FQN,
+        format!(
+            r#""Holder": {{"type": "object", "properties": {{"f": {{"$ref": "{reference}"}}}}, "required": ["f"]}}"#
+        ),
+        "",
+    )
+}
+
+/// 从渲染文本里取 `#[derive(…)]` 的组装行（折行形态拼回单行便于逐项断言）。
+fn derive_items(text: &str, type_name: &str) -> String {
+    let anchor = format!("pub struct {type_name} {{");
+    let start = text
+        .find(&anchor)
+        .unwrap_or_else(|| panic!("文本应含 `{anchor}`"));
+    let head = &text[..start];
+    let derive_start = head
+        .rfind("#[derive(")
+        .unwrap_or_else(|| panic!("`{type_name}` 应有 derive 行"));
+    let tail = &head[derive_start..];
+    let end = tail.find(")]").expect("derive 行应有闭合");
+    tail[..end].replace(['\n', ' '], "")
+}
+
+/// 正向（AC-9）：跨元素目标条目存在但自身不可 `Eq`（目标 `properties` 含 `x-function` 字段）
+/// ⇒ 解析成功而 `Eq` 不推；与「目标缺席」两成因可分（零 `Err`）。
+#[test]
+fn render_target的跨元素解析成功但目标不可eq() {
+    let reference = external_ref("App.Backend.Infra.Agent", "Hooks");
+    let (contract, schema) = prepare_local(&holder_ref_source(&reference));
+    let present = schema_table(&[(
+        "App.Backend.Infra.Agent",
+        r#"{"$defs": {"Hooks": {"type": "object", "properties": {"run": {"x-function": {}}}}}}"#,
+    )]);
+    let resolved = render_target(
+        &target(GeneratedKind::Rust),
+        &contract,
+        &schema,
+        &meta(),
+        &present,
+    )
+    .expect("跨元素引用渲染应成功");
+    assert!(
+        resolved.contains("pub f: Hooks,"),
+        "跨元素 `$ref` 按名字投影：\n{resolved}"
+    );
+    assert!(
+        !derive_items(&resolved, "Holder").contains(",Eq"),
+        "目标自身含 `x-function` 字段 ⇒ `Eq` 不推（解析成功但不可 `Eq`）：\n{resolved}"
+    );
+
+    let absent = render_target(
+        &target(GeneratedKind::Rust),
+        &contract,
+        &schema,
+        &meta(),
+        &no_schemas(),
+    )
+    .expect("目标缺席同样不报错");
+    assert!(
+        !derive_items(&absent, "Holder").contains(",Eq"),
+        "目标缺席同样保守不推（两成因都零 `Err`）：\n{absent}"
+    );
+    assert!(
+        derive_items(&resolved, "Holder") == derive_items(&absent, "Holder"),
+        "两成因只在可解析性上不同，derive 面向下一致（不因分叉改写属性面）"
+    );
+}
+
+/// 组合（AC-9 全链路）：字段 `$ref` 指向外部契约（`.schema.json#/$defs/X`）+ 解析表含该 FQN
+/// 且其 `$defs` 含 `X` ⇒ facet 递归可解析（derive 出 `Eq`），且产品面 `pub use` 段形态不变。
+#[test]
+fn render_target的跨元素facet递归可解析() {
+    let reference = external_ref("App.Backend.Infra.Agent", "Boxed");
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        format!(
+            r#""Holder": {{"type": "object", "properties": {{"f": {{"$ref": "{reference}"}}}}, "required": ["f"]}}"#
+        ),
+        r#""file_stem": {"x-function": {"params": [], "returns": {"type": "string"}}}"#,
+    ));
+    let present = schema_table(&[(
+        "App.Backend.Infra.Agent",
+        r#"{"$defs": {"Boxed": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}}}"#,
+    )]);
+    let text = render_target(
+        &target(GeneratedKind::Rust),
+        &contract,
+        &schema,
+        &meta(),
+        &present,
+    )
+    .expect("全链路渲染应成功");
+    assert!(
+        derive_items(&text, "Holder").contains(",Eq"),
+        "目标可 `Eq` ⇒ facet 递归解析成功、derive 出 `Eq`：\n{text}"
+    );
+    assert!(
+        text.contains("pub f: Boxed,"),
+        "跨元素 `$ref` 按名字投影：\n{text}"
+    );
+    assert!(
+        text.contains("const _: fn() -> String = super::file_stem;"),
+        "产品面见证段形态不变：\n{text}"
+    );
+}
+
+/// 异常（AC-9）：三种缺席各判——目标 FQN 不在表 / 目标无 `$defs` 键 / `$defs` 内无该条目 ⇒
+/// 定位返 `None`、facet 保守（无 `Eq`）、零 `Err`、零 panic、产出一致（不因缺席而分叉）。
+#[test]
+fn render_target的三种缺席都不报错() {
+    let reference = external_ref("App.Backend.Infra.Agent", "Boxed");
+    let (contract, schema) = prepare_local(&holder_ref_source(&reference));
+    let cases = [
+        (
+            "目标 FQN 不在表",
+            schema_table(&[("App.Backend.Infra.Other", r#"{"$defs": {}}"#)]),
+        ),
+        (
+            "目标无 `$defs` 键",
+            schema_table(&[("App.Backend.Infra.Agent", r#"{"properties": {}}"#)]),
+        ),
+        (
+            "`$defs` 内无该条目",
+            schema_table(&[(
+                "App.Backend.Infra.Agent",
+                r#"{"$defs": {"Other": {"type": "string"}}}"#,
+            )]),
+        ),
+        ("空解析表", no_schemas()),
+    ];
+    let mut rendered: Vec<String> = Vec::new();
+    for (label, table) in &cases {
+        let text = render_target(
+            &target(GeneratedKind::Rust),
+            &contract,
+            &schema,
+            &meta(),
+            table,
+        )
+        .unwrap_or_else(|error| panic!("{label}：缺席不是错误（实际 {error:?}）"));
+        assert!(
+            text.contains("pub f: Boxed,"),
+            "{label}：字段行仍按名字照出：\n{text}"
+        );
+        assert!(
+            !derive_items(&text, "Holder").contains(",Eq"),
+            "{label}：facet 保守（无 `Eq`）：\n{text}"
+        );
+        rendered.push(text);
+    }
+    for text in &rendered[1..] {
+        assert_eq!(&rendered[0], text, "三种缺席的产物一致（不因缺席而分叉）");
+    }
+}
+
+/// 边界（AC-9）：本文件引用（`#/$defs/<名>`）在解析表为空时仍可解析（`local` 优先、零查表）；
+/// 解析表含大量无关 FQN（超大表）⇒ 产物与空表逐字相同。
+#[test]
+fn render_target的本文件引用优先与超大表() {
+    let (contract, schema) = prepare_local(&mirrored_schema_text(
+        FQN,
+        r##""Holder": {"type": "object", "properties": {"f": {"$ref": "#/$defs/Boxed"}}, "required": ["f"]},
+            "Boxed": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}"##,
+        "",
+    ));
+    let local_only = render_target(
+        &target(GeneratedKind::Rust),
+        &contract,
+        &schema,
+        &meta(),
+        &no_schemas(),
+    )
+    .expect("本文件引用在空表下仍可解析");
+    assert!(
+        derive_items(&local_only, "Holder").contains(",Eq"),
+        "本文件 `$defs` 优先（零查表即可判定 `Eq`）：\n{local_only}"
+    );
+
+    let mut huge: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    for index in 0..200 {
+        huge.insert(
+            format!("App.Frontend.Components.Unrelated{index}"),
+            serde_json::json!({"$defs": {"X": {"type": "object", "properties": {}}}}),
+        );
+    }
+    let with_huge = render_target(
+        &target(GeneratedKind::Rust),
+        &contract,
+        &schema,
+        &meta(),
+        &huge,
+    )
+    .expect("超大解析表不影响渲染");
+    assert_eq!(local_only, with_huge, "超大无关解析表 ⇒ 产物与空表逐字相同");
+
+    let empty_map = BTreeMap::new();
+    let empty_target_text = render_target(
+        &target(GeneratedKind::Rust),
+        &contract,
+        &schema,
+        &meta(),
+        &empty_map,
+    )
+    .expect("空 `BTreeMap` 与「无表」同形");
+    assert_eq!(
+        local_only, empty_target_text,
+        "空 `BTreeMap` 与「无表」同形（同一入参形态）"
     );
 }

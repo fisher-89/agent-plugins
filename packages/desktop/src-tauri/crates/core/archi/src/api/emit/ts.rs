@@ -1,5 +1,10 @@
-//! `.i.ts` 渲染：`export interface` / `as const` + `type` / 别名 / union /
+//! `.i.ts` 渲染：`export interface` / 字面量联合 / 别名 / union /
 //! 透传 `export type { … } from` / 头注释。
+//!
+//! **封闭枚举 → 字面量联合**：`oneOf` / `anyOf` 的标量 `const` 分支产出标量字面量
+//! （字符串经 [`ts_string_literal`] 转义、数字 / 布尔原样），与其余分支拼成 union。
+//! TS 侧**不派生字段名**（契约键即 wire 名原样出现），也不出 `enum` 关键字与值对象；
+//! 逐值 JSDoc 归后续变更。
 //!
 //! **值声明只在构造器或静态方法在场时产出**：`x-class` 条目保持 `export interface T { … }`
 //! （形状承诺），并在 `x-constructor` / `x-static` 至少一项在场时追加同名值声明
@@ -29,7 +34,7 @@ use super::{declared_ops, local_defs, notice_lines, reexport_defs, EmitTarget, M
 use crate::api::contract::{is_constructor, Contract, X_CONSTRUCTOR, X_STATIC};
 use crate::api::extract::{nullable_breakdown, Position};
 use crate::api::paths::{self, EntryForm};
-use crate::api::{protocol_key, reexport_target, ref_name, ApiMeta, CommonRule};
+use crate::api::{protocol_key, reexport_target, ref_name, union_choices, ApiMeta, CommonRule};
 
 /// TS 字符串字面量的唯一转义点（D45 闸二）：产出**单引号**串。
 ///
@@ -99,7 +104,16 @@ pub fn ts_comment_text(text: &str) -> String {
 /// 末段），查不到目标即只出注释、不产 specifier——MUST NOT 退化到 FQN 末段。
 /// specifier 值仍由 [`paths::ts_import_specifier`] 产出（零手算 `../` 层数）——**其
 /// 入口同级的真值待前端契约变更接线**，本期输出 MUST NOT 当既有真值（本仓零 `.i.ts`）。
-pub fn render(contract: &Contract, schema: &Value, meta: &ApiMeta, target: &EmitTarget) -> String {
+///
+/// **五参**：末位是「目标元素 FQN → 接口原文」的只读解析表（与 Rust 侧签名对齐，避免
+/// 分派器长两套形态）——TS 侧结构上不用它（无 facet 递归、无 `$ref` 可解析性判定）。
+pub fn render(
+    contract: &Contract,
+    schema: &Value,
+    meta: &ApiMeta,
+    target: &EmitTarget,
+    _schemas: &BTreeMap<String, Value>,
+) -> String {
     render_scope(contract, schema, meta, target.form, &target.modules)
 }
 
@@ -180,19 +194,12 @@ fn type_block(name: &str, definition: &Value, common: &BTreeMap<String, CommonRu
     if object.get("x-class").and_then(Value::as_bool) == Some(true) {
         return interface_block(name, object, true, common);
     }
-    if let Some(choices) = object
-        .get("oneOf")
-        .or_else(|| object.get("anyOf"))
-        .and_then(Value::as_array)
-    {
+    if let Some(choices) = union_choices(definition) {
         let members: Vec<String> = choices
             .iter()
-            .map(|choice| value_type(choice, Position::Field, common))
+            .map(|choice| union_member(choice, common))
             .collect();
         return format!("export type {name} = {};\n", union_of(&members));
-    }
-    if let Some(values) = object.get("enum").and_then(Value::as_array) {
-        return enum_block(name, values);
     }
     if is_scalar(object) {
         // 标量 → 别名（按设计退化、不记 degraded；MUST NOT 品牌类型）
@@ -286,19 +293,18 @@ fn value_declaration(
     format!("export declare const {name}: {{\n{body}}};\n")
 }
 
-/// `enum` → `as const` 数组 + 同名类型（`isolatedModules` 下同名值 / 类型共存）。
-fn enum_block(name: &str, values: &[Value]) -> String {
-    let members: Vec<String> = values
-        .iter()
-        .map(|value| match value {
-            Value::String(text) => ts_string_literal(text),
-            other => other.to_string(),
-        })
-        .collect();
-    format!(
-        "export const {name} = [{}] as const;\nexport type {name} = (typeof {name})[number];\n",
-        members.join(", ")
-    )
+/// union 单分支 → TS 成员：标量 `const` ⇒ 字面量（字符串经 [`ts_string_literal`] 转义，
+/// 数字 / 布尔 `to_string()` 原样），其余分支照旧交 [`value_type`]。
+///
+/// 封闭枚举的唯一产出点就是这里——`enum` 关键字与 `as const` 数组已退役（`enum` 数组
+/// 在装载期被拒收；函数保留即第二份形态）。
+fn union_member(choice: &Value, common: &BTreeMap<String, CommonRule>) -> String {
+    match choice.get("const") {
+        Some(Value::String(text)) => ts_string_literal(text),
+        Some(Value::Number(number)) => number.to_string(),
+        Some(Value::Bool(flag)) => flag.to_string(),
+        _ => value_type(choice, Position::Field, common),
+    }
 }
 
 /// `x-function` 对象（`api-op` fence 原文或 `$defs` 内嵌项同形）。
@@ -363,7 +369,8 @@ fn return_text(function: &Value, common: &BTreeMap<String, CommonRule>) -> Strin
 
 /// 映射规则查表（D54 ③ 的唯一查表面）：承载键经 [`protocol_key`] 求出，命中即取
 /// 本语言槽位并把 `{}` 换成本 schema 的内容位类型；未命中 / 无内容位 ⇒ 交回普通
-/// `type` 分派。**渲染器零 IO、四参签名不扩**（规则表已进 [`ApiMeta`]）。
+/// `type` 分派。**渲染器零 IO、五参：多一份只读解析表，形状面不扩**（规则表已进
+/// [`ApiMeta`]；解析表 TS 侧结构上不用）。
 fn common_type(
     schema: &Value,
     position: Position,

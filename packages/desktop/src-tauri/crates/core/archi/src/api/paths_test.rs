@@ -21,9 +21,10 @@ use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
 
 use super::paths::{
     checked_root, contract_path, dir_segments, directory, entry_candidates, entry_state,
-    generated_kind, generated_path, index_path, is_fqn, is_module_segment, language_of, leaf_name,
-    module_name, normalize_root, ref_relative, rust_module_path, schema_fqn, schema_path,
-    ts_import_specifier, EntryForm, EntryProblem, EntryState, GeneratedKind, Language,
+    generated_kind, generated_path, index_path, is_fqn, is_module_segment, is_rust_keyword,
+    language_of, leaf_name, module_name, normalize_root, ref_relative, rust_module_path,
+    schema_fqn, schema_path, ts_import_specifier, EntryForm, EntryProblem, EntryState,
+    GeneratedKind, Language,
 };
 
 // ---------------------------------------------------------------------------
@@ -2213,7 +2214,7 @@ fn render的from经ts_string_literal() {
             form: EntryForm::SubdirModule,
             modules,
         };
-        let text = render_ts(&contract, &schema, &meta(), &target);
+        let text = render_ts(&contract, &schema, &meta(), &target, &BTreeMap::new());
         let expected = ts_import_specifier(EntryForm::SubdirModule, name);
         let literal = crate::api::emit::ts::ts_string_literal(&expected);
         assert!(
@@ -2451,7 +2452,8 @@ fn rust_keywords单点持有() {
         "零 `matches!(token` 长臂（常量表之外的匹配臂形态即第二份判据）"
     );
 
-    // 判据体的合取二项：常量引用 + 字符集判定
+    // 判据体的合取二项：字符集判定在 `is_module_segment`、常量引用在唯一词表入口
+    // `is_rust_keyword`（两者合取仍成立，只是常量引用多一层单点包装）
     let start = source
         .find("pub(crate) fn is_module_segment(token: &str) -> bool {")
         .expect("`is_module_segment` 在案");
@@ -2459,12 +2461,21 @@ fn rust_keywords单点持有() {
     let end = body.find("\n}\n").expect("判据体收尾");
     let body = &body[..end];
     assert!(
-        body.contains("RUST_KEYWORDS"),
-        "判据体内引用常量表（合取第二项）：\n{body}"
+        body.contains("is_rust_keyword("),
+        "`is_module_segment` 调唯一词表入口（合取第二项）：\n{body}"
     );
     assert!(
         body.contains("is_ascii_alphabetic") && body.contains("is_ascii_alphanumeric"),
         "判据体内含字符集判定（合取第一项）：\n{body}"
+    );
+    let keyword_start = source
+        .find("pub(crate) fn is_rust_keyword(token: &str) -> bool {")
+        .expect("`is_rust_keyword` 在案（词表的唯一读取点）");
+    let keyword_body = &source[keyword_start..];
+    let keyword_end = keyword_body.find("\n}\n").expect("词表入口收尾");
+    assert!(
+        keyword_body[..keyword_end].contains("RUST_KEYWORDS"),
+        "词表入口引用常量表（合取第二项）：\n{keyword_body}"
     );
 
     // 关键字集零第二份：其余产品文件不各持一份关键字清单
@@ -2482,25 +2493,36 @@ fn rust_keywords单点持有() {
 }
 
 /// 异常（**D50** 源码自证 / 逐产品文件枚举——MUST NOT 目录级 `grep`：`*_test.rs` 的
-/// 字面量会把判据变噪声）：`paths.rs` 与 `emit/rust.rs` 内 `"r#"` 与 `r#{` 各 **0**；
+/// 字面量会把判据变噪声）：`paths.rs`（模块段不得出 `r#`）与 `emit/rust.rs`
+/// 的 `r#`（字段位的关键字转义，出在 [`field_ident`] 单点）两面分判；
 /// `paths.rs` 内零 `replace('-', '_')`（零清洗 = 零第二套命名的直接证据）。
 #[test]
 fn 零第二形态与零清洗() {
-    for (path, source) in [
-        ("paths.rs", include_str!("paths.rs")),
-        ("emit/rust.rs", include_str!("emit/rust.rs")),
-    ] {
-        assert_eq!(
-            source.matches("\"r#\"").count(),
-            0,
-            "`{path}` 内零 `\"r#\"`（改名成原始标识符是第二形态，MUST NOT）"
-        );
-        assert_eq!(
-            source.matches("r#{").count(),
-            0,
-            "`{path}` 内零 `r#{{`（`format!` 侧同样不产原始标识符）"
-        );
-    }
+    let paths = include_str!("paths.rs");
+    assert_eq!(
+        paths.matches("\"r#\"").count(),
+        0,
+        "`paths.rs` 内零 `\"r#\"`（模块段改名成原始标识符是第二形态，MUST NOT）"
+    );
+    assert_eq!(
+        paths.matches("r#{").count(),
+        0,
+        "`paths.rs` 内零 `r#{{`（`format!` 侧同样不产原始标识符）"
+    );
+
+    // `emit/rust.rs` 的 `r#` 只能出在字段名派生单点（关键字转义是本变更的正式词汇，而非清洗）：
+    // 字面量恰 1 处（`RAW_PREFIX` 常量）、产出恰 1 处（`format!("r#{{name}}")`）。
+    let rust = include_str!("emit/rust.rs");
+    assert_eq!(
+        rust.matches("\"r#\"").count(),
+        1,
+        "`emit/rust.rs` 的 `\"r#\"` 字面量恰 1 处（`RAW_PREFIX` 常量）"
+    );
+    assert_eq!(
+        rust.matches("r#{name}").count(),
+        1,
+        "`emit/rust.rs` 的 `r#{{name}}` 恰 1 处（`field_ident` 的关键字转义单点）"
+    );
 
     let source = include_str!("paths.rs");
     for cleaner in [
@@ -2511,6 +2533,105 @@ fn 零第二形态与零清洗() {
         assert!(
             !source.contains(cleaner),
             "`paths.rs` 内零 `{cleaner}`（末段零清洗：清洗即静默错配）"
+        );
+    }
+}
+
+/// 边界（**AC-5 / C9**）：`is_rust_keyword` 是 `RUST_KEYWORDS` 的唯一读取入口，两面分工
+/// 可逐值对拍——关键字词恒 `true`；合法非关键字段（`view` / `_x` / `a1`）恒 `false`。
+///
+/// `&str` 无 `None` 形态，故边界只经字符比较：空串 / NUL / emoji / 控制字符 / 超长（>1000
+/// chars）一律 `false`、零 panic、**零归一化**（首末空白不 trim、大小写不折叠、子串不命中）。
+/// 与 `is_module_segment` 的空串拒收同判（`""` 两边都 `false`）。
+///
+/// 合取两项的行为面证据：`is_module_segment(t) == (形态合法 ∧ !is_rust_keyword(t))`——词表
+/// 判定只有一处，模块段判定只是「字符集 ∧ 非关键字」的合取。
+#[test]
+fn is_rust_keyword词表入口与str边界() {
+    // 形态判据的测试侧对照物（`[A-Za-z_][A-Za-z0-9_]*`）：只用于对拍合取两项，不进产品面
+    let well_formed = |token: &str| {
+        let mut characters = token.chars();
+        match characters.next() {
+            Some(first) if first.is_ascii_alphabetic() || first == '_' => {}
+            _ => return false,
+        }
+        characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
+    };
+
+    for keyword in ["fn", "type", "in", "abstract", "match", "move", "loop"] {
+        assert!(is_rust_keyword(keyword), "关键字 `{keyword}` MUST 命中词表");
+    }
+
+    // 四不可 raw 词仍在词表内——「不可 raw」是装载期写闸的分档（`schema.rs`），词表入口零
+    // 分档：给它另立一套判据就是第二份真相
+    for denied in ["self", "Self", "super", "crate"] {
+        assert!(
+            is_rust_keyword(denied),
+            "`{denied}` 仍是关键字（词表入口零分档，拒收理由在装载期写闸）"
+        );
+        assert!(
+            !is_module_segment(denied),
+            "`{denied}` 作模块段 MUST 被拒（合取第二项命中）"
+        );
+    }
+
+    for legal in ["view", "_x", "a1", "A_b_C"] {
+        assert!(
+            !is_rust_keyword(legal),
+            "合法非关键字段 `{legal}` MUST 不命中词表"
+        );
+        assert!(
+            is_module_segment(legal),
+            "合法非关键字段 `{legal}` MUST 作模块段通过"
+        );
+    }
+
+    // 关键字组 / 合法组 / 形态非法组三段对拍（按组合并只为可读，判据同一条）
+    let groups: [&[&str]; 3] = [
+        &["fn", "in", "abstract", "self", "crate", "type"],
+        &["view", "_x", "a1"],
+        &["1abc", "a-b", "", "🎯", "a\nb"],
+    ];
+    for group in groups {
+        for &token in group {
+            assert_eq!(
+                is_module_segment(token),
+                well_formed(token) && !is_rust_keyword(token),
+                "`{token:?}` 的模块段裁定 MUST 等于「形态合法 ∧ 非关键字」（词表入口唯一）"
+            );
+        }
+    }
+
+    let boundaries: [&[&str]; 2] = [
+        &["", "\0", "\0fn", "🎯", "🎯fn"],
+        &["\n", "\r", "a\tb", " fn", "fn ", "FN"],
+    ];
+    for group in boundaries {
+        for &token in group {
+            assert!(
+                !is_rust_keyword(token),
+                "`{token:?}` MUST 不命中词表（零归一化、零 trim、零大小写折叠、零子串匹配）"
+            );
+        }
+    }
+    assert!(
+        !is_module_segment(""),
+        "空串两边同判：`is_module_segment(\"\")` 为 false（与词表入口的空串 false 一致）"
+    );
+
+    // 超长（>1000 chars）：命中判据是等值比较而非包含，故长串即便以关键字收尾 / 重复也不命中
+    let long = "a".repeat(1200);
+    let long_prefixed = format!("{long}fn");
+    let long_repeated = "fn".repeat(600);
+    for (label, token) in [
+        ("1200 个 a", long.as_str()),
+        ("超长且以 `fn` 收尾", long_prefixed.as_str()),
+        ("`fn` 重复 600 次", long_repeated.as_str()),
+    ] {
+        assert!(
+            !is_rust_keyword(token),
+            "{label}（{} chars）MUST 不命中词表、零 panic",
+            token.chars().count()
         );
     }
 }

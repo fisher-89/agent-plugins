@@ -22,6 +22,18 @@
 //! 配置读取（工作区配置唯一出口纪律零变化）；本 crate 只读盘不写盘（唯一写动作
 //! 在命令层）。
 
+// 生成类型与自动构造器由契约派发，落**实现入口同级**（本文件同目录的 `lib.i.rs`）。
+// `#[path]` 的值是**字面量**（Rust 属性值不能由函数求值）；入口同级后该值**恒为文件名
+// （零 `../`）**——等值性由 `paths_test` 断言「本行字面量 == `paths::generated_path(...)`
+// 的文件名」，MUST NOT 手写带目录段的形态。
+#[path = "lib.i.rs"]
+mod api_gen;
+// 本元素的 `$defs` 为空（类型全在 `dto.rs` 手写），glob 再导出当前是空集 ⇒ 触发
+// `unused_imports`；`clippy --fix` 会把这一行当未使用导入**直接删掉**，接线随即静默失效。
+// 故显式 `allow`：属迁移（类型逐类型搬进 `$defs`）后自然非空，届时可删但无害。
+#[allow(unused_imports)]
+pub use api_gen::*;
+
 pub mod api;
 pub mod diff;
 pub mod drift;

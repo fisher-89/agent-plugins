@@ -1558,13 +1558,21 @@ fn render_both(source: &str) -> (String, String) {
         form: EntryForm::SubdirModule,
         modules: BTreeMap::new(),
     };
+    let schemas = BTreeMap::new();
     let ts = emit::ts::render(
         &contract,
         &schema,
         &meta(),
         &target(GeneratedKind::TypeScript),
+        &schemas,
     );
-    let rust = emit::rust::render(&contract, &schema, &meta(), &target(GeneratedKind::Rust));
+    let rust = emit::rust::render(
+        &contract,
+        &schema,
+        &meta(),
+        &target(GeneratedKind::Rust),
+        &schemas,
+    );
     (ts, rust)
 }
 

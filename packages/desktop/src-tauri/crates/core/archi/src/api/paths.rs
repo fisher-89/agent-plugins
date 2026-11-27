@@ -214,7 +214,20 @@ pub(crate) fn is_module_segment(token: &str) -> bool {
     if !characters.all(|character| character.is_ascii_alphanumeric() || character == '_') {
         return false;
     }
-    !RUST_KEYWORDS.contains(&token)
+    !is_rust_keyword(token)
+}
+
+/// `token` 是否命中 [`RUST_KEYWORDS`]——「本地标识符是否需要 `r#`」的**唯一词表入口**。
+///
+/// 与 [`is_module_segment`] 分工明确：那条判「字符集 ∧ 非关键字」（路径派生的模块段是语法
+/// 位置，关键字一律拒），本条只回答「是不是关键字」这一半——`emit` 侧的字段名派生
+/// （`camelCase` → `snake_case` 后按需加 `r#`）要的是这一半。两个消费面共用同一张词表，
+/// MUST NOT 在 `emit` 里自抄第二份（否则模块段与字段位的判定会分叉）。
+///
+/// 四不可 raw 的词（`self` / `Self` / `super` / `crate`）不在本函数分档：它们在装载期写闸
+/// （`schema::verify_closed_vocabulary`）即被拒收，故本函数无需分档。
+pub(crate) fn is_rust_keyword(token: &str) -> bool {
+    RUST_KEYWORDS.contains(&token)
 }
 
 /// Rust 透传模块路径（`crate::<末段>`）——`pub use` 的模块段单点（D40）。

@@ -21,6 +21,11 @@
 //! 这两个字段、零派生、零读模型——MUST NOT 出现第二套形态判据（如「末段是否含 `.`」）
 //! 或第二套命名（如从 FQN 末段派生）。
 //!
+//! **解析表零拷贝、零读盘**：跨元素 `$ref` 的 facet 递归要能看见目标元素的 `$defs`，
+//! 该读面就是 [`render_target`] 的第五参——直接借用 [`super::ApiSnapshot::schemas`]
+//! （「FQN → 接口原文」），MUST NOT 新建 `$defs` 投影拷贝、MUST NOT 在渲染期读盘。
+//! `$ref` 字符串 → 目标 `$defs` 条目的定位单点是 [`def_entry`]。
+//!
 //! 边界：纯函数出 `String`，**零写盘**（写盘在 `crates/tools/archi-api-gen`）。
 
 pub mod rust;
@@ -28,11 +33,11 @@ pub mod ts;
 
 use std::collections::BTreeMap;
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use super::contract::Contract;
 use super::paths::{EntryForm, GeneratedKind};
-use super::{short_digest, ApiError, ApiMeta};
+use super::{reexport_target, ref_name, short_digest, ApiError, ApiMeta};
 
 /// 单份生成物的渲染目标（语言 + 入口形态 + 透传查表）。
 ///
@@ -66,18 +71,45 @@ pub struct ModuleRef {
 }
 
 /// 按语言分派渲染（单契约粒度；出文本、零写盘）。
+///
+/// `schemas` 是「目标元素 FQN → 接口原文」的只读表（[`super::ApiSnapshot::schemas`]，
+/// 唯一装配点是 [`super::render_all`]）：跨元素 `$ref` 的 facet 递归只读它，零新读盘。
 pub fn render_target(
     target: &EmitTarget,
     contract: &Contract,
     schema: &Value,
     meta: &ApiMeta,
+    schemas: &BTreeMap<String, Value>,
 ) -> Result<String, ApiError> {
     reject_generics(contract, schema)?;
     warn_missing_x_class(contract, schema);
     Ok(match target.kind {
-        GeneratedKind::Rust => rust::render(contract, schema, meta, target),
-        GeneratedKind::TypeScript => ts::render(contract, schema, meta, target),
+        GeneratedKind::Rust => rust::render(contract, schema, meta, target, schemas),
+        GeneratedKind::TypeScript => ts::render(contract, schema, meta, target, schemas),
     })
+}
+
+/// `$ref` 字符串 → 目标 `$defs` 条目（本文件与跨元素两种引用形态的**唯一定位点**）。
+///
+/// 同文件引用（`#/$defs/<名>`）走 `local`（本元素 `$defs`）；外部引用先经
+/// [`reexport_target`] 求出目标元素 FQN，再取该元素 `$defs` 的 [`ref_name`] 条目。
+/// 目标不在表 / 目标无 `$defs` / `$defs` 里没这个条目 ⇒ `None`——调用方（facet 推导）
+/// 按「推不出来」保守处理，MUST NOT 报错：不可解析 `$ref` 是判据面（`apiRefMissing`）
+/// 的事实，渲染期不是第二份判据。
+fn def_entry<'a>(
+    local: Option<&'a Map<String, Value>>,
+    from: &str,
+    reference: &str,
+    schemas: &'a BTreeMap<String, Value>,
+) -> Option<&'a Value> {
+    match reexport_target(from, reference) {
+        None => local?.get(&ref_name(reference)),
+        Some(target) => schemas
+            .get(&target)?
+            .get("$defs")?
+            .as_object()?
+            .get(&ref_name(reference)),
+    }
 }
 
 /// 「`properties` 全为函数却未标 `x-class`」的提示（**警告，非错误**）。
