@@ -5,8 +5,8 @@ use config::{MutationConfig, TestFramework};
 
 use super::super::runner::execute_plan;
 use super::{
-    detect_plans, extract_semver, is_version_at_least, to_posix, ResultsFormat, NEXTEST_PROFILE,
-    REGISTRY,
+    detect_plans, extract_semver, is_version_at_least, relative_posix, to_posix, ResultsFormat,
+    NEXTEST_PROFILE, REGISTRY,
 };
 use checks::parser::CoverageFormat;
 
@@ -659,6 +659,106 @@ async fn config注入_旗标与绝对posix路径拼接() {
         plan.config_args.as_deref(),
         Some(format!("--config \"{}/app/vitest.config.ts\"", to_posix(ws.root())).as_str()),
         "旗标 + suite root 下配置文件绝对 POSIX 路径"
+    );
+}
+
+/// 回归：cwd 经 `..` 回退到 suite root 之外（兄弟目录）时，文件清单 MUST 以
+/// cwd 相对 POSIX 保留（Node `path.relative` 语义）——`strip_prefix` 只接受
+/// 子树，曾把整批文件静默丢光并产出零 plan 的假绿。
+#[tokio::test]
+async fn cwd回退到root外_文件清单保持cwd相对() {
+    let ws = TempWs::new("cwd-outside-root");
+    ws.write("jest/jest.config.js", "module.exports = {};");
+    ws.write(
+        "applications/spreadsheet/core/app/dbsheet/a.test.ts",
+        "test",
+    );
+
+    let mut suite = suite(
+        "applications/spreadsheet/core/app/dbsheet",
+        TestFramework::VitePlus,
+        None,
+        None,
+        None,
+    );
+    suite.cwd = "../../../../../jest".to_owned();
+
+    let plans = {
+        // 版本探测臂 spawn 读 PATH；隔离为空使探测即刻失败（特性不支持语义）
+        let window = PathWindow::enter();
+        window.clear();
+        let plans = detect_plans(ws.root(), &[suite]);
+        drop(window);
+        plans.expect("探测应成功")
+    };
+
+    assert_eq!(plans.len(), 1, "cwd 在 root 之外不得丢 plan");
+    let plan = &plans[0];
+    assert_eq!(
+        plan.cwd,
+        ws.root().join("jest"),
+        "执行目录词法归约（.. 不残留）"
+    );
+    assert_eq!(
+        plan.files,
+        vec!["../applications/spreadsheet/core/app/dbsheet/a.test.ts"],
+        "cwd 相对 POSIX 按 Node path.relative 语义产出 .. 前缀"
+    );
+    assert!(
+        plan.omit_files_safe,
+        "降级对照面同管线枚举，cwd 相对形态一致仍可降级"
+    );
+}
+
+/// 回归：cwd 为含点段的上级目录（`..` 表达）时，归约后的执行根仍与文件清单
+/// 同源——覆盖 `strip_prefix` 词法 `..` 失败的另一形态。
+#[tokio::test]
+async fn cwd含点段上级_文件清单归约后相对() {
+    let ws = TempWs::new("cwd-dot-parent");
+    ws.write("app/src/a.test.ts", "test");
+
+    let mut suite = suite("app/src", TestFramework::VitePlus, None, None, None);
+    suite.cwd = "..".to_owned();
+
+    let plans = {
+        let window = PathWindow::enter();
+        window.clear();
+        let plans = detect_plans(ws.root(), &[suite]);
+        drop(window);
+        plans.expect("探测应成功")
+    };
+
+    assert_eq!(plans.len(), 1);
+    let plan = &plans[0];
+    assert_eq!(plan.cwd, ws.root().join("app"), "cwd 归约为上级目录");
+    assert_eq!(plan.files, vec!["src/a.test.ts"], "相对归约后的 cwd 输出");
+}
+
+/// 路径换算单点：子树 / 兄弟子树 / 同点三形态（Node `path.relative` 语义）。
+#[test]
+fn 路径相对换算_node_relative语义() {
+    assert_eq!(
+        relative_posix(Path::new("/ws"), Path::new("/ws/app/a.ts")),
+        "app/a.ts"
+    );
+    assert_eq!(
+        relative_posix(Path::new("/ws/jest"), Path::new("/ws/app/a.ts")),
+        "../app/a.ts"
+    );
+    assert_eq!(
+        relative_posix(Path::new("/ws/a/b"), Path::new("/ws/a/c/d.ts")),
+        "../c/d.ts"
+    );
+    assert_eq!(relative_posix(Path::new("/ws"), Path::new("/ws")), ".");
+}
+
+/// 跨根回落：Windows 跨盘符无公共根，直接给目标绝对 POSIX 路径。
+#[cfg(windows)]
+#[test]
+fn 路径相对换算_跨盘符回落绝对posix() {
+    assert_eq!(
+        relative_posix(Path::new("C:/ws"), Path::new("D:/ws/app/a.ts")),
+        "D:/ws/app/a.ts"
     );
 }
 

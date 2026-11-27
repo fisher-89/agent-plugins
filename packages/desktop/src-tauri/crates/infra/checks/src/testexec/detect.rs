@@ -255,7 +255,7 @@ pub(crate) fn detect_plans(
         // glob 文件探测（includes 缺省吃框架 default_glob；排除过滤 +
         // dot 目录剪枝；清单以 cwd 相对 POSIX 记）
         let abs_root = root.join(&suite.root);
-        let abs_cwd = abs_root.join(&suite.cwd);
+        let abs_cwd = lexical_normalize(&abs_root.join(&suite.cwd));
         let files = detect_files(root, &abs_root, &abs_cwd, suite, entry)?;
 
         // includes 全不命中 → 该 suite 不产 plan（空清单面）
@@ -370,11 +370,9 @@ fn collect_files(
                 if apply_excludes && is_excluded_by_suite(&project_rel, suite) {
                     continue;
                 }
-                // cwd 相对形式入清单（`{files}` 展开原料）
-                let Ok(cwd_rel) = path.strip_prefix(abs_cwd) else {
-                    continue;
-                };
-                detected.insert(to_posix(cwd_rel));
+                // cwd 相对形式入清单（`{files}` 展开原料）：cwd 在 suite root
+                // 之外（或含 `..`）时以 `..` 前缀表达，不得丢弃
+                detected.insert(relative_posix(abs_cwd, &path));
             }
         }
     }
@@ -436,6 +434,73 @@ pub(crate) fn to_posix(path: &Path) -> String {
 /// 路径 POSIX 化。
 fn to_forward_slash(path: &str) -> String {
     path.replace('\\', "/")
+}
+
+/// 词法归约（Node `path.resolve` 的解析面，零磁盘访问）：`.` 丢弃、`..` 回退
+/// 一个普通组件；绝对路径根上的 `..` 丢弃。
+fn lexical_normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if matches!(
+                    out.components().next_back(),
+                    Some(std::path::Component::Normal(_))
+                ) {
+                    out.pop();
+                } else if !out.has_root() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// `to` 相对 `from` 的 POSIX 路径（Node `path.relative` 同语义）：先词法归约
+/// 两侧，公共前缀之外以 `..` 回退；跨根（Windows 跨盘符 / 不同 UNC 共享）
+/// 回落 `to` 的绝对 POSIX 形态。`strip_prefix` 只接受 `from` 的子树，cwd 在
+/// suite root 之外时会把文件清单整批丢光——本函数是 `{files}` 换算唯一面。
+fn relative_posix(from: &Path, to: &Path) -> String {
+    let from = lexical_normalize(from);
+    let to = lexical_normalize(to);
+    if path_root(&from) != path_root(&to) {
+        return to_posix(&to);
+    }
+    let from_parts: Vec<_> = from.components().collect();
+    let to_parts: Vec<_> = to.components().collect();
+    let common = from_parts
+        .iter()
+        .zip(to_parts.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let mut parts = vec!["..".to_owned(); from_parts.len() - common];
+    parts.extend(
+        to_parts[common..]
+            .iter()
+            .map(|component| component.as_os_str().to_string_lossy().into_owned()),
+    );
+    if parts.is_empty() {
+        ".".to_owned()
+    } else {
+        parts.join("/")
+    }
+}
+
+/// 路径根段（Windows Prefix + RootDir）——跨盘符 / 跨共享判定面。
+fn path_root(path: &Path) -> PathBuf {
+    let mut root = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Prefix(_) | std::path::Component::RootDir => {
+                root.push(component.as_os_str());
+            }
+            _ => break,
+        }
+    }
+    root
 }
 
 /// 框架版本探测（CLI `detectFrameworkVersion` 同语义）：version_command 在
