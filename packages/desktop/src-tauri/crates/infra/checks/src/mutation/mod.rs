@@ -590,19 +590,19 @@ async fn run_suite(
             report::to_posix(&mutation_dir)
         ))
     })?;
-    // 整体复用门（取代段级门）：段报告在位且新鲜 → 零 spawn 复用，重解析进归并。
-    // 改任何一个输入文件都会使它失效——这是对「重跑必复现」的正当取舍：整体执行
-    // 没有段级断点，半成品由中断回读承担。
+    // 整体复用门（取代段级门）：仅**完整且达标**的上次结果可复用——段报告在位且
+    // 新鲜、非中断回读的部分成果、语义可解析、且按本次阈值判定 pass → 零 spawn
+    // 复用，重解析进归并；未达标 / 部分成果 / 不可解析一律失效重跑（失败结果不
+    // 缓存——下一轮必须重新执行）。改任何一个输入文件都会使它失效——整体执行
+    // 没有段级断点，半成品由中断回读承担（部分成果只留痕，不进复用门）。
     let newest_input = newest_input_mtime(root_path, &bucket.suite_root, reports_dir);
     let report_path = report::segment_report_path(&mutation_dir, 0);
-
-    let report = if report::segment_reusable(&report_path, newest_input) {
-        std::fs::read_to_string(&report_path)
-            .ok()
-            .and_then(|raw| parse_seg(bucket.tool.expect("可执行桶恒有执行器"), &raw).ok())
-    } else {
-        None
-    };
+    let report = reusable_report(
+        &report_path,
+        newest_input,
+        bucket.tool.expect("可执行桶恒有执行器"),
+        bucket.threshold,
+    );
     let (report, recovered, output) = match report {
         // 复用门命中：零 spawn ⇒ 本次零输出（`.log` 正文只有段头——与
         // test-execution 复用分支「落空记录」同口径）
@@ -654,13 +654,40 @@ async fn run_suite(
     Ok((block, output))
 }
 
+/// 复用候选判定（**仅成功结果可复用**）：段报告在位且新鲜（[`report::segment_reusable`]）
+/// → 完整性（[`report::is_complete_report`]：中断回读的部分成果不复用）→ 语义可
+/// 解析（`parse_seg`）→ 本次 suite 阈值下达标（[`build_mutation_block`]）。任一
+/// 不满足 → `None`（调用方清旧报告并重跑）。
+///
+/// 失败结果不缓存：未达标 / 部分成果 / 不可解析的报告即使文件面新鲜也 MUST NOT
+/// 顶替下一轮执行；报告文件本身照常留痕（部分成果只作观查面，不进复用门）。
+fn reusable_report(
+    report_path: &Path,
+    newest_input_ms: Option<u64>,
+    tool: MutationTool,
+    threshold: f64,
+) -> Option<MutationSegReport> {
+    if !report::segment_reusable(report_path, newest_input_ms) {
+        return None;
+    }
+    let raw = std::fs::read_to_string(report_path).ok()?;
+    if !report::is_complete_report(&raw) {
+        return None;
+    }
+    let parsed = parse_seg(tool, &raw).ok()?;
+    build_mutation_block(parsed.measured, threshold)
+        .pass
+        .then_some(parsed)
+}
+
 /// 单次整体执行：补丁写盘 → 经 `exec::run_shell` 执行（超时 / 双管道 / 进程树
 /// 击杀 / 取消单点驻 exec）→ 原始报告写盘 → 报告解析。
 ///
 /// **中断时回读部分成果**（`recovered = true`）：cargo-mutants 只在正常退出时写
 /// `outcomes.json`，被强杀时该文件缺失。但它边跑边写 `caught.txt` / `missed.txt` /
 /// `timeout.txt` / `unviable.txt`（每行一个突变体），故超时 / 取消时用这四个文件
-/// 合成计数面，已判完的成果不丢。合成的段报告照常写盘（留痕「本次为部分结果」）。
+/// 合成计数面，已判完的成果不丢。合成的段报告照常写盘（载荷携 `partial: true`
+/// 留痕「本次为部分结果」；复用门据此拒绝复用——下一轮必须重跑）。
 ///
 /// 失败按 [`SegmentFailure`] 分流（E5；取消走 `Cancelled` 变体，与 `Fatal` 面隔离）。
 /// 回读成功时**不走失败面**——部分结果的 score 照常判定（可能因分母偏小而不达标，

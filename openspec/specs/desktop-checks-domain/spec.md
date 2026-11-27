@@ -22,7 +22,7 @@ Desktop 后端 SHALL 以 checks 边界（边界分类学第六类）承接检查
 
 ### Requirement: core/checks 纯层零进程边界
 
-`crates/core/checks` SHALL 承载检查域纯层：报告 schema 模型（对齐 CLI zod 权威 schema）、coverage 解析器（istanbul / llvm-cov / coverage 文本）、**逐 suite 阈值判定与汇总布尔归并（conclusion 判定）**、完整性校验与诊断树确定性分支、复用门判定（mtime 新鲜度比较纯函数）。core/checks MUST NOT 进程 spawn、MUST NOT 依赖 tokio process、MUST NOT 依赖 Tauri；解析与聚合 SHALL 为纯函数，以 fixtures 直驱可测（corpus 黄金语料先行，文件系统扫描等 IO 侧落 infra）。
+`crates/core/checks` SHALL 承载检查域纯层：报告 schema 模型（对齐 CLI zod 权威 schema）、coverage 解析器（istanbul / llvm-cov / coverage 文本）、**逐 suite 阈值判定与汇总布尔归并（conclusion 判定）**、完整性校验与诊断树确定性分支、复用门判定（结论 + mtime 新鲜度比较纯函数）。core/checks MUST NOT 进程 spawn、MUST NOT 依赖 tokio process、MUST NOT 依赖 Tauri；解析与聚合 SHALL 为纯函数，以 fixtures 直驱可测（corpus 黄金语料先行，文件系统扫描等 IO 侧落 infra）。
 
 「逐 suite 阈值判定」的边界 SHALL 明确：跨 suite 的覆盖率数值 MUST NOT 在纯层被加权 / 摊平 / 圈定为 override 组——纯层对覆盖率只做两件事：**按单份子报告判通过与否**，以及**把各 suite 的布尔归并成汇总结论**。
 
@@ -441,7 +441,7 @@ test-execution runner 的 `execute()` 层 SHALL 设**跨 plan 总预算**（代�
 - **结论判据**：`determine_conclusion` SHALL 只读布尔面——`has_execution_error` → `Error`；`failed > 0` → `Fail`；**任一 suite 覆盖判定非通过**（含 `coverage == None` 形态）→ `Fail`；否则 `Pass`。签名 MUST NOT 接受 `CoverageBlock` / `MutationBlock` 或任何覆盖率数值；MUST NOT 读取 `summary` 的覆盖率 / 突变位置（那两个位置不复存在）。
 - **突变不参与汇总结论**：`SubReport.mutation` 块（解析保真面）MUST NOT 影响 `conclusion`。突变结论的唯一载体是 `MutationTest` 步载荷（`MutationTestOutcome.conclusion` / `score` / `threshold` / `counts`）与机械 checklist 第三槽（见 desktop-test-execution / desktop-mutation-testing）。
 - **完整性 checklist ③ 改以子报告布尔重算**：`check_integrity` 的 ③（conclusion 一致性）SHALL 以「`summary.failed` + 各 `sub_reports` 的覆盖判定布尔 + `problems` 是否存在 `execution_error`」经**同一个** `determine_conclusion` 重算并与 `summary.conclusion` 比对（MUST NOT 就地另写一套判据）；① 四计数对账、② plan 报告齐全性 MUST NOT 改变（两者与覆盖率无关）。
-- **复用门守恒**：复用门三条件（`plan_ids_match` + `check_integrity` 空 + `is_reusable`）语义 MUST NOT 变化；`is_reusable` 仍只判「结论非 `Error`」与「timestamp ≥ 最新输入 mtime」。
+- **复用门判据**：复用门三条件（`plan_ids_match` + `check_integrity` 空 + `is_reusable`）结构 MUST NOT 变化；`is_reusable` SHALL 判「结论为 `Pass`」与「timestamp ≥ 最新输入 mtime」——失败结论（`Fail` / `Error`）不复用（失败结果不缓存：下一轮必须重新执行）。
 - **报告自描述度**：删掉全局覆盖块后，「哪个 suite 覆盖未达 / 哪个 suite 无覆盖数据」SHALL 由 `problems`（`framework` = 该 suite 框架、`problem_type = CoverageFailure`）与 `diagnose_findings` 的逐 suite 措辞回答；`plans[]` MUST NOT 新增 per-plan 结论字段，`PlanIndexEntry` 字段面零改动。
 - **宽容解析不倒**：`parse_summary_report` 仍为宽容解析（无 `deny_unknown_fields`）——旧报告中的 `coverage` / `mutation` 键 SHALL 被忽略而不报错。
 
@@ -470,10 +470,10 @@ test-execution runner 的 `execute()` 层 SHALL 设**跨 plan 总预算**（代�
 - **WHEN** 新报告写盘后读 `summary.json`，以及读一份带 `coverage` / `mutation` 键的历史 `summary.json`
 - **THEN** 前者无这两个键；后者仍能被 `parse_summary_report` 解析成功（两键被忽略），结论 / 计数 / problems 面照旧可用
 
-#### Scenario: 复用门三条件守恒
+#### Scenario: 复用门仅复用成功结果
 
-- **WHEN** 既有 summary 齐整（integrity 空）、plan 集未变、输入 mtime 未变
-- **THEN** 仍复用该 summary 零 spawn；三者任一不成立即失效重跑，语义与改造前逐字一致
+- **WHEN** 既有 summary 齐整（integrity 空）、plan 集未变、输入 mtime 未变，且 `conclusion = Pass`
+- **THEN** 仍复用该 summary 零 spawn；`conclusion` 为 `Fail` / `Error` 时即使其余条件成立也失效重跑（失败结果不缓存）
 
 ### Requirement: 聚合链退役清单与解析保真面保留
 

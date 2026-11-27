@@ -4298,8 +4298,8 @@ fn 起草相位零删除与自相矛盾承诺() {
     }
 }
 
-/// 正向（AC-13 / AC-14）：`implementation-generator` 的契约纪律改写——只读自检（`check` 两轴
-/// + `remedy` 指路）、「不改契约」（相位锁保护、写入会被拒）、「两条出路」（改代码追上契约 /
+/// 正向：`implementation-generator` 的契约纪律改写——只读自检（`check` 两轴 + `remedy`
+/// 指路）、「不改契约」（相位锁保护、写入会被拒）、「两条出路」（改代码追上契约 /
 /// `backtrack` 回 `dev-design` 或架构页会话维护）；工具清单行仍只有 `archi_module` /
 /// `archi_api` / `archi_drift`。
 #[test]

@@ -1374,11 +1374,10 @@ fn 缺测面汇总可序列化() {
     );
 }
 
-/// 边界：组合链路 aggregate → reuse（入口 = 本模块）——缺采集 fail 汇总按既有
-/// fail 同待遇经 `checks::is_reusable` → `true`（`is_reusable` 只拒 error）；
-/// error 结论仍 → `false`。
+/// 边界：组合链路 aggregate → reuse（入口 = 本模块）——缺采集 fail 汇总不复用
+///（失败结果不缓存：下一轮必须重新执行）；error 结论同样 → `false`。
 #[test]
-fn 缺采集fail汇总仍可复用() {
+fn 缺采集fail汇总不复用() {
     let missing = report_with(
         "crates",
         "rust",
@@ -1392,8 +1391,8 @@ fn 缺采集fail汇总仍可复用() {
     let summary = build_summary_report(&[missing], "cmd", OffsetDateTime::now_utc());
     assert_eq!(summary.conclusion, Conclusion::Fail);
     assert!(
-        crate::is_reusable(&summary, None),
-        "覆盖缺失的 fail 报告按既有 fail 同待遇（复用门三条件守恒）"
+        !crate::is_reusable(&summary, None),
+        "缺采集的 fail 报告不复用（失败结果不缓存）"
     );
 
     let error_report = report_with(

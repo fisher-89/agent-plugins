@@ -793,18 +793,22 @@ async fn 复用门全链_rust_suite_pass面装配() {
     assert!(merged.pass, "90.0 >= 80");
 }
 
-/// 正向：未达阈 → `conclusion = Fail`、`feedback_text` 携 score / threshold
-/// 结论摘要 + 未达标 suite 明细 + 报告路径清单（报告指引式——MUST NOT 内联
-/// 存活突变体清单）。
+/// 异常（失败结果不缓存）：完整段报告但未达阈 → 不复用，重跑；两轮各一次真实
+/// spawn；`feedback_text` 仍为报告指引式——score / threshold 结论摘要 + 未达标
+/// suite 明细 + 报告路径清单（MUST NOT 内联存活突变体清单）。
 #[tokio::test]
-async fn 复用门全链_未达阈fail反馈文本报告指引式() {
-    let ws = ChainWs::new("fail", CARGO_SEG_FAIL);
+async fn 复用门全链_未达阈不复用且反馈文本报告指引式() {
+    let window = SpawnWindow::enter("fail-rerun");
+    let ws = ChainWs::with_config("fail-rerun", RUST_APP_CONFIG);
+    window.install_fake_cargo(&ws.root.join("app"));
+    window.set_cargo_outcomes(CARGO_SEG_FAIL);
     let files = vec!["app/src/lib.rs".to_owned()];
 
     let outcome = outcome_of(run(&ws, &files).await.expect("Fail 面应 Ok"));
     assert_eq!(outcome.conclusion, MutationTestConclusion::Fail);
     assert_eq!(outcome.score, 50.0, "5/10 = 50.0");
     assert_eq!(outcome.threshold, 80.0);
+    assert_eq!(window.records().len(), 1, "首跑恰一次 spawn");
 
     let feedback = &outcome.feedback_text;
     assert!(
@@ -823,6 +827,70 @@ async fn 复用门全链_未达阈fail反馈文本报告指引式() {
     assert!(
         !feedback.contains("\"outcome\": \"missed\"") && !feedback.contains("mutant #"),
         "零存活突变体内联: {feedback}"
+    );
+
+    // 第二轮：上一轮 fail 报告在盘且新鲜，但失败结果不缓存 → 仍真实重跑
+    let second = outcome_of(run(&ws, &files).await.expect("第二跑仍 Ok"));
+    assert_eq!(second.conclusion, MutationTestConclusion::Fail);
+    assert_eq!(
+        window.records().len(),
+        2,
+        "未达标报告不复用（第二次真实 spawn）"
+    );
+}
+
+/// 复用候选判据（失败结果不缓存）的纯判定面：完整且达标 → `Some`；未达标 /
+/// `partial` 部分成果 / 语义不可解析 / 文件缺失 → `None`（调用方清旧报告重跑）。
+/// 文件新鲜度以 `newest_input = None`（在位即新鲜）注入，聚判据落在完整性 /
+/// 语义 / 阈值三面。
+#[test]
+fn 复用候选_仅完整且达标结果可复用() {
+    let dir = tempfile::Builder::new()
+        .prefix("checks-mutation-reusable-report-")
+        .tempdir()
+        .expect("创建临时目录失败");
+    let path = dir.path().join("mutation-seg-0.json");
+
+    fs::write(&path, CARGO_SEG_PASS).expect("写完整达标报告");
+    assert!(
+        super::reusable_report(&path, None, MutationTool::CargoMutants, 80.0).is_some(),
+        "完整且达标（90 ≥ 80）→ 复用候选"
+    );
+
+    fs::write(&path, CARGO_SEG_FAIL).expect("写未达标报告");
+    assert!(
+        super::reusable_report(&path, None, MutationTool::CargoMutants, 80.0).is_none(),
+        "未达标（50 < 80）→ 不复用（失败结果不缓存）"
+    );
+
+    // 部分成果：即便计数面达标也 MUST NOT 复用
+    fs::write(
+        &path,
+        r#"{ "caught": 9, "missed": 1, "total_mutants": 10, "partial": true }"#,
+    )
+    .expect("写部分成果报告");
+    assert!(
+        super::reusable_report(&path, None, MutationTool::CargoMutants, 80.0).is_none(),
+        "partial 部分成果不复用（下一轮重跑）"
+    );
+
+    // JSON 合法但无计数面 → 语义不可解析 → 不复用
+    fs::write(&path, r#"{ "hello": 1 }"#).expect("写语义非法报告");
+    assert!(
+        super::reusable_report(&path, None, MutationTool::CargoMutants, 80.0).is_none(),
+        "语义不可解析不复用"
+    );
+
+    // 文件缺失 → 不复用
+    assert!(
+        super::reusable_report(
+            &dir.path().join("absent-seg.json"),
+            None,
+            MutationTool::CargoMutants,
+            80.0,
+        )
+        .is_none(),
+        "文件缺失不复用"
     );
 }
 

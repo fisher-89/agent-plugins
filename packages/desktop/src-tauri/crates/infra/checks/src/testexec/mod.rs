@@ -100,7 +100,8 @@ impl TestExecutionRunner for ProcessTestExecution {
 
 /// 一次 test-execution 执行全链。报告目录按槽位经 layout 单点派生（复用门
 /// `read_existing_summary` / `load_disk_sub_reports` / `prune_roots` 消费本槽位
-/// dir——跨树零复用与 baseline 树内 mtime 复用天然成立，判定逻辑零改动）。
+/// dir——跨树零复用与 baseline 树内 mtime 复用天然成立，判定逻辑零改动；仅上次
+/// `conclusion = Pass` 且输入未变才复用，失败结果不缓存——下一轮必须重新执行）。
 ///
 /// **`conclusion = Error` 的成因面收窄**为「结果工件解析失败 / harness 崩 / 框架
 /// 探测失败」；超时与瞬态耗尽由 `fault`（`RunFault::Environment`）承载、取消由
@@ -148,8 +149,9 @@ async fn execute(
         on_ref.emit(live.exec_id());
     }
 
-    // ② 完整性校验 + 复用门（既有 summary 在场且齐整且输入未变 → 复用零
-    // spawn；反馈边修复重入后 mtime 推进自动失效重跑）
+    // ② 完整性校验 + 复用门（既有 summary 在场、齐整、上次结论为 pass 且输入
+    // 未变 → 复用零 spawn；fail / error 一律失效重跑——失败结果不缓存，下一轮
+    // 必须重新执行；反馈边修复重入后 mtime 推进同样自动失效重跑）
     if let Some(existing) = read_existing_summary(&reports_dir) {
         let disk_reports = load_disk_sub_reports(&reports_dir, &existing);
         let plan_ids_match = plan_ids_match(&plans, &existing);

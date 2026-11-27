@@ -66,12 +66,17 @@ Test-execution SHALL 支持 jest / vitest / vite-plus（istanbul 族：`coverage
 
 ### Requirement: 复用门幂等
 
-复用门 SHALL 以输入新鲜度（mtime 递归比较）判定：输入未变 SHALL 复用上次 summary（零 spawn 零重跑、结论照旧），输入变化 SHALL 失效并全量重跑。复用门是 test-execution 相位自动化的幂等前提——自动触发 MUST NOT 演变为反复全量跑。
+复用门 SHALL 以上次结论与输入新鲜度共同判定：仅当上次 `conclusion = Pass` **且**输入未变（mtime 递归比较）时复用上次 summary（零 spawn 零重跑、结论照旧）；`conclusion = Fail` / `Error` 一律不复用——失败结果不缓存，下一轮必须重新执行才能反映修复或波动。输入变化 SHALL 失效并全量重跑。复用门是 test-execution 相位自动化的幂等前提——**成功结果**的自动触发 MUST NOT 演变为反复全量跑。
 
-#### Scenario: 输入未变复用
+#### Scenario: 输入未变且上次通过复用
 
-- **WHEN** 同一 change 连续两次进入 test-execution 相位且工作区输入未变
+- **WHEN** 同一 change 连续两次进入 test-execution 相位、工作区输入未变且上次 `conclusion = Pass`
 - **THEN** 第二次复用上次 summary，零测试进程 spawn，结论一致
+
+#### Scenario: 失败结果不复用
+
+- **WHEN** 上次 summary 的 `conclusion` 为 `Fail`（含覆盖率缺失判红）或 `Error`，且输入未变
+- **THEN** 复用门失效，全量重跑并重写 summary；MUST NOT 以旧 fail / error 结论顶替执行
 
 #### Scenario: 输入变化失效重跑
 
@@ -196,12 +201,12 @@ test-execution 的输出记录 SHALL 由 summary JSON 重序列化改为**脚本
 
 #### Scenario: 复用门零 spawn 仍回填引用
 
-- **WHEN** 复用门命中（既有 summary 齐整且输入未变），本次零 spawn
+- **WHEN** 复用门命中（既有 summary 齐整、输入未变且上次 `conclusion = Pass`），本次零 spawn
 - **THEN** 仍产生一条 `.log` 记录（空内容）并回填 `exec_id`；`<exec_id>.cmd` 可为缺省（无命令可记 ⇒ 面板呈「命令未记录」），零 spawn 语义不变
 
 ### Requirement: MutationTest 确定性门禁步与时序
 
-Walker SHALL 在 test-execution 相位以独立 MutationTest 门禁步（`ToolCommand::MutationTest`，经 `MutationRunner` port 由 checks 边界 infra 实现）承接突变测试，步序列为 `TestExecution → MutationTest`（开相与相位收口由相位机固定动作承载，不计入 `steps`，见 desktop-change-orchestration「相位入口与收口内化（计划图仅含真实步）」）：TestExecution 结论 pass（测试 / 覆盖率修绿）后才执行 MutationTest——「修复后再执行突变」由 walker 顺序执行天然保证；TestExecution fail / error 首败即升格（见「失败即升格交决策（零 agent 修复）」），相位内 MUST NOT 修复重入，只有决策 backtrack 重入并真重跑（复用门因输入变化失效）后才可能走到 MutationTest。MutationTest 绿跑零 WorkerAgent 会话；结论 pass 时相位以机械 checklist 由相位收口落账（verdict=pass）推进；中断（段执行 error / 超时）与未达标两时点均以升格收场（失败步 `on_fail=Escalate`，零会话，见 desktop-mutation-testing「失败升格交决策（报告指引式信息面）」）。runner 以 `Err` 收场（突变程序不可达 / 配置不支持 / 写盘失败）SHALL 停给用户（显式失败，与 WorkerAgent 失败同等呈现）。MutationTest 载荷 `ToolStepOutput::MutationTest` SHALL 为 conclusion + score / threshold + 计数 + 报告路径清单 + 反馈文本，载荷零 Serialize 不进 IPC（与 TestExecution 同式）；`ChangeStepKind::MutationTest` SHALL 入步词汇封闭集（18→19），经 `RunUpdate::Step` 上图（前端流程视图现有步骤渲染直接吃，零渲染改动）。
+Walker SHALL 在 test-execution 相位以独立 MutationTest 门禁步（`ToolCommand::MutationTest`，经 `MutationRunner` port 由 checks 边界 infra 实现）承接突变测试，步序列为 `TestExecution → MutationTest`（开相与相位收口由相位机固定动作承载，不计入 `steps`，见 desktop-change-orchestration「相位入口与收口内化（计划图仅含真实步）」）：TestExecution 结论 pass（测试 / 覆盖率修绿）后才执行 MutationTest——「修复后再执行突变」由 walker 顺序执行天然保证；TestExecution fail / error 首败即升格（见「失败即升格交决策（零 agent 修复）」），相位内 MUST NOT 修复重入，只有决策 backtrack 重入并真重跑（失败结果不进入复用门，重入必重跑）后才可能走到 MutationTest。MutationTest 绿跑零 WorkerAgent 会话；结论 pass 时相位以机械 checklist 由相位收口落账（verdict=pass）推进；中断（段执行 error / 超时）与未达标两时点均以升格收场（失败步 `on_fail=Escalate`，零会话，见 desktop-mutation-testing「失败升格交决策（报告指引式信息面）」）。runner 以 `Err` 收场（突变程序不可达 / 配置不支持 / 写盘失败）SHALL 停给用户（显式失败，与 WorkerAgent 失败同等呈现）。MutationTest 载荷 `ToolStepOutput::MutationTest` SHALL 为 conclusion + score / threshold + 计数 + 报告路径清单 + 反馈文本，载荷零 Serialize 不进 IPC（与 TestExecution 同式）；`ChangeStepKind::MutationTest` SHALL 入步词汇封闭集（18→19），经 `RunUpdate::Step` 上图（前端流程视图现有步骤渲染直接吃，零渲染改动）。
 
 #### Scenario: 绿后才跑突变
 
@@ -241,7 +246,7 @@ Walker SHALL 在 test-execution 相位以独立 MutationTest 门禁步（`ToolCo
 
 initialize 相位（desktop-change-orchestration「initialize 基线检查相位执行体」）的 test-execution 基线检查 SHALL 与 run 内 test-execution 相位的报告**分树隔离**：基线检查的 summary 与逐 suite 子报告 SHALL 落该 change 目录的 `reports/baseline` 子树（路径经 foundation layout 的 baseline 变体单点推导，见 desktop-checks-domain「baseline 报告槽位参数化」），run 内 test-execution 相位报告仍恒落 `reports/test`（零改动）——两树零混居，MUST NOT 以 exec_id / 时间戳在同目录内区分。基线检查 MUST NOT 执行 mutation（initialize 步序列无 MutationTest 步；summary 已无 `mutation` 位，该位在 run 内相位报告中同样不复存在——突变结论只走 MutationTest 步载荷）。
 
-复用门 SHALL 按报告树各自判定：`reports/baseline` 树自身的 summary 可在输入未变时复用（clean 后输入 mtime 推进自动失效、语义正确）；run 内 test-execution 相位步 MUST NOT 复用 baseline 树的 summary（决策：不做跨树复用红利），`reports/test` 树的复用门语义零改动。static-check 基线执行的输出记录（exec-outputs）SHALL 同锚落 baseline 树；`read_exec_output` 回查面 SHALL 覆盖 baseline 树（exec_id 跨树唯一，查找策略由 design 定稿——槽位参数或跨树查找，回查 MUST 可达）。基线检查结论 fail / error 时 SHALL NOT 走「失败即升格交决策（零 agent 修复）」的升格路径（initialize 语义：Terminal 停止 + Error / Fail 分文案，见 desktop-change-orchestration）——同一 TestExecution 步词在 initialize 表项为 `Terminal`、在 test-execution 表项为 `Escalate`，语义由表项声明承载。
+复用门 SHALL 按报告树各自判定：`reports/baseline` 树自身的 summary 可在输入未变且上次结论为 `Pass` 时复用（失败结论不缓存；clean 后输入 mtime 推进自动失效、语义正确）；run 内 test-execution 相位步 MUST NOT 复用 baseline 树的 summary（决策：不做跨树复用红利），`reports/test` 树的复用门语义零改动。static-check 基线执行的输出记录（exec-outputs）SHALL 同锚落 baseline 树；`read_exec_output` 回查面 SHALL 覆盖 baseline 树（exec_id 跨树唯一，查找策略由 design 定稿——槽位参数或跨树查找，回查 MUST 可达）。基线检查结论 fail / error 时 SHALL NOT 走「失败即升格交决策（零 agent 修复）」的升格路径（initialize 语义：Terminal 停止 + Error / Fail 分文案，见 desktop-change-orchestration）——同一 TestExecution 步词在 initialize 表项为 `Terminal`、在 test-execution 表项为 `Escalate`，语义由表项声明承载。
 
 #### Scenario: 基线报告落 baseline 树
 
@@ -255,8 +260,8 @@ initialize 相位（desktop-change-orchestration「initialize 基线检查相位
 
 #### Scenario: baseline 树自身复用与失效
 
-- **WHEN** initialize 基线检查 Terminal 失败后再发起（Clean 步恢复基线）重跑基线检查，与 worktree 输入未变即重跑两种情形
-- **THEN** 前者（clean 触碰输入 mtime）复用门失效全量重跑；后者输入未变时复用 baseline 树上次 summary（零 spawn、结论一致）
+- **WHEN** initialize 基线检查 Terminal 失败后再发起（Clean 步恢复基线）重跑基线检查，与 worktree 输入未变且上次 baseline summary 为 `Pass` 时重跑两种情形
+- **THEN** 前者失败结果不缓存（且 Clean 可能触碰输入 mtime）→ 全量重跑；后者输入未变时复用 baseline 树上次 pass summary（零 spawn、结论一致）
 
 #### Scenario: 基线回查可达
 
@@ -427,11 +432,11 @@ test-execution 的命令展开 SHALL 受平台命令行长度预算约束（「�
 | `crates/core/orchestration/src/port.rs` | port 契约三件套 | `ToolCommand::TestExecution { change, … }` / `ToolStepOutput::TestExecution(载荷双面：摘要 + 明细文本)` / `TestExecutionRunner` port（W4：spawn 不进 core）；载荷类型定义于 port 本地 |
 | `crates/core/orchestration/src/state.rs` | 步词汇扩展 | `ChangeStepKind::TestExecution` 入封闭集；`ChangeStepState` / `RunUpdate::Step` 形态不变（白名单式扩展） |
 | `crates/core/orchestration/src/walker.rs` | 门禁步接入 | test-execution 相位收敛点执行 runner；`Escalate` 前置分支（零会话落账 → `StepFlow::Upgraded` → 回 `phase_next` 交决策），相位内零反馈边（原独立计数器与上限 5 预算删除） |
-| `crates/core/checks`（aggregate / diagnose / reuse） | 纯层判定 | 聚合 conclusion、完整性校验 + 诊断树确定性分支、复用门 mtime 判定；fixtures + corpus 黄金可测 |
+| `crates/core/checks`（aggregate / diagnose / reuse） | 纯层判定 | 聚合 conclusion、完整性校验 + 诊断树确定性分支、复用门结论 + mtime 判定；fixtures + corpus 黄金可测 |
 | `crates/infra/checks/src/testexec/` | 进程执行 | detect（五框架注册表 + glob）/ runner（模板展开 + spawn + 超时 + 捕获）/ report（summary + 子报告写盘）；bun / go / pytest 显式 Err |
 | `crates/core/foundation/src/layout/mod.rs` | 报告路径推导 | change 报告目录（reports/test）常量组扩展；命名隔离双禁令唯一触点纪律不变 |
 | `src/types/generated/bindings.ts`（重导） | IPC 类型跟随 | ChangeStepKind 新变体出线；生成物随前置重导出更新，过期由提交前人工核对 |
-| `crates/infra/checks/src/testexec/mod.rs` | 报告槽位参数化消费 | 报告目录经槽位（test 缺省 / baseline）派生；复用门按各自报告树判定（baseline 树内 mtime 判定复用，跨树零复用）；聚合与诊断链零改动 |
+| `crates/infra/checks/src/testexec/mod.rs` | 报告槽位参数化消费 | 报告目录经槽位（test 缺省 / baseline）派生；复用门按各自报告树判定（baseline 树内结论 + mtime 判定复用，跨树零复用）；聚合与诊断链零改动 |
 | `crates/core/foundation/src/layout/mod.rs` | baseline 目录变体单点 | `reports/baseline` 后缀与 `reports/test` 同源派生（root / change 目录两变体）；零磁盘路径字面量扩散 |
 | `crates/infra/exec/src/lib.rs` | 输出记录同锚 | `record_exec_output` / `read_exec_output`（库函数）按槽位锚定 exec-outputs；exec_id 跨树唯一，回查覆盖两树 |
 | `crates/core/workflow/src/state.rs` | `OnFail` 变体面 | `OnFail::{ FeedbackLoop { limit }, Terminal, Escalate }`（`Escalate` 无载荷，语义 = 落账后交决策） |

@@ -43,15 +43,17 @@ fn pass结论且时间戳新鲜复用() {
     );
 }
 
-/// 正向：结论 fail + 时间戳新鲜 → true（fail 结论同属可复用——「结论非
-/// error」语义对偶面）。
+/// 异常：结论 fail + 时间戳新鲜 → false（失败结果不缓存——下一轮必须重新执行；
+/// 复用会以旧失败结论顶替重跑）。
 #[test]
-fn fail结论且时间戳新鲜仍复用() {
+fn fail结论不复用() {
     let report = summary(Conclusion::Fail, FRESH);
     assert!(
-        is_reusable(&report, Some(millis(OLDER_INPUT))),
-        "fail 报告是完整执行产出（非 error 残缺面）→ 同属可复用"
+        !is_reusable(&report, Some(millis(OLDER_INPUT))),
+        "fail 报告失效重跑（失败结果不缓存）"
     );
+    // 时间戳再新鲜、甚至无输入可比，结论门一票否决在先
+    assert!(!is_reusable(&report, None), "结论门在时间戳门之前");
 }
 
 /// 异常：结论 error → false（失效重跑——error 报告是部分执行，复用会以残缺
@@ -111,14 +113,15 @@ fn 输入mtime晚于时间戳失效重跑() {
     assert!(!is_reusable(&report, Some(newer_by_1ms)), "晚 1ms 即失效");
 }
 
-/// 边界：newest_input_mtime 为 None（空输入集）→ true（CLI
-/// tryReuseFreshSummary 逐字段对齐：无输入文件可比较 → 视为新鲜）。
+/// 边界：newest_input_mtime 为 None（空输入集）→ 对 pass 结论视为新鲜；
+/// fail / error 仍被结论门拒绝。
 #[test]
 fn 空输入集视为新鲜() {
     let pass = summary(Conclusion::Pass, FRESH);
-    let fail = summary(Conclusion::Fail, FRESH);
     assert!(is_reusable(&pass, None), "空输入集 → 视为新鲜复用");
-    assert!(is_reusable(&fail, None), "fail 结论同面");
+
+    let fail = summary(Conclusion::Fail, FRESH);
+    assert!(!is_reusable(&fail, None), "fail 结论不受空输入集影响");
 
     // 对照：None 新鲜性与时间戳相对值无关（时间戳仅要求可解析）
     let older = summary(Conclusion::Pass, OLDER_INPUT);

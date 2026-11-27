@@ -176,15 +176,15 @@ MutationTest 失败 SHALL 一律升格相位 fail（零 WorkerAgent 会话，不
 
 ### Requirement: 整体复用与执行中断的部分成果回读
 
-MutationTest SHALL 以**桶级**复用门保证幂等：原始报告 `mutation-seg-0.json` 在位且输入（突变面源文件 + 测试文件）mtime 未变 SHALL 复用该桶结果（零 spawn）；任一输入 mtime 变化 SHALL 使该桶失效重跑。整体执行没有中途断点，故复用粒度只能到桶——这是对「重跑必复现」的正当取舍，半成品由下一条的回读承担。复用判定 MUST NOT 演变为反复全量跑。
+MutationTest SHALL 以**桶级**复用门保证幂等，但只复用**成功结果**：原始报告 `mutation-seg-0.json` 在位、输入（突变面源文件 + 测试文件）mtime 未变、报告为完整执行（非中断回读的部分成果）、且按本次 suite 阈值判定达标（`build_mutation_block(...).pass`）SHALL 复用该桶结果（零 spawn）；任一输入 mtime 变化、上次未达标、报告为部分成果或不可解析 SHALL 使该桶失效重跑。失败结果不缓存——下一轮必须重新执行；成功结果的幂等复用 MUST NOT 演变为反复全量跑。整体执行没有中途断点，故复用粒度只能到桶——这是对「重跑必复现」的正当取舍，半成品由下一条的回读承担。
 
-执行被超时 / 取消 / 崩溃终止时，已判完的突变体 MUST NOT 随结果一并丢弃：cargo-mutants 边跑边往 `mutants.out/` 下的 `caught.txt` / `missed.txt` / `timeout.txt` / `unviable.txt` 追加「一行一突变体」，而 `outcomes.json` 只在正常退出时落盘。故终止时 SHALL 回读这四个增量文件、以行数合成计数面，并把该结果标记为**部分成果**（进程输出留痕「中断回读」）。**四个文件全缺或全空时 MUST NOT 合成零计数载荷**——那是「一件都没判完」，与「全被 caught」语义相反，必须走原中断面。
+执行被超时 / 取消 / 崩溃终止时，已判完的突变体 MUST NOT 随结果一并丢弃：cargo-mutants 边跑边往 `mutants.out/` 下的 `caught.txt` / `missed.txt` / `timeout.txt` / `unviable.txt` 追加「一行一突变体」，而 `outcomes.json` 只在正常退出时落盘。故终止时 SHALL 回读这四个增量文件、以行数合成计数面，并把该结果标记为**部分成果**（合成载荷携 `partial: true`；进程输出留痕「中断回读」）——部分成果照常写盘留痕，但 MUST NOT 进入复用门（下一轮重跑）。**四个文件全缺或全空时 MUST NOT 合成零计数载荷**——那是「一件都没判完」，与「全被 caught」语义相反，必须走原中断面。
 
 Stryker 无相应的增量成果文件（报告只在正常退出时由 jsonReporter 写出），故其终止面只有中断一条路径。
 
-#### Scenario: 输入未变零 spawn 复用
+#### Scenario: 输入未变且上次达标零 spawn 复用
 
-- **WHEN** 重入同一 change 的 MutationTest 且输入文件 mtime 未变
+- **WHEN** 重入同一 change 的 MutationTest、输入文件 mtime 未变、上次报告完整且按阈值达标
 - **THEN** 该桶复用既有 `mutation-seg-0.json`（零 spawn），归并块由该报告派生
 
 #### Scenario: 输入变化桶失效
@@ -192,10 +192,20 @@ Stryker 无相应的增量成果文件（报告只在正常退出时由 jsonRepo
 - **WHEN** 上次突变后某源文件或测试文件 mtime 更新
 - **THEN** 该桶失效重跑（MUST NOT 复用陈旧报告）
 
+#### Scenario: 上次未达标不复用
+
+- **WHEN** 上一轮段报告完整但 score < threshold（`conclusion = Fail`），重入且输入未变
+- **THEN** 该桶不复用，真实重跑；MUST NOT 以旧未达标报告顶替下一轮执行（失败结果不缓存）
+
+#### Scenario: 部分成果不复用
+
+- **WHEN** 上一轮为中断回读合成的部分成果（`partial: true`），重入且输入未变
+- **THEN** 该桶不复用，真实重跑；部分成果只作留痕 / 观查面，MUST NOT 进入复用门
+
 #### Scenario: 超时后回读部分成果
 
 - **WHEN** cargo-mutants 执行撞硬超时被强杀，此时 `caught.txt` 有 2 行、`missed.txt` 有 1 行
-- **THEN** 回读合成计数面 `{caught: 2, missed: 1, total_mutants: 3}`，结果为**部分成果**（非中断面），归并块与阈值判定照常进行
+- **THEN** 回读合成计数面 `{caught: 2, missed: 1, total_mutants: 3, partial: true}`，本次执行按部分结果照常做归并块与阈值判定（不丢已判成果）；该报告留痕可查，但下一轮复用门拒绝复用（重跑）
 
 #### Scenario: 零成果不伪装为跑完
 
@@ -255,7 +265,7 @@ Stryker 无相应的增量成果文件（报告只在正常退出时由 jsonRepo
 #### Scenario: 复用门不受影响
 
 - **WHEN** 取消后重入同一 change 的 MutationTest（输入未变）
-- **THEN** 已完成的桶仍走桶级复用门（零 spawn），未完成的桶重跑；报告与归并块口径零变
+- **THEN** 已完成且达标的桶仍走桶级复用门（零 spawn）；未达标 / 部分成果 / 未完成的桶重跑；报告与归并块口径零变
 
 ## Module Contract
 

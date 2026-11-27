@@ -7050,11 +7050,11 @@ fn 同集不变式双向断言() {
             })
             .is_none();
             assert!(
-                !(has_model_write && !unlocked),
+                !has_model_write || unlocked,
                 "{phase}/{role}：矩阵给模型写工具但挂锁（错配一）"
             );
             assert!(
-                !(unlocked && !has_model_write),
+                !unlocked || has_model_write,
                 "{phase}/{role}：不挂锁但零模型写工具（错配二）"
             );
         }

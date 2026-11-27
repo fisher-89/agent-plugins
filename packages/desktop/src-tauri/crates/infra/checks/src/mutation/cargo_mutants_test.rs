@@ -1179,6 +1179,12 @@ fn 中断回读_增量文件行数合成计数面() {
     fs::write(out.join("unviable.txt"), "").expect("写空 unviable");
 
     let payload = super::recover_partial(&ws.exec_dir).expect("有增量成果即应合成载荷");
+    let value: serde_json::Value = serde_json::from_str(&payload).expect("合成载荷应为 JSON");
+    assert_eq!(
+        value.get("partial"),
+        Some(&serde_json::Value::Bool(true)),
+        "合成载荷携 partial: true（复用门据此拒绝复用）"
+    );
     let parsed = checks::model::parse_cargo_mutants_seg(&payload).expect("合成载荷应可解析");
     assert_eq!(parsed.measured.killed, 2, "caught.txt 两行 → killed 2");
     assert_eq!(parsed.measured.survived, 1, "missed.txt 一行 → survived 1");

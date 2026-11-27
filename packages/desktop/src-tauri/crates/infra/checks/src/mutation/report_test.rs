@@ -15,9 +15,10 @@ use checks::model::{MutationBlock, MutationMeasured};
 use tempfile::TempDir;
 
 use super::{
-    cleanup_stryker_artifacts, merged_block_path, mtime_ms, segment_patch_name, segment_patch_path,
-    segment_report_name, segment_report_path, segment_reusable, stryker_config_name, to_posix,
-    write_merged_block, write_segment_patch, write_segment_report, STRYKER_TMP_DIR_NAME,
+    cleanup_stryker_artifacts, is_complete_report, merged_block_path, mtime_ms, segment_patch_name,
+    segment_patch_path, segment_report_name, segment_report_path, segment_reusable,
+    stryker_config_name, to_posix, write_merged_block, write_segment_patch, write_segment_report,
+    STRYKER_TMP_DIR_NAME,
 };
 
 /// 段报告 fixture（工具原始输出原样——含未知键与特殊字符，写盘不重排不丢）。
@@ -183,6 +184,37 @@ fn 复用门mtime判据_报告旧于输入则失效() {
     assert!(
         !segment_reusable(&path, Some(10_000)),
         "报告旧于输入 → 失效重跑（输入更新段失效）"
+    );
+}
+
+/// 完整性判据（失败结果不缓存）：`partial: true` 的中断回读部分成果 → 不复用；
+/// 缺键 / `false` / 非布尔值 → 完整；非法 JSON → 不可判完整（fail-closed 不复用）。
+#[test]
+fn 完整性判据_partial部分成果不复用() {
+    // 完整报告（缺键 / 显式 false / 非 true 值）
+    assert!(
+        is_complete_report(SEG_RAW),
+        "缺 partial 键 → 完整（工具原始报告形态）"
+    );
+    assert!(
+        is_complete_report(r#"{ "caught": 1, "partial": false }"#),
+        "partial=false → 完整"
+    );
+    assert!(
+        is_complete_report(r#"{ "caught": 1, "partial": "no" }"#),
+        "非 true 值 → 完整（仅 true 视为部分成果）"
+    );
+
+    // 部分成果
+    assert!(
+        !is_complete_report(r#"{ "caught": 9, "missed": 1, "partial": true }"#),
+        "partial=true → 部分成果（不复用）"
+    );
+
+    // 不可判完整（非法 JSON）→ fail-closed
+    assert!(
+        !is_complete_report("not json{{{"),
+        "非法 JSON → 不可判完整（不复用）"
     );
 }
 

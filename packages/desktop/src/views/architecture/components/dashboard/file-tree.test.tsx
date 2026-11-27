@@ -302,7 +302,9 @@ describe('FileTree 聚焦反查', () => {
       'App.Hit',
     );
 
-    expect(scroll).toHaveBeenCalledTimes(1);
+    // 滚动发生在挂载后的 passive effect：findBy 只保证 DOM 落地，effect 冲刷与
+    // RTL 的 waitFor 收尾（act 环境已关闭）存在任务调度竞争，负载下偶发 0 次。
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
     expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
     const [first] = scroll.mock.instances as HTMLElement[];
     expect(first?.getAttribute('data-path')).toBe('a/hit.ts');

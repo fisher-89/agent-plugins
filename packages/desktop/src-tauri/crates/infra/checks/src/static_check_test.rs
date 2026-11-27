@@ -235,6 +235,50 @@ async fn 失败形态_passed假_诊断捕获不丢() {
     );
 }
 
+/// 回归（失败结果不缓存）：同一失败命令连续两次执行 → 各自 spawn、各自落新的
+/// 输出记录（exec-outputs 下两条 `.log`、引用互异）；MUST NOT 因上次失败而跳过
+/// 执行（static-check 无结果复用门）。
+#[tokio::test]
+async fn 连续两次失败_各自执行不缓存() {
+    let _env = env_window();
+    let ws = TempWs::new("fail-twice");
+    let _path = PathPrefix::enter(ws.path());
+    let command = write_shim(&ws, "fail-twice-shim", &[("still-failing", false)], Some(1));
+    ws.write_config(Some(&command));
+
+    let first = check_test(&ws.root_str(), "demo-change")
+        .await
+        .expect("首跑应 Ok");
+    let second = check_test(&ws.root_str(), "demo-change")
+        .await
+        .expect("第二跑应 Ok");
+
+    assert!(!first.passed && !second.passed, "两次均失败");
+    assert!(
+        first.output_ref.is_some() && second.output_ref.is_some(),
+        "两次各自新铸输出记录引用"
+    );
+    assert_ne!(
+        first.output_ref, second.output_ref,
+        "两次执行的记录引用互异（未复用上次结果）"
+    );
+    let logs = fs::read_dir(ws.exec_dir("demo-change"))
+        .expect("exec-outputs 目录在盘")
+        .flatten()
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|extension| extension.to_str())
+                == Some("log")
+        })
+        .count();
+    assert_eq!(
+        logs, 2,
+        "两次失败各留一条执行记录（MUST NOT 缓存失败结果跳过执行）"
+    );
+}
+
 #[tokio::test]
 async fn 无配置或空命令直接过_零spawn且零输出引用() {
     // config 无 static_analysis 键（无配置 = passed 直过，不拉子进程）

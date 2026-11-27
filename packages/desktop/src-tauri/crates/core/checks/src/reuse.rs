@@ -5,11 +5,13 @@ use crate::model::{Conclusion, SummaryReport};
 
 /// 复用门判定：三条件全过 → `true`（复用上次 summary，零 spawn 零重跑）。
 ///
-/// ① 结论非 error（error 报告是部分执行，复用会以残缺结论顶替全量跑）；
+/// ① 结论为 `Pass`（失败结果不缓存：`Fail` 是上一轮的失败结论，下一轮必须
+///    重新执行才能反映修复或波动；`Error` 报告是部分执行，复用会以残缺结论
+///    顶替全量跑）；
 /// ② 时间戳可解析（ISO 8601；缺失 / 非法格式不可判新 → 失效重跑）；
 /// ③ 时间戳 ≥ 最新输入 mtime（`None` = 无输入文件可比较 → 视为新鲜）。
 pub fn is_reusable(summary: &SummaryReport, newest_input_mtime_ms: Option<u64>) -> bool {
-    if summary.conclusion == Conclusion::Error {
+    if summary.conclusion != Conclusion::Pass {
         return false;
     }
     let Some(summary_ms) = timestamp_millis(&summary.timestamp) else {

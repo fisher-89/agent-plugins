@@ -78,8 +78,12 @@ pub(crate) fn write_merged_block(
 
 /// 段级复用门（E6；判据借段报告自身 mtime，零旁置状态文件）：段报告在位 &&
 /// 可解析（非 JSON 视为损坏失效）&& 段报告 mtime ≥ 段输入最新 mtime（**相等即
-/// 复用**）→ 复用（零 spawn，段报告重解析进归并）；否则失效重跑（断点续跑只
-/// 重跑未完 / 失效段，不 panic 不 Err）。
+/// 复用**）→ 文件面可复用；否则失效重跑（断点续跑只重跑未完 / 失效段，不 panic
+/// 不 Err）。
+///
+/// 本函数只判**文件面**（在位 / 可解析 / 新鲜）；「仅成功结果可复用」的另一半
+/// （完整性 + 语义解析 + 本次阈值达标）在 `mod.rs` 的 `reusable_report` 组合——
+/// 未达标 / 部分成果 / 不可解析的报告即使文件面新鲜也 MUST NOT 复用。
 pub(crate) fn segment_reusable(report_path: &Path, newest_input_ms: Option<u64>) -> bool {
     let Ok(raw) = std::fs::read_to_string(report_path) else {
         return false;
@@ -94,6 +98,20 @@ pub(crate) fn segment_reusable(report_path: &Path, newest_input_ms: Option<u64>)
         Some(newest) => report_mtime >= newest,
         None => true,
     }
+}
+
+/// 段报告完整性：顶层 `partial == true`（中断回读合成载荷）→ `false`；缺键 /
+/// 非 true 值 → `true`；非法 JSON → `false`（fail-closed：不可判完整即不复用）。
+///
+/// 与 [`segment_reusable`] 分工：新鲜度（mtime）与 JSON 可解析归前者，完整性归
+/// 本函数；复用候选还须经语义解析与本次阈值达标判定（见 `mod.rs` 的
+/// `reusable_report`）。部分成果报告照常留痕，但 MUST NOT 进入复用门——下一轮
+/// 必须重新执行，不能被中断的半成品顶替。
+pub(crate) fn is_complete_report(raw: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return false;
+    };
+    value.get("partial").and_then(serde_json::Value::as_bool) != Some(true)
 }
 
 /// 文件 mtime（UTC unix 毫秒；不可读 / 无 mtime → `None`）。

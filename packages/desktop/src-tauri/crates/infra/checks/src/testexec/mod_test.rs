@@ -910,11 +910,11 @@ async fn 单双plan形态汇总面同形() {
     }
 }
 
-/// 边界（AC-9）：复用门三条件守恒——预置「覆盖缺失的 fail summary」+ 输入
-/// 未变 → 同样命中复用（marker 计数不增长、summary 未重写）；fail 与既有
-/// fail 同待遇，MUST NOT 因覆盖面拒复用。
+/// 异常（失败结果不缓存）：预置「覆盖缺失的 fail summary」+ 输入未变 → 不复用，
+/// 第二次 run 真实 spawn 并重写 summary；第二次执行工件已转绿时结论随新结果翻绿
+///（MUST NOT 以旧 fail 结论顶替重跑）。
 #[tokio::test]
-async fn 复用门_覆盖缺失fail报告同待遇() {
+async fn 复用门_失败报告不缓存且重跑() {
     let ws = ChainWs::new("reuse-fail-coverage");
     let spec_src = ws.root().join("preset-no-coverage.txt");
     fs::write(&spec_src, SPEC_OUTPUT_NO_COVERAGE).expect("写预置工件");
@@ -926,25 +926,18 @@ async fn 复用门_覆盖缺失fail报告同待遇() {
         ws.run().await
     }
     .expect("首跑应 Ok");
-    let first_ts = ws.summary_timestamp().expect("首跑落 summary");
     assert_eq!(ws.marker_count(), 1, "首跑恰一次执行");
 
+    // 第二次换绿跑工件：失败结论不进入复用门 → 真实重跑，结论取新执行结果
+    let green_src = ws.root().join("preset-results.txt");
+    fs::write(&green_src, SPEC_OUTPUT).expect("写绿跑工件");
     let second = {
         let _window = path_window();
-        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+        set_shim_env(&green_src, &ws.results_dest(), Some(&marker), None);
         ws.run().await
     }
-    .expect("复用跑应 Ok");
-    assert_eq!(
-        ws.marker_count(),
-        1,
-        "复用零 spawn（fail 报告不被覆盖面拒绝）"
-    );
-    assert_eq!(
-        ws.summary_timestamp(),
-        Some(first_ts),
-        "复用上次 summary（未重写）"
-    );
+    .expect("失败不缓存 → 重跑应 Ok");
+    assert_eq!(ws.marker_count(), 2, "fail 结论不复用（第二次真实 spawn）");
 
     let (ToolStepOutput::TestExecution(first_out), ToolStepOutput::TestExecution(second_out)) =
         (&first, &second)
@@ -954,22 +947,8 @@ async fn 复用门_覆盖缺失fail报告同待遇() {
     assert_eq!(first_out.conclusion, TestExecutionConclusion::Fail);
     assert_eq!(
         second_out.conclusion,
-        TestExecutionConclusion::Fail,
-        "复用结论与首跑一致"
-    );
-    assert_eq!(
-        (
-            second_out.total,
-            second_out.passed,
-            second_out.failed,
-            second_out.skipped
-        ),
-        (
-            first_out.total,
-            first_out.passed,
-            first_out.failed,
-            first_out.skipped
-        )
+        TestExecutionConclusion::Pass,
+        "重跑结果生效（旧 fail 结论未被复用）"
     );
 }
 

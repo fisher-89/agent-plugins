@@ -281,10 +281,12 @@ fn recover_or(
     }
 }
 
-/// 增量成果文件 → 计数面载荷（`{"caught": N, "missed": N, …}`）。
+/// 增量成果文件 → 计数面载荷（`{"caught": N, "missed": N, …, "partial": true}`）。
 ///
 /// 行数即计数（每行一个突变体名，含坐标与替换描述）。零总行数时返回 `None`——
 /// 那是「一件都没判完」，与「全被 caught」语义相反，MUST NOT 混同。
+/// `partial: true` 是部分成果标记：复用门据此拒绝复用（下一轮必须重跑），
+/// 报告文件本身照常留痕可查。
 fn recover_partial(exec_dir: &Path) -> Option<String> {
     let mut counts = serde_json::Map::new();
     let mut total = 0u64;
@@ -303,6 +305,7 @@ fn recover_partial(exec_dir: &Path) -> Option<String> {
         return None;
     }
     counts.insert("total_mutants".to_owned(), serde_json::Value::from(total));
+    counts.insert("partial".to_owned(), serde_json::Value::Bool(true));
     serde_json::to_string(&serde_json::Value::Object(counts)).ok()
 }
 
